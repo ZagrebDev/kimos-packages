@@ -71,5 +71,18 @@
       "fullBase": "wallpapers/07_hojas/full",
       "thumbBase": "wallpapers/07_hojas/thumbs"
     }
+  ],
+  "apps": [
+    {
+      "id": "panel-html",
+      "name": "Panel HTML",
+      "description": "Edita HTML y visualízalo en un iframe seguro. Primera app instalable real.",
+      "icon": "🧩",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "permissions": ["instance.read", "instance.write"],
+      "appShellApi": "1.x"
+    }
   ]
 }

@@ -1,0 +1,62 @@
+/* Panel HTML — estilos del bundle instalable */
+
+.kimos-panel-html .khp-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease;
+  font-family: inherit;
+}
+
+.kimos-panel-html .khp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kimos-panel-html .khp-btn-primary {
+  background: hsl(var(--primary, 178 96% 59%));
+  color: hsl(var(--primary-foreground, 220 20% 10%));
+}
+
+.kimos-panel-html .khp-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.kimos-panel-html .khp-btn-ghost {
+  background: transparent;
+  color: hsl(var(--muted-foreground, 220 10% 60%));
+  border-color: hsl(var(--border, 220 10% 25%));
+}
+
+.kimos-panel-html .khp-btn-ghost:hover:not(:disabled) {
+  background: hsl(var(--muted, 220 10% 20%) / 0.4);
+  color: hsl(var(--foreground, 220 20% 95%));
+}
+
+.kimos-panel-html .khp-editor {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 16px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: hsl(var(--background, 220 20% 8%));
+  color: hsl(var(--foreground, 220 20% 95%));
+  resize: none;
+  outline: none;
+  tab-size: 2;
+}
+
+.kimos-panel-html .khp-iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
