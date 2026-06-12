@@ -1,0 +1,12 @@
+{
+  "id": "gantt",
+  "name": "Gantt",
+  "version": "1.0.0",
+  "description": "Planificación temporal por períodos. Versión instalable del Gantt clásico de Kimos.",
+  "icon": "📊",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "permissions": ["instance.read", "instance.write"]
+}

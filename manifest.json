@@ -94,6 +94,17 @@
       "css": "dist/index.css",
       "permissions": ["instance.read", "instance.write"],
       "appShellApi": "1.x"
+    },
+    {
+      "id": "gantt",
+      "name": "Gantt",
+      "description": "Planificación temporal por períodos. Reabre planes migrados desde v1.",
+      "icon": "📊",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "permissions": ["instance.read", "instance.write"],
+      "appShellApi": "1.x"
     }
   ]
 }
