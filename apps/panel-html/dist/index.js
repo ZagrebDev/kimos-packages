@@ -1,38 +1,39 @@
 /**
  * Panel HTML — app instalable de Kimos.
  *
- * Bundle ESM autocontenido. Usa React desde el global (window.React) que
- * expone el sistema huésped para que los hooks funcionen contra la misma
- * instancia de React del shell.
+ * Bundle ESM autocontenido. Usa React desde globalThis (lo expone el shell).
  *
- * Contrato (ver kimos-enterprice/src/v2/app-shell/contract.ts):
+ * Contrato:
  *   export default function mount(shell): { Component }
  *
- * Persistencia: shell.saveData/loadData ↔ /equipos/{tid}/data/{instId}/instance.json
+ * Persistencia: shell.saveData/loadData ↔ instance.json (config.html).
+ *
+ * v0.8.887: bundle reescrito desde cero siguiendo el patrón de Kanban
+ * (estilos inline robustos, sin depender exclusivamente del index.css; sin
+ * "loading state" que pueda quedarse pegado; iframe con srcDoc).
  */
 
-const DEFAULT_HTML = [
-  '<!doctype html>',
-  '<html lang="es">',
-  '<head>',
-  '  <meta charset="utf-8" />',
-  '  <meta name="viewport" content="width=device-width,initial-scale=1" />',
-  '  <title>Panel HTML</title>',
-  '  <style>',
-  '    body { margin: 0; padding: 40px; font-family: -apple-system, system-ui, sans-serif; color: #1f2328; background: #ffffff; }',
-  '    h1 { margin: 0 0 12px; font-size: 24px; }',
-  '    p { margin: 0; color: #656d76; line-height: 1.6; }',
-  '    .card { max-width: 560px; padding: 24px; border: 1px solid #d1d9e0; border-radius: 12px; }',
-  '  </style>',
-  '</head>',
-  '<body>',
-  '  <div class="card">',
-  '    <h1>Hola desde Panel HTML 👋</h1>',
-  '    <p>Esta es una instancia nueva. Haz clic en <strong>Editar HTML</strong> para escribir tu propio contenido. Lo que guardes queda en <code>/equipos/&lt;tu-equipo&gt;/data/&lt;esta-instancia&gt;/instance.json</code>.</p>',
-  '  </div>',
-  '</body>',
-  '</html>',
-].join('\n');
+const DEFAULT_HTML =
+  '<!doctype html>\n' +
+  '<html lang="es">\n' +
+  '<head>\n' +
+  '  <meta charset="utf-8" />\n' +
+  '  <meta name="viewport" content="width=device-width,initial-scale=1" />\n' +
+  '  <title>Panel HTML</title>\n' +
+  '  <style>\n' +
+  '    body { margin: 0; padding: 40px; font-family: -apple-system, system-ui, sans-serif; color: #1f2328; background: #ffffff; }\n' +
+  '    h1 { margin: 0 0 12px; font-size: 24px; }\n' +
+  '    p { margin: 0; color: #656d76; line-height: 1.6; }\n' +
+  '    .card { max-width: 560px; padding: 24px; border: 1px solid #d1d9e0; border-radius: 12px; }\n' +
+  '  </style>\n' +
+  '</head>\n' +
+  '<body>\n' +
+  '  <div class="card">\n' +
+  '    <h1>Hola desde Panel HTML 👋</h1>\n' +
+  '    <p>Click en <strong>Editar HTML</strong> arriba para escribir tu propio contenido. Se guarda en esta instancia.</p>\n' +
+  '  </div>\n' +
+  '</body>\n' +
+  '</html>';
 
 export default function mount(shell) {
   const R = globalThis.React;
@@ -43,7 +44,7 @@ export default function mount(shell) {
       },
     };
   }
-  const { useEffect, useState, useCallback } = R;
+  const { useState, useEffect, useCallback } = R;
   const h = R.createElement;
 
   function notify(level, text) {
@@ -58,29 +59,23 @@ export default function mount(shell) {
     const [html, setHtml] = useState(DEFAULT_HTML);
     const [draft, setDraft] = useState(DEFAULT_HTML);
     const [editing, setEditing] = useState(false);
-    const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
 
+    // Carga inicial — NO bloquea el render (sin "Cargando…" pegado).
     useEffect(() => {
       let cancelled = false;
       shell
         .loadData()
         .then(function (data) {
           if (cancelled) return;
-          const incoming =
-            (data && typeof data === 'object' && typeof data.html === 'string' && data.html.trim() && data.html) ||
-            DEFAULT_HTML;
-          setHtml(incoming);
-          setDraft(incoming);
-          // Si no hay nada guardado, mostramos el editor para que empiece.
-          if (!data) setEditing(true);
+          if (data && typeof data === 'object' && typeof data.html === 'string' && data.html.trim()) {
+            setHtml(data.html);
+            setDraft(data.html);
+          }
         })
         .catch(function () {
-          setEditing(true);
-        })
-        .finally(function () {
-          if (!cancelled) setLoading(false);
+          /* sin datos previos: arranca con DEFAULT_HTML */
         });
       return function () {
         cancelled = true;
@@ -115,29 +110,73 @@ export default function mount(shell) {
       }
     }, [draft]);
 
-    if (loading) {
-      return h(
-        'div',
-        { className: 'kimos-panel-html', style: { height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground, #888)', fontSize: '13px' } },
-        'Cargando panel…',
-      );
-    }
+    // Estilos inline para que la app funcione incluso si el CSS no cargó.
+    const sRoot = {
+      height: '100%',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--background, #0b0f17)',
+      color: 'var(--foreground, #e6edf3)',
+      overflow: 'hidden',
+    };
+    const sToolbar = {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '6px 10px',
+      borderBottom: '1px solid var(--border, #2a2a2a)',
+      flex: '0 0 auto',
+      minHeight: '36px',
+    };
+    const sTitle = { fontSize: '12px', fontWeight: 600, flex: 1, opacity: 0.85 };
+    const sBtn = (variant) => ({
+      appearance: 'none',
+      border: '1px solid transparent',
+      borderRadius: '6px',
+      padding: '5px 10px',
+      fontSize: '12px',
+      fontWeight: 500,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      background:
+        variant === 'primary'
+          ? 'hsl(var(--primary, 178 96% 59%))'
+          : 'transparent',
+      color:
+        variant === 'primary'
+          ? 'hsl(var(--primary-foreground, 220 20% 10%))'
+          : 'var(--foreground, #e6edf3)',
+      borderColor:
+        variant === 'ghost' ? 'transparent' : 'var(--border, #2a2a2a)',
+    });
+    const sBody = { flex: '1 1 auto', minHeight: 0, display: 'flex' };
+    const sEditor = {
+      flex: '1 1 auto',
+      width: '100%',
+      height: '100%',
+      border: 0,
+      padding: '12px',
+      fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+      fontSize: '12px',
+      lineHeight: 1.5,
+      background: 'hsl(var(--background, 220 20% 8%))',
+      color: 'hsl(var(--foreground, 220 20% 95%))',
+      resize: 'none',
+      outline: 'none',
+    };
+    const sIframe = {
+      flex: '1 1 auto',
+      width: '100%',
+      height: '100%',
+      border: 0,
+      background: '#ffffff',
+    };
 
     const toolbar = h(
       'div',
-      {
-        className: 'khp-toolbar',
-        style: {
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '8px 12px',
-          borderBottom: '1px solid var(--border, #2a2a2a)',
-          flex: '0 0 auto',
-          background: 'var(--background, transparent)',
-        },
-      },
-      h('span', { className: 'khp-title', style: { fontSize: '13px', fontWeight: 600, flex: 1 } }, 'Panel HTML'),
+      { style: sToolbar },
+      h('span', { style: sTitle }, 'Panel HTML'),
       editing
         ? [
             h(
@@ -145,8 +184,8 @@ export default function mount(shell) {
               {
                 key: 'cancel',
                 onClick: handleCancel,
-                className: 'khp-btn khp-btn-ghost',
                 disabled: saving,
+                style: sBtn('ghost'),
               },
               'Cancelar',
             ),
@@ -155,49 +194,37 @@ export default function mount(shell) {
               {
                 key: 'save',
                 onClick: handleSave,
-                className: 'khp-btn khp-btn-primary',
                 disabled: saving || !dirty,
+                style: sBtn('primary'),
               },
               saving ? 'Guardando…' : 'Guardar',
             ),
           ]
         : h(
             'button',
-            {
-              key: 'edit',
-              onClick: handleEdit,
-              className: 'khp-btn khp-btn-primary',
-            },
+            { key: 'edit', onClick: handleEdit, style: sBtn('primary') },
             'Editar HTML',
           ),
     );
 
     const body = editing
       ? h('textarea', {
-          className: 'khp-editor',
           value: draft,
           onChange: function (e) {
             setDraft(e.target.value);
             setDirty(true);
           },
           spellCheck: false,
+          style: sEditor,
         })
       : h('iframe', {
-          className: 'khp-iframe',
           srcDoc: html,
           sandbox: 'allow-scripts allow-forms allow-modals',
           title: 'Panel HTML',
+          style: sIframe,
         });
 
-    return h(
-      'div',
-      {
-        className: 'kimos-panel-html',
-        style: { height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--background, #0b0f17)', color: 'var(--foreground, #e6edf3)' },
-      },
-      toolbar,
-      h('div', { className: 'khp-body', style: { flex: 1, minHeight: 0, display: 'flex' } }, body),
-    );
+    return h('div', { style: sRoot }, toolbar, h('div', { style: sBody }, body));
   }
 
   return { Component };

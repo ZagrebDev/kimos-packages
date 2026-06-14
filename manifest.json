@@ -78,7 +78,7 @@
       "name": "Panel HTML",
       "description": "Edita HTML y visualízalo en un iframe seguro. Primera app instalable real.",
       "icon": "🧩",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "permissions": ["instance.read", "instance.write"],
