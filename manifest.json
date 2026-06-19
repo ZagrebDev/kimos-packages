@@ -231,6 +231,19 @@
         "agent.control"
       ],
       "appShellApi": "1.x"
+    },
+    {
+      "id": "eventos-triatlon",
+      "name": "Eventos Triatlón",
+      "description": "Gestión de eventos de triatlón: cada instancia es un evento, con registro de competidores por equipo y control por agente.",
+      "icon": "🏊",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "multiInstance": true,
+      "permissions": [
+        "agent.control"
+      ],
+      "appShellApi": "1.x"
     }
   ]
 }
