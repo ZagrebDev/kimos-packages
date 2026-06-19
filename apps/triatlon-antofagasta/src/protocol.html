@@ -1,42 +1,75 @@
 <!-- KIMOS Agent Bridge protocol — inyectado por build.py antes de </body>.
-     Script clásico: comparte el entorno léxico global con el script del kiosco
-     (PARTICIPANTES_DATA, selectedCategory, selectedAthlete, changeScreen,
-     goToStep, etc.). Expone el flujo del tótem a un agente autorizado. -->
+     Script clásico: comparte el entorno léxico global con el script del kiosco.
+     Expone el flujo Y la información (rutas, cronograma, atletas, guía) a un
+     agente autorizado: el agente NAVEGA el kiosco y además recibe los datos
+     para responder. -->
 <script>
 (function () {
   function norm(v) {
-    return String(v == null ? '' : v).toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    return String(v == null ? '' : v).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   }
   function activeScreen() {
-    var el = null;
-    try { el = document.querySelector('.screen.active'); } catch (e) {}
+    var el = null; try { el = document.querySelector('.screen.active'); } catch (e) {}
     return el ? el.id.replace(/^screen-/, '') : null;
   }
-  function categorias() {
-    try { return (PARTICIPANTES_DATA.start_lists || []).map(function (l) { return l.name; }); }
-    catch (e) { return []; }
+  function lists() {
+    try { return PARTICIPANTES_DATA.start_lists || []; } catch (e) { return []; }
   }
   function entriesDe(list) {
-    if (!list) return [];
     var out = [];
     try {
-      (list.start_list && list.start_list.entries || []).forEach(function (e) { out.push(e); });
-      (list.wait_list && list.wait_list.entries || []).forEach(function (e) { out.push(e); });
+      (list && list.start_list && list.start_list.entries || []).forEach(function (e) { out.push(e); });
+      (list && list.wait_list && list.wait_list.entries || []).forEach(function (e) { out.push(e); });
     } catch (e) {}
     return out;
   }
+  function findList(q) {
+    var n = norm(q);
+    return lists().find(function (l) { return norm(l.name) === n; })
+        || lists().find(function (l) { return norm(l.name).indexOf(n) >= 0; }) || null;
+  }
+  function categoriasInfo() {
+    return lists().map(function (l) {
+      var d = l.details || {};
+      return { nombre: l.name, atletas: entriesDe(l).length, fecha: d.prog_date || null, genero: d.prog_gender || l.gender || null };
+    });
+  }
+  function cronogramaCarreras() {
+    var byDate = {};
+    lists().forEach(function (l) {
+      var d = (l.details && l.details.prog_date) || 's/f';
+      (byDate[d] = byDate[d] || []).push(l.name);
+    });
+    return Object.keys(byDate).sort().map(function (f) { return { fecha: f, carreras: byDate[f] }; });
+  }
+  function rutasInfo() {
+    var names = [];
+    try { (RUTAS_DATA.features || []).forEach(function (f) { if (f.properties && f.properties.name) names.push(f.properties.name); }); } catch (e) {}
+    return {
+      disciplinas: ['Natación (swim)', 'Ciclismo (bike)', 'Trote (run)'],
+      capas: ['swim', 'bike', 'run', 'zones'],
+      elementos: names,
+    };
+  }
+  function scrape(id, max) {
+    try {
+      var el = document.getElementById(id);
+      if (!el) return '';
+      var t = (el.innerText || '').replace(/\\s+\\n/g, '\\n').replace(/\\n{2,}/g, '\\n').trim();
+      return max && t.length > max ? t.slice(0, max) + '…' : t;
+    } catch (e) { return ''; }
+  }
+
   function currentState() {
     var sc = (typeof selectedCategory !== 'undefined' && selectedCategory) ? selectedCategory : null;
     var sa = (typeof selectedAthlete !== 'undefined' && selectedAthlete) ? selectedAthlete : null;
     return {
       screen: activeScreen(),
       idioma: (typeof currentLanguage !== 'undefined') ? currentLanguage : 'es',
-      categoria: sc ? sc.name : null,
-      atleta: sa ? sa.athlete_full_name : null,
-      atletaPais: sa ? sa.athlete_noc : null,
-      codigo: (typeof registrationCode !== 'undefined' && registrationCode) ? registrationCode : null,
-      categorias: categorias(),
+      categorias: categoriasInfo(),
+      cronograma: cronogramaCarreras(),
+      rutas: rutasInfo(),
+      registro: { categoria: sc ? sc.name : null, atleta: sa ? sa.athlete_full_name : null, codigo: (typeof registrationCode !== 'undefined' && registrationCode) ? registrationCode : null },
     };
   }
   function send(type, extra) {
@@ -44,98 +77,110 @@
     if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k];
     try { parent.postMessage(msg, '*'); } catch (e) {}
   }
-  function dismissSaver() {
-    try { if (typeof dismissScreensaver === 'function') dismissScreensaver(); } catch (e) {}
-  }
+  function dismissSaver() { try { if (typeof dismissScreensaver === 'function') dismissScreensaver(); } catch (e) {} }
 
-  // Reenviar STATE en cada cambio de pantalla / paso (también toques manuales).
   try {
-    if (typeof changeScreen === 'function') {
-      var _cs = changeScreen;
-      changeScreen = function (s) { _cs(s); send('STATE'); };
-    }
-    if (typeof goToStep === 'function') {
-      var _gs = goToStep;
-      goToStep = function (n) { _gs(n); send('STATE'); };
-    }
+    if (typeof changeScreen === 'function') { var _cs = changeScreen; changeScreen = function (s) { _cs(s); send('STATE'); }; }
+    if (typeof goToStep === 'function') { var _gs = goToStep; goToStep = function (n) { _gs(n); send('STATE'); }; }
+    if (typeof showInfoTab === 'function') { var _si = showInfoTab; showInfoTab = function (t) { _si(t); send('STATE'); }; }
   } catch (e) {}
 
   function handleCmd(cmd, args) {
     args = args || {};
     dismissSaver();
     switch (cmd) {
-      case 'OPEN_REGISTER':
-        openRegisterScreen();
-        return { ok: true, message: 'Pantalla de inscripción abierta. Selecciona una categoría con SELECT_CATEGORY.' };
-      case 'OPEN_INFO':
-        openInfoScreenWithTab(args.tab || (typeof activeInfoTab !== 'undefined' ? activeInfoTab : 'athletes'));
-        return { ok: true, message: 'Pantalla de información abierta (tab: ' + (args.tab || 'athletes') + ').' };
-      case 'RETURN_HOME':
-        returnToHome();
-        return { ok: true, message: 'Volviendo al inicio.' };
+      // ── Mostrar información (navega + devuelve datos) ──────────────────
+      case 'SHOW_MAP': {
+        openInfoScreenWithTab('map');
+        var layer = norm(args.capa || args.layer);
+        if (['swim', 'bike', 'run', 'zones'].indexOf(layer) >= 0) {
+          try { if (typeof activeLayers !== 'undefined' && !activeLayers[layer]) toggleMapLayer(layer); } catch (e) {}
+        }
+        var r = rutasInfo();
+        return { ok: true, message: 'Mostrando el mapa de rutas. Disciplinas: ' + r.disciplinas.join(', ') + '. Capas disponibles: ' + r.capas.join(', ') + '.' };
+      }
+      case 'SHOW_SCHEDULE': {
+        openInfoScreenWithTab('schedule');
+        var txt = scrape('info-tab-schedule', 1800);
+        return { ok: true, message: 'Mostrando el cronograma oficial.' + (txt ? ('\\n\\n' + txt) : '') };
+      }
+      case 'SHOW_GUIDE': {
+        openInfoScreenWithTab('guide');
+        var sub = norm(args.tab || args.subtab);
+        if (['loc', 'travel', 'costs', 'rules'].indexOf(sub) >= 0) { try { showGuideSubTab(sub); } catch (e) {} }
+        var g = scrape('info-tab-guide', 1800);
+        return { ok: true, message: 'Mostrando la guía del atleta.' + (g ? ('\\n\\n' + g) : '') };
+      }
+      case 'SHOW_ATHLETES': {
+        openInfoScreenWithTab('athletes');
+        try { if (typeof initStartListsCategoriesGrid === 'function') initStartListsCategoriesGrid(); } catch (e) {}
+        var cat = args.categoria || args.category || args.name;
+        if (!cat) {
+          try { if (typeof backToCategoriesGrid === 'function') backToCategoriesGrid(); } catch (e) {}
+          var cs = categoriasInfo();
+          return { ok: true, message: 'Mostrando las categorías de atletas. Categorías: ' + cs.map(function (c) { return c.nombre + ' (' + c.atletas + ')'; }).join(', ') + '. Pide una categoría para ver su listado.' };
+        }
+        var list = findList(cat);
+        if (!list) return { ok: false, message: 'Categoría no encontrada. Disponibles: ' + lists().map(function (l) { return l.name; }).join(', ') };
+        try { selectStartListsCategory(list); } catch (e) {}
+        var ath = entriesDe(list).map(function (e) { return e.athlete_full_name + ' (' + e.athlete_noc + ')'; });
+        return { ok: true, message: 'Mostrando atletas de "' + list.name + '" (' + ath.length + '):\\n- ' + ath.join('\\n- ') };
+      }
+      case 'LIST_CATEGORIES': {
+        var c2 = categoriasInfo();
+        return { ok: true, message: 'Categorías: ' + c2.map(function (c) { return c.nombre + ' — ' + c.atletas + ' atletas' + (c.fecha ? ' (' + c.fecha + ')' : ''); }).join('; ') };
+      }
+      // ── Navegación / idioma ────────────────────────────────────────────
+      case 'OPEN_INFO': openInfoScreenWithTab(args.tab || (typeof activeInfoTab !== 'undefined' ? activeInfoTab : 'guide')); return { ok: true, message: 'Pantalla de información abierta.' };
+      case 'RETURN_HOME': returnToHome(); return { ok: true, message: 'Volviendo al inicio.' };
       case 'CHANGE_LANGUAGE': {
         var lang = norm(args.lang || args.idioma);
-        if (['es', 'en', 'pt'].indexOf(lang) < 0) return { ok: false, message: 'Idioma no soportado (usa es, en o pt).' };
-        changeLanguage(lang);
-        return { ok: true, message: 'Idioma cambiado a ' + lang + '.' };
+        if (['es', 'en', 'pt'].indexOf(lang) < 0) return { ok: false, message: 'Idioma no soportado (es, en, pt).' };
+        changeLanguage(lang); return { ok: true, message: 'Idioma cambiado a ' + lang + '.' };
       }
+      // ── Inscripción ────────────────────────────────────────────────────
+      case 'OPEN_REGISTER': openRegisterScreen(); return { ok: true, message: 'Inscripción abierta. Elige categoría con SELECT_CATEGORY.' };
       case 'SELECT_CATEGORY': {
-        var q = norm(args.categoria || args.category || args.name);
-        if (!q) return { ok: false, message: 'Falta el nombre de la categoría.' };
-        var list = (PARTICIPANTES_DATA.start_lists || []).find(function (l) { return norm(l.name) === q; })
-                || (PARTICIPANTES_DATA.start_lists || []).find(function (l) { return norm(l.name).indexOf(q) >= 0; });
-        if (!list) return { ok: false, message: 'Categoría no encontrada. Disponibles: ' + categorias().join(', ') };
+        var q = args.categoria || args.category || args.name;
+        if (!q) return { ok: false, message: 'Falta la categoría.' };
+        var l2 = findList(q);
+        if (!l2) return { ok: false, message: 'Categoría no encontrada. Disponibles: ' + lists().map(function (l) { return l.name; }).join(', ') };
         if (activeScreen() !== 'register') openRegisterScreen();
-        selectedCategory = list;
-        goToStep(2);
-        return { ok: true, message: 'Categoría "' + list.name + '" seleccionada (' + entriesDe(list).length + ' atletas). Usa SELECT_ATHLETE { nombre }.' };
+        selectedCategory = l2; goToStep(2);
+        return { ok: true, message: 'Categoría "' + l2.name + '" (' + entriesDe(l2).length + ' atletas). Usa SELECT_ATHLETE { nombre }.' };
       }
       case 'SEARCH_ATHLETE': {
         var inp = document.getElementById('reg-search-input');
-        if (!inp) return { ok: false, message: 'Primero abre la inscripción y elige una categoría.' };
-        inp.value = String(args.texto || args.query || '');
-        if (typeof filterRegisterAthletes === 'function') filterRegisterAthletes();
-        return { ok: true, message: 'Filtrando atletas por "' + inp.value + '".' };
+        if (!inp) return { ok: false, message: 'Abre la inscripción y elige una categoría primero.' };
+        inp.value = String(args.texto || args.query || ''); if (typeof filterRegisterAthletes === 'function') filterRegisterAthletes();
+        return { ok: true, message: 'Filtrando por "' + inp.value + '".' };
       }
       case 'SELECT_ATHLETE': {
-        if (typeof selectedCategory === 'undefined' || !selectedCategory) return { ok: false, message: 'Selecciona primero una categoría con SELECT_CATEGORY.' };
-        var qn = norm(args.nombre || args.name || args.atleta);
-        var noc = norm(args.pais || args.noc);
-        if (!qn && !noc) return { ok: false, message: 'Falta el nombre del atleta.' };
-        var list2 = entriesDe(selectedCategory);
-        var found = list2.find(function (e) { return qn && norm(e.athlete_full_name) === qn; })
-                 || list2.find(function (e) { return qn && norm(e.athlete_full_name).indexOf(qn) >= 0; })
-                 || list2.find(function (e) { return noc && norm(e.athlete_noc) === noc; });
+        if (typeof selectedCategory === 'undefined' || !selectedCategory) return { ok: false, message: 'Elige una categoría primero (SELECT_CATEGORY).' };
+        var qn = norm(args.nombre || args.name || args.atleta), nc = norm(args.pais || args.noc);
+        var es = entriesDe(selectedCategory);
+        var found = es.find(function (e) { return qn && norm(e.athlete_full_name) === qn; })
+                 || es.find(function (e) { return qn && norm(e.athlete_full_name).indexOf(qn) >= 0; })
+                 || es.find(function (e) { return nc && norm(e.athlete_noc) === nc; });
         if (!found) return { ok: false, message: 'Atleta no encontrado en "' + selectedCategory.name + '".' };
-        selectedAthlete = found;
-        goToStep(3);
-        return { ok: true, message: 'Atleta seleccionado: ' + found.athlete_full_name + ' (' + found.athlete_noc + '). Usa CONFIRM para continuar.' };
+        selectedAthlete = found; goToStep(3);
+        return { ok: true, message: 'Atleta: ' + found.athlete_full_name + ' (' + found.athlete_noc + '). Usa CONFIRM.' };
       }
       case 'CONFIRM': {
         if (typeof selectedAthlete === 'undefined' || !selectedAthlete) return { ok: false, message: 'Selecciona un atleta antes de confirmar.' };
-        processCheckout();
-        var s = currentState();
-        if (s.codigo) return { ok: true, message: 'Inscripción validada (sin pago). Código: ' + s.codigo + '.' };
-        return { ok: true, message: 'Atleta no nacional: requiere pago. Usa PAY para simular el pago con tarjeta.' };
+        processCheckout(); var s = currentState();
+        if (s.registro.codigo) return { ok: true, message: 'Inscripción validada sin costo. Código: ' + s.registro.codigo + '.' };
+        return { ok: true, message: 'Atleta extranjero: requiere pago. Usa PAY.' };
       }
-      case 'PAY': {
-        if (activeScreen() !== 'register') return { ok: false, message: 'No hay un pago en curso.' };
-        startPOSSimulation();
-        return { ok: true, message: 'Procesando pago en el POS… al aprobarse se genera el código y el recibo.' };
-      }
-      case 'FINISH':
-        finishRegistration();
-        return { ok: true, message: 'Inscripción finalizada. Tótem reiniciado.' };
-      default:
-        return { ok: false, message: 'Comando no soportado: ' + cmd };
+      case 'PAY': { if (activeScreen() !== 'register') return { ok: false, message: 'No hay pago en curso.' }; startPOSSimulation(); return { ok: true, message: 'Procesando pago en el POS…' }; }
+      case 'FINISH': finishRegistration(); return { ok: true, message: 'Inscripción finalizada y kiosco reiniciado.' };
+      default: return { ok: false, message: 'Comando no soportado: ' + cmd };
     }
   }
 
   window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (!d || d.__kimosCmd !== true) return;
-    var res;
-    try { res = handleCmd(d.cmd, d.args); } catch (err) { res = { ok: false, message: String(err) }; }
+    var d = e.data; if (!d || d.__kimosCmd !== true) return;
+    var res; try { res = handleCmd(d.cmd, d.args); } catch (err) { res = { ok: false, message: String(err) }; }
     send('CMD_RESULT', { id: d.id, ok: res.ok, message: res.message });
   });
 

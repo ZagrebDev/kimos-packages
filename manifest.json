@@ -211,7 +211,7 @@
       "name": "Triatlón Antofagasta",
       "description": "Kiosco del Americas Triathlon Championships Antofagasta 2026: inscripción de atletas por categoría, info del evento y atletas, controlable por un agente autorizado.",
       "icon": "🏊",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "permissions": [
@@ -224,19 +224,6 @@
       "name": "Notas de Equipo",
       "description": "App de ejemplo multi-instancia: bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
       "icon": "🗒️",
-      "version": "1.0.0",
-      "entry": "dist/index.js",
-      "multiInstance": true,
-      "permissions": [
-        "agent.control"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
-      "id": "eventos-triatlon",
-      "name": "Eventos Triatlón",
-      "description": "Gestión de eventos de triatlón: cada instancia es un evento, con registro de competidores por equipo y control por agente.",
-      "icon": "🏊",
       "version": "1.0.0",
       "entry": "dist/index.js",
       "multiInstance": true,

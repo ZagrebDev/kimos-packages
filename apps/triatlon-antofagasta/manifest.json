@@ -1,7 +1,7 @@
 {
   "id": "triatlon-antofagasta",
   "name": "Triatlón Antofagasta",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Kiosco del Americas Triathlon Championships Antofagasta 2026: inscripción de atletas por categoría, info del evento y atletas, controlable por un agente autorizado.",
   "icon": "🏊",
   "author": "kimos",

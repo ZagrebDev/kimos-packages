@@ -66,15 +66,23 @@ const APP_DESC =
   'información del evento y atletas. Controlable por un agente autorizado.';
 
 const TOOLS = [
-  { name: 'OPEN_REGISTER', description: 'Abre la pantalla de inscripción (paso 1: categorías).', inputSchema: { type: 'object', properties: {} } },
-  { name: 'OPEN_INFO', description: 'Abre la pantalla de información en una pestaña.', inputSchema: { type: 'object', properties: { tab: { type: 'string', enum: ['athletes', 'guide', 'map', 'schedule'] } } } },
+  // Mostrar información: NAVEGAN el kiosco y devuelven los datos para responder.
+  { name: 'SHOW_MAP', description: 'Muestra en pantalla el mapa de rutas. Opcional: resalta una capa (swim/bike/run/zones).', inputSchema: { type: 'object', properties: { capa: { type: 'string', enum: ['swim', 'bike', 'run', 'zones'] } } } },
+  { name: 'SHOW_SCHEDULE', description: 'Muestra el cronograma/horarios oficiales y devuelve su contenido.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'SHOW_GUIDE', description: 'Muestra la guía del atleta y devuelve su contenido. Opcional: subtab loc/travel/costs/rules.', inputSchema: { type: 'object', properties: { tab: { type: 'string', enum: ['loc', 'travel', 'costs', 'rules'] } } } },
+  { name: 'SHOW_ATHLETES', description: 'Muestra los atletas. Con `categoria` muestra y lista esa categoría; sin ella muestra las categorías.', inputSchema: { type: 'object', properties: { categoria: { type: 'string' } } } },
+  { name: 'LIST_CATEGORIES', description: 'Devuelve las categorías con su cantidad de atletas y fecha.', inputSchema: { type: 'object', properties: {} } },
+  // Navegación / idioma
+  { name: 'OPEN_INFO', description: 'Abre la pantalla de información en una pestaña (athletes/guide/map/schedule).', inputSchema: { type: 'object', properties: { tab: { type: 'string', enum: ['athletes', 'guide', 'map', 'schedule'] } } } },
   { name: 'RETURN_HOME', description: 'Vuelve a la pantalla de inicio.', inputSchema: { type: 'object', properties: {} } },
-  { name: 'CHANGE_LANGUAGE', description: 'Cambia el idioma del kiosco.', inputSchema: { type: 'object', properties: { lang: { type: 'string', enum: ['es', 'en', 'pt'] } }, required: ['lang'] } },
-  { name: 'SELECT_CATEGORY', description: 'Selecciona una categoría de la inscripción por nombre y avanza a elegir atleta.', inputSchema: { type: 'object', properties: { categoria: { type: 'string' } }, required: ['categoria'] } },
+  { name: 'CHANGE_LANGUAGE', description: 'Cambia el idioma del kiosco (es/en/pt).', inputSchema: { type: 'object', properties: { lang: { type: 'string', enum: ['es', 'en', 'pt'] } }, required: ['lang'] } },
+  // Inscripción
+  { name: 'OPEN_REGISTER', description: 'Abre la inscripción (paso 1: categorías).', inputSchema: { type: 'object', properties: {} } },
+  { name: 'SELECT_CATEGORY', description: 'Selecciona una categoría de inscripción y avanza a elegir atleta.', inputSchema: { type: 'object', properties: { categoria: { type: 'string' } }, required: ['categoria'] } },
   { name: 'SEARCH_ATHLETE', description: 'Filtra la lista de atletas de la categoría por texto.', inputSchema: { type: 'object', properties: { texto: { type: 'string' } }, required: ['texto'] } },
   { name: 'SELECT_ATHLETE', description: 'Selecciona un atleta por nombre (o país) y avanza a confirmar.', inputSchema: { type: 'object', properties: { nombre: { type: 'string' }, pais: { type: 'string' } } } },
-  { name: 'CONFIRM', description: 'Confirma la inscripción del atleta (nacional: valida sin costo; extranjero: pasa a pago).', inputSchema: { type: 'object', properties: {} } },
-  { name: 'PAY', description: 'Simula el pago con tarjeta en el POS (para atletas extranjeros).', inputSchema: { type: 'object', properties: {} } },
+  { name: 'CONFIRM', description: 'Confirma la inscripción (nacional: valida sin costo; extranjero: pasa a pago).', inputSchema: { type: 'object', properties: {} } },
+  { name: 'PAY', description: 'Simula el pago con tarjeta en el POS (atletas extranjeros).', inputSchema: { type: 'object', properties: {} } },
   { name: 'FINISH', description: 'Finaliza la inscripción y reinicia el kiosco.', inputSchema: { type: 'object', properties: {} } },
 ];
 
@@ -85,7 +93,7 @@ export default function mount(shell) {
   }
 
   let frameWindow = null;
-  let lastState = { screen: 'home', idioma: 'es', categoria: null, atleta: null, codigo: null, categorias: [] };
+  let lastState = { screen: 'home', idioma: 'es', categorias: [], cronograma: [], rutas: {}, registro: { categoria: null, atleta: null, codigo: null } };
   let seq = 0;
   const pending = new Map();
   let unregisterAgent = null;
@@ -123,22 +131,32 @@ export default function mount(shell) {
       getSnapshot: () => ({
         pantalla: lastState.screen,
         idioma: lastState.idioma,
-        categoria: lastState.categoria,
-        atleta: lastState.atleta,
-        codigo: lastState.codigo,
         categorias: lastState.categorias,
-        instrucciones: 'Flujo de inscripción: OPEN_REGISTER → SELECT_CATEGORY { categoria } → ' +
-          'SELECT_ATHLETE { nombre } → CONFIRM → (PAY si el atleta no es nacional). ' +
-          'Informa siempre al usuario el resultado (categoría, atleta, código de recibo).',
+        cronograma: lastState.cronograma,
+        rutas: lastState.rutas,
+        registro: lastState.registro,
+        instrucciones:
+          'Eres asistente del kiosco del Triatlón Antofagasta 2026. Cuando el usuario pida VER algo, ' +
+          'EJECUTA la acción que lo muestra en pantalla Y resume los datos que devuelve la acción:\\n' +
+          '- Mapa/rutas → SHOW_MAP { capa? }.  Cronograma/horarios → SHOW_SCHEDULE.  Guía → SHOW_GUIDE { tab? }.\\n' +
+          '- Atletas de una categoría → SHOW_ATHLETES { categoria }.  Categorías → LIST_CATEGORIES (o SHOW_ATHLETES sin categoría).\\n' +
+          'Inscripción: OPEN_REGISTER → SELECT_CATEGORY → SELECT_ATHLETE → CONFIRM → (PAY si no es nacional).\\n' +
+          'Otros: OPEN_INFO { tab }, RETURN_HOME, CHANGE_LANGUAGE { lang }. ' +
+          'Ya tienes en este contexto las categorías (con cantidades), el cronograma de carreras y las rutas: úsalos para responder.',
       }),
       dispatchAction: async (action) => {
         const type = (action && action.type) || '';
         const p = (action && action.payload) || {};
         switch (type) {
-          case 'OPEN_REGISTER': return sendCmd('OPEN_REGISTER', {});
+          case 'SHOW_MAP': return sendCmd('SHOW_MAP', { capa: p.capa || p.layer });
+          case 'SHOW_SCHEDULE': return sendCmd('SHOW_SCHEDULE', {});
+          case 'SHOW_GUIDE': return sendCmd('SHOW_GUIDE', { tab: p.tab });
+          case 'SHOW_ATHLETES': return sendCmd('SHOW_ATHLETES', { categoria: p.categoria });
+          case 'LIST_CATEGORIES': return sendCmd('LIST_CATEGORIES', {});
           case 'OPEN_INFO': return sendCmd('OPEN_INFO', { tab: p.tab });
           case 'RETURN_HOME': return sendCmd('RETURN_HOME', {});
           case 'CHANGE_LANGUAGE': return sendCmd('CHANGE_LANGUAGE', { lang: p.lang });
+          case 'OPEN_REGISTER': return sendCmd('OPEN_REGISTER', {});
           case 'SELECT_CATEGORY': return sendCmd('SELECT_CATEGORY', { categoria: p.categoria });
           case 'SEARCH_ATHLETE': return sendCmd('SEARCH_ATHLETE', { texto: p.texto });
           case 'SELECT_ATHLETE': return sendCmd('SELECT_ATHLETE', { nombre: p.nombre, pais: p.pais });
