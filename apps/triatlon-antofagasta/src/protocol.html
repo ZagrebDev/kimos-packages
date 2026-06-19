@@ -1,0 +1,109 @@
+<!-- KIMOS Agent Bridge protocol — inyectado por build.py antes de </body>.
+     Corre como <script> clásico, por lo que comparte el entorno léxico global
+     con el script del tótem (rawRut, RUTS, changeScreen, validateRut, etc.).
+     Permite que un agente autorizado controle el tótem vía postMessage. -->
+<script>
+(function () {
+  function fmt(v) {
+    try { return (typeof formatRut === 'function' && v) ? formatRut(v) : (v || ''); }
+    catch (e) { return v || ''; }
+  }
+  function currentState() {
+    var active = null;
+    try { active = document.querySelector('.screen.active'); } catch (e) {}
+    var raw = (typeof rawRut !== 'undefined') ? rawRut : '';
+    var comp = null;
+    try { comp = (typeof RUTS !== 'undefined' && RUTS[raw]) ? RUTS[raw] : null; } catch (e) {}
+    return {
+      screen: active ? active.id : null,
+      rutRaw: raw,
+      rut: fmt(raw),
+      competidor: comp ? { nombre: comp.nombre, tipo: comp.tipo } : null,
+    };
+  }
+  function send(type, extra) {
+    var msg = { __kimosTotem: true, type: type, state: currentState() };
+    if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k]; } }
+    try { parent.postMessage(msg, '*'); } catch (e) {}
+  }
+  function dismissSaver() {
+    try {
+      if (typeof screensaverVisible !== 'undefined' && screensaverVisible && typeof dismissScreensaver === 'function') {
+        dismissScreensaver();
+      }
+    } catch (e) {}
+  }
+
+  // Reenviar STATE en cada cambio de pantalla (también los hechos por toque
+  // manual en el tótem), para mantener el snapshot del agente al día.
+  try {
+    if (typeof changeScreen === 'function') {
+      var _origChangeScreen = changeScreen;
+      changeScreen = function (id) { _origChangeScreen(id); send('STATE'); };
+    }
+  } catch (e) {}
+
+  function handleCmd(cmd, args) {
+    args = args || {};
+    dismissSaver();
+    switch (cmd) {
+      case 'SET_RUT': {
+        var v = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+        rawRut = v;
+        if (typeof updateDisplay === 'function') updateDisplay();
+        return { ok: true, message: 'RUT ingresado: ' + (v ? fmt(v) : '(vacío)') };
+      }
+      case 'VALIDATE_RUT': {
+        if (typeof rawRut === 'undefined' || rawRut.length < 7) {
+          return { ok: false, message: 'RUT incompleto: ingresa al menos 7 dígitos con SET_RUT antes de validar.' };
+        }
+        validateRut();
+        var s = currentState();
+        var msg;
+        if (s.screen === 'screen-federado') msg = 'Competidor FEDERADO: ' + (s.competidor ? s.competidor.nombre : '') + '. Inscripción sin costo.';
+        else if (s.screen === 'screen-nofederado') msg = 'Competidor NO federado: ' + (s.competidor ? s.competidor.nombre : '') + '. Debe pagar $15.000.';
+        else msg = 'RUT no registrado en el sistema.';
+        return { ok: true, message: msg };
+      }
+      case 'INSCRIBIR': {
+        var a = document.querySelector('.screen.active');
+        if (!a || a.id !== 'screen-federado') {
+          return { ok: false, message: 'INSCRIBIR sólo está disponible tras validar un competidor federado.' };
+        }
+        inscribirFederado();
+        return { ok: true, message: 'Inscripción del competidor federado realizada. Puede retirar su KIT.' };
+      }
+      case 'PAGAR': {
+        var a2 = document.querySelector('.screen.active');
+        if (a2 && a2.id === 'screen-nofederado') changeScreen('qr');
+        a2 = document.querySelector('.screen.active');
+        if (!a2 || a2.id !== 'screen-qr') {
+          return { ok: false, message: 'PAGAR requiere un competidor no federado validado.' };
+        }
+        pagarConQR();
+        return { ok: true, message: 'Pago de $15.000 confirmado. Puede retirar su KIT.' };
+      }
+      case 'RESET':
+      case 'GO_HOME': {
+        changeScreen(1);
+        return { ok: true, message: 'Tótem reiniciado a la pantalla de ingreso de RUT.' };
+      }
+      default:
+        return { ok: false, message: 'Comando no soportado: ' + cmd };
+    }
+  }
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.__kimosCmd !== true) return;
+    var res;
+    try { res = handleCmd(d.cmd, d.args); }
+    catch (err) { res = { ok: false, message: String(err) }; }
+    send('CMD_RESULT', { id: d.id, ok: res.ok, message: res.message });
+  });
+
+  function ready() { send('READY'); }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(ready, 0);
+  else document.addEventListener('DOMContentLoaded', ready);
+})();
+</script>

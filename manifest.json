@@ -105,6 +105,17 @@
       "css": "dist/index.css",
       "permissions": ["instance.read", "instance.write"],
       "appShellApi": "1.x"
+    },
+    {
+      "id": "triatlon-antofagasta",
+      "name": "Triatlón Antofagasta",
+      "description": "Tótem de retiro de KIT deportivo del Triatlón de Antofagasta, controlable por un agente autorizado.",
+      "icon": "🏊",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "permissions": ["agent.control"],
+      "appShellApi": "1.x"
     }
   ]
 }

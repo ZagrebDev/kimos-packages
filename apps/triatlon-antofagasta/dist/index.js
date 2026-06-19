@@ -1,0 +1,794 @@
+/**
+ * Triatlón Antofagasta — app instalable de Kimos (contrato AppShellV1, Fase 4).
+ *
+ * GENERADO por build.py — no editar a mano. Fuente: src/totem.html + src/protocol.html
+ *
+ * Renderiza un tótem interactivo de retiro de KIT deportivo dentro de un
+ * <iframe srcDoc> en sandbox y lo expone al AgentBridge para que un agente
+ * autorizado lo controle (ingresar RUT, validar, inscribir, pagar, reiniciar).
+ */
+const TOTEM_HTML = `<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tótem Interactivo - Retiro de KIT Deportivo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,500;0,700;0,900;1,900&display=swap"
+        rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Montserrat', 'sans-serif'] },
+                    colors: { brand: { navy: '#0A192F', cyan: '#19ACB1' } }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #FFFFFF;
+            user-select: none;
+            -webkit-user-select: none;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .screen {
+            display: none;
+            opacity: 0;
+            transition: opacity 0.4s ease-in-out;
+            width: 100%;
+        }
+
+        .screen.active {
+            display: flex;
+            opacity: 1;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(30px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .key-btn {
+            transition: all 0.1s;
+        }
+
+        .key-btn:active {
+            transform: scale(0.92);
+            background-color: rgba(10, 25, 47, 0.2);
+        }
+
+        .icon-loader {
+            animation: bounce-icon 1.5s infinite;
+        }
+
+        @keyframes bounce-icon {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        .sponsor-logo {
+            max-height: 4.5rem;
+            margin: 15px;
+            object-fit: contain;
+        }
+
+        #screensaver {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: calc(100vh - 400px);
+            z-index: 9999;
+            transform: translateY(0);
+            pointer-events: all;
+            cursor: pointer;
+            will-change: transform;
+        }
+
+        #screensaver img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="text-brand-navy font-sans">
+
+    <div id="screensaver">
+        <img src="https://i.postimg.cc/PxZSGHrQ/protector-pantalla.png"
+            alt="Protector de pantalla">
+    </div>
+
+    <header class="w-full bg-brand-cyan shadow-md flex-shrink-0">
+        <div class="max-w-screen-2xl mx-auto px-12 py-8 flex justify-between items-center">
+            <img src="https://images.ligup2.com/eyJidWNrZXQiOiJsaWd1cC12MiIsImtleSI6InBhbmFtZXJpY2Fub3RyaWF0bG9uYW50b2ZhZ2FzdGEvdXNlcnMvNzk4NDBfbG9nby5wbmciLCJlZGl0cyI6eyJyZXNpemUiOnsid2lkdGgiOjIwMDAsImhlaWdodCI6MjAwMCwiZml0IjoiaW5zaWRlIn0sInJvdGF0ZSI6bnVsbH19"
+                alt="Logo Triatlón" class="h-20 md:h-24">
+            <img src="https://images.ligup2.com/eyJidWNrZXQiOiJsaWd1cC12MiIsImtleSI6InRyaWF0bG9uL3VzZXJzLzU5MjU5X2Rpc2VuX29fc2luX3RpX3R1bG9fMl8ucG5nIiwiZWRpdHMiOnsicmVzaXplIjp7IndpZHRoIjoyMDAwLCJoZWlnaHQiOjIwMDAsImZpdCI6Imluc2lkZSJ9LCJyb3RhdGUiOm51bGx9fQ=="
+                alt="Logo Federación" class="h-20 md:h-24">
+        </div>
+    </header>
+
+    <div class="flex-grow flex flex-col w-full overflow-hidden">
+
+        <section class="flex-[0.6] flex items-center justify-center px-6">
+            <div class="flex flex-wrap justify-center items-center">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Comit%C3%A9_Ol%C3%ADmpico_de_Chile_%282014%29.svg/960px-Comit%C3%A9_Ol%C3%ADmpico_de_Chile_%282014%29.svg.png"
+                    alt="Sponsor" class="sponsor-logo">
+                <img style="max-width: 3.5rem;"
+                    src="https://upload.wikimedia.org/wikipedia/commons/9/97/Logo_JetSmart.jpg" alt="Sponsor"
+                    class="sponsor-logo">
+                <img src="https://statictbjcdn.s3.amazonaws.com/empresa/664627/logo_banner/banner_1683220328750.jpg"
+                    alt="Sponsor" class="sponsor-logo">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Subaru_logo_%28transparent%29.svg/1920px-Subaru_logo_%28transparent%29.svg.png"
+                    alt="Sponsor" class="sponsor-logo">
+                <img src="https://www.sonda.com/tourvirtual/datacenter-kudos/skin/Image_0435F73B_2D0F_4BF4_4181_65F86A8DAC19.png?v=1611327904180"
+                    alt="Sponsor" class="sponsor-logo">
+            </div>
+        </section>
+
+        <section class="flex-[1.9] flex items-center justify-center px-4">
+
+            <!-- SCREEN 1: Ingreso de RUT -->
+            <main id="screen-1" class="screen active flex-col items-center justify-center max-w-5xl mx-auto">
+                <div
+                    class="bg-gray-50 border border-gray-200 w-full rounded-[40px] p-12 flex flex-col md:flex-row items-center justify-center gap-12 shadow-2xl">
+                    <div class="flex-1 flex flex-col items-center md:items-start w-full">
+                        <div
+                            class="w-24 h-24 bg-brand-navy rounded-full flex items-center justify-center mb-8 shadow-lg">
+                            <i class="fa-solid fa-id-card text-4xl text-white"></i>
+                        </div>
+                        <h2 class="text-5xl font-black mb-4 tracking-tight">Retira tu KIT</h2>
+                        <p class="text-gray-600 mb-10 text-2xl text-center md:text-left">Ingresa tu RUT para comenzar.</p>
+
+                        <div class="w-full max-w-lg mb-10">
+                            <div
+                                class="bg-white border-4 border-brand-navy/30 rounded-2xl p-6 shadow-inner flex items-center justify-center overflow-hidden">
+                                <span id="rut-display"
+                                    class="text-3xl md:text-5xl font-black text-brand-navy tracking-normal md:tracking-widest block text-center whitespace-nowrap"></span>
+                            </div>
+                        </div>
+
+                        <button onclick="validateRut()"
+                            class="hidden md:flex w-full max-w-md bg-brand-navy text-white font-bold py-8 rounded-2xl text-3xl shadow-lg hover:scale-105 active:scale-95 transition-all items-center justify-center gap-4">
+                            CONTINUAR <i class="fa-solid fa-chevron-right text-base"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex-1 w-full max-w-md">
+                        <div class="grid grid-cols-3 gap-5">
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('1')">1</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('2')">2</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('3')">3</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('4')">4</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('5')">5</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('6')">6</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('7')">7</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('8')">8</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('9')">9</button>
+                            <button class="key-btn bg-gray-200 border-2 border-gray-300 rounded-2xl py-8 text-4xl font-bold" onclick="typeRut('K')">K</button>
+                            <button class="key-btn bg-white border-2 border-gray-200 rounded-2xl py-8 text-4xl font-bold shadow-sm" onclick="typeRut('0')">0</button>
+                            <button class="key-btn bg-red-100 text-red-600 border-2 border-red-200 rounded-2xl py-8 text-4xl shadow-sm" onclick="deleteRut()"><i class="fa-solid fa-delete-left"></i></button>
+                        </div>
+                        <button onclick="validateRut()"
+                            class="md:hidden mt-10 w-full bg-brand-navy text-white font-bold py-8 rounded-2xl text-3xl shadow-lg flex items-center justify-center gap-4">
+                            CONTINUAR <i class="fa-solid fa-chevron-right text-base"></i>
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- SCREEN desconocido: RUT no registrado -->
+            <main id="screen-desconocido" class="screen flex-col items-center justify-center max-w-2xl mx-auto">
+                <div
+                    class="bg-red-50 border border-red-200 w-full rounded-[40px] p-16 flex flex-col items-center text-center shadow-2xl">
+                    <div class="w-36 h-36 bg-red-100 rounded-full flex items-center justify-center mb-8">
+                        <i class="fa-solid fa-user-xmark text-7xl text-red-400"></i>
+                    </div>
+                    <h2 class="text-5xl font-black text-red-600 mb-4">No Registrado</h2>
+                    <p class="text-2xl text-gray-600 mb-12">El competidor no está registrado en el sistema. Consulta en
+                        boletería.</p>
+                    <button onclick="changeScreen(1)"
+                        class="bg-gray-200 border-2 border-gray-300 font-bold py-6 px-16 rounded-2xl text-2xl active:scale-95 transition-all">
+                        <i class="fa-solid fa-arrow-left mr-3"></i> Volver
+                    </button>
+                </div>
+            </main>
+
+            <!-- SCREEN federado: Javier Parada -->
+            <main id="screen-federado" class="screen flex-col items-center justify-center max-w-5xl mx-auto">
+                <div
+                    class="bg-gray-50 border border-gray-200 w-full rounded-[40px] p-12 flex flex-col md:flex-row items-center gap-12 shadow-2xl">
+                    <div
+                        class="flex flex-col items-center md:w-1/3 border-b md:border-b-0 md:border-r border-gray-200 pb-10 md:pb-0 md:pr-10">
+                        <div
+                            class="w-36 h-36 bg-brand-navy/10 border-4 border-brand-navy rounded-full flex items-center justify-center mb-6">
+                            <i class="fa-solid fa-user-astronaut text-7xl text-brand-navy"></i>
+                        </div>
+                        <span
+                            class="bg-green-100 text-green-700 border border-green-300 text-base font-bold px-5 py-2 rounded-full mb-4 uppercase tracking-wide">
+                            <i class="fa-solid fa-shield-halved mr-1"></i> Federado
+                        </span>
+                        <h2 class="text-3xl font-light text-gray-500 mb-1">¡Hola!</h2>
+                        <h3 class="text-4xl font-black text-brand-navy text-center leading-tight">Javier Parada</h3>
+                    </div>
+                    <div class="flex flex-col w-full md:w-2/3">
+                        <div class="grid grid-cols-3 gap-6 mb-10">
+                            <div
+                                class="bg-white rounded-3xl p-8 flex flex-col items-center border border-gray-200 shadow-sm">
+                                <span class="text-sm text-gray-500 uppercase font-bold mb-3">RUT</span>
+                                <span class="text-2xl font-black">13.036.971-8</span>
+                            </div>
+                            <div
+                                class="bg-white rounded-3xl p-8 flex flex-col items-center border border-gray-200 shadow-sm">
+                                <span class="text-sm text-gray-500 uppercase font-bold mb-3">Categoría</span>
+                                <span class="text-2xl font-black text-brand-navy">Elite</span>
+                            </div>
+                            <div
+                                class="bg-green-50 rounded-3xl p-8 flex flex-col items-center border-2 border-green-200">
+                                <span class="text-sm text-green-700 uppercase font-bold mb-3">Monto</span>
+                                <span class="text-3xl font-black text-green-600">$0</span>
+                            </div>
+                        </div>
+                        <p class="text-gray-500 text-xl mb-8 text-center">Competidor federado. Inscripción sin costo
+                            adicional.</p>
+                        <div class="flex flex-col md:flex-row gap-6">
+                            <button onclick="changeScreen(1)"
+                                class="flex-1 bg-gray-200 border-2 border-gray-300 font-bold py-6 rounded-2xl text-2xl transition-all active:scale-95">Volver</button>
+                            <button onclick="inscribirFederado()"
+                                class="flex-[2] bg-brand-navy text-white font-bold py-6 rounded-2xl text-3xl shadow-xl flex items-center justify-center gap-4 active:scale-95 transition-all">
+                                <i class="fa-solid fa-clipboard-check"></i> INSCRIBIR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- SCREEN nofederado: Juan Pablo Tenorio -->
+            <main id="screen-nofederado" class="screen flex-col items-center justify-center max-w-5xl mx-auto">
+                <div
+                    class="bg-gray-50 border border-gray-200 w-full rounded-[40px] p-12 flex flex-col md:flex-row items-center gap-12 shadow-2xl">
+                    <div
+                        class="flex flex-col items-center md:w-1/3 border-b md:border-b-0 md:border-r border-gray-200 pb-10 md:pb-0 md:pr-10">
+                        <div
+                            class="w-36 h-36 bg-brand-navy/10 border-4 border-brand-navy rounded-full flex items-center justify-center mb-6">
+                            <i class="fa-solid fa-user text-7xl text-brand-navy"></i>
+                        </div>
+                        <span
+                            class="bg-yellow-100 text-yellow-700 border border-yellow-300 text-base font-bold px-5 py-2 rounded-full mb-4 uppercase tracking-wide">
+                            <i class="fa-solid fa-circle-exclamation mr-1"></i> Sin Federación
+                        </span>
+                        <h2 class="text-3xl font-light text-gray-500 mb-1">¡Hola!</h2>
+                        <h3 class="text-4xl font-black text-brand-navy text-center leading-tight">Juan Pablo Tenorio
+                        </h3>
+                    </div>
+                    <div class="flex flex-col w-full md:w-2/3">
+                        <div class="grid grid-cols-3 gap-6 mb-10">
+                            <div
+                                class="bg-white rounded-3xl p-8 flex flex-col items-center border border-gray-200 shadow-sm">
+                                <span class="text-sm text-gray-500 uppercase font-bold mb-3">RUT</span>
+                                <span class="text-2xl font-black">26.031.103-4</span>
+                            </div>
+                            <div
+                                class="bg-white rounded-3xl p-8 flex flex-col items-center border border-gray-200 shadow-sm">
+                                <span class="text-sm text-gray-500 uppercase font-bold mb-3">Categoría</span>
+                                <span class="text-2xl font-black text-brand-navy">Open</span>
+                            </div>
+                            <div
+                                class="bg-yellow-50 rounded-3xl p-8 flex flex-col items-center border-2 border-yellow-300">
+                                <span class="text-sm text-yellow-700 uppercase font-bold mb-3">Monto</span>
+                                <span class="text-3xl font-black text-yellow-700">$15.000</span>
+                            </div>
+                        </div>
+                        <p class="text-gray-500 text-xl mb-8 text-center">Debes pagar $15.000 para completar tu
+                            inscripción.</p>
+                        <div class="flex flex-col md:flex-row gap-6">
+                            <button onclick="changeScreen(1)"
+                                class="flex-1 bg-gray-200 border-2 border-gray-300 font-bold py-6 rounded-2xl text-2xl transition-all active:scale-95">Volver</button>
+                            <button onclick="changeScreen('qr')"
+                                class="flex-[2] bg-yellow-500 text-white font-bold py-6 rounded-2xl text-3xl shadow-xl flex items-center justify-center gap-4 active:scale-95 transition-all">
+                                <i class="fa-solid fa-qrcode"></i> PAGAR $15.000
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- SCREEN qr: Pago con QR -->
+            <main id="screen-qr" class="screen flex-col items-center justify-center max-w-2xl mx-auto">
+                <div
+                    class="bg-gray-50 border border-gray-200 w-full rounded-[40px] p-14 flex flex-col items-center text-center shadow-2xl">
+                    <h2 class="text-4xl font-black mb-2">Pago con QR</h2>
+                    <p class="text-2xl text-gray-500 mb-8">Escanea el código para pagar <span
+                            class="font-black text-brand-navy">$15.000</span></p>
+                    <div class="bg-white p-6 rounded-3xl shadow-inner border border-gray-200 mb-10">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=TRIATLON_ANF_15000_TENORIO"
+                            alt="QR Pago" class="w-64 h-64">
+                    </div>
+                    <div class="flex flex-col w-full gap-5">
+                        <button onclick="pagarConQR()"
+                            class="w-full bg-brand-navy text-white font-bold py-8 rounded-2xl text-3xl shadow-xl flex items-center justify-center gap-4 active:scale-95 transition-all">
+                            <i class="fa-solid fa-circle-check"></i> CONFIRMAR PAGO
+                        </button>
+                        <button onclick="changeScreen('nofederado')"
+                            class="w-full bg-gray-200 border-2 border-gray-300 font-bold py-6 rounded-2xl text-2xl active:scale-95 transition-all">
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- SCREEN success: Resultado final (federado o pago) -->
+            <main id="screen-success" class="screen flex-col items-center justify-center w-full">
+                <div
+                    class="bg-gray-50 border border-gray-200 w-full max-w-2xl rounded-[40px] p-20 flex flex-col items-center text-center shadow-2xl">
+                    <div id="processing-animation" class="relative w-40 h-40 mb-10">
+                        <div class="absolute inset-0 bg-brand-navy/10 rounded-full animate-ping"></div>
+                        <div
+                            class="relative w-full h-full bg-white border-8 border-brand-navy rounded-full flex items-center justify-center z-10">
+                            <i class="fa-solid fa-user-check text-7xl text-brand-navy icon-loader"></i>
+                        </div>
+                    </div>
+                    <div id="success-icon"
+                        class="hidden w-40 h-40 mb-10 bg-green-500 rounded-full items-center justify-center">
+                        <i class="fa-solid fa-check text-8xl text-white"></i>
+                    </div>
+                    <h2 id="success-title" class="text-5xl font-black mb-6">Procesando...</h2>
+                    <p id="success-desc" class="text-3xl text-brand-navy/80 font-medium">Por favor espera un momento.
+                    </p>
+                </div>
+            </main>
+
+        </section>
+
+        <section class="flex-1 w-full"></section>
+
+    </div>
+
+    <footer class="text-center py-10 flex-shrink-0 bg-brand-cyan">
+        <div class="flex justify-center items-center gap-3">
+            <p class="text-xl text-white/90 font-medium">Powered by </p> <br>
+            <div style="display:flex; align-items: anchor-center;"> <img
+                    src="https://kimos.dev/assets/kimos-icon-DId6xZgX.png" alt="Kimos Icon" class="h-9">
+                <img src="https://kimos.dev/assets/kimos-full-MKfpXWN8.png" alt="Kimos Logo" class="h-7">
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        let rawRut = "";
+        const rutDisplay = document.getElementById('rut-display');
+
+        const RUTS = {
+            '130369718': { nombre: 'Javier Parada', tipo: 'federado' },
+            '260311034': { nombre: 'Juan Pablo Tenorio', tipo: 'nofederado' }
+        };
+
+        function formatRut(value) {
+            value = value.replace(/[^0-9kK]/g, '').toUpperCase();
+            if (value.length === 0) return "";
+            if (value.length === 1) return value;
+            const body = value.slice(0, -1);
+            const dv = value.slice(-1);
+            return body.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ".") + "-" + dv;
+        }
+
+        function updateDisplay() {
+            if (rawRut.length === 0) {
+                rutDisplay.innerHTML = '<span class="text-gray-300 font-normal">XX.XXX.XXX-X</span>';
+            } else {
+                rutDisplay.innerText = formatRut(rawRut);
+            }
+        }
+
+        function typeRut(char) {
+            if (rawRut.length < 9) {
+                rawRut += char;
+                updateDisplay();
+            }
+        }
+
+        function deleteRut() {
+            if (rawRut.length > 0) {
+                rawRut = rawRut.slice(0, -1);
+                updateDisplay();
+            }
+        }
+
+        function validateRut() {
+            if (rawRut.length < 7) return;
+            const competidor = RUTS[rawRut];
+            if (!competidor) {
+                changeScreen('desconocido');
+            } else if (competidor.tipo === 'federado') {
+                changeScreen('federado');
+            } else {
+                changeScreen('nofederado');
+            }
+        }
+
+        function changeScreen(id) {
+            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+            document.getElementById('screen-' + id).classList.add('active');
+            if (id === 1 || id === '1') { rawRut = ""; updateDisplay(); }
+        }
+
+        function showSuccess(title, desc) {
+            document.getElementById('processing-animation').style.display = '';
+            document.getElementById('success-icon').classList.add('hidden');
+            document.getElementById('success-icon').classList.remove('flex');
+            document.getElementById('success-title').className = 'text-5xl font-black mb-6';
+            document.getElementById('success-title').innerText = 'Procesando...';
+            document.getElementById('success-desc').innerText = 'Por favor espera un momento.';
+            changeScreen('success');
+
+            setTimeout(() => {
+                document.getElementById('processing-animation').style.display = 'none';
+                document.getElementById('success-icon').classList.remove('hidden');
+                document.getElementById('success-icon').classList.add('flex');
+                document.getElementById('success-title').innerText = title;
+                document.getElementById('success-title').classList.add('text-green-500');
+                document.getElementById('success-desc').innerText = desc;
+                setTimeout(() => changeScreen(1), 6000);
+            }, 2500);
+        }
+
+        function inscribirFederado() {
+            showSuccess('¡Inscripción Exitosa!', 'Ya puedes retirar tu KIT Deportivo en el módulo asignado.');
+        }
+
+        function pagarConQR() {
+            showSuccess('¡Pago Exitoso!', 'Ya puedes retirar tu KIT Deportivo en el módulo asignado.');
+        }
+
+        updateDisplay();
+
+        // --- Screensaver ---
+        let screensaverVisible = true;
+        let inactivityTimer = null;
+        const INACTIVITY_TIMEOUT = 15000;
+        const screensaver = document.getElementById('screensaver');
+
+        function showScreensaver() {
+            if (screensaverVisible) return;
+            screensaverVisible = true;
+            screensaver.style.transition = 'none';
+            screensaver.offsetHeight;
+            screensaver.style.transform = 'translateY(0)';
+            screensaver.style.pointerEvents = 'all';
+            clearTimeout(inactivityTimer);
+        }
+
+        function dismissScreensaver() {
+            if (!screensaverVisible) return;
+            screensaver.style.transition = 'transform 0.85s cubic-bezier(0.4, 0, 0.2, 1)';
+            screensaver.style.transform = 'translateY(-100%)';
+            screensaver.style.pointerEvents = 'none';
+            screensaver.addEventListener('transitionend', () => {
+                screensaverVisible = false;
+                resetInactivityTimer();
+            }, { once: true });
+        }
+
+        function resetInactivityTimer() {
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(showScreensaver, INACTIVITY_TIMEOUT);
+        }
+
+        document.addEventListener('click', (e) => {
+            if (screensaverVisible) {
+                e.stopPropagation();
+                dismissScreensaver();
+            } else {
+                resetInactivityTimer();
+            }
+        }, true);
+
+        document.addEventListener('touchstart', () => {
+            if (screensaverVisible) {
+                dismissScreensaver();
+            } else {
+                resetInactivityTimer();
+            }
+        }, { passive: true });
+
+        ['mousemove', 'keydown'].forEach(evt => {
+            document.addEventListener(evt, () => {
+                if (!screensaverVisible) resetInactivityTimer();
+            });
+        });
+    </script>
+<!-- KIMOS Agent Bridge protocol — inyectado por build.py antes de </body>.
+     Corre como <script> clásico, por lo que comparte el entorno léxico global
+     con el script del tótem (rawRut, RUTS, changeScreen, validateRut, etc.).
+     Permite que un agente autorizado controle el tótem vía postMessage. -->
+<script>
+(function () {
+  function fmt(v) {
+    try { return (typeof formatRut === 'function' && v) ? formatRut(v) : (v || ''); }
+    catch (e) { return v || ''; }
+  }
+  function currentState() {
+    var active = null;
+    try { active = document.querySelector('.screen.active'); } catch (e) {}
+    var raw = (typeof rawRut !== 'undefined') ? rawRut : '';
+    var comp = null;
+    try { comp = (typeof RUTS !== 'undefined' && RUTS[raw]) ? RUTS[raw] : null; } catch (e) {}
+    return {
+      screen: active ? active.id : null,
+      rutRaw: raw,
+      rut: fmt(raw),
+      competidor: comp ? { nombre: comp.nombre, tipo: comp.tipo } : null,
+    };
+  }
+  function send(type, extra) {
+    var msg = { __kimosTotem: true, type: type, state: currentState() };
+    if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k]; } }
+    try { parent.postMessage(msg, '*'); } catch (e) {}
+  }
+  function dismissSaver() {
+    try {
+      if (typeof screensaverVisible !== 'undefined' && screensaverVisible && typeof dismissScreensaver === 'function') {
+        dismissScreensaver();
+      }
+    } catch (e) {}
+  }
+
+  // Reenviar STATE en cada cambio de pantalla (también los hechos por toque
+  // manual en el tótem), para mantener el snapshot del agente al día.
+  try {
+    if (typeof changeScreen === 'function') {
+      var _origChangeScreen = changeScreen;
+      changeScreen = function (id) { _origChangeScreen(id); send('STATE'); };
+    }
+  } catch (e) {}
+
+  function handleCmd(cmd, args) {
+    args = args || {};
+    dismissSaver();
+    switch (cmd) {
+      case 'SET_RUT': {
+        var v = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+        rawRut = v;
+        if (typeof updateDisplay === 'function') updateDisplay();
+        return { ok: true, message: 'RUT ingresado: ' + (v ? fmt(v) : '(vacío)') };
+      }
+      case 'VALIDATE_RUT': {
+        if (typeof rawRut === 'undefined' || rawRut.length < 7) {
+          return { ok: false, message: 'RUT incompleto: ingresa al menos 7 dígitos con SET_RUT antes de validar.' };
+        }
+        validateRut();
+        var s = currentState();
+        var msg;
+        if (s.screen === 'screen-federado') msg = 'Competidor FEDERADO: ' + (s.competidor ? s.competidor.nombre : '') + '. Inscripción sin costo.';
+        else if (s.screen === 'screen-nofederado') msg = 'Competidor NO federado: ' + (s.competidor ? s.competidor.nombre : '') + '. Debe pagar $15.000.';
+        else msg = 'RUT no registrado en el sistema.';
+        return { ok: true, message: msg };
+      }
+      case 'INSCRIBIR': {
+        var a = document.querySelector('.screen.active');
+        if (!a || a.id !== 'screen-federado') {
+          return { ok: false, message: 'INSCRIBIR sólo está disponible tras validar un competidor federado.' };
+        }
+        inscribirFederado();
+        return { ok: true, message: 'Inscripción del competidor federado realizada. Puede retirar su KIT.' };
+      }
+      case 'PAGAR': {
+        var a2 = document.querySelector('.screen.active');
+        if (a2 && a2.id === 'screen-nofederado') changeScreen('qr');
+        a2 = document.querySelector('.screen.active');
+        if (!a2 || a2.id !== 'screen-qr') {
+          return { ok: false, message: 'PAGAR requiere un competidor no federado validado.' };
+        }
+        pagarConQR();
+        return { ok: true, message: 'Pago de $15.000 confirmado. Puede retirar su KIT.' };
+      }
+      case 'RESET':
+      case 'GO_HOME': {
+        changeScreen(1);
+        return { ok: true, message: 'Tótem reiniciado a la pantalla de ingreso de RUT.' };
+      }
+      default:
+        return { ok: false, message: 'Comando no soportado: ' + cmd };
+    }
+  }
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.__kimosCmd !== true) return;
+    var res;
+    try { res = handleCmd(d.cmd, d.args); }
+    catch (err) { res = { ok: false, message: String(err) }; }
+    send('CMD_RESULT', { id: d.id, ok: res.ok, message: res.message });
+  });
+
+  function ready() { send('READY'); }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(ready, 0);
+  else document.addEventListener('DOMContentLoaded', ready);
+})();
+</script>
+
+</body>
+
+</html>
+`;
+
+const APP_ID = 'triatlon-antofagasta';
+const APP_LABEL = 'Triatlón Antofagasta';
+const APP_DESC =
+  'Tótem interactivo de retiro de KIT deportivo del Triatlón de Antofagasta: ' +
+  'ingreso de RUT, validación de competidor (federado / no federado / no registrado), ' +
+  'inscripción y pago de inscripción.';
+
+const TOOLS = [
+  {
+    name: 'SET_RUT',
+    description: 'Ingresa el RUT del competidor en el teclado del tótem (sin validar todavía).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rut: { type: 'string', description: 'RUT con o sin formato, ej. "13.036.971-8" o "130369718".' },
+      },
+      required: ['rut'],
+    },
+  },
+  {
+    name: 'VALIDATE_RUT',
+    description: 'Valida el RUT ingresado y avanza a la pantalla del competidor (federado, no federado o no registrado).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'INSCRIBIR',
+    description: 'Confirma la inscripción de un competidor federado validado (sin costo).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'PAGAR',
+    description: 'Confirma el pago de $15.000 de inscripción de un competidor no federado validado.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'RESET',
+    description: 'Reinicia el tótem a la pantalla inicial de ingreso de RUT.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+];
+
+export default function mount(shell) {
+  const React = globalThis.React;
+  if (!React || typeof React.createElement !== 'function') {
+    throw new Error('globalThis.React no disponible: el host debe exponer React para apps instalables.');
+  }
+
+  let frameWindow = null;
+  let lastState = { screen: 'screen-1', rutRaw: '', rut: '', competidor: null };
+  let seq = 0;
+  const pending = new Map();
+  let unregisterAgent = null;
+
+  function onMessage(e) {
+    const d = e && e.data;
+    if (!d || d.__kimosTotem !== true) return;
+    if (d.state) lastState = d.state;
+    if (d.type === 'CMD_RESULT' && d.id != null && pending.has(d.id)) {
+      const resolve = pending.get(d.id);
+      pending.delete(d.id);
+      resolve({ success: !!d.ok, message: d.message });
+    }
+  }
+  window.addEventListener('message', onMessage);
+
+  function sendCmd(cmd, args) {
+    if (!frameWindow) {
+      return Promise.resolve({ success: false, error: 'El tótem aún no termina de cargar. Intenta nuevamente.' });
+    }
+    const id = 'cmd-' + ++seq;
+    return new Promise((resolve) => {
+      pending.set(id, resolve);
+      try {
+        frameWindow.postMessage({ __kimosCmd: true, id: id, cmd: cmd, args: args || {} }, '*');
+      } catch (err) {
+        pending.delete(id);
+        resolve({ success: false, error: String(err) });
+        return;
+      }
+      // Salvaguarda: si el tótem no responde, no dejamos colgada la acción.
+      setTimeout(() => {
+        if (pending.has(id)) {
+          pending.delete(id);
+          resolve({ success: false, error: 'Tiempo de espera agotado esperando al tótem.' });
+        }
+      }, 4000);
+    });
+  }
+
+  // ── Registro en el AgentBridge (control por agente autorizado) ──────────
+  if (shell && shell.agent && typeof shell.agent.register === 'function') {
+    unregisterAgent = shell.agent.register({
+      label: APP_LABEL,
+      description: APP_DESC,
+      tools: TOOLS,
+      getSnapshot: () => ({
+        pantalla: lastState.screen,
+        rut: lastState.rut,
+        competidor: lastState.competidor,
+        ayuda: 'Flujo: SET_RUT → VALIDATE_RUT → (INSCRIBIR si es federado | PAGAR si no lo es). RESET vuelve al inicio.',
+      }),
+      dispatchAction: async (action) => {
+        const type = (action && action.type) || '';
+        const payload = (action && action.payload) || {};
+        switch (type) {
+          case 'SET_RUT':
+            return sendCmd('SET_RUT', { rut: payload.rut });
+          case 'VALIDATE_RUT':
+            return sendCmd('VALIDATE_RUT', {});
+          case 'INSCRIBIR':
+            return sendCmd('INSCRIBIR', {});
+          case 'PAGAR':
+            return sendCmd('PAGAR', {});
+          case 'RESET':
+          case 'GO_HOME':
+            return sendCmd('RESET', {});
+          default:
+            return { success: false, error: 'Acción no soportada: ' + type };
+        }
+      },
+    });
+  } else {
+    console.warn('[triatlon-antofagasta] shell.agent no disponible: la app no será controlable por agente.');
+  }
+
+  function Component() {
+    return React.createElement('iframe', {
+      title: APP_LABEL,
+      srcDoc: TOTEM_HTML,
+      sandbox: 'allow-scripts allow-forms allow-modals',
+      style: { width: '100%', height: '100%', border: '0', display: 'block', background: '#fff' },
+      ref: (el) => {
+        if (el) {
+          // contentWindow ya existe al montar; lo refrescamos también en load.
+          frameWindow = el.contentWindow;
+          el.addEventListener('load', () => { frameWindow = el.contentWindow; });
+        }
+      },
+    });
+  }
+
+  return {
+    Component,
+    unmount() {
+      window.removeEventListener('message', onMessage);
+      pending.clear();
+      if (typeof unregisterAgent === 'function') {
+        try { unregisterAgent(); } catch (e) { /* noop */ }
+      }
+    },
+  };
+}
