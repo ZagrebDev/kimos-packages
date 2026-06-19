@@ -1,0 +1,12 @@
+{
+  "id": "notas-equipo",
+  "name": "Notas de Equipo",
+  "version": "1.0.0",
+  "description": "App de ejemplo multi-instancia: un bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
+  "icon": "🗒️",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["agent.control"]
+}

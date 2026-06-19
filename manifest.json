@@ -218,6 +218,19 @@
         "agent.control"
       ],
       "appShellApi": "1.x"
+    },
+    {
+      "id": "notas-equipo",
+      "name": "Notas de Equipo",
+      "description": "App de ejemplo multi-instancia: bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
+      "icon": "🗒️",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "multiInstance": true,
+      "permissions": [
+        "agent.control"
+      ],
+      "appShellApi": "1.x"
     }
   ]
 }
