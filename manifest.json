@@ -209,9 +209,9 @@
     {
       "id": "triatlon-antofagasta",
       "name": "Triatlón Antofagasta",
-      "description": "Tótem de retiro de KIT deportivo del Triatlón de Antofagasta, controlable por un agente autorizado.",
+      "description": "Kiosco del Americas Triathlon Championships Antofagasta 2026: inscripción de atletas por categoría, info del evento y atletas, controlable por un agente autorizado.",
       "icon": "🏊",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "permissions": [

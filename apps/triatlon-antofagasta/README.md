@@ -1,69 +1,52 @@
-# Triatlón Antofagasta 🏊
+# Triatlón Antofagasta 🏊 (v2)
 
-App instalable de Kimos (front v2, contrato `AppShellV1` — Fase 4). Renderiza el
-**tótem interactivo de retiro de KIT deportivo** del Triatlón de Antofagasta y lo
-expone al **AgentBridge** para que un agente autorizado lo controle.
+App instalable de Kimos (front v2, contrato `AppShellV1`). Kiosco del **Americas
+Triathlon Championships Antofagasta 2026**: inscripción de atletas, información
+del evento y atletas, en 3 idiomas (ES/EN/PT), controlable por un **agente
+autorizado** vía AgentBridge.
 
 ## Estructura
-
 ```
 apps/triatlon-antofagasta/
-├── manifest.json        # metadata de la app (también declarada en /manifest.json raíz)
-├── build.py             # genera dist/index.js a partir de src/
+├── manifest.json     # metadata (también en /manifest.json raíz)
+├── build.py          # genera dist/index.js desde src/ (+ inyecta <base> y protocolo)
 ├── src/
-│   ├── totem.html       # HTML original del tótem (fuente de la verdad)
-│   └── protocol.html    # <script> del protocolo KIMOS inyectado en el tótem
-└── dist/
-    └── index.js         # bundle ESM servido al front (GENERADO — no editar a mano)
+│   ├── totem.html        # HTML del kiosco (datos de participantes y rutas embebidos)
+│   ├── protocol.html     # protocolo KIMOS postMessage (control por agente)
+│   ├── participantes.json / rutas.geojson / process_data.py  # provenance
+├── assets/
+│   ├── fotos/        # fotos de atletas
+│   └── banderas/     # banderas por país (NOC)
+└── dist/index.js     # bundle ESM (GENERADO — no editar a mano)
 ```
 
-Para regenerar el bundle tras editar el HTML:
-
+Regenerar tras editar el HTML:
 ```bash
 cd apps/triatlon-antofagasta && python3 build.py
 ```
 
-## Cómo se instala
-
-El backend (`appsAPI.py`) lee la sección `apps[]` de `/manifest.json`, descarga
-`apps/triatlon-antofagasta/dist/index.js` desde `raw.githubusercontent` (rama
-`main`) y lo sube a GCS. En el front v2 aparece en **Tienda → Instalar** y, una
-vez instalada, en el **HomeLauncher → Instaladas**.
-
-> Nota: el backend descarga desde la rama **`main`**, así que la app queda
-> instalable cuando este cambio se mergea a `main`.
-
-## Contrato
-
-El bundle exporta `default function mount(shell)` y devuelve `{ Component, unmount }`.
-`Component` es un `<iframe srcDoc>` en sandbox con el tótem; `mount` registra la
-app en el AgentBridge vía `shell.agent.register(...)`.
+## Assets
+Las imágenes se referencian por ruta relativa (`fotos/…`, `banderas/…`) y se
+resuelven contra un `<base>` inyectado que apunta a este repo en GitHub raw
+(rama `main`). Los datasets (participantes, rutas) están embebidos en el HTML,
+así que no hay `fetch` en runtime.
 
 ## Control por agente
+El kiosco y el bundle hablan por `postMessage`. Tools expuestas:
 
-El tótem y el bundle hablan por `postMessage`. Tools expuestas al agente:
+| Tool | Efecto |
+| --- | --- |
+| `OPEN_REGISTER` | Abre la inscripción (paso categorías). |
+| `OPEN_INFO { tab }` | Abre info (`athletes`/`guide`/`map`/`schedule`). |
+| `RETURN_HOME` | Vuelve al inicio. |
+| `CHANGE_LANGUAGE { lang }` | Cambia idioma (`es`/`en`/`pt`). |
+| `SELECT_CATEGORY { categoria }` | Elige categoría y avanza a atletas. |
+| `SEARCH_ATHLETE { texto }` | Filtra atletas de la categoría. |
+| `SELECT_ATHLETE { nombre, pais? }` | Elige atleta y avanza a confirmar. |
+| `CONFIRM` | Confirma (nacional→valida sin costo; extranjero→pago). |
+| `PAY` | Simula el pago con tarjeta (POS). |
+| `FINISH` | Finaliza y reinicia el kiosco. |
 
-| Tool           | Efecto                                                                 |
-| -------------- | --------------------------------------------------------------------- |
-| `SET_RUT`      | Ingresa un RUT en el teclado (`{ rut: "13.036.971-8" }`).             |
-| `VALIDATE_RUT` | Valida el RUT y avanza a federado / no federado / no registrado.      |
-| `INSCRIBIR`    | Confirma la inscripción de un competidor **federado**.                |
-| `PAGAR`        | Confirma el pago de $15.000 de un competidor **no federado**.         |
-| `RESET`        | Vuelve a la pantalla inicial de ingreso de RUT.                       |
-
-RUTs de demo: `13.036.971-8` (federado), `26.031.103-4` (no federado).
-
-### Autorización
-
-El control se rige por `enterprise.settings.agentPermissions`:
-
-- `kimosai` tiene acceso total por defecto.
-- Para otro agente, añade el id de la app a su lista de apps:
-
-```json
-{
-  "agentPermissions": {
-    "<agentId>": { "apps": ["triatlon-antofagasta"] }
-  }
-}
-```
+Flujo típico: `OPEN_REGISTER` → `SELECT_CATEGORY` → `SELECT_ATHLETE` →
+`CONFIRM` → (`PAY` si no es nacional). La autorización del agente se rige por
+`enterprise.settings.agentPermissions` (kimosai tiene acceso total).

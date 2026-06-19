@@ -1,45 +1,62 @@
 <!-- KIMOS Agent Bridge protocol — inyectado por build.py antes de </body>.
-     Corre como <script> clásico, por lo que comparte el entorno léxico global
-     con el script del tótem (rawRut, RUTS, changeScreen, validateRut, etc.).
-     Permite que un agente autorizado controle el tótem vía postMessage. -->
+     Script clásico: comparte el entorno léxico global con el script del kiosco
+     (PARTICIPANTES_DATA, selectedCategory, selectedAthlete, changeScreen,
+     goToStep, etc.). Expone el flujo del tótem a un agente autorizado. -->
 <script>
 (function () {
-  function fmt(v) {
-    try { return (typeof formatRut === 'function' && v) ? formatRut(v) : (v || ''); }
-    catch (e) { return v || ''; }
+  function norm(v) {
+    return String(v == null ? '' : v).toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  }
+  function activeScreen() {
+    var el = null;
+    try { el = document.querySelector('.screen.active'); } catch (e) {}
+    return el ? el.id.replace(/^screen-/, '') : null;
+  }
+  function categorias() {
+    try { return (PARTICIPANTES_DATA.start_lists || []).map(function (l) { return l.name; }); }
+    catch (e) { return []; }
+  }
+  function entriesDe(list) {
+    if (!list) return [];
+    var out = [];
+    try {
+      (list.start_list && list.start_list.entries || []).forEach(function (e) { out.push(e); });
+      (list.wait_list && list.wait_list.entries || []).forEach(function (e) { out.push(e); });
+    } catch (e) {}
+    return out;
   }
   function currentState() {
-    var active = null;
-    try { active = document.querySelector('.screen.active'); } catch (e) {}
-    var raw = (typeof rawRut !== 'undefined') ? rawRut : '';
-    var comp = null;
-    try { comp = (typeof RUTS !== 'undefined' && RUTS[raw]) ? RUTS[raw] : null; } catch (e) {}
+    var sc = (typeof selectedCategory !== 'undefined' && selectedCategory) ? selectedCategory : null;
+    var sa = (typeof selectedAthlete !== 'undefined' && selectedAthlete) ? selectedAthlete : null;
     return {
-      screen: active ? active.id : null,
-      rutRaw: raw,
-      rut: fmt(raw),
-      competidor: comp ? { nombre: comp.nombre, tipo: comp.tipo } : null,
+      screen: activeScreen(),
+      idioma: (typeof currentLanguage !== 'undefined') ? currentLanguage : 'es',
+      categoria: sc ? sc.name : null,
+      atleta: sa ? sa.athlete_full_name : null,
+      atletaPais: sa ? sa.athlete_noc : null,
+      codigo: (typeof registrationCode !== 'undefined' && registrationCode) ? registrationCode : null,
+      categorias: categorias(),
     };
   }
   function send(type, extra) {
     var msg = { __kimosTotem: true, type: type, state: currentState() };
-    if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k]; } }
+    if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k];
     try { parent.postMessage(msg, '*'); } catch (e) {}
   }
   function dismissSaver() {
-    try {
-      if (typeof screensaverVisible !== 'undefined' && screensaverVisible && typeof dismissScreensaver === 'function') {
-        dismissScreensaver();
-      }
-    } catch (e) {}
+    try { if (typeof dismissScreensaver === 'function') dismissScreensaver(); } catch (e) {}
   }
 
-  // Reenviar STATE en cada cambio de pantalla (también los hechos por toque
-  // manual en el tótem), para mantener el snapshot del agente al día.
+  // Reenviar STATE en cada cambio de pantalla / paso (también toques manuales).
   try {
     if (typeof changeScreen === 'function') {
-      var _origChangeScreen = changeScreen;
-      changeScreen = function (id) { _origChangeScreen(id); send('STATE'); };
+      var _cs = changeScreen;
+      changeScreen = function (s) { _cs(s); send('STATE'); };
+    }
+    if (typeof goToStep === 'function') {
+      var _gs = goToStep;
+      goToStep = function (n) { _gs(n); send('STATE'); };
     }
   } catch (e) {}
 
@@ -47,69 +64,68 @@
     args = args || {};
     dismissSaver();
     switch (cmd) {
-      case 'REGISTRAR': {
-        // Acción de alto nivel: ingresa el RUT, lo valida y completa el flujo
-        // en un solo paso. Federado → inscribe (sin costo). No federado → abre
-        // el pago (requiere confirmación posterior). No registrado → informa.
-        var rv = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
-        if (rv.length < 7) return { ok: false, message: 'RUT inválido o incompleto para registrar (mínimo 7 dígitos).' };
-        rawRut = rv;
-        if (typeof updateDisplay === 'function') updateDisplay();
-        validateRut();
-        var rs = currentState();
-        var who = rs.competidor ? rs.competidor.nombre : '';
-        if (rs.screen === 'screen-federado') {
-          inscribirFederado();
-          return { ok: true, message: 'Competidor FEDERADO ' + who + ' inscrito correctamente, sin costo. Ya puede retirar su KIT.' };
-        }
-        if (rs.screen === 'screen-nofederado') {
-          changeScreen('qr');
-          return { ok: true, message: 'Competidor NO federado ' + who + '. La inscripción tiene un costo de $15.000. Pídele confirmación al usuario y usa CONFIRMAR_PAGO para confirmar el pago.' };
-        }
-        return { ok: false, message: 'El RUT ' + fmt(rv) + ' no está registrado en el sistema. Indícale al usuario que consulte en boletería.' };
+      case 'OPEN_REGISTER':
+        openRegisterScreen();
+        return { ok: true, message: 'Pantalla de inscripción abierta. Selecciona una categoría con SELECT_CATEGORY.' };
+      case 'OPEN_INFO':
+        openInfoScreenWithTab(args.tab || (typeof activeInfoTab !== 'undefined' ? activeInfoTab : 'athletes'));
+        return { ok: true, message: 'Pantalla de información abierta (tab: ' + (args.tab || 'athletes') + ').' };
+      case 'RETURN_HOME':
+        returnToHome();
+        return { ok: true, message: 'Volviendo al inicio.' };
+      case 'CHANGE_LANGUAGE': {
+        var lang = norm(args.lang || args.idioma);
+        if (['es', 'en', 'pt'].indexOf(lang) < 0) return { ok: false, message: 'Idioma no soportado (usa es, en o pt).' };
+        changeLanguage(lang);
+        return { ok: true, message: 'Idioma cambiado a ' + lang + '.' };
       }
-      case 'SET_RUT': {
-        var v = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
-        rawRut = v;
-        if (typeof updateDisplay === 'function') updateDisplay();
-        return { ok: true, message: 'RUT ingresado: ' + (v ? fmt(v) : '(vacío)') };
+      case 'SELECT_CATEGORY': {
+        var q = norm(args.categoria || args.category || args.name);
+        if (!q) return { ok: false, message: 'Falta el nombre de la categoría.' };
+        var list = (PARTICIPANTES_DATA.start_lists || []).find(function (l) { return norm(l.name) === q; })
+                || (PARTICIPANTES_DATA.start_lists || []).find(function (l) { return norm(l.name).indexOf(q) >= 0; });
+        if (!list) return { ok: false, message: 'Categoría no encontrada. Disponibles: ' + categorias().join(', ') };
+        if (activeScreen() !== 'register') openRegisterScreen();
+        selectedCategory = list;
+        goToStep(2);
+        return { ok: true, message: 'Categoría "' + list.name + '" seleccionada (' + entriesDe(list).length + ' atletas). Usa SELECT_ATHLETE { nombre }.' };
       }
-      case 'VALIDATE_RUT': {
-        if (typeof rawRut === 'undefined' || rawRut.length < 7) {
-          return { ok: false, message: 'RUT incompleto: ingresa al menos 7 dígitos con SET_RUT antes de validar.' };
-        }
-        validateRut();
+      case 'SEARCH_ATHLETE': {
+        var inp = document.getElementById('reg-search-input');
+        if (!inp) return { ok: false, message: 'Primero abre la inscripción y elige una categoría.' };
+        inp.value = String(args.texto || args.query || '');
+        if (typeof filterRegisterAthletes === 'function') filterRegisterAthletes();
+        return { ok: true, message: 'Filtrando atletas por "' + inp.value + '".' };
+      }
+      case 'SELECT_ATHLETE': {
+        if (typeof selectedCategory === 'undefined' || !selectedCategory) return { ok: false, message: 'Selecciona primero una categoría con SELECT_CATEGORY.' };
+        var qn = norm(args.nombre || args.name || args.atleta);
+        var noc = norm(args.pais || args.noc);
+        if (!qn && !noc) return { ok: false, message: 'Falta el nombre del atleta.' };
+        var list2 = entriesDe(selectedCategory);
+        var found = list2.find(function (e) { return qn && norm(e.athlete_full_name) === qn; })
+                 || list2.find(function (e) { return qn && norm(e.athlete_full_name).indexOf(qn) >= 0; })
+                 || list2.find(function (e) { return noc && norm(e.athlete_noc) === noc; });
+        if (!found) return { ok: false, message: 'Atleta no encontrado en "' + selectedCategory.name + '".' };
+        selectedAthlete = found;
+        goToStep(3);
+        return { ok: true, message: 'Atleta seleccionado: ' + found.athlete_full_name + ' (' + found.athlete_noc + '). Usa CONFIRM para continuar.' };
+      }
+      case 'CONFIRM': {
+        if (typeof selectedAthlete === 'undefined' || !selectedAthlete) return { ok: false, message: 'Selecciona un atleta antes de confirmar.' };
+        processCheckout();
         var s = currentState();
-        var msg;
-        if (s.screen === 'screen-federado') msg = 'Competidor FEDERADO: ' + (s.competidor ? s.competidor.nombre : '') + '. Inscripción sin costo.';
-        else if (s.screen === 'screen-nofederado') msg = 'Competidor NO federado: ' + (s.competidor ? s.competidor.nombre : '') + '. Debe pagar $15.000.';
-        else msg = 'El RUT ' + fmt(rawRut) + ' no está registrado en el sistema.';
-        return { ok: true, message: msg };
+        if (s.codigo) return { ok: true, message: 'Inscripción validada (sin pago). Código: ' + s.codigo + '.' };
+        return { ok: true, message: 'Atleta no nacional: requiere pago. Usa PAY para simular el pago con tarjeta.' };
       }
-      case 'INSCRIBIR': {
-        var a = document.querySelector('.screen.active');
-        if (!a || a.id !== 'screen-federado') {
-          return { ok: false, message: 'INSCRIBIR sólo está disponible tras validar un competidor federado.' };
-        }
-        inscribirFederado();
-        return { ok: true, message: 'Inscripción del competidor federado realizada. Puede retirar su KIT.' };
+      case 'PAY': {
+        if (activeScreen() !== 'register') return { ok: false, message: 'No hay un pago en curso.' };
+        startPOSSimulation();
+        return { ok: true, message: 'Procesando pago en el POS… al aprobarse se genera el código y el recibo.' };
       }
-      case 'PAGAR':
-      case 'CONFIRMAR_PAGO': {
-        var a2 = document.querySelector('.screen.active');
-        if (a2 && a2.id === 'screen-nofederado') changeScreen('qr');
-        a2 = document.querySelector('.screen.active');
-        if (!a2 || a2.id !== 'screen-qr') {
-          return { ok: false, message: 'CONFIRMAR_PAGO requiere un competidor no federado validado (usa REGISTRAR o VALIDATE_RUT primero).' };
-        }
-        pagarConQR();
-        return { ok: true, message: 'Pago de $15.000 confirmado. El competidor ya puede retirar su KIT.' };
-      }
-      case 'RESET':
-      case 'GO_HOME': {
-        changeScreen(1);
-        return { ok: true, message: 'Tótem reiniciado a la pantalla de ingreso de RUT.' };
-      }
+      case 'FINISH':
+        finishRegistration();
+        return { ok: true, message: 'Inscripción finalizada. Tótem reiniciado.' };
       default:
         return { ok: false, message: 'Comando no soportado: ' + cmd };
     }
@@ -119,8 +135,7 @@
     var d = e.data;
     if (!d || d.__kimosCmd !== true) return;
     var res;
-    try { res = handleCmd(d.cmd, d.args); }
-    catch (err) { res = { ok: false, message: String(err) }; }
+    try { res = handleCmd(d.cmd, d.args); } catch (err) { res = { ok: false, message: String(err) }; }
     send('CMD_RESULT', { id: d.id, ok: res.ok, message: res.message });
   });
 
