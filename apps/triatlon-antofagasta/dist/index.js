@@ -574,6 +574,27 @@ const TOTEM_HTML = `<!DOCTYPE html>
     args = args || {};
     dismissSaver();
     switch (cmd) {
+      case 'REGISTRAR': {
+        // Acción de alto nivel: ingresa el RUT, lo valida y completa el flujo
+        // en un solo paso. Federado → inscribe (sin costo). No federado → abre
+        // el pago (requiere confirmación posterior). No registrado → informa.
+        var rv = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+        if (rv.length < 7) return { ok: false, message: 'RUT inválido o incompleto para registrar (mínimo 7 dígitos).' };
+        rawRut = rv;
+        if (typeof updateDisplay === 'function') updateDisplay();
+        validateRut();
+        var rs = currentState();
+        var who = rs.competidor ? rs.competidor.nombre : '';
+        if (rs.screen === 'screen-federado') {
+          inscribirFederado();
+          return { ok: true, message: 'Competidor FEDERADO ' + who + ' inscrito correctamente, sin costo. Ya puede retirar su KIT.' };
+        }
+        if (rs.screen === 'screen-nofederado') {
+          changeScreen('qr');
+          return { ok: true, message: 'Competidor NO federado ' + who + '. La inscripción tiene un costo de $15.000. Pídele confirmación al usuario y usa CONFIRMAR_PAGO para confirmar el pago.' };
+        }
+        return { ok: false, message: 'El RUT ' + fmt(rv) + ' no está registrado en el sistema. Indícale al usuario que consulte en boletería.' };
+      }
       case 'SET_RUT': {
         var v = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
         rawRut = v;
@@ -589,7 +610,7 @@ const TOTEM_HTML = `<!DOCTYPE html>
         var msg;
         if (s.screen === 'screen-federado') msg = 'Competidor FEDERADO: ' + (s.competidor ? s.competidor.nombre : '') + '. Inscripción sin costo.';
         else if (s.screen === 'screen-nofederado') msg = 'Competidor NO federado: ' + (s.competidor ? s.competidor.nombre : '') + '. Debe pagar $15.000.';
-        else msg = 'RUT no registrado en el sistema.';
+        else msg = 'El RUT ' + fmt(rawRut) + ' no está registrado en el sistema.';
         return { ok: true, message: msg };
       }
       case 'INSCRIBIR': {
@@ -600,15 +621,16 @@ const TOTEM_HTML = `<!DOCTYPE html>
         inscribirFederado();
         return { ok: true, message: 'Inscripción del competidor federado realizada. Puede retirar su KIT.' };
       }
-      case 'PAGAR': {
+      case 'PAGAR':
+      case 'CONFIRMAR_PAGO': {
         var a2 = document.querySelector('.screen.active');
         if (a2 && a2.id === 'screen-nofederado') changeScreen('qr');
         a2 = document.querySelector('.screen.active');
         if (!a2 || a2.id !== 'screen-qr') {
-          return { ok: false, message: 'PAGAR requiere un competidor no federado validado.' };
+          return { ok: false, message: 'CONFIRMAR_PAGO requiere un competidor no federado validado (usa REGISTRAR o VALIDATE_RUT primero).' };
         }
         pagarConQR();
-        return { ok: true, message: 'Pago de $15.000 confirmado. Puede retirar su KIT.' };
+        return { ok: true, message: 'Pago de $15.000 confirmado. El competidor ya puede retirar su KIT.' };
       }
       case 'RESET':
       case 'GO_HOME': {
@@ -649,8 +671,22 @@ const APP_DESC =
 
 const TOOLS = [
   {
+    name: 'REGISTRAR',
+    description:
+      'Registra a un competidor por su RUT en UN SOLO paso: ingresa el RUT, lo valida y completa el flujo. ' +
+      'Si es federado, lo inscribe sin costo. Si NO es federado, abre el pago de $15.000 (luego confirma con CONFIRMAR_PAGO). ' +
+      'Si no está registrado, lo informa. Usa esta acción cuando el usuario pida "registrar" o "inscribir" a alguien.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rut: { type: 'string', description: 'RUT con o sin formato, ej. "13.036.971-8" o "130369718".' },
+      },
+      required: ['rut'],
+    },
+  },
+  {
     name: 'SET_RUT',
-    description: 'Ingresa el RUT del competidor en el teclado del tótem (sin validar todavía).',
+    description: 'Solo ingresa el RUT del competidor en el teclado, sin validar. Para registrar usa REGISTRAR.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -661,17 +697,17 @@ const TOOLS = [
   },
   {
     name: 'VALIDATE_RUT',
-    description: 'Valida el RUT ingresado y avanza a la pantalla del competidor (federado, no federado o no registrado).',
+    description: 'Valida el RUT ya ingresado y avanza a la pantalla del competidor (federado, no federado o no registrado).',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'INSCRIBIR',
-    description: 'Confirma la inscripción de un competidor federado validado (sin costo).',
+    description: 'Confirma la inscripción de un competidor federado ya validado (sin costo).',
     inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'PAGAR',
-    description: 'Confirma el pago de $15.000 de inscripción de un competidor no federado validado.',
+    name: 'CONFIRMAR_PAGO',
+    description: 'Confirma el pago de $15.000 de inscripción de un competidor no federado ya validado.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -739,12 +775,26 @@ export default function mount(shell) {
         pantalla: lastState.screen,
         rut: lastState.rut,
         competidor: lastState.competidor,
-        ayuda: 'Flujo: SET_RUT → VALIDATE_RUT → (INSCRIBIR si es federado | PAGAR si no lo es). RESET vuelve al inicio.',
+        acciones: {
+          REGISTRAR: 'Registra a un competidor en UN paso por su RUT. payload: { rut }. Úsala cuando pidan "registrar" o "inscribir" a alguien.',
+          SET_RUT: 'Solo ingresa el RUT sin validar. payload: { rut }',
+          VALIDATE_RUT: 'Valida el RUT ya ingresado.',
+          INSCRIBIR: 'Inscribe a un competidor federado ya validado.',
+          CONFIRMAR_PAGO: 'Confirma el pago de $15.000 de un competidor no federado validado.',
+          RESET: 'Vuelve a la pantalla inicial.',
+        },
+        instrucciones:
+          'Si el usuario pide registrar/inscribir a alguien por su RUT, ejecuta REGISTRAR { rut } en UNA sola acción ' +
+          '(no pidas confirmación intermedia). Puedes encadenar varias acciones en una misma respuesta. ' +
+          'Después de ejecutar, informa SIEMPRE al usuario el resultado tal como lo devuelve la app ' +
+          '(p. ej. "no registrado", "inscrito", "requiere pago").',
       }),
       dispatchAction: async (action) => {
         const type = (action && action.type) || '';
         const payload = (action && action.payload) || {};
         switch (type) {
+          case 'REGISTRAR':
+            return sendCmd('REGISTRAR', { rut: payload.rut });
           case 'SET_RUT':
             return sendCmd('SET_RUT', { rut: payload.rut });
           case 'VALIDATE_RUT':
@@ -752,7 +802,8 @@ export default function mount(shell) {
           case 'INSCRIBIR':
             return sendCmd('INSCRIBIR', {});
           case 'PAGAR':
-            return sendCmd('PAGAR', {});
+          case 'CONFIRMAR_PAGO':
+            return sendCmd('CONFIRMAR_PAGO', {});
           case 'RESET':
           case 'GO_HOME':
             return sendCmd('RESET', {});

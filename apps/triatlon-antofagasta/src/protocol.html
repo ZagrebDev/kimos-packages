@@ -47,6 +47,27 @@
     args = args || {};
     dismissSaver();
     switch (cmd) {
+      case 'REGISTRAR': {
+        // Acción de alto nivel: ingresa el RUT, lo valida y completa el flujo
+        // en un solo paso. Federado → inscribe (sin costo). No federado → abre
+        // el pago (requiere confirmación posterior). No registrado → informa.
+        var rv = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+        if (rv.length < 7) return { ok: false, message: 'RUT inválido o incompleto para registrar (mínimo 7 dígitos).' };
+        rawRut = rv;
+        if (typeof updateDisplay === 'function') updateDisplay();
+        validateRut();
+        var rs = currentState();
+        var who = rs.competidor ? rs.competidor.nombre : '';
+        if (rs.screen === 'screen-federado') {
+          inscribirFederado();
+          return { ok: true, message: 'Competidor FEDERADO ' + who + ' inscrito correctamente, sin costo. Ya puede retirar su KIT.' };
+        }
+        if (rs.screen === 'screen-nofederado') {
+          changeScreen('qr');
+          return { ok: true, message: 'Competidor NO federado ' + who + '. La inscripción tiene un costo de $15.000. Pídele confirmación al usuario y usa CONFIRMAR_PAGO para confirmar el pago.' };
+        }
+        return { ok: false, message: 'El RUT ' + fmt(rv) + ' no está registrado en el sistema. Indícale al usuario que consulte en boletería.' };
+      }
       case 'SET_RUT': {
         var v = String(args.rut == null ? '' : args.rut).replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
         rawRut = v;
@@ -62,7 +83,7 @@
         var msg;
         if (s.screen === 'screen-federado') msg = 'Competidor FEDERADO: ' + (s.competidor ? s.competidor.nombre : '') + '. Inscripción sin costo.';
         else if (s.screen === 'screen-nofederado') msg = 'Competidor NO federado: ' + (s.competidor ? s.competidor.nombre : '') + '. Debe pagar $15.000.';
-        else msg = 'RUT no registrado en el sistema.';
+        else msg = 'El RUT ' + fmt(rawRut) + ' no está registrado en el sistema.';
         return { ok: true, message: msg };
       }
       case 'INSCRIBIR': {
@@ -73,15 +94,16 @@
         inscribirFederado();
         return { ok: true, message: 'Inscripción del competidor federado realizada. Puede retirar su KIT.' };
       }
-      case 'PAGAR': {
+      case 'PAGAR':
+      case 'CONFIRMAR_PAGO': {
         var a2 = document.querySelector('.screen.active');
         if (a2 && a2.id === 'screen-nofederado') changeScreen('qr');
         a2 = document.querySelector('.screen.active');
         if (!a2 || a2.id !== 'screen-qr') {
-          return { ok: false, message: 'PAGAR requiere un competidor no federado validado.' };
+          return { ok: false, message: 'CONFIRMAR_PAGO requiere un competidor no federado validado (usa REGISTRAR o VALIDATE_RUT primero).' };
         }
         pagarConQR();
-        return { ok: true, message: 'Pago de $15.000 confirmado. Puede retirar su KIT.' };
+        return { ok: true, message: 'Pago de $15.000 confirmado. El competidor ya puede retirar su KIT.' };
       }
       case 'RESET':
       case 'GO_HOME': {
