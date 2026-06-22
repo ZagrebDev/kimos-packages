@@ -44,9 +44,8 @@ para que el backend la liste e instale.
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
 | `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`. |
-| `configSchema` | object | – | 🔭 Esquema de parámetros (genera la UI de ⚙️ Configurar). |
-| `defaultConfig` | object | – | Config inicial de una instancia nueva. |
-| `capabilities` | string[] | – | 🔭 `["config","documents"]` para activar el chrome enriquecido. |
+| `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
+| `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
 
 **Persistencia y permisos:** `saveData/loadData` y `shell.items` requieren
 `teamId`+`instanceId`, que **solo existen en apps `multiInstance`**. Una app
@@ -54,6 +53,51 @@ singleton (sin `multiInstance`) **no persiste** por esos medios. Regla práctica
 *si tu app guarda datos, declara `multiInstance: true`.*
 
 ---
+
+### 3.1 Chrome enriquecido: ⚙️ Configurar y 🗂️ Documentos (AppShell v2)
+
+Desde la **Fase 6**, la barra de título de una app muestra, además de
+minimizar/cerrar:
+
+- **⚙️ Configurar** — si la app declara `configSchema`. El host genera un
+  formulario y persiste los valores; la app los lee con `shell.config`.
+- **🗂️ Documentos** — si la app es `multiInstance`. Menú *Nuevo / Abrir / Guardar
+  / Renombrar / Eliminar / Cerrar* sobre las instancias de la app (no requiere
+  código de la app).
+
+**Formato de `configSchema`** (propio de Kimos, no JSON-Schema):
+
+```jsonc
+"configSchema": {
+  "title": "Preferencias de Mi App",
+  "fields": [
+    { "key": "showGrid", "label": "Mostrar grilla", "type": "boolean" },
+    { "key": "theme", "label": "Tema", "type": "select",
+      "options": [ { "value": "light", "label": "Claro" }, { "value": "dark", "label": "Oscuro" } ] },
+    { "key": "accent", "label": "Color", "type": "color" },
+    { "key": "maxItems", "label": "Máximo", "type": "number", "min": 1, "max": 99 }
+  ]
+},
+"defaultConfig": { "showGrid": true, "theme": "light", "accent": "#19ACB1", "maxItems": 20 }
+```
+
+Tipos de campo: `string`, `textarea`, `number`, `boolean`, `select`, `color`.
+`defaultConfig` siembra los valores iniciales del form.
+
+**Consumir la config en el bundle** (opcional, retrocompatible):
+
+```js
+if (shell.config && shell.config.get) {
+  const s = await shell.config.get();         // { showGrid, theme, ... }
+  applySettings(s);
+  const off = shell.config.onChange(applySettings); // se notifica al guardar ⚙️
+  // llama off() en unmount
+}
+```
+
+Los parámetros se guardan en `config.settings` de la instancia (junto a tus
+datos), así que `shell.loadData()` también los ve. Apps que no lean `shell.config`
+igual muestran el botón ⚙️ y persisten los valores (los aplican cuando quieran).
 
 ## 3. El contrato `AppShell` (runtime)
 

@@ -235,9 +235,9 @@
     {
       "id": "fossflow",
       "name": "FossFLOW",
-      "description": "Creador de diagramas de flujo isométricos (modelo FossFLOW): nodos en grilla (x,y,z) con set de iconos nativo embebido (Lucide) + emojis + importar por URL, y conexiones editables, en SVG puro. Editable por el usuario y controlable por un agente autorizado; el lienzo se repinta reactivamente.",
+      "description": "Creador de diagramas de flujo isométricos (modelo FossFLOW): nodos en grilla (x,y,z) con set de iconos nativo embebido (Lucide) + emojis + importar por URL, y conexiones editables, en SVG puro. Editable por el usuario y controlable por un agente autorizado; el lienzo se repinta reactivamente. Soporta ⚙️ Configurar y 🗂️ Documentos (AppShell v2).",
       "icon": "🧊",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": true,
@@ -246,7 +246,24 @@
         "instance.write",
         "agent.control"
       ],
-      "appShellApi": "1.x"
+      "appShellApi": "1.x",
+      "configSchema": {
+        "title": "Preferencias de FossFLOW",
+        "fields": [
+          { "key": "showGrid", "label": "Mostrar líneas de la cuadrícula", "type": "boolean", "help": "Aplica al abrir el diagrama." },
+          { "key": "newConnStyle", "label": "Línea de conexiones nuevas", "type": "select", "options": [
+            { "value": "solid", "label": "Sólida" },
+            { "value": "dashed", "label": "Discontinua" },
+            { "value": "dotted", "label": "Punteada" }
+          ] },
+          { "key": "newConnArrow", "label": "Punta final de conexiones nuevas", "type": "select", "options": [
+            { "value": "arrow", "label": "Flecha" },
+            { "value": "dot", "label": "Punto" },
+            { "value": "none", "label": "Sin punta" }
+          ] }
+        ]
+      },
+      "defaultConfig": { "showGrid": true, "newConnStyle": "solid", "newConnArrow": "arrow" }
     }
   ]
 }

@@ -325,6 +325,9 @@ export default function mount(shell) {
   let loaded = false;
   const listeners = new Set();
   let saveTimer = null;
+  // Fase 6: preferencias de creación (⚙️ Configurar). No son datos del documento,
+  // sino defaults para conexiones nuevas; se actualizan desde shell.config.
+  let connDefaults = { width: 2.5, style: 'solid', arrowStart: 'none', arrowEnd: 'arrow' };
 
   function emit() { for (const l of listeners) { try { l(model); } catch { /* no-op */ } } }
   function scheduleSave() {
@@ -412,7 +415,8 @@ export default function mount(shell) {
     if (!nodeById(f) || !nodeById(t)) return { ok: false, message: 'Origen o destino inexistente.' };
     if (f === t) return { ok: false, message: 'No se puede conectar un nodo consigo mismo.' };
     if (model.connections.some((c) => (c.from === f && c.to === t) || (c.from === t && c.to === f))) return { ok: false, message: 'Esa conexión ya existe.' };
-    const base = typeof opts === 'string' ? { label: opts } : (opts || {});
+    const given = typeof opts === 'string' ? { label: opts } : (opts || {});
+    const base = Object.assign({}, connDefaults, given);
     const conn = Object.assign({ id: genId('c'), from: f, to: t }, normalizeConn(base));
     commit({ ...model, connections: [...model.connections, conn] });
     return { ok: true, conn };
@@ -635,7 +639,22 @@ export default function mount(shell) {
         model = normalizeModel(cfg && cfg.model ? cfg.model : cfg);
         loaded = true; setM(model);
       }).catch(() => { loaded = true; }).finally(() => { if (!cancelled) setLoadingState(false); });
-      return () => { cancelled = true; listeners.delete(setM); };
+      // Fase 6: preferencias desde ⚙️ Configurar (si el host las provee).
+      const applySettings = (s) => {
+        if (!s || typeof s !== 'object') return;
+        if (typeof s.showGrid === 'boolean') setShowGrid(s.showGrid);
+        connDefaults = {
+          ...connDefaults,
+          style: (['solid', 'dashed', 'dotted'].indexOf(s.newConnStyle) >= 0) ? s.newConnStyle : connDefaults.style,
+          arrowEnd: (['none', 'arrow', 'dot'].indexOf(s.newConnArrow) >= 0) ? s.newConnArrow : connDefaults.arrowEnd,
+        };
+      };
+      let offConfig = null;
+      if (shell.config && typeof shell.config.get === 'function') {
+        Promise.resolve(shell.config.get()).then((s) => { if (!cancelled) applySettings(s); }).catch(() => {});
+        if (typeof shell.config.onChange === 'function') offConfig = shell.config.onChange(applySettings);
+      }
+      return () => { cancelled = true; listeners.delete(setM); if (offConfig) { try { offConfig(); } catch { /* no-op */ } } };
     }, []);
 
     // Encuadre inicial a la cuadrícula una vez montado el SVG.
