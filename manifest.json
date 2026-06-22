@@ -231,6 +231,22 @@
         "agent.control"
       ],
       "appShellApi": "1.x"
+    },
+    {
+      "id": "fossflow",
+      "name": "FossFLOW",
+      "description": "Creador de diagramas de flujo isométricos (modelo FossFLOW): nodos en grilla (x,y,z) y conexiones, en SVG puro. Editable por el usuario y controlable por un agente autorizado; el lienzo se repinta reactivamente.",
+      "icon": "🧊",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "appShellApi": "1.x"
     }
   ]
 }

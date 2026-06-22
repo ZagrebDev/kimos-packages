@@ -1,0 +1,13 @@
+{
+  "id": "fossflow",
+  "name": "FossFLOW",
+  "version": "1.0.0",
+  "description": "Creador de diagramas de flujo isométricos (modelo FossFLOW). Lienzo reactivo y orientado a estado: nodos en grilla (x,y,z) + conexiones, editable por el usuario y controlable por un agente autorizado.",
+  "icon": "🧊",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"]
+}
