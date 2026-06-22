@@ -1,249 +1,146 @@
 /* FossFLOW — estilos de la app instalable (scope .kimos-fossflow). */
 
 .kimos-fossflow {
-  height: 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
+  height: 100%; width: 100%;
+  display: flex; flex-direction: column;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #0f172a;
-  background: #f8fafc;
-  overflow: hidden;
+  color: #0f172a; background: #f8fafc; overflow: hidden;
 }
+.kimos-fossflow.ff-loading { align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
 
-.kimos-fossflow.ff-loading {
-  align-items: center;
-  justify-content: center;
-  color: #64748b;
-  font-size: 14px;
-}
-
-/* ── Barra de herramientas ─────────────────────────────────────────────── */
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .kimos-fossflow .ff-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-  flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; background: #fff; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap;
 }
-.kimos-fossflow .ff-title {
-  font-weight: 700;
-  font-size: 15px;
-  cursor: text;
-  white-space: nowrap;
-}
-.kimos-fossflow .ff-title-input {
-  font-weight: 700;
-  font-size: 15px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 4px 8px;
-  outline: none;
-}
-.kimos-fossflow .ff-stats {
-  font-size: 12px;
-  color: #64748b;
-  white-space: nowrap;
-}
+.kimos-fossflow .ff-title { font-weight: 700; font-size: 15px; cursor: text; white-space: nowrap; }
+.kimos-fossflow .ff-title-input { font-weight: 700; font-size: 15px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; outline: none; }
+.kimos-fossflow .ff-stats { font-size: 12px; color: #64748b; white-space: nowrap; }
 .kimos-fossflow .ff-spacer { flex: 1; }
 
 .kimos-fossflow .ff-btn {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #0f172a;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
+  border: 1px solid #cbd5e1; background: #fff; color: #0f172a;
+  border-radius: 8px; padding: 6px 11px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .kimos-fossflow .ff-btn:hover { background: #f1f5f9; }
-.kimos-fossflow .ff-btn-active {
-  background: #19ACB1;
-  border-color: #19ACB1;
-  color: #fff;
-}
-.kimos-fossflow .ff-btn-danger {
-  border-color: #fecaca;
-  color: #dc2626;
-}
+.kimos-fossflow .ff-btn-active { background: #19ACB1; border-color: #19ACB1; color: #fff; }
+.kimos-fossflow .ff-btn-primary { background: #19ACB1; border-color: #19ACB1; color: #fff; }
+.kimos-fossflow .ff-btn-primary:hover { background: #148f93; }
+.kimos-fossflow .ff-btn-danger { border-color: #fecaca; color: #dc2626; background: #fff; }
 .kimos-fossflow .ff-btn-danger:hover { background: #fef2f2; }
-.kimos-fossflow .ff-block { width: 100%; margin-top: 16px; }
+.kimos-fossflow .ff-block { width: 100%; margin-top: 14px; }
+.kimos-fossflow .ff-flex { flex: 1; }
+.kimos-fossflow .ff-mt { margin-top: 16px; }
 
 .kimos-fossflow .ff-zoom { display: inline-flex; gap: 4px; }
 .kimos-fossflow .ff-icon-btn {
-  width: 30px;
-  height: 30px;
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  color: #334155;
+  width: 30px; height: 30px; border: 1px solid #cbd5e1; background: #fff; border-radius: 8px;
+  cursor: pointer; font-size: 15px; line-height: 1; color: #334155;
 }
 .kimos-fossflow .ff-icon-btn:hover { background: #f1f5f9; }
 
-/* ── Paleta de tipos ───────────────────────────────────────────────────── */
+/* ── Paleta ──────────────────────────────────────────────────────────────── */
 .kimos-fossflow .ff-palette {
-  display: flex;
-  gap: 6px;
-  padding: 8px 14px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-  overflow-x: auto;
+  display: flex; gap: 5px; padding: 7px 14px; background: #fff; border-bottom: 1px solid #e5e7eb;
+  overflow-x: auto; align-items: center;
 }
-.kimos-fossflow .ff-pal-btn {
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #334155;
-  cursor: pointer;
-  white-space: nowrap;
+.kimos-fossflow .ff-pal-emoji {
+  border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 8px;
+  width: 32px; height: 32px; font-size: 17px; cursor: pointer; flex-shrink: 0; line-height: 1;
 }
-.kimos-fossflow .ff-pal-btn:hover { background: #eef2f7; border-color: #cbd5e1; }
+.kimos-fossflow .ff-pal-emoji:hover { background: #eef2f7; border-color: #cbd5e1; }
+.kimos-fossflow .ff-pal-more {
+  border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 6px 12px;
+  font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; white-space: nowrap; flex-shrink: 0; margin-left: 4px;
+}
+.kimos-fossflow .ff-pal-more:hover { background: #f1f5f9; }
 
-/* ── Lienzo ────────────────────────────────────────────────────────────── */
-.kimos-fossflow .ff-stage {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
+/* ── Lienzo ──────────────────────────────────────────────────────────────── */
+.kimos-fossflow .ff-stage { flex: 1; display: flex; min-height: 0; }
 .kimos-fossflow .ff-canvas {
-  flex: 1;
-  background:
-    radial-gradient(circle at 30% 20%, #ffffff 0%, #eef2f7 60%, #e2e8f0 100%);
-  touch-action: none;
-  cursor: grab;
-  user-select: none;
+  flex: 1; touch-action: none; cursor: grab; user-select: none;
+  background: radial-gradient(circle at 30% 18%, #ffffff 0%, #eef2f7 60%, #e2e8f0 100%);
 }
 .kimos-fossflow .ff-canvas:active { cursor: grabbing; }
-
-.kimos-fossflow .ff-grid-line {
-  stroke: #cbd5e1;
-  stroke-width: 1;
-  opacity: 0.5;
-}
+.kimos-fossflow .ff-canvas-connect { cursor: crosshair; }
+.kimos-fossflow .ff-grid-line { stroke: #cbd5e1; stroke-width: 1; opacity: 0.45; }
 
 /* Conexiones */
-.kimos-fossflow .ff-conn-hit {
-  stroke: transparent;
-  stroke-width: 12;
-  fill: none;
-  cursor: pointer;
-}
-.kimos-fossflow .ff-conn-line {
-  stroke-width: 2.5;
-  fill: none;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  pointer-events: none;
-}
+.kimos-fossflow .ff-conn-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+.kimos-fossflow .ff-conn-line { stroke-width: 2.5; fill: none; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
 .kimos-fossflow .ff-conn-sel .ff-conn-line { stroke-width: 3.5; }
 .kimos-fossflow .ff-conn-label {
-  font-size: 11px;
-  font-weight: 600;
-  fill: #475569;
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: #ffffff;
-  stroke-width: 3px;
-  pointer-events: none;
+  font-size: 11px; font-weight: 600; fill: #475569; text-anchor: middle;
+  paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none;
 }
+.kimos-fossflow .ff-wire { stroke: #19ACB1; stroke-width: 2.5; stroke-dasharray: 5 4; fill: none; pointer-events: none; }
 
-/* Nodos (cubos) */
+/* Nodos (baldosa + icono, sin cajas) */
 .kimos-fossflow .ff-node { cursor: grab; }
 .kimos-fossflow .ff-node.ff-node-link { cursor: crosshair; }
 .kimos-fossflow .ff-node-shadow { fill: #0f172a; opacity: 0.10; }
-.kimos-fossflow .ff-face {
-  stroke: rgba(15, 23, 42, 0.25);
-  stroke-width: 1;
-  stroke-linejoin: round;
-}
-.kimos-fossflow .ff-node-sel .ff-face-top {
-  stroke: #19ACB1;
-  stroke-width: 2.5;
-}
-.kimos-fossflow .ff-node-from .ff-face-top {
-  stroke: #f59e0b;
-  stroke-width: 2.5;
-}
-.kimos-fossflow .ff-node-icon {
-  font-size: 15px;
-  text-anchor: middle;
-  dominant-baseline: middle;
-  pointer-events: none;
-}
+.kimos-fossflow .ff-tile-top { stroke-width: 1.5; stroke-linejoin: round; }
+.kimos-fossflow .ff-tile-side { stroke: rgba(15,23,42,0.15); stroke-width: 1; stroke-linejoin: round; }
+.kimos-fossflow .ff-node-ring { fill: none; stroke: #19ACB1; stroke-width: 2.5; stroke-linejoin: round; opacity: 0.9; }
+.kimos-fossflow .ff-node-from .ff-node-ring { stroke: #f59e0b; }
+.kimos-fossflow .ff-node-hover .ff-node-ring { stroke: #22c55e; }
+.kimos-fossflow .ff-node-emoji { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.kimos-fossflow .ff-node-img { pointer-events: none; filter: drop-shadow(0 2px 2px rgba(15,23,42,0.18)); }
 .kimos-fossflow .ff-node-label {
-  font-size: 11px;
-  font-weight: 600;
-  fill: #0f172a;
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: #ffffff;
-  stroke-width: 3px;
-  pointer-events: none;
+  font-size: 11.5px; font-weight: 600; fill: #0f172a; text-anchor: middle;
+  paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none;
 }
+.kimos-fossflow .ff-port { cursor: crosshair; }
+.kimos-fossflow .ff-port-dot { fill: #19ACB1; stroke: #fff; stroke-width: 2; }
+.kimos-fossflow .ff-port:hover .ff-port-dot { fill: #148f93; }
+.kimos-fossflow .ff-port-plus { fill: #fff; font-size: 12px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 
-/* ── Inspector ─────────────────────────────────────────────────────────── */
+/* ── Inspector ───────────────────────────────────────────────────────────── */
 .kimos-fossflow .ff-inspector {
-  width: 250px;
-  flex-shrink: 0;
-  background: #fff;
-  border-left: 1px solid #e5e7eb;
-  padding: 16px;
-  overflow-y: auto;
+  width: 258px; flex-shrink: 0; background: #fff; border-left: 1px solid #e5e7eb; padding: 16px; overflow-y: auto;
 }
-.kimos-fossflow .ff-inspector-empty {
-  color: #94a3b8;
-  font-size: 12.5px;
-  line-height: 1.5;
+.kimos-fossflow .ff-inspector-empty { color: #64748b; font-size: 12.5px; line-height: 1.55; }
+.kimos-fossflow .ff-inspector-empty p { margin: 0 0 11px; }
+.kimos-fossflow .ff-inspector-empty b { color: #334155; }
+.kimos-fossflow .ff-insp-head { font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+.kimos-fossflow .ff-insp-sub { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+.kimos-fossflow .ff-icon-preview { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.kimos-fossflow .ff-icon-box {
+  width: 56px; height: 56px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.kimos-fossflow .ff-inspector-empty p { margin: 0 0 12px; }
-.kimos-fossflow .ff-insp-head {
-  font-weight: 700;
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-.kimos-fossflow .ff-insp-sub {
-  font-size: 12px;
-  color: #64748b;
-  margin-bottom: 10px;
-}
-.kimos-fossflow .ff-lbl {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin: 12px 0 4px;
-}
-.kimos-fossflow .ff-input {
-  width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 7px 9px;
-  font-size: 13px;
-  outline: none;
-  box-sizing: border-box;
-}
+.kimos-fossflow .ff-lbl { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin: 12px 0 4px; }
+.kimos-fossflow .ff-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff; }
 .kimos-fossflow .ff-input:focus { border-color: #19ACB1; }
-.kimos-fossflow .ff-color {
-  width: 100%;
-  height: 34px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 2px;
-  cursor: pointer;
-  box-sizing: border-box;
-}
+.kimos-fossflow .ff-color { width: 100%; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 2px; cursor: pointer; box-sizing: border-box; }
 .kimos-fossflow .ff-row { display: flex; gap: 8px; }
 .kimos-fossflow .ff-row > div { flex: 1; }
 .kimos-fossflow .ff-num { text-align: center; }
+.kimos-fossflow .ff-check-row { display: flex; gap: 14px; margin-top: 12px; }
+.kimos-fossflow .ff-check { font-size: 12.5px; color: #334155; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* ── Modal selector de iconos ────────────────────────────────────────────── */
+.kimos-fossflow .ff-modal-overlay {
+  position: absolute; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 20;
+}
+.kimos-fossflow .ff-modal {
+  width: min(560px, 92%); max-height: 82%; background: #fff; border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(15,23,42,0.3); overflow: hidden;
+}
+.kimos-fossflow .ff-modal-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 15px; margin-bottom: 12px; }
+.kimos-fossflow .ff-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.kimos-fossflow .ff-tab { border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer; }
+.kimos-fossflow .ff-tab-active { background: #19ACB1; border-color: #19ACB1; color: #fff; }
+.kimos-fossflow .ff-cat-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.kimos-fossflow .ff-chip { border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600; color: #475569; cursor: pointer; }
+.kimos-fossflow .ff-chip-active { background: #e0f2f1; border-color: #19ACB1; color: #0f766e; }
+.kimos-fossflow .ff-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; overflow-y: auto; padding: 2px; }
+.kimos-fossflow .ff-emoji-btn { border: 1px solid #eef2f7; background: #fff; border-radius: 8px; height: 44px; font-size: 22px; cursor: pointer; line-height: 1; }
+.kimos-fossflow .ff-emoji-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.kimos-fossflow .ff-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; overflow-y: auto; padding: 2px; margin-top: 10px; max-height: 320px; }
+.kimos-fossflow .ff-icon-cell { border: 1px solid #eef2f7; background: #fff; border-radius: 8px; height: 46px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.kimos-fossflow .ff-icon-cell:hover { background: #f1f5f9; border-color: #19ACB1; }
+.kimos-fossflow .ff-starter-note { font-size: 11px; color: #94a3b8; margin: 10px 0 6px; }
+.kimos-fossflow .ff-muted { font-size: 12px; color: #94a3b8; margin: 8px 0; }
+.kimos-fossflow .ff-error { font-size: 12px; color: #dc2626; margin: 8px 0; }
+.kimos-fossflow .ff-url-preview { display: flex; justify-content: center; padding: 14px; }

@@ -21,26 +21,46 @@ El lienzo se gobierna por un único objeto JSON que se persiste por instancia:
 }
 ```
 
-- **Nodos:** id único, `type` de componente, coordenadas discretas en la grilla
+- **Nodos:** id único, `type` (color base), coordenadas discretas en la grilla
   `(x, y, z)` y metadatos (`label`, `color`, `icon`). `z` es la elevación.
-- **Conexiones:** relaciones de flujo `from → to` por id de nodo.
+- **Conexiones:** flujo `from → to` por id de nodo, con `label`, `color`, `dashed`
+  (punteada) y `bidir` (bidireccional).
 
-Tipos: `server`, `database`, `cloud`, `service`, `user`, `queue`, `storage`, `generic`.
+Tipos: `server`, `database`, `cloud`, `service`, `user`, `process`, `decision`,
+`data`, `generic`.
+
+## Iconos generalistas (librería libre + importados)
+
+El icono de cada nodo es libre — `icon = { kind, value }`:
+
+- **emoji** — catálogo offline por categorías (flujo, red, datos, personas,
+  negocio, lugares, símbolos).
+- **iconify** — buscador sobre [Iconify](https://iconify.design) (200k+ iconos
+  libres: `mdi:server`, `logos:aws`, `tabler:*`, …). Requiere conexión.
+- **url** — imagen/SVG importada por URL o `data:` URI.
+
+El agente puede pasar `icon` como string (emoji, id de Iconify o URL) y se
+normaliza automáticamente.
 
 ## Render (Isoflow core, sin WebGL)
 
 - **Proyección isométrica 2:1** en SVG puro: `project(x,y,z)` mapea la grilla plana
   a los ejes isométricos; `unproject()` invierte para el *snapping* al arrastrar.
-- Nodos renderizados como cubos isométricos (3 caras sombreadas) y conexiones como
-  **líneas ortogonales sobre la grilla** con punta de flecha. Sin Three.js.
+- Nodos: **icono sobre una baldosa isométrica** (no cajas), con sombra y anillo de
+  selección. Conexiones: **líneas ortogonales sobre la grilla** con flecha
+  (y flecha inversa si son bidireccionales). Sin Three.js.
 
 ## Interacción
 
 - **Doble clic** en el lienzo → crear nodo en la celda (con snapping).
-- **Arrastrar** un nodo → mover con auto-ajuste a las intersecciones de la grilla.
-- **Arrastrar el fondo** → desplazar (pan); **rueda** → zoom.
-- **🔗 Conectar** → clic en el nodo origen y luego en el destino.
-- **Inspector** lateral → editar etiqueta, tipo, color y coordenadas, o eliminar.
+- **Arrastrar** un nodo → mover con auto-ajuste a la grilla.
+- **Conectar** → arrastra el **puerto ⊕** de un nodo seleccionado hasta otro, o
+  activa el modo **🔗 Conectar** (clic origen → clic destino).
+- **Arrastrar el fondo** → desplazar (pan); **rueda** → zoom; **⤢** ajusta a contenido.
+- **Inspector** → cambiar icono, etiqueta, tipo, color, coordenadas; duplicar o
+  eliminar; estilo de conexión (punteada / bidireccional).
+- **Atajos:** `Supr`/`Backspace` borra, `Esc` cancela, `Ctrl/Cmd+D` duplica.
+- **Exportar / Importar** el diagrama como JSON (`⤓` / `⤒`).
 
 ## Integración reactiva con el agente
 
@@ -48,11 +68,13 @@ La app expone tools al AgentBridge (`agent.control`). Un agente autorizado puede
 mutar el modelo en segundo plano y **el lienzo se repinta de inmediato** (UI y
 agente comparten el mismo estado y el mismo flujo de mutación → guardado):
 
-- `ADD_NODE { label?, type?, x?, y?, z?, color? }`
-- `UPDATE_NODE { id, label?, type?, x?, y?, z?, color? }`
+- `ADD_NODE { label?, type?, icon?, x?, y?, z?, color? }` — `icon`: emoji, id de
+  Iconify (`mdi:server`, `logos:aws`) o URL.
+- `UPDATE_NODE { id, label?, type?, icon?, x?, y?, z?, color? }`
 - `MOVE_NODE { id, x, y, z? }`
 - `DELETE_NODE { id }`
 - `ADD_CONNECTION { from, to, label? }`
+- `UPDATE_CONNECTION { id, label?, color?, dashed?, bidir? }`
 - `DELETE_CONNECTION { id }`
 - `SET_TITLE { title }`
 - `SET_MODEL { model }` — reemplaza el diagrama completo (generación masiva)
