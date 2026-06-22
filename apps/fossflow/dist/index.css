@@ -44,11 +44,12 @@
   display: flex; gap: 5px; padding: 7px 14px; background: #fff; border-bottom: 1px solid #e5e7eb;
   overflow-x: auto; align-items: center;
 }
-.kimos-fossflow .ff-pal-emoji {
+.kimos-fossflow .ff-pal-icon {
   border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 8px;
-  width: 32px; height: 32px; font-size: 17px; cursor: pointer; flex-shrink: 0; line-height: 1;
+  width: 32px; height: 32px; cursor: pointer; flex-shrink: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; color: #334155;
 }
-.kimos-fossflow .ff-pal-emoji:hover { background: #eef2f7; border-color: #cbd5e1; }
+.kimos-fossflow .ff-pal-icon:hover { background: #eef2f7; border-color: #19ACB1; color: #0f766e; }
 .kimos-fossflow .ff-pal-more {
   border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 6px 12px;
   font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; white-space: nowrap; flex-shrink: 0; margin-left: 4px;
@@ -85,6 +86,7 @@
 .kimos-fossflow .ff-node-from .ff-node-ring { stroke: #f59e0b; }
 .kimos-fossflow .ff-node-hover .ff-node-ring { stroke: #22c55e; }
 .kimos-fossflow .ff-node-emoji { text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.kimos-fossflow .ff-node-svg { pointer-events: none; filter: drop-shadow(0 2px 2px rgba(15,23,42,0.18)); overflow: visible; }
 .kimos-fossflow .ff-node-img { pointer-events: none; filter: drop-shadow(0 2px 2px rgba(15,23,42,0.18)); }
 .kimos-fossflow .ff-node-label {
   font-size: 11.5px; font-weight: 600; fill: #0f172a; text-anchor: middle;
@@ -109,6 +111,7 @@
   width: 56px; height: 56px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
+.kimos-fossflow .ff-icon-cell svg, .kimos-fossflow .ff-pal-icon svg { display: block; }
 .kimos-fossflow .ff-lbl { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; margin: 12px 0 4px; }
 .kimos-fossflow .ff-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff; }
 .kimos-fossflow .ff-input:focus { border-color: #19ACB1; }

@@ -29,18 +29,25 @@ El lienzo se gobierna por un único objeto JSON que se persiste por instancia:
 Tipos: `server`, `database`, `cloud`, `service`, `user`, `process`, `decision`,
 `data`, `generic`.
 
-## Iconos generalistas (librería libre + importados)
+## Iconos nativos (sin dependencias de red)
 
 El icono de cada nodo es libre — `icon = { kind, value }`:
 
-- **emoji** — catálogo offline por categorías (flujo, red, datos, personas,
-  negocio, lugares, símbolos).
-- **iconify** — buscador sobre [Iconify](https://iconify.design) (200k+ iconos
-  libres: `mdi:server`, `logos:aws`, `tabler:*`, …). Requiere conexión.
-- **url** — imagen/SVG importada por URL o `data:` URI.
+- **builtin** — set de iconos **embebido en el propio bundle** (≈128 iconos de
+  [Lucide](https://lucide.dev), licencia ISC), agrupado por categorías (flujo,
+  red/infra, dispositivos, datos, personas/negocio, seguridad, lugares,
+  sistema). **No depende de ninguna URL externa en runtime.** Los SVG fuente
+  viven en [`icons/`](./icons) y se incrustan en `dist/index.js` (ver
+  `icons/LICENSE.md`). Se tiñen con el color del nodo (`currentColor`).
+- **emoji** — catálogo offline por categorías (alternativa universal).
+- **url** — icono propio: imagen/SVG por URL o `data:` URI (importación
+  iniciada por el usuario, no es una dependencia).
 
-El agente puede pasar `icon` como string (emoji, id de Iconify o URL) y se
-normaliza automáticamente.
+El agente puede pasar `icon` como string: una **clave nativa** (`server`,
+`database`, `user`, `cloud`, `shield`, …), un emoji, o una URL. `GET_STATE`
+expone `iconKeys` con todas las claves disponibles. Diagramas antiguos que
+usaban ids de Iconify (`mdi:server`) se migran automáticamente a la clave
+nativa equivalente.
 
 ## Render (Isoflow core, sin WebGL)
 
@@ -57,8 +64,10 @@ normaliza automáticamente.
 - **Conectar** → arrastra el **puerto ⊕** de un nodo seleccionado hasta otro, o
   activa el modo **🔗 Conectar** (clic origen → clic destino).
 - **Arrastrar el fondo** → desplazar (pan); **rueda** → zoom; **⤢** ajusta a contenido.
+- **Editar conexión** → clic sobre la línea: etiqueta, color, **punteada**,
+  **bidireccional** e **invertir sentido**.
 - **Inspector** → cambiar icono, etiqueta, tipo, color, coordenadas; duplicar o
-  eliminar; estilo de conexión (punteada / bidireccional).
+  eliminar.
 - **Atajos:** `Supr`/`Backspace` borra, `Esc` cancela, `Ctrl/Cmd+D` duplica.
 - **Exportar / Importar** el diagrama como JSON (`⤓` / `⤒`).
 
@@ -68,8 +77,8 @@ La app expone tools al AgentBridge (`agent.control`). Un agente autorizado puede
 mutar el modelo en segundo plano y **el lienzo se repinta de inmediato** (UI y
 agente comparten el mismo estado y el mismo flujo de mutación → guardado):
 
-- `ADD_NODE { label?, type?, icon?, x?, y?, z?, color? }` — `icon`: emoji, id de
-  Iconify (`mdi:server`, `logos:aws`) o URL.
+- `ADD_NODE { label?, type?, icon?, x?, y?, z?, color? }` — `icon`: clave nativa
+  (`server`, `database`, `user`, `cloud`, `shield`…), emoji o URL.
 - `UPDATE_NODE { id, label?, type?, icon?, x?, y?, z?, color? }`
 - `MOVE_NODE { id, x, y, z? }`
 - `DELETE_NODE { id }`
