@@ -7,21 +7,22 @@
  *
  * Contrato: export default function mount(shell): { Component, unmount? }
  *
- * ICONOS NATIVOS: el set de iconos (Lucide, licencia ISC) va EMBEBIDO en este
- * bundle (BUILTIN_ICONS), generado desde apps/fossflow/icons/*.svg. No hay
- * dependencia de red ni de URLs externas en runtime. El usuario igualmente puede
- * importar un icono propio por URL/data-URI.
+ * ICONOS NATIVOS: el set (Lucide ISC) va EMBEBIDO en este bundle (BUILTIN_ICONS),
+ * generado desde apps/fossflow/icons/*.svg. Cero dependencia de red en runtime.
+ *
+ * ÁREA DE TRABAJO: el diagrama se limita a una CUADRÍCULA (model.grid = {w,h}).
+ * Todo nodo se mantiene dentro de ella (clamp). La cuadrícula es editable y el
+ * encuadre (⤢) enmarca el área completa.
  *
  * Modelo FossFLOW:
  *   model = {
- *     title, nodes:[{id,label,type,x,y,z,color,icon:{kind,value}}],
- *     connections:[{id,from,to,label,color,dashed,bidir}]
+ *     title, grid:{w,h},
+ *     nodes:[{id,label,type,x,y,z,color,icon:{kind,value}}],
+ *     connections:[{id,from,to,label,color,width,style,arrowStart,arrowEnd}]
  *   }
- *   icon.kind ∈ 'builtin' (clave de BUILTIN_ICONS) | 'emoji' | 'url'
  */
 
 // ── Iconos nativos embebidos (Lucide ISC — https://lucide.dev) ───────────────
-// Cada valor es el cuerpo interno del SVG (stroke=currentColor heredado).
 const BUILTIN_ICONS = {
   "activity": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />",
   "antenna": "<path d=\"M2 12 7 2\" /><path d=\"m7 12 5-10\" /><path d=\"m12 12 5-10\" /><path d=\"m17 12 5-10\" /><path d=\"M4.5 7h15\" /><path d=\"M12 16v6\" />",
@@ -153,7 +154,6 @@ const BUILTIN_ICONS = {
   "zap": "<path d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\" />"
 };
 
-// Agrupación para el selector (las claves inexistentes se filtran en runtime).
 const BUILTIN_CATEGORIES = [
   { name: 'Flujo', items: ['play', 'square', 'circle', 'diamond', 'hexagon', 'triangle', 'flag', 'milestone', 'workflow', 'split', 'merge', 'git-branch', 'git-merge', 'route', 'repeat', 'check', 'check-check', 'circle-check', 'x', 'circle-x', 'triangle-alert', 'octagon-alert', 'info', 'ban', 'clock', 'hourglass', 'loader-circle'] },
   { name: 'Red / Infra', items: ['server', 'database', 'hard-drive', 'cloud', 'network', 'router', 'wifi', 'radio', 'satellite-dish', 'globe', 'cable', 'share-2', 'rss', 'antenna'] },
@@ -170,9 +170,10 @@ const TILE_W = 64, TILE_H = 32;
 const HW = TILE_W / 2, HH = TILE_H / 2;
 const TILE_Z = 26, SLAB = 5, FOOT = 0.92;
 const HWf = HW * FOOT, HHf = HH * FOOT;
-const ICON_SIZE = 38, GRID = 14;
+const ICON_SIZE = 38;
+const DEFAULT_GRID = { w: 16, h: 12 };
+const MIN_GRID = 4, MAX_GRID = 60;
 
-// Tipos (color base + icono por defecto, ahora claves builtin).
 const TYPES = {
   server:   { label: 'Servidor', icon: 'server', color: '#3b82f6' },
   database: { label: 'Base de datos', icon: 'database', color: '#8b5cf6' },
@@ -185,17 +186,20 @@ const TYPES = {
   generic:  { label: 'Nodo', icon: 'box', color: '#64748b' },
 };
 const TYPE_ORDER = ['server', 'database', 'cloud', 'service', 'user', 'process', 'decision', 'data', 'generic'];
-
-// Acceso rápido en la paleta superior (claves builtin).
 const QUICK_ICONS = ['server', 'database', 'cloud', 'network', 'monitor', 'laptop', 'user', 'users', 'building', 'package', 'layers', 'shield', 'bot', 'cog', 'mail', 'globe', 'split', 'zap'];
 
-// Catálogo de emojis (alternativa offline, universal).
 const EMOJI_CATEGORIES = [
   { name: 'Flujo', items: ['▶️', '⏹️', '🔀', '🔁', '✅', '❌', '⚠️', '❓', '⏳', '🚦', '🏁', '↪️', '↩️', '⤴️', '⤵️', '🔂'] },
   { name: 'Objetos', items: ['🖥️', '💻', '☁️', '🗄️', '🌐', '⚙️', '📡', '🔌', '🧱', '🛡️', '🔒', '🔑', '💾', '🧮', '🤖', '🧠'] },
   { name: 'Personas', items: ['👤', '👥', '🧑‍💻', '👨‍💼', '👩‍💼', '🧑‍🔧', '🧑‍🏭', '👮', '🕵️', '🙋', '🤝', '📞', '✉️', '🏢', '🏭', '🛒'] },
   { name: 'Símbolos', items: ['⭐', '💡', '🔔', '📌', '🧩', '🎯', '🔥', '💧', '⚡', '♻️', '⚖️', '⏱️', '🔋', '📶', '🆗', '📍'] },
 ];
+
+// Estilos de conexión.
+const LINE_STYLES = ['solid', 'dashed', 'dotted'];
+const ARROW_KINDS = ['none', 'arrow', 'dot'];
+const LINE_STYLE_LABEL = { solid: 'Sólida', dashed: 'Discontinua', dotted: 'Punteada' };
+const ARROW_LABEL = { none: 'Sin punta', arrow: 'Flecha', dot: 'Punto' };
 
 // ── Color ─────────────────────────────────────────────────────────────────────
 function clampByte(n) { return Math.max(0, Math.min(255, Math.round(n))); }
@@ -210,20 +214,20 @@ function rgbToHex(r, g, b) { return '#' + [r, g, b].map((v) => clampByte(v).toSt
 function shade(hex, pct) { const { r, g, b } = hexToRgb(hex); const t = pct < 0 ? 0 : 255, p = Math.abs(pct); return rgbToHex(r + (t - r) * p, g + (t - g) * p, b + (t - b) * p); }
 function rgba(hex, a) { const { r, g, b } = hexToRgb(hex); return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'; }
 
-// ── Proyección ────────────────────────────────────────────────────────────────
+// ── Proyección y utilidades ───────────────────────────────────────────────────
 function project(x, y, z) { return { sx: (x - y) * HW, sy: (x + y) * HH - (z || 0) * TILE_Z }; }
 function unproject(sx, sy, z) { const yy = sy + (z || 0) * TILE_Z; const a = sx / HW, b = yy / HH; return { x: Math.round((a + b) / 2), y: Math.round((b - a) / 2) }; }
 function genId(p) { return p + '-' + Math.random().toString(36).slice(2, 8) + '-' + Date.now().toString(36).slice(-4); }
+function clampInt(v, max) { v = Math.round(Number(v) || 0); return v < 0 ? 0 : v > max ? max : v; }
+function clampGrid(v, d) { v = Math.round(Number(v) || 0); return v < MIN_GRID ? (d || MIN_GRID) : v > MAX_GRID ? MAX_GRID : v; }
+function coerceWidth(v, d) { v = Number(v); return Number.isFinite(v) ? Math.max(1, Math.min(8, v)) : d; }
+function coerceEnum(v, allowed, d) { return allowed.indexOf(v) >= 0 ? v : d; }
 
-// ── Iconos (resolución de tipo) ───────────────────────────────────────────────
+// ── Iconos ────────────────────────────────────────────────────────────────────
 function resolveIconString(v) {
   if (BUILTIN_ICONS[v]) return { kind: 'builtin', value: v };
   if (/^(https?:|data:)/i.test(v)) return { kind: 'url', value: v };
-  if (/^[a-z0-9-]+:[a-z0-9-]+$/i.test(v)) {          // legacy iconify "mdi:server" → migra por sufijo
-    const suf = v.split(':')[1];
-    if (BUILTIN_ICONS[suf]) return { kind: 'builtin', value: suf };
-    return { kind: 'emoji', value: '📦' };
-  }
+  if (/^[a-z0-9-]+:[a-z0-9-]+$/i.test(v)) { const suf = v.split(':')[1]; if (BUILTIN_ICONS[suf]) return { kind: 'builtin', value: suf }; return { kind: 'emoji', value: '📦' }; }
   return { kind: 'emoji', value: v };
 }
 function normalizeIcon(raw, fb) {
@@ -238,10 +242,25 @@ function normalizeIcon(raw, fb) {
 }
 function iconToString(ic) { return ic && ic.value ? ic.value : ''; }
 
-// ── Normalización del modelo ──────────────────────────────────────────────────
+// ── Conexión: normalización de estilo ─────────────────────────────────────────
+function normalizeConn(c) {
+  return {
+    label: typeof c.label === 'string' ? c.label : '',
+    color: typeof c.color === 'string' && c.color ? c.color : '#64748b',
+    width: coerceWidth(c.width, 2.5),
+    style: coerceEnum(c.style, LINE_STYLES, c.dashed ? 'dashed' : 'solid'),
+    arrowStart: coerceEnum(c.arrowStart, ARROW_KINDS, c.bidir ? 'arrow' : 'none'),
+    arrowEnd: coerceEnum(c.arrowEnd, ARROW_KINDS, 'arrow'),
+  };
+}
+
+// ── Normalización del modelo (incluye cuadrícula y clamp) ─────────────────────
 function normalizeModel(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const title = typeof src.title === 'string' && src.title.trim() ? src.title : 'Diagrama de flujo';
+  let gw = DEFAULT_GRID.w, gh = DEFAULT_GRID.h;
+  if (src.grid && typeof src.grid === 'object') { gw = clampGrid(src.grid.w, DEFAULT_GRID.w); gh = clampGrid(src.grid.h, DEFAULT_GRID.h); }
+
   const seen = new Set();
   const nodes = [];
   if (Array.isArray(src.nodes)) {
@@ -256,14 +275,27 @@ function normalizeModel(raw) {
         id,
         label: typeof n.label === 'string' && n.label ? n.label : def.label,
         type,
-        x: Number.isFinite(n.x) ? Math.round(n.x) : 0,
-        y: Number.isFinite(n.y) ? Math.round(n.y) : 0,
+        x: Math.round(Number(n.x) || 0),
+        y: Math.round(Number(n.y) || 0),
         z: Number.isFinite(n.z) ? Math.round(n.z) : 0,
         color: typeof n.color === 'string' && n.color ? n.color : def.color,
         icon: normalizeIcon(n.icon, def.icon),
       });
     }
   }
+  // Reencuadre: desplaza coordenadas negativas y crece la cuadrícula para que
+  // TODO quede dentro del área de trabajo (p.ej. flujos enormes del agente).
+  if (nodes.length) {
+    let minX = Infinity, minY = Infinity;
+    for (const n of nodes) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); }
+    const offX = minX < 0 ? -minX : 0, offY = minY < 0 ? -minY : 0;
+    let maxX = 0, maxY = 0;
+    for (const n of nodes) { n.x += offX; n.y += offY; maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y); }
+    gw = Math.min(MAX_GRID, Math.max(gw, maxX));
+    gh = Math.min(MAX_GRID, Math.max(gh, maxY));
+    for (const n of nodes) { n.x = clampInt(n.x, gw); n.y = clampInt(n.y, gh); }
+  }
+
   const valid = new Set(nodes.map((n) => n.id));
   const cseen = new Set();
   const connections = [];
@@ -275,16 +307,10 @@ function normalizeModel(raw) {
       const id = String(c.id || genId('c')).trim();
       if (cseen.has(id)) continue;
       cseen.add(id);
-      connections.push({
-        id, from, to,
-        label: typeof c.label === 'string' ? c.label : '',
-        color: typeof c.color === 'string' && c.color ? c.color : '#64748b',
-        dashed: !!c.dashed,
-        bidir: !!c.bidir,
-      });
+      connections.push(Object.assign({ id, from, to }, normalizeConn(c)));
     }
   }
-  return { title, nodes, connections };
+  return { title, grid: { w: gw, h: gh }, nodes, connections };
 }
 
 export default function mount(shell) {
@@ -295,7 +321,6 @@ export default function mount(shell) {
 
   function notify(level, text) { try { shell.notify({ level, text }); } catch { /* no-op */ } }
 
-  // ── Estado del modelo (cerrado por instancia) ──────────────────────────────
   let model = normalizeModel(null);
   let loaded = false;
   const listeners = new Set();
@@ -310,14 +335,19 @@ export default function mount(shell) {
   function commit(next) { model = next; emit(); scheduleSave(); }
   function nodeById(id) { return model.nodes.find((n) => n.id === id) || null; }
 
+  // Primera celda libre DENTRO de la cuadrícula (barrido por anillos desde pref).
   function findFreeCell(prefX, prefY) {
+    const gw = model.grid.w, gh = model.grid.h;
     const occ = new Set(model.nodes.map((n) => n.x + ',' + n.y));
-    const cx = Number.isFinite(prefX) ? Math.round(prefX) : 0;
-    const cy = Number.isFinite(prefY) ? Math.round(prefY) : 0;
+    const cx = clampInt(Number.isFinite(prefX) ? prefX : Math.floor(gw / 2), gw);
+    const cy = clampInt(Number.isFinite(prefY) ? prefY : Math.floor(gh / 2), gh);
     if (!occ.has(cx + ',' + cy)) return { x: cx, y: cy };
-    for (let r = 1; r <= GRID; r++) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+    const R2 = Math.max(gw, gh);
+    for (let r = 1; r <= R2; r++) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-      if (!occ.has((cx + dx) + ',' + (cy + dy))) return { x: cx + dx, y: cy + dy };
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x > gw || y > gh) continue;
+      if (!occ.has(x + ',' + y)) return { x, y };
     }
     return { x: cx, y: cy };
   }
@@ -326,8 +356,8 @@ export default function mount(shell) {
     const a = attrs || {};
     const type = a.type && TYPES[a.type] ? a.type : 'generic';
     const def = TYPES[type];
-    let x = Number.isFinite(a.x) ? Math.round(a.x) : null;
-    let y = Number.isFinite(a.y) ? Math.round(a.y) : null;
+    let x = Number.isFinite(a.x) ? clampInt(a.x, model.grid.w) : null;
+    let y = Number.isFinite(a.y) ? clampInt(a.y, model.grid.h) : null;
     if (x === null || y === null) { const c = findFreeCell(x, y); x = c.x; y = c.y; }
     const node = {
       id: a.id ? String(a.id) : genId('n'),
@@ -349,8 +379,8 @@ export default function mount(shell) {
       found = {
         ...n, type,
         label: typeof p.label === 'string' && p.label ? p.label : n.label,
-        x: Number.isFinite(p.x) ? Math.round(p.x) : n.x,
-        y: Number.isFinite(p.y) ? Math.round(p.y) : n.y,
+        x: Number.isFinite(p.x) ? clampInt(p.x, model.grid.w) : n.x,
+        y: Number.isFinite(p.y) ? clampInt(p.y, model.grid.h) : n.y,
         z: Number.isFinite(p.z) ? Math.round(p.z) : n.z,
         color: typeof p.color === 'string' && p.color ? p.color : n.color,
         icon: p.icon !== undefined ? normalizeIcon(p.icon, n.icon && n.icon.value) : n.icon,
@@ -371,12 +401,19 @@ export default function mount(shell) {
     commit({ ...model, nodes: model.nodes.filter((n) => n.id !== id), connections: model.connections.filter((c) => c.from !== id && c.to !== id) });
     return true;
   }
-  function addConnection(from, to, label) {
+  function setGrid(w, h) {
+    const gw = clampGrid(w, model.grid.w), gh = clampGrid(h, model.grid.h);
+    const nodes = model.nodes.map((n) => ({ ...n, x: clampInt(n.x, gw), y: clampInt(n.y, gh) }));
+    commit({ ...model, grid: { w: gw, h: gh }, nodes });
+    return { w: gw, h: gh };
+  }
+  function addConnection(from, to, opts) {
     const f = String(from || ''), t = String(to || '');
     if (!nodeById(f) || !nodeById(t)) return { ok: false, message: 'Origen o destino inexistente.' };
     if (f === t) return { ok: false, message: 'No se puede conectar un nodo consigo mismo.' };
     if (model.connections.some((c) => (c.from === f && c.to === t) || (c.from === t && c.to === f))) return { ok: false, message: 'Esa conexión ya existe.' };
-    const conn = { id: genId('c'), from: f, to: t, label: typeof label === 'string' ? label : '', color: '#64748b', dashed: false, bidir: false };
+    const base = typeof opts === 'string' ? { label: opts } : (opts || {});
+    const conn = Object.assign({ id: genId('c'), from: f, to: t }, normalizeConn(base));
     commit({ ...model, connections: [...model.connections, conn] });
     return { ok: true, conn };
   }
@@ -389,8 +426,10 @@ export default function mount(shell) {
         ...c,
         label: typeof p.label === 'string' ? p.label : c.label,
         color: typeof p.color === 'string' && p.color ? p.color : c.color,
-        dashed: typeof p.dashed === 'boolean' ? p.dashed : c.dashed,
-        bidir: typeof p.bidir === 'boolean' ? p.bidir : c.bidir,
+        width: p.width !== undefined ? coerceWidth(p.width, c.width) : c.width,
+        style: p.style !== undefined ? coerceEnum(p.style, LINE_STYLES, c.style) : c.style,
+        arrowStart: p.arrowStart !== undefined ? coerceEnum(p.arrowStart, ARROW_KINDS, c.arrowStart) : c.arrowStart,
+        arrowEnd: p.arrowEnd !== undefined ? coerceEnum(p.arrowEnd, ARROW_KINDS, c.arrowEnd) : c.arrowEnd,
       };
       return found;
     });
@@ -399,7 +438,7 @@ export default function mount(shell) {
   }
   function invertConnection(id) {
     let found = null;
-    const connections = model.connections.map((c) => { if (c.id !== id) return c; found = { ...c, from: c.to, to: c.from }; return found; });
+    const connections = model.connections.map((c) => { if (c.id !== id) return c; found = { ...c, from: c.to, to: c.from, arrowStart: c.arrowEnd, arrowEnd: c.arrowStart }; return found; });
     if (found) commit({ ...model, connections });
     return found;
   }
@@ -417,27 +456,30 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     unregisterAgent = shell.agent.register({
       label: 'FossFLOW',
-      description: 'Diagrama de flujo isométrico. icon acepta una clave del set nativo (p.ej. "server", "database", "user", "cloud", "shield"), un emoji, o una URL de imagen.',
+      description: 'Diagrama de flujo isométrico sobre una cuadrícula limitada (model.grid {w,h}). Las coordenadas x∈[0,w], y∈[0,h] se ajustan automáticamente al área. icon acepta una clave nativa (server, database, user, cloud, shield…), un emoji o una URL.',
       tools: [
-        { name: 'ADD_NODE', description: 'Agrega un nodo. type ∈ ' + TYPE_ORDER.join('|') + '. icon: clave nativa | emoji | url. x,y,z opcionales.', inputSchema: { type: 'object', properties: { label: { type: 'string' }, type: { type: 'string' }, icon: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' }, color: { type: 'string' } } } },
+        { name: 'ADD_NODE', description: 'Agrega un nodo dentro de la cuadrícula. type ∈ ' + TYPE_ORDER.join('|') + '. icon: clave nativa | emoji | url.', inputSchema: { type: 'object', properties: { label: { type: 'string' }, type: { type: 'string' }, icon: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' }, color: { type: 'string' } } } },
         { name: 'UPDATE_NODE', description: 'Modifica un nodo por id.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, type: { type: 'string' }, icon: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' }, color: { type: 'string' } }, required: ['id'] } },
-        { name: 'MOVE_NODE', description: 'Reubica un nodo.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } }, required: ['id', 'x', 'y'] } },
+        { name: 'MOVE_NODE', description: 'Reubica un nodo (se mantiene dentro de la cuadrícula).', inputSchema: { type: 'object', properties: { id: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } }, required: ['id', 'x', 'y'] } },
         { name: 'DELETE_NODE', description: 'Elimina un nodo (y sus conexiones).', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
-        { name: 'ADD_CONNECTION', description: 'Conecta dos nodos (from → to).', inputSchema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string' } }, required: ['from', 'to'] } },
-        { name: 'UPDATE_CONNECTION', description: 'Edita una conexión (label/color/dashed/bidir).', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, dashed: { type: 'boolean' }, bidir: { type: 'boolean' } }, required: ['id'] } },
+        { name: 'ADD_CONNECTION', description: 'Conecta dos nodos (from → to). Acepta estilo: width, style(solid|dashed|dotted), arrowStart/arrowEnd(none|arrow|dot).', inputSchema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, width: { type: 'number' }, style: { type: 'string' }, arrowStart: { type: 'string' }, arrowEnd: { type: 'string' } }, required: ['from', 'to'] } },
+        { name: 'UPDATE_CONNECTION', description: 'Edita una conexión: label, color, width, style(solid|dashed|dotted), arrowStart/arrowEnd(none|arrow|dot).', inputSchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, width: { type: 'number' }, style: { type: 'string' }, arrowStart: { type: 'string' }, arrowEnd: { type: 'string' } }, required: ['id'] } },
         { name: 'DELETE_CONNECTION', description: 'Elimina una conexión.', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+        { name: 'SET_GRID', description: 'Redimensiona el área de trabajo (cuadrícula). w,h en celdas (' + MIN_GRID + '..' + MAX_GRID + ').', inputSchema: { type: 'object', properties: { w: { type: 'number' }, h: { type: 'number' } }, required: ['w', 'h'] } },
         { name: 'SET_TITLE', description: 'Cambia el título.', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] } },
-        { name: 'SET_MODEL', description: 'Reemplaza el diagrama completo.', inputSchema: { type: 'object', properties: { model: { type: 'object' } }, required: ['model'] } },
+        { name: 'SET_MODEL', description: 'Reemplaza el diagrama completo (la cuadrícula se ajusta para que todo quepa).', inputSchema: { type: 'object', properties: { model: { type: 'object' } }, required: ['model'] } },
         { name: 'CLEAR', description: 'Vacía el diagrama.', inputSchema: { type: 'object', properties: {} } },
-        { name: 'GET_STATE', description: 'Devuelve el estado actual.', inputSchema: { type: 'object', properties: {} } },
+        { name: 'GET_STATE', description: 'Devuelve el estado actual (incluye dimensiones de la cuadrícula).', inputSchema: { type: 'object', properties: {} } },
       ],
       getSnapshot: () => ({
         title: model.title,
+        grid: { w: model.grid.w, h: model.grid.h },
+        coordsHint: 'x∈[0,' + model.grid.w + '], y∈[0,' + model.grid.h + ']',
         nodeCount: model.nodes.length,
         connectionCount: model.connections.length,
         iconKeys: Object.keys(BUILTIN_ICONS),
         nodes: model.nodes.map((n) => ({ id: n.id, label: n.label, type: n.type, icon: iconToString(n.icon), x: n.x, y: n.y, z: n.z })),
-        connections: model.connections.map((c) => ({ id: c.id, from: c.from, to: c.to, label: c.label, bidir: c.bidir })),
+        connections: model.connections.map((c) => ({ id: c.id, from: c.from, to: c.to, label: c.label, style: c.style, width: c.width, arrowStart: c.arrowStart, arrowEnd: c.arrowEnd })),
       }),
       dispatchAction: async (action) => {
         const type = (action && action.type) || '';
@@ -448,13 +490,14 @@ export default function mount(shell) {
             case 'UPDATE_NODE': { const n = updateNode(String(p.id || ''), p); return n ? { success: true, message: 'Nodo ' + n.id + ' actualizado.' } : { success: false, error: 'No existe el nodo ' + p.id }; }
             case 'MOVE_NODE': { const n = updateNode(String(p.id || ''), { x: p.x, y: p.y, z: p.z }); return n ? { success: true, message: 'Nodo ' + n.id + ' → (' + n.x + ',' + n.y + ',' + n.z + ').' } : { success: false, error: 'No existe el nodo ' + p.id }; }
             case 'DELETE_NODE': return deleteNode(String(p.id || '')) ? { success: true, message: 'Nodo eliminado.' } : { success: false, error: 'No existe el nodo ' + p.id };
-            case 'ADD_CONNECTION': { const r = addConnection(p.from, p.to, p.label); return r.ok ? { success: true, message: 'Conexión ' + r.conn.from + ' → ' + r.conn.to + '.' } : { success: false, error: r.message }; }
+            case 'ADD_CONNECTION': { const r = addConnection(p.from, p.to, p); return r.ok ? { success: true, message: 'Conexión ' + r.conn.from + ' → ' + r.conn.to + '.' } : { success: false, error: r.message }; }
             case 'UPDATE_CONNECTION': { const c = updateConnection(String(p.id || ''), p); return c ? { success: true, message: 'Conexión ' + c.id + ' actualizada.' } : { success: false, error: 'No existe la conexión ' + p.id }; }
             case 'DELETE_CONNECTION': return deleteConnection(String(p.id || '')) ? { success: true, message: 'Conexión eliminada.' } : { success: false, error: 'No existe la conexión ' + p.id };
+            case 'SET_GRID': { const g = setGrid(p.w, p.h); return { success: true, message: 'Cuadrícula ' + g.w + '×' + g.h + '.' }; }
             case 'SET_TITLE': setTitle(p.title); return { success: true, message: 'Título actualizado.' };
-            case 'SET_MODEL': replaceModel(p.model); return { success: true, message: 'Diagrama reemplazado: ' + model.nodes.length + ' nodo(s), ' + model.connections.length + ' conexión(es).' };
+            case 'SET_MODEL': replaceModel(p.model); return { success: true, message: 'Diagrama reemplazado: ' + model.nodes.length + ' nodo(s), ' + model.connections.length + ' conexión(es), cuadrícula ' + model.grid.w + '×' + model.grid.h + '.' };
             case 'CLEAR': clearAll(); return { success: true, message: 'Diagrama vaciado.' };
-            case 'GET_STATE': return { success: true, message: model.title + ': ' + model.nodes.length + ' nodo(s), ' + model.connections.length + ' conexión(es).' };
+            case 'GET_STATE': return { success: true, message: model.title + ': ' + model.nodes.length + ' nodo(s), ' + model.connections.length + ' conexión(es), cuadrícula ' + model.grid.w + '×' + model.grid.h + '.' };
             default: return { success: false, error: 'Acción no soportada: ' + type };
           }
         } catch (e) { return { success: false, error: String((e && e.message) || e) }; }
@@ -482,50 +525,40 @@ export default function mount(shell) {
     const pts = [project(a.x, a.y, a.z), project(b.x, a.y, a.z), project(b.x, b.y, b.z)];
     return pts.map((p, i) => (i === 0 ? 'M' : 'L') + p.sx.toFixed(1) + ' ' + p.sy.toFixed(1)).join(' ');
   }
+  function dashArrayFor(style, w) {
+    w = w || 2.5;
+    if (style === 'dashed') return (w * 3).toFixed(1) + ' ' + (w * 2).toFixed(1);
+    if (style === 'dotted') return '0.1 ' + (w * 2.2).toFixed(1);
+    return 'none';
+  }
+  function markerRef(kind) { return kind === 'arrow' ? 'url(#ff-arrow)' : kind === 'dot' ? 'url(#ff-dot)' : 'none'; }
 
   // ── Render de iconos ───────────────────────────────────────────────────────
-  // Builtin: <svg> anidado con el cuerpo embebido; tinta con currentColor.
   function builtinSvg(key, size, color, extraProps) {
     const body = BUILTIN_ICONS[key];
     if (!body) return null;
-    return h('svg', Object.assign({
-      viewBox: '0 0 24 24', width: size, height: size,
-      fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-      style: { color: color || 'currentColor' },
-      dangerouslySetInnerHTML: { __html: body },
-    }, extraProps || {}));
+    return h('svg', Object.assign({ viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', style: { color: color || 'currentColor' }, dangerouslySetInnerHTML: { __html: body } }, extraProps || {}));
   }
   function nodeIconEl(node, cx, cy) {
     const ic = node.icon || { kind: 'builtin', value: 'box' };
-    if (ic.kind === 'builtin') {
-      const el = builtinSvg(ic.value, ICON_SIZE, node.color, { x: cx - ICON_SIZE / 2, y: cy - ICON_SIZE / 2, className: 'ff-node-svg' });
-      if (el) return el;
-    }
-    if (ic.kind === 'url') {
-      return h('image', { href: ic.value, 'xlink:href': ic.value, x: cx - ICON_SIZE / 2, y: cy - ICON_SIZE / 2, width: ICON_SIZE, height: ICON_SIZE, preserveAspectRatio: 'xMidYMid meet', className: 'ff-node-img' });
-    }
+    if (ic.kind === 'builtin') { const el = builtinSvg(ic.value, ICON_SIZE, node.color, { x: cx - ICON_SIZE / 2, y: cy - ICON_SIZE / 2, className: 'ff-node-svg' }); if (el) return el; }
+    if (ic.kind === 'url') return h('image', { href: ic.value, 'xlink:href': ic.value, x: cx - ICON_SIZE / 2, y: cy - ICON_SIZE / 2, width: ICON_SIZE, height: ICON_SIZE, preserveAspectRatio: 'xMidYMid meet', className: 'ff-node-img' });
     return h('text', { x: cx, y: cy, className: 'ff-node-emoji', style: { fontSize: ICON_SIZE + 'px' } }, ic.value);
   }
-
-  // Vista previa (HTML) de un icono para el inspector/picker.
   function iconPreviewHtml(icon, size) {
     const s = size || 26;
-    if (icon.kind === 'builtin') {
-      const body = BUILTIN_ICONS[icon.value];
-      if (body) return h('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', dangerouslySetInnerHTML: { __html: body } });
-    }
+    if (icon.kind === 'builtin') { const body = BUILTIN_ICONS[icon.value]; if (body) return h('svg', { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', dangerouslySetInnerHTML: { __html: body } }); }
     if (icon.kind === 'url') return h('img', { src: icon.value, width: s, height: s, alt: 'icono' });
     return h('span', { style: { fontSize: (s - 4) + 'px' } }, icon.value);
   }
 
-  // ── Selector de iconos (modal) ─────────────────────────────────────────────
+  // ── Selector de iconos ─────────────────────────────────────────────────────
   function IconPicker({ onPick, onClose }) {
-    const [tab, setTab] = useState('builtin');   // 'builtin' | 'emoji' | 'url'
+    const [tab, setTab] = useState('builtin');
     const [cat, setCat] = useState(0);
     const [ecat, setEcat] = useState(0);
     const [query, setQuery] = useState('');
     const [urlValue, setUrlValue] = useState('');
-
     const allKeys = useMemo(() => Object.keys(BUILTIN_ICONS), []);
     const shown = useMemo(() => {
       const q = query.trim().toLowerCase();
@@ -535,44 +568,27 @@ export default function mount(shell) {
 
     return h('div', { className: 'ff-modal-overlay', onPointerDown: onClose },
       h('div', { className: 'ff-modal', onPointerDown: (e) => e.stopPropagation() },
-        h('div', { className: 'ff-modal-head' },
-          h('span', null, 'Elegir icono'),
-          h('button', { className: 'ff-icon-btn', onClick: onClose, title: 'Cerrar' }, '✕'),
-        ),
+        h('div', { className: 'ff-modal-head' }, h('span', null, 'Elegir icono'), h('button', { className: 'ff-icon-btn', onClick: onClose, title: 'Cerrar' }, '✕')),
         h('div', { className: 'ff-tabs' },
           h('button', { className: 'ff-tab' + (tab === 'builtin' ? ' ff-tab-active' : ''), onClick: () => setTab('builtin') }, 'Iconos'),
           h('button', { className: 'ff-tab' + (tab === 'emoji' ? ' ff-tab-active' : ''), onClick: () => setTab('emoji') }, 'Emojis'),
           h('button', { className: 'ff-tab' + (tab === 'url' ? ' ff-tab-active' : ''), onClick: () => setTab('url') }, 'Importar'),
         ),
-        tab === 'builtin'
-          ? h('div', null,
-              h('input', { className: 'ff-input', placeholder: 'Buscar icono (ej. server, user, cloud, lock)…', value: query, onChange: (e) => setQuery(e.target.value) }),
-              !query.trim() ? h('div', { className: 'ff-cat-row' },
-                BUILTIN_CATEGORIES.map((c, i) => h('button', { key: c.name, className: 'ff-chip' + (i === cat ? ' ff-chip-active' : ''), onClick: () => setCat(i) }, c.name)),
-              ) : null,
-              h('div', { className: 'ff-icon-grid' },
-                shown.map((k) => h('button', { key: k, className: 'ff-icon-cell', title: k, onClick: () => onPick({ kind: 'builtin', value: k }) }, iconPreviewHtml({ kind: 'builtin', value: k }, 26))),
-              ),
-            )
-          : null,
-        tab === 'emoji'
-          ? h('div', null,
-              h('div', { className: 'ff-cat-row' },
-                EMOJI_CATEGORIES.map((c, i) => h('button', { key: c.name, className: 'ff-chip' + (i === ecat ? ' ff-chip-active' : ''), onClick: () => setEcat(i) }, c.name)),
-              ),
-              h('div', { className: 'ff-emoji-grid' },
-                EMOJI_CATEGORIES[ecat].items.map((e, i) => h('button', { key: e + i, className: 'ff-emoji-btn', onClick: () => onPick({ kind: 'emoji', value: e }) }, e)),
-              ),
-            )
-          : null,
-        tab === 'url'
-          ? h('div', null,
-              h('p', { className: 'ff-muted' }, 'Pega la URL de una imagen/SVG o un data-URI (tu icono propio).'),
-              h('input', { className: 'ff-input', placeholder: 'https://… o data:image/svg+xml…', autoFocus: true, value: urlValue, onChange: (e) => setUrlValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter' && urlValue.trim()) onPick({ kind: 'url', value: urlValue.trim() }); } }),
-              urlValue.trim() ? h('div', { className: 'ff-url-preview' }, h('img', { src: urlValue.trim(), width: 48, height: 48, alt: 'preview' })) : null,
-              h('button', { className: 'ff-btn ff-btn-primary ff-block', onClick: () => { if (urlValue.trim()) onPick({ kind: 'url', value: urlValue.trim() }); } }, 'Usar este icono'),
-            )
-          : null,
+        tab === 'builtin' ? h('div', null,
+          h('input', { className: 'ff-input', placeholder: 'Buscar icono (ej. server, user, cloud, lock)…', value: query, onChange: (e) => setQuery(e.target.value) }),
+          !query.trim() ? h('div', { className: 'ff-cat-row' }, BUILTIN_CATEGORIES.map((c, i) => h('button', { key: c.name, className: 'ff-chip' + (i === cat ? ' ff-chip-active' : ''), onClick: () => setCat(i) }, c.name))) : null,
+          h('div', { className: 'ff-icon-grid' }, shown.map((k) => h('button', { key: k, className: 'ff-icon-cell', title: k, onClick: () => onPick({ kind: 'builtin', value: k }) }, iconPreviewHtml({ kind: 'builtin', value: k }, 26)))),
+        ) : null,
+        tab === 'emoji' ? h('div', null,
+          h('div', { className: 'ff-cat-row' }, EMOJI_CATEGORIES.map((c, i) => h('button', { key: c.name, className: 'ff-chip' + (i === ecat ? ' ff-chip-active' : ''), onClick: () => setEcat(i) }, c.name))),
+          h('div', { className: 'ff-emoji-grid' }, EMOJI_CATEGORIES[ecat].items.map((e, i) => h('button', { key: e + i, className: 'ff-emoji-btn', onClick: () => onPick({ kind: 'emoji', value: e }) }, e))),
+        ) : null,
+        tab === 'url' ? h('div', null,
+          h('p', { className: 'ff-muted' }, 'Pega la URL de una imagen/SVG o un data-URI (tu icono propio).'),
+          h('input', { className: 'ff-input', placeholder: 'https://… o data:image/svg+xml…', autoFocus: true, value: urlValue, onChange: (e) => setUrlValue(e.target.value), onKeyDown: (e) => { if (e.key === 'Enter' && urlValue.trim()) onPick({ kind: 'url', value: urlValue.trim() }); } }),
+          urlValue.trim() ? h('div', { className: 'ff-url-preview' }, h('img', { src: urlValue.trim(), width: 48, height: 48, alt: 'preview' })) : null,
+          h('button', { className: 'ff-btn ff-btn-primary ff-block', onClick: () => { if (urlValue.trim()) onPick({ kind: 'url', value: urlValue.trim() }); } }, 'Usar este icono'),
+        ) : null,
       ),
     );
   }
@@ -581,7 +597,7 @@ export default function mount(shell) {
   function Component() {
     const [m, setM] = useState(model);
     const [loadingState, setLoadingState] = useState(true);
-    const [view, setView] = useState({ panX: 380, panY: 180, scale: 1 });
+    const [view, setView] = useState({ panX: 380, panY: 120, scale: 1 });
     const [selected, setSelected] = useState(null);
     const [connectMode, setConnectMode] = useState(false);
     const [connectFrom, setConnectFrom] = useState(null);
@@ -589,12 +605,26 @@ export default function mount(shell) {
     const [editingTitle, setEditingTitle] = useState(false);
     const [picker, setPicker] = useState(null);
     const [showGrid, setShowGrid] = useState(true);
+    const [gridPop, setGridPop] = useState(false);
 
     const svgRef = useRef(null);
     const fileRef = useRef(null);
     const viewRef = useRef(view); viewRef.current = view;
     const interactRef = useRef({ mode: null });
     const movedRef = useRef(false);
+    const didFitRef = useRef(false);
+
+    const fitView = useCallback((gridOverride) => {
+      const grid = gridOverride || model.grid;
+      const corners = [project(0, 0, 0), project(grid.w, 0, 0), project(grid.w, grid.h, 0), project(0, grid.h, 0)];
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of corners) { minX = Math.min(minX, p.sx - HW); maxX = Math.max(maxX, p.sx + HW); minY = Math.min(minY, p.sy - HH); maxY = Math.max(maxY, p.sy + HH); }
+      for (const n of model.nodes) { const p = project(n.x, n.y, n.z); minY = Math.min(minY, p.sy - 56); maxY = Math.max(maxY, p.sy + HH + 18); }
+      const svg = svgRef.current; const rect = svg ? svg.getBoundingClientRect() : { width: 820, height: 520 };
+      const w = Math.max(1, maxX - minX), hgt = Math.max(1, maxY - minY);
+      const scale = Math.max(0.3, Math.min(1.8, Math.min((rect.width - 70) / w, (rect.height - 70) / hgt)));
+      setView({ scale, panX: rect.width / 2 - ((minX + maxX) / 2) * scale, panY: rect.height / 2 - ((minY + maxY) / 2) * scale });
+    }, []);
 
     useEffect(() => {
       listeners.add(setM);
@@ -608,18 +638,21 @@ export default function mount(shell) {
       return () => { cancelled = true; listeners.delete(setM); };
     }, []);
 
+    // Encuadre inicial a la cuadrícula una vez montado el SVG.
+    useEffect(() => {
+      if (loadingState || didFitRef.current) return;
+      didFitRef.current = true;
+      const id = requestAnimationFrame(() => fitView());
+      return () => cancelAnimationFrame(id);
+    }, [loadingState, fitView]);
+
     useEffect(() => {
       const onKey = (e) => {
         const tag = (e.target && e.target.tagName) || '';
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-        if (e.key === 'Escape') { setWire(null); setConnectFrom(null); setSelected(null); setPicker(null); return; }
-        if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-          if (selected.kind === 'node') deleteNode(selected.id); else deleteConnection(selected.id);
-          setSelected(null); e.preventDefault(); return;
-        }
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D') && selected && selected.kind === 'node') {
-          const dup = duplicateNode(selected.id); if (dup) setSelected({ kind: 'node', id: dup.id }); e.preventDefault();
-        }
+        if (e.key === 'Escape') { setWire(null); setConnectFrom(null); setSelected(null); setPicker(null); setGridPop(false); return; }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { if (selected.kind === 'node') deleteNode(selected.id); else deleteConnection(selected.id); setSelected(null); e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D') && selected && selected.kind === 'node') { const dup = duplicateNode(selected.id); if (dup) setSelected({ kind: 'node', id: dup.id }); e.preventDefault(); }
       };
       window.addEventListener('keydown', onKey);
       return () => window.removeEventListener('keydown', onKey);
@@ -644,7 +677,7 @@ export default function mount(shell) {
       if (connectMode) {
         if (!connectFrom) { setConnectFrom(node.id); setSelected({ kind: 'node', id: node.id }); }
         else if (connectFrom === node.id) setConnectFrom(null);
-        else { const r = addConnection(connectFrom, node.id); if (!r.ok) notify('warn', r.message); setConnectFrom(null); }
+        else { const r = addConnection(connectFrom, node.id); if (r.ok) setSelected({ kind: 'conn', id: r.conn.id }); else notify('warn', r.message); setConnectFrom(null); }
         return;
       }
       try { evt.currentTarget.setPointerCapture(evt.pointerId); } catch { /* no-op */ }
@@ -663,6 +696,7 @@ export default function mount(shell) {
 
     const onSvgPointerDown = useCallback((evt) => {
       if (interactRef.current.mode) return;
+      setGridPop(false);
       const v = viewRef.current;
       interactRef.current = { mode: 'pan', startX: evt.clientX, startY: evt.clientY, panX: v.panX, panY: v.panY };
       movedRef.current = false;
@@ -702,45 +736,27 @@ export default function mount(shell) {
       if (connectMode) return;
       const { gx, gy } = clientToGroup(evt);
       const cell = unproject(gx, gy, 0);
+      if (cell.x < 0 || cell.y < 0 || cell.x > model.grid.w || cell.y > model.grid.h) return;  // fuera del área
       if (model.nodes.some((n) => n.x === cell.x && n.y === cell.y)) return;
       const n = addNode({ x: cell.x, y: cell.y, type: 'generic' });
       setSelected({ kind: 'node', id: n.id });
     }, [clientToGroup, connectMode]);
 
-    const onWheel = useCallback((evt) => {
-      evt.preventDefault();
-      setView((vw) => ({ ...vw, scale: Math.max(0.35, Math.min(2.6, vw.scale * (evt.deltaY < 0 ? 1.1 : 1 / 1.1))) }));
-    }, []);
-    const zoomBy = (f) => setView((vw) => ({ ...vw, scale: Math.max(0.35, Math.min(2.6, vw.scale * f)) }));
-
-    const fitView = useCallback(() => {
-      if (!model.nodes.length) { setView({ panX: 380, panY: 180, scale: 1 }); return; }
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const n of model.nodes) {
-        const p = project(n.x, n.y, n.z);
-        minX = Math.min(minX, p.sx - HW); maxX = Math.max(maxX, p.sx + HW);
-        minY = Math.min(minY, p.sy - 60); maxY = Math.max(maxY, p.sy + HH);
-      }
-      const svg = svgRef.current; const rect = svg ? svg.getBoundingClientRect() : { width: 800, height: 500 };
-      const w = Math.max(1, maxX - minX), hgt = Math.max(1, maxY - minY);
-      const scale = Math.max(0.35, Math.min(1.8, Math.min((rect.width - 80) / w, (rect.height - 80) / hgt)));
-      setView({ scale, panX: rect.width / 2 - ((minX + maxX) / 2) * scale, panY: rect.height / 2 - ((minY + maxY) / 2) * scale });
-    }, []);
+    const onWheel = useCallback((evt) => { evt.preventDefault(); setView((vw) => ({ ...vw, scale: Math.max(0.3, Math.min(2.6, vw.scale * (evt.deltaY < 0 ? 1.1 : 1 / 1.1))) })); }, []);
+    const zoomBy = (f) => setView((vw) => ({ ...vw, scale: Math.max(0.3, Math.min(2.6, vw.scale * f)) }));
 
     const exportJSON = useCallback(() => {
       try {
         const blob = new Blob([JSON.stringify(model, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = (model.title || 'diagrama').replace(/[^\w\-]+/g, '_') + '.fossflow.json';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const a = document.createElement('a'); a.href = url; a.download = (model.title || 'diagrama').replace(/[^\w\-]+/g, '_') + '.fossflow.json';
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch { notify('error', 'No se pudo exportar'); }
     }, []);
     const importJSON = useCallback((file) => {
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => { try { replaceModel(JSON.parse(String(reader.result))); notify('success', 'Diagrama importado'); } catch { notify('error', 'Archivo inválido'); } };
+      reader.onload = () => { try { replaceModel(JSON.parse(String(reader.result))); didFitRef.current = false; notify('success', 'Diagrama importado'); } catch { notify('error', 'Archivo inválido'); } };
       reader.readAsText(file);
     }, []);
 
@@ -756,39 +772,59 @@ export default function mount(shell) {
     const selectedNode = selected && selected.kind === 'node' ? nodeMap[selected.id] : null;
     const selectedConn = selected && selected.kind === 'conn' ? m.connections.find((c) => c.id === selected.id) : null;
 
-    const gridLines = useMemo(() => {
-      if (!showGrid) return null;
+    // Área de trabajo (polígono) + líneas, acotadas a la cuadrícula.
+    const gridGfx = useMemo(() => {
+      const gw = m.grid.w, gh = m.grid.h;
+      const c0 = project(0, 0, 0), c1 = project(gw, 0, 0), c2 = project(gw, gh, 0), c3 = project(0, gh, 0);
+      const area = [c0, c1, c2, c3].map((p) => p.sx.toFixed(1) + ',' + p.sy.toFixed(1)).join(' ');
       const lines = [];
-      for (let i = -GRID; i <= GRID; i++) {
-        const a = project(i, -GRID, 0), b = project(i, GRID, 0);
-        lines.push(h('line', { key: 'gx' + i, x1: a.sx, y1: a.sy, x2: b.sx, y2: b.sy, className: 'ff-grid-line' }));
-        const c = project(-GRID, i, 0), d = project(GRID, i, 0);
-        lines.push(h('line', { key: 'gy' + i, x1: c.sx, y1: c.sy, x2: d.sx, y2: d.sy, className: 'ff-grid-line' }));
+      if (showGrid) {
+        for (let i = 0; i <= gw; i++) { const a = project(i, 0, 0), b = project(i, gh, 0); lines.push(h('line', { key: 'gx' + i, x1: a.sx, y1: a.sy, x2: b.sx, y2: b.sy, className: 'ff-grid-line' })); }
+        for (let j = 0; j <= gh; j++) { const a = project(0, j, 0), b = project(gw, j, 0); lines.push(h('line', { key: 'gy' + j, x1: a.sx, y1: a.sy, x2: b.sx, y2: b.sy, className: 'ff-grid-line' })); }
       }
-      return lines;
-    }, [showGrid]);
+      return { area, lines };
+    }, [m.grid.w, m.grid.h, showGrid]);
 
     if (loadingState) return h('div', { className: 'kimos-fossflow ff-loading' }, 'Cargando diagrama…');
 
     const tBtn = (active, title, label, onClick) => h('button', { className: 'ff-btn' + (active ? ' ff-btn-active' : ''), title, onClick }, label);
+    const optionEls = (obj, keys) => keys.map((k) => h('option', { key: k, value: k }, obj[k]));
 
     return h('div', { className: 'kimos-fossflow' },
       h('div', { className: 'ff-toolbar' },
         editingTitle
-          ? h('input', { className: 'ff-title-input', autoFocus: true, defaultValue: m.title,
-              onBlur: (e) => { setTitle(e.target.value); setEditingTitle(false); },
-              onKeyDown: (e) => { if (e.key === 'Enter') { setTitle(e.target.value); setEditingTitle(false); } if (e.key === 'Escape') setEditingTitle(false); } })
+          ? h('input', { className: 'ff-title-input', autoFocus: true, defaultValue: m.title, onBlur: (e) => { setTitle(e.target.value); setEditingTitle(false); }, onKeyDown: (e) => { if (e.key === 'Enter') { setTitle(e.target.value); setEditingTitle(false); } if (e.key === 'Escape') setEditingTitle(false); } })
           : h('span', { className: 'ff-title', title: 'Doble click para renombrar', onDoubleClick: () => setEditingTitle(true) }, '🧊 ' + m.title),
         h('span', { className: 'ff-stats' }, m.nodes.length + ' nodo' + (m.nodes.length === 1 ? '' : 's') + ' · ' + m.connections.length + ' conexión' + (m.connections.length === 1 ? '' : 'es')),
         h('div', { className: 'ff-spacer' }),
         tBtn(connectMode, 'Conectar: clic en origen y luego en destino (o arrastra el puerto ⊕ de un nodo)', connectMode ? '🔗 Conectando…' : '🔗 Conectar', () => { setConnectMode((v) => !v); setConnectFrom(null); }),
-        tBtn(showGrid, 'Mostrar/ocultar grilla', '▦', () => setShowGrid((v) => !v)),
+        h('div', { className: 'ff-gridctl' },
+          tBtn(gridPop, 'Editar la cuadrícula (área de trabajo)', '▦ ' + m.grid.w + '×' + m.grid.h, () => setGridPop((v) => !v)),
+          gridPop ? h('div', { className: 'ff-grid-pop', onPointerDown: (e) => e.stopPropagation() },
+            h('div', { className: 'ff-pop-title' }, 'Área de trabajo (cuadrícula)'),
+            h('div', { className: 'ff-pop-row' },
+              h('label', null, 'Ancho'),
+              h('button', { className: 'ff-icon-btn', onClick: () => setGrid(m.grid.w - 1, m.grid.h) }, '−'),
+              h('input', { className: 'ff-input ff-num ff-pop-num', type: 'number', min: MIN_GRID, max: MAX_GRID, value: m.grid.w, onChange: (e) => setGrid(parseInt(e.target.value, 10), m.grid.h) }),
+              h('button', { className: 'ff-icon-btn', onClick: () => setGrid(m.grid.w + 1, m.grid.h) }, '+'),
+            ),
+            h('div', { className: 'ff-pop-row' },
+              h('label', null, 'Alto'),
+              h('button', { className: 'ff-icon-btn', onClick: () => setGrid(m.grid.w, m.grid.h - 1) }, '−'),
+              h('input', { className: 'ff-input ff-num ff-pop-num', type: 'number', min: MIN_GRID, max: MAX_GRID, value: m.grid.h, onChange: (e) => setGrid(m.grid.w, parseInt(e.target.value, 10)) }),
+              h('button', { className: 'ff-icon-btn', onClick: () => setGrid(m.grid.w, m.grid.h + 1) }, '+'),
+            ),
+            h('label', { className: 'ff-check' }, h('input', { type: 'checkbox', checked: showGrid, onChange: (e) => setShowGrid(e.target.checked) }), ' Mostrar líneas'),
+            h('button', { className: 'ff-btn ff-block', onClick: () => fitView() }, '⤢ Encuadrar área'),
+            h('p', { className: 'ff-muted' }, 'Los nodos siempre se mantienen dentro de la cuadrícula (' + MIN_GRID + '–' + MAX_GRID + ').'),
+          ) : null,
+        ),
         h('button', { className: 'ff-btn', title: 'Exportar JSON', onClick: exportJSON }, '⤓'),
         h('button', { className: 'ff-btn', title: 'Importar JSON', onClick: () => fileRef.current && fileRef.current.click() }, '⤒'),
         h('input', { ref: fileRef, type: 'file', accept: 'application/json,.json', style: { display: 'none' }, onChange: (e) => { importJSON(e.target.files && e.target.files[0]); e.target.value = ''; } }),
         h('div', { className: 'ff-zoom' },
           h('button', { className: 'ff-icon-btn', title: 'Alejar', onClick: () => zoomBy(1 / 1.1) }, '−'),
-          h('button', { className: 'ff-icon-btn', title: 'Ajustar a contenido', onClick: fitView }, '⤢'),
+          h('button', { className: 'ff-icon-btn', title: 'Encuadrar área de trabajo', onClick: () => fitView() }, '⤢'),
           h('button', { className: 'ff-icon-btn', title: 'Acercar', onClick: () => zoomBy(1.1) }, '+'),
         ),
       ),
@@ -797,15 +833,15 @@ export default function mount(shell) {
         h('button', { className: 'ff-pal-more', title: 'Catálogo de iconos nativos / emojis / importar', onClick: () => setPicker(selectedNode ? { targetId: selectedNode.id } : { create: true }) }, '🔍 Más iconos…'),
       ),
       h('div', { className: 'ff-stage' },
-        h('svg', { ref: svgRef, className: 'ff-canvas' + (connectMode ? ' ff-canvas-connect' : ''), xmlns: 'http://www.w3.org/2000/svg',
-          onPointerDown: onSvgPointerDown, onPointerMove: onSvgPointerMove, onPointerUp: onSvgPointerUp, onPointerLeave: onSvgPointerUp,
-          onDoubleClick: onSvgDoubleClick, onWheel },
+        h('svg', { ref: svgRef, className: 'ff-canvas' + (connectMode ? ' ff-canvas-connect' : ''), xmlns: 'http://www.w3.org/2000/svg', onPointerDown: onSvgPointerDown, onPointerMove: onSvgPointerMove, onPointerUp: onSvgPointerUp, onPointerLeave: onSvgPointerUp, onDoubleClick: onSvgDoubleClick, onWheel },
           h('defs', null,
-            h('marker', { id: 'ff-arrow', viewBox: '0 0 10 10', refX: 8.5, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
-              h('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'context-stroke' })),
+            h('marker', { id: 'ff-arrow', viewBox: '0 0 10 10', refX: 8.5, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, h('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'context-stroke' })),
+            h('marker', { id: 'ff-dot', viewBox: '0 0 10 10', refX: 5, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto' }, h('circle', { cx: 5, cy: 5, r: 4, fill: 'context-stroke' })),
           ),
           h('g', { transform: 'translate(' + view.panX + ',' + view.panY + ') scale(' + view.scale + ')' },
-            gridLines ? h('g', { className: 'ff-grid' }, gridLines) : null,
+            h('polygon', { points: gridGfx.area, className: 'ff-workarea' }),
+            gridGfx.lines.length ? h('g', { className: 'ff-grid' }, gridGfx.lines) : null,
+            h('polygon', { points: gridGfx.area, className: 'ff-workarea-border' }),
             h('g', { className: 'ff-connections' },
               m.connections.map((c) => {
                 const a = nodeMap[c.from], b = nodeMap[c.to]; if (!a || !b) return null;
@@ -814,8 +850,8 @@ export default function mount(shell) {
                 const stroke = isSel ? '#19ACB1' : c.color;
                 const d = connectionPath(a, b);
                 return h('g', { key: c.id, className: 'ff-conn' + (isSel ? ' ff-conn-sel' : ''), onPointerDown: (e) => { e.stopPropagation(); setSelected({ kind: 'conn', id: c.id }); } },
-                  h('path', { d, className: 'ff-conn-hit' }),
-                  h('path', { d, className: 'ff-conn-line', stroke, strokeDasharray: c.dashed ? '7 5' : 'none', markerEnd: 'url(#ff-arrow)', markerStart: c.bidir ? 'url(#ff-arrow)' : 'none' }),
+                  h('path', { d, className: 'ff-conn-hit', strokeWidth: Math.max(14, c.width + 10) }),
+                  h('path', { d, className: 'ff-conn-line', stroke, strokeWidth: c.width, strokeDasharray: dashArrayFor(c.style, c.width), strokeLinecap: c.style === 'dotted' ? 'round' : 'round', markerStart: markerRef(c.arrowStart), markerEnd: markerRef(c.arrowEnd) }),
                   c.label ? h('text', { x: mid.sx, y: mid.sy - 5, className: 'ff-conn-label' }, c.label) : null,
                 );
               }),
@@ -827,9 +863,7 @@ export default function mount(shell) {
                 const isSel = selected && selected.kind === 'node' && selected.id === node.id;
                 const isFrom = connectFrom === node.id;
                 const isHover = wire && wire.hoverId === node.id;
-                return h('g', { key: node.id,
-                  className: 'ff-node' + (isSel ? ' ff-node-sel' : '') + (isFrom ? ' ff-node-from' : '') + (isHover ? ' ff-node-hover' : '') + (connectMode ? ' ff-node-link' : ''),
-                  onPointerDown: (e) => onNodePointerDown(e, node) },
+                return h('g', { key: node.id, className: 'ff-node' + (isSel ? ' ff-node-sel' : '') + (isFrom ? ' ff-node-from' : '') + (isHover ? ' ff-node-hover' : '') + (connectMode ? ' ff-node-link' : ''), onPointerDown: (e) => onNodePointerDown(e, node) },
                   h('ellipse', { cx: g.P.sx, cy: g.P.sy + SLAB, rx: HWf, ry: HHf, className: 'ff-node-shadow' }),
                   (isSel || isHover || isFrom) ? h('polygon', { points: g.ring, className: 'ff-node-ring' }) : null,
                   h('polygon', { points: g.left, fill: shade(node.color, -0.18), className: 'ff-tile-side' }),
@@ -837,10 +871,7 @@ export default function mount(shell) {
                   h('polygon', { points: g.top, fill: rgba(node.color, 0.22), stroke: rgba(node.color, 0.9), className: 'ff-tile-top' }),
                   nodeIconEl(node, g.P.sx, g.iconCY),
                   h('text', { x: g.P.sx, y: g.labelY, className: 'ff-node-label' }, node.label),
-                  (isSel || connectMode) ? h('g', { className: 'ff-port', onPointerDown: (e) => onPortPointerDown(e, node) },
-                    h('circle', { cx: g.P.sx, cy: g.iconCY - ICON_SIZE / 2 - 8, r: 7, className: 'ff-port-dot' }),
-                    h('text', { x: g.P.sx, y: g.iconCY - ICON_SIZE / 2 - 8, className: 'ff-port-plus' }, '+'),
-                  ) : null,
+                  (isSel || connectMode) ? h('g', { className: 'ff-port', onPointerDown: (e) => onPortPointerDown(e, node) }, h('circle', { cx: g.P.sx, cy: g.iconCY - ICON_SIZE / 2 - 8, r: 7, className: 'ff-port-dot' }), h('text', { x: g.P.sx, y: g.iconCY - ICON_SIZE / 2 - 8, className: 'ff-port-plus' }, '+')) : null,
                 );
               }),
             ),
@@ -851,15 +882,11 @@ export default function mount(shell) {
               selectedNode
                 ? h('div', null,
                     h('div', { className: 'ff-insp-head' }, 'Nodo'),
-                    h('div', { className: 'ff-icon-preview' },
-                      h('div', { className: 'ff-icon-box', style: { color: selectedNode.color } }, iconPreviewHtml(selectedNode.icon, 40)),
-                      h('button', { className: 'ff-btn ff-btn-primary', onClick: () => setPicker({ targetId: selectedNode.id }) }, 'Cambiar icono'),
-                    ),
+                    h('div', { className: 'ff-icon-preview' }, h('div', { className: 'ff-icon-box', style: { color: selectedNode.color } }, iconPreviewHtml(selectedNode.icon, 40)), h('button', { className: 'ff-btn ff-btn-primary', onClick: () => setPicker({ targetId: selectedNode.id }) }, 'Cambiar icono')),
                     h('label', { className: 'ff-lbl' }, 'Etiqueta'),
                     h('input', { className: 'ff-input', value: selectedNode.label, onChange: (e) => updateNode(selectedNode.id, { label: e.target.value }) }),
                     h('label', { className: 'ff-lbl' }, 'Tipo (color base)'),
-                    h('select', { className: 'ff-input', value: selectedNode.type, onChange: (e) => updateNode(selectedNode.id, { type: e.target.value, color: TYPES[e.target.value].color }) },
-                      TYPE_ORDER.map((t) => h('option', { key: t, value: t }, TYPES[t].label))),
+                    h('select', { className: 'ff-input', value: selectedNode.type, onChange: (e) => updateNode(selectedNode.id, { type: e.target.value, color: TYPES[e.target.value].color }) }, TYPE_ORDER.map((t) => h('option', { key: t, value: t }, TYPES[t].label))),
                     h('label', { className: 'ff-lbl' }, 'Color'),
                     h('input', { className: 'ff-color', type: 'color', value: selectedNode.color, onChange: (e) => updateNode(selectedNode.id, { color: e.target.value }) }),
                     h('div', { className: 'ff-row' },
@@ -867,10 +894,7 @@ export default function mount(shell) {
                       h('div', null, h('label', { className: 'ff-lbl' }, 'Y'), h('input', { className: 'ff-input ff-num', type: 'number', value: selectedNode.y, onChange: (e) => updateNode(selectedNode.id, { y: parseInt(e.target.value, 10) }) })),
                       h('div', null, h('label', { className: 'ff-lbl' }, 'Z'), h('input', { className: 'ff-input ff-num', type: 'number', value: selectedNode.z, onChange: (e) => updateNode(selectedNode.id, { z: parseInt(e.target.value, 10) }) })),
                     ),
-                    h('div', { className: 'ff-row ff-mt' },
-                      h('button', { className: 'ff-btn ff-flex', onClick: () => { const d = duplicateNode(selectedNode.id); if (d) setSelected({ kind: 'node', id: d.id }); } }, '⧉ Duplicar'),
-                      h('button', { className: 'ff-btn ff-btn-danger ff-flex', onClick: () => { deleteNode(selectedNode.id); setSelected(null); } }, '🗑️ Eliminar'),
-                    ),
+                    h('div', { className: 'ff-row ff-mt' }, h('button', { className: 'ff-btn ff-flex', onClick: () => { const d = duplicateNode(selectedNode.id); if (d) setSelected({ kind: 'node', id: d.id }); } }, '⧉ Duplicar'), h('button', { className: 'ff-btn ff-btn-danger ff-flex', onClick: () => { deleteNode(selectedNode.id); setSelected(null); } }, '🗑️ Eliminar')),
                   )
                 : h('div', null,
                     h('div', { className: 'ff-insp-head' }, 'Conexión'),
@@ -879,19 +903,24 @@ export default function mount(shell) {
                     h('input', { className: 'ff-input', value: selectedConn.label, placeholder: 'Texto del flujo…', onChange: (e) => updateConnection(selectedConn.id, { label: e.target.value }) }),
                     h('label', { className: 'ff-lbl' }, 'Color'),
                     h('input', { className: 'ff-color', type: 'color', value: selectedConn.color, onChange: (e) => updateConnection(selectedConn.id, { color: e.target.value }) }),
-                    h('div', { className: 'ff-check-row' },
-                      h('label', { className: 'ff-check' }, h('input', { type: 'checkbox', checked: selectedConn.dashed, onChange: (e) => updateConnection(selectedConn.id, { dashed: e.target.checked }) }), ' Punteada'),
-                      h('label', { className: 'ff-check' }, h('input', { type: 'checkbox', checked: selectedConn.bidir, onChange: (e) => updateConnection(selectedConn.id, { bidir: e.target.checked }) }), ' Bidireccional'),
+                    h('label', { className: 'ff-lbl' }, 'Grosor (' + selectedConn.width + ')'),
+                    h('input', { className: 'ff-range', type: 'range', min: 1, max: 8, step: 0.5, value: selectedConn.width, onChange: (e) => updateConnection(selectedConn.id, { width: parseFloat(e.target.value) }) }),
+                    h('label', { className: 'ff-lbl' }, 'Tipo de línea'),
+                    h('select', { className: 'ff-input', value: selectedConn.style, onChange: (e) => updateConnection(selectedConn.id, { style: e.target.value }) }, optionEls(LINE_STYLE_LABEL, LINE_STYLES)),
+                    h('div', { className: 'ff-row' },
+                      h('div', null, h('label', { className: 'ff-lbl' }, 'Punta inicio'), h('select', { className: 'ff-input', value: selectedConn.arrowStart, onChange: (e) => updateConnection(selectedConn.id, { arrowStart: e.target.value }) }, optionEls(ARROW_LABEL, ARROW_KINDS))),
+                      h('div', null, h('label', { className: 'ff-lbl' }, 'Punta fin'), h('select', { className: 'ff-input', value: selectedConn.arrowEnd, onChange: (e) => updateConnection(selectedConn.id, { arrowEnd: e.target.value }) }, optionEls(ARROW_LABEL, ARROW_KINDS))),
                     ),
                     h('button', { className: 'ff-btn ff-block', onClick: () => invertConnection(selectedConn.id) }, '⇄ Invertir sentido'),
                     h('button', { className: 'ff-btn ff-btn-danger ff-block', onClick: () => { deleteConnection(selectedConn.id); setSelected(null); } }, '🗑️ Eliminar conexión'),
                   ),
             )
           : h('div', { className: 'ff-inspector ff-inspector-empty' },
-              h('p', null, h('b', null, 'Crear nodo:'), ' doble clic en el lienzo, o usa la paleta de arriba.'),
+              h('p', null, h('b', null, 'Crear nodo:'), ' doble clic dentro de la cuadrícula, o usa la paleta de arriba.'),
               h('p', null, h('b', null, 'Iconos:'), ' selecciona un nodo y pulsa “Cambiar icono” (set nativo, emojis o importar por URL).'),
               h('p', null, h('b', null, 'Conectar:'), ' arrastra el puerto ⊕ de un nodo hasta otro, o usa el modo 🔗 Conectar.'),
-              h('p', null, h('b', null, 'Editar conexión:'), ' haz clic sobre la línea para cambiar etiqueta, color, punteada, bidireccional o invertir.'),
+              h('p', null, h('b', null, 'Estilo de línea:'), ' clic en una conexión para cambiar grosor, tipo (sólida/discontinua/punteada), color y puntas (flecha/punto/ninguna).'),
+              h('p', null, h('b', null, 'Cuadrícula:'), ' botón ▦ para agrandar/achicar el área; ⤢ la encuadra. Todo se mantiene dentro.'),
               h('p', { className: 'ff-muted' }, 'Atajos: Supr borra · Esc cancela · Ctrl/Cmd+D duplica. Un agente autorizado puede editar el diagrama y el lienzo se actualiza solo.'),
             ),
       ),
