@@ -216,15 +216,24 @@ shell.agent.register({
 3. La Tienda instala (descarga `dist/index.js`/`index.css` y los sirve).
 4. Un **bump de `version`** propaga cambios (reinstala).
 
-**B. 🔭 Vía comprimido `.kapp` (sideload, planificado — Fase 8):**
-- Un ZIP con `manifest.json` + `dist/` (+ `assets/`) en la raíz.
-- `tools/pack.mjs` validará y generará el `.kapp`.
-- La Tienda → "Instalar desde archivo" (superadmin), con revisión de permisos.
-- Permite apps **privadas** sin publicarlas al repo oficial.
+**B. Vía comprimido `.kapp` (sideload):**
+- Un ZIP con `manifest.json` + `dist/` (+ `assets/`) en la raíz. Genéralo con el
+  empaquetador (valida id/version/permissions/entry y comprime sin dependencias):
 
-> Mientras tanto, si tu app necesita recursos propios (iconos, imágenes), **embébelos
-> en el bundle** (como hace FossFLOW con sus 128 SVG de Lucide en `BUILTIN_ICONS`)
-> o impórtalos por URL/data-URI. Los assets servidos por el host llegan en v2.
+  ```bash
+  node tools/pack.mjs apps/mi-app        # → mi-app-1.0.0.kapp
+  ```
+
+- En la Tienda (superadmin) → **"Instalar desde archivo"** y elige el `.kapp`.
+- Permite apps **privadas** sin publicarlas al repo oficial. Para apps de terceros,
+  recuerda que el bundle se ejecuta en la página: instala solo apps de confianza.
+- Usa un `id` con **namespace** (`miorg.mi-app`) para no chocar con apps oficiales.
+
+**Assets de la app** (`assets/`): los archivos bajo `assets/` se sirven en
+`/api/apps/{id}/asset/{ruta}`. Desde el bundle usa `shell.assetUrl('icons/x.svg')`
+para obtener su URL — alternativa a embeber recursos. (Vía repo oficial, el
+backend solo sirve `dist/`; para assets nativos por esa vía, empaqueta `.kapp` o
+embébelos en el bundle, como hace FossFLOW con sus SVG.)
 
 ---
 
