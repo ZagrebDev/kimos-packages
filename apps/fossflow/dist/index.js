@@ -654,7 +654,23 @@ export default function mount(shell) {
         Promise.resolve(shell.config.get()).then((s) => { if (!cancelled) applySettings(s); }).catch(() => {});
         if (typeof shell.config.onChange === 'function') offConfig = shell.config.onChange(applySettings);
       }
-      return () => { cancelled = true; listeners.delete(setM); if (offConfig) { try { offConfig(); } catch { /* no-op */ } } };
+      // Fase 7: documentos — serializar para "Guardar (versión)" y re-hidratar al restaurar.
+      let offSerialize = null, offLoad = null;
+      if (shell.documents) {
+        if (typeof shell.documents.onSerialize === 'function') offSerialize = shell.documents.onSerialize(() => ({ model: model }));
+        if (typeof shell.documents.onLoad === 'function') offLoad = shell.documents.onLoad((cfg) => {
+          if (!cfg || typeof cfg !== 'object') return;
+          model = normalizeModel(cfg.model ? cfg.model : cfg);
+          loaded = true;
+          setM(model);
+        });
+      }
+      return () => {
+        cancelled = true; listeners.delete(setM);
+        if (offConfig) { try { offConfig(); } catch { /* no-op */ } }
+        if (offSerialize) { try { offSerialize(); } catch { /* no-op */ } }
+        if (offLoad) { try { offLoad(); } catch { /* no-op */ } }
+      };
     }, []);
 
     // Encuadre inicial a la cuadrícula una vez montado el SVG.

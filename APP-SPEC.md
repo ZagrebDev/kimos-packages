@@ -99,6 +99,20 @@ Los parámetros se guardan en `config.settings` de la instancia (junto a tus
 datos), así que `shell.loadData()` también los ve. Apps que no lean `shell.config`
 igual muestran el botón ⚙️ y persisten los valores (los aplican cuando quieran).
 
+**Documentos y versiones (🗂️):** el menú Documentos ofrece *Nuevo · Abrir ·
+Guardar · Guardar versión · Guardar como · Historial (restaurar) · Renombrar ·
+Eliminar · Cerrar* sobre las instancias de la app, sin código de la app. El
+documento se guarda en `equipos/{teamId}/apps/{appId}/{instanceId}/document.json`
+(versiones en `…/versions/{ts}.json`). Para soportar "Guardar versión" y
+"Restaurar", la app puede declarar:
+
+```js
+if (shell.documents) {
+  shell.documents.onSerialize(() => ({ model }));      // qué guardar
+  shell.documents.onLoad((cfg) => hidratar(cfg.model)); // al restaurar una versión
+}
+```
+
 ## 3. El contrato `AppShell` (runtime)
 
 El bundle exporta por defecto una función `mount(shell)`:

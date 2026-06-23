@@ -237,7 +237,7 @@
       "name": "FossFLOW",
       "description": "Creador de diagramas de flujo isométricos (modelo FossFLOW): nodos en grilla (x,y,z) con set de iconos nativo embebido (Lucide) + emojis + importar por URL, y conexiones editables, en SVG puro. Editable por el usuario y controlable por un agente autorizado; el lienzo se repinta reactivamente. Soporta ⚙️ Configurar y 🗂️ Documentos (AppShell v2).",
       "icon": "🧊",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": true,
