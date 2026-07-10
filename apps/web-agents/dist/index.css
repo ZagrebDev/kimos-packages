@@ -1,0 +1,205 @@
+/* Agentes Web — estilos con scope .kimos-web-agents */
+.kimos-web-agents {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #0a192f;
+  background: #fff;
+  overflow: hidden;
+}
+
+.kimos-web-agents .kwa-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px 0;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.kimos-web-agents .kwa-tab {
+  border: none;
+  background: transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 2px solid transparent;
+}
+.kimos-web-agents .kwa-tab-active {
+  color: #0a192f;
+  border-bottom-color: #19acb1;
+}
+.kimos-web-agents .kwa-tab-right { margin-left: auto; }
+
+.kimos-web-agents .kwa-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.kimos-web-agents .kwa-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 200px;
+  color: #374151;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}
+.kimos-web-agents .kwa-muted { color: #9ca3af; font-size: 12px; }
+
+/* Conversaciones */
+.kimos-web-agents .kwa-list { display: flex; flex-direction: column; gap: 8px; }
+.kimos-web-agents .kwa-conv {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.kimos-web-agents .kwa-conv-new { border-color: #19acb1; background: #f0fbfb; }
+.kimos-web-agents .kwa-conv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.kimos-web-agents .kwa-conv-visitor { font-weight: 600; flex-shrink: 0; }
+.kimos-web-agents .kwa-conv-new .kwa-conv-visitor { font-weight: 700; }
+.kimos-web-agents .kwa-conv-last {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #6b7280;
+}
+.kimos-web-agents .kwa-conv-count { color: #9ca3af; font-size: 11px; flex-shrink: 0; }
+.kimos-web-agents .kwa-conv-date { color: #9ca3af; font-size: 12px; flex-shrink: 0; }
+.kimos-web-agents .kwa-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.kimos-web-agents .kwa-dot-new { background: #19acb1; }
+.kimos-web-agents .kwa-dot-read { background: #d1d5db; }
+.kimos-web-agents .kwa-conv-body {
+  padding: 8px 12px 12px;
+  border-top: 1px solid #f3f4f6;
+}
+.kimos-web-agents .kwa-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.kimos-web-agents .kwa-bubble {
+  max-width: 78%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+.kimos-web-agents .kwa-bubble-user {
+  align-self: flex-end;
+  background: #19acb1;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.kimos-web-agents .kwa-bubble-agent {
+  align-self: flex-start;
+  background: #f3f4f6;
+  color: #0a192f;
+  border-bottom-left-radius: 4px;
+}
+.kimos-web-agents .kwa-bubble-text { white-space: pre-wrap; word-break: break-word; }
+.kimos-web-agents .kwa-bubble-at { font-size: 10px; opacity: 0.65; margin-top: 3px; }
+.kimos-web-agents .kwa-conv-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+
+/* Diseño / cards */
+.kimos-web-agents .kwa-design { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
+.kimos-web-agents .kwa-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px;
+}
+.kimos-web-agents .kwa-card-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.kimos-web-agents .kwa-form-row { margin-bottom: 8px; }
+.kimos-web-agents .kwa-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  margin-bottom: 3px;
+}
+.kimos-web-agents .kwa-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+  color: #0a192f;
+}
+.kimos-web-agents .kwa-input:focus { border-color: #19acb1; }
+.kimos-web-agents .kwa-mono { font-family: ui-monospace, monospace; }
+.kimos-web-agents .kwa-color { width: 48px; height: 32px; padding: 0; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; }
+.kimos-web-agents .kwa-inline { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.kimos-web-agents .kwa-switch {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;
+}
+.kimos-web-agents .kwa-warn {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+/* Botones */
+.kimos-web-agents .kwa-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.kimos-web-agents .kwa-btn:disabled { opacity: 0.45; cursor: default; }
+.kimos-web-agents .kwa-btn-primary { background: #19acb1; color: #fff; }
+.kimos-web-agents .kwa-btn-ghost { background: #f3f4f6; color: #374151; }
+.kimos-web-agents .kwa-btn-danger { background: #fee2e2; color: #b91c1c; }
+
+.kimos-web-agents .kwa-savebar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  position: sticky;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 10px 0;
+}
+
+/* Snippets */
+.kimos-web-agents .kwa-code {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 8px;
+}

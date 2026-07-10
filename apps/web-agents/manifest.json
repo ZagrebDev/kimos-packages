@@ -1,0 +1,13 @@
+{
+  "id": "web-agents",
+  "name": "Agentes Web",
+  "version": "1.0.0",
+  "description": "Crea agentes de chat incrustables en cualquier sitio web (widget flotante estilo Intercom) y lleva el registro de las conversaciones recibidas. Cada instancia es un agente web con su propio código de incrustación.",
+  "icon": "🤖",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"]
+}
