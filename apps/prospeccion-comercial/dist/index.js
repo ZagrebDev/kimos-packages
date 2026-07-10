@@ -7,8 +7,9 @@
  *
  * - Datos maestros (59 prospectos, rubros, colores) embebidos en SEED.
  * - Estado del usuario (estados, resultados, responsables, notas, bitácora y
- *   equipo) se persiste con shell.saveData/loadData (instancia). Requiere
- *   multiInstance: true.
+ *   equipo) se persiste en el NAVEGADOR con localStorage. App singleton
+ *   (multiInstance: false): sin instancias por equipo. Export/Import para
+ *   mover el estado entre navegadores.
  * - Gráficos en SVG/HTML puro (sin Chart.js ni red en runtime).
  *
  * Contrato: export default function mount(shell): { Component }
@@ -33,8 +34,23 @@ const ESTADOS = ["Por Contactar", "Contactado", "Reunion Agendada"];
 const RESULTADOS = ["", "Aceptada", "Esperando Confirmacion", "Rechazo"];
 const DEFAULT_EQUIPO = ["Sin asignar", "Responsable 1", "Responsable 2", "Responsable 3"];
 
+const LS_KEY = "kimos_prospeccion_v1";
 function freshStore() {
   return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice() };
+}
+function loadLocal() {
+  try {
+    const ls = globalThis.localStorage;
+    const raw = ls && ls.getItem(LS_KEY);
+    if (raw) return normalizeStore(JSON.parse(raw));
+  } catch { /* sin datos previos o storage bloqueado */ }
+  return freshStore();
+}
+function saveLocal(s) {
+  try {
+    const ls = globalThis.localStorage;
+    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo }));
+  } catch { /* storage lleno o bloqueado */ }
 }
 function normalizeStore(s) {
   const out = freshStore();
@@ -69,8 +85,7 @@ export default function mount(shell) {
   }
 
   function Component() {
-    const [store, setStore] = useState(freshStore);
-    const [loaded, setLoaded] = useState(false);
+    const [store, setStore] = useState(loadLocal);
     const [q, setQ] = useState("");
     const [fEstado, setFEstado] = useState("");
     const [fResp, setFResp] = useState("");
@@ -84,27 +99,12 @@ export default function mount(shell) {
     const saveTimer = useRef(null);
     const skipSave = useRef(true);
 
-    // Carga inicial (no bloquea el render).
-    useEffect(() => {
-      let cancelled = false;
-      shell.loadData()
-        .then((data) => {
-          if (cancelled) return;
-          if (data && typeof data === "object") setStore(normalizeStore(data));
-        })
-        .catch(() => { /* sin datos previos */ })
-        .finally(() => { if (!cancelled) setLoaded(true); });
-      return () => { cancelled = true; };
-    }, []);
-
-    // Guardado debounceado tras cada mutación (evita guardar el estado inicial).
+    // Persistencia en el NAVEGADOR (sin instancias por equipo): localStorage,
+    // con guardado debounceado. El estado inicial ya se cargó en useState.
     useEffect(() => {
       if (skipSave.current) { skipSave.current = false; return; }
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        shell.saveData({ meta: store.meta, bit: store.bit, equipo: store.equipo })
-          .catch((err) => notify("error", (err && err.message) || "No se pudo guardar"));
-      }, 600);
+      saveTimer.current = setTimeout(() => saveLocal(store), 400);
       return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
     }, [store]);
 
@@ -345,9 +345,7 @@ export default function mount(shell) {
             ? filtered.map((p) => Row(p))
             : h("div", { style: { padding: "24px", textAlign: "center", color: "var(--kp-mut)" } }, "Sin resultados con los filtros actuales.")),
 
-        h("footer", { className: "kp-footer" }, "Powered by ", h("b", null, "KIMOS"), " · FIGIT — documento editable — tus cambios se guardan en esta instancia"),
-
-        !loaded && h("div", { className: "kp-loadbar" }, "Cargando estado guardado…")
+        h("footer", { className: "kp-footer" }, "Powered by ", h("b", null, "KIMOS"), " · FIGIT — documento editable — tus cambios se guardan en este navegador")
       ),
 
       // Modal Equipo

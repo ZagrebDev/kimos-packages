@@ -19,14 +19,16 @@ shell v2 y persistiendo el avance por instancia.
   contacto** (fecha, canal, resumen, próximo seguimiento).
 - **Equipo editable** (modal) y **Exportar / Importar / Reiniciar** el estado.
 
-## Persistencia
+## Persistencia (sin instancias por equipo)
 
-El estado del usuario —`meta` (estado/resultado/responsable/notas por
-prospecto), `bit` (bitácora) y `equipo`— se guarda con
-`shell.saveData()` / `shell.loadData()` en `instance.json`, con guardado
-debounceado a 600 ms. Como guarda datos, la app declara `multiInstance: true`.
+App **singleton** (`multiInstance: false`): no crea instancias por equipo. El
+estado del usuario —`meta` (estado/resultado/responsable/notas por prospecto),
+`bit` (bitácora) y `equipo`— se guarda en el **navegador** con `localStorage`
+(clave `kimos_prospeccion_v1`), con guardado debounceado a 400 ms. Usa
+**Exportar / Importar** para mover el estado entre navegadores o equipos.
 
 ```json
+// localStorage["kimos_prospeccion_v1"]
 {
   "meta": { "1": { "estado": "Contactado", "resultado": "", "responsable": "Responsable 1", "notas": "" } },
   "bit":  [ { "empresa": "Cencosud...", "fecha": "2026-07-10", "canal": "Correo", "resumen": "…", "proximo": "" } ],
@@ -58,12 +60,15 @@ de build en el host: todo es `React.createElement`.
 
 ## Diferencias vs. el HTML original
 
-- `localStorage` → `shell.saveData/loadData` (estado por instancia del equipo).
 - Chart.js (CDN) → gráficos en SVG/HTML puro, autocontenidos (sin red en runtime).
 - Estilos globales → scopeados bajo `.kimos-prospeccion`; la raíz ocupa 100 % y
   hace scroll interno dentro de la ventana del shell.
+- Render con `React.createElement` sobre `globalThis.React` (sin JSX / sin build).
+- Persistencia en `localStorage` conservada (misma clave `kimos_prospeccion_v1`),
+  igual que el HTML: sin instancias por equipo.
 
 ## Roadmap
 
-- v1.1: acciones del agente IA (`agent.control`) sobre estados/bitácora.
-- v1.2: `configSchema` (⚙️) para personalizar rubros y colores.
+- v1.x: `configSchema` (⚙️) para personalizar rubros y colores.
+- Variante `multiInstance: true` con `shell.saveData/loadData` si se quiere
+  estado por equipo/instancia (ver historial de git, v1.0.0).
