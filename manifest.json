@@ -264,6 +264,21 @@
         ]
       },
       "defaultConfig": { "showGrid": true, "newConnStyle": "solid", "newConnArrow": "arrow" }
+    },
+    {
+      "id": "prospeccion-comercial",
+      "name": "Prospección Comercial",
+      "description": "Dashboard comercial FIGIT + KIMOS: 59 prospectos por rubro con embudo, KPIs, gráficos, filtros, bitácora de contacto y equipo editable. Convertido desde el HTML de prospección; persiste el avance por instancia.",
+      "icon": "🎯",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write"
+      ],
+      "appShellApi": "1.x"
     }
   ]
 }
