@@ -220,38 +220,6 @@
       "appShellApi": "1.x"
     },
     {
-      "id": "contact-forms",
-      "name": "Formularios de Contacto",
-      "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",
-      "icon": "📬",
-      "version": "1.0.0",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "multiInstance": true,
-      "permissions": [
-        "instance.read",
-        "instance.write",
-        "agent.control"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
-      "id": "web-agents",
-      "name": "Agentes Web",
-      "description": "Crea agentes de chat incrustables en cualquier sitio web (widget flotante estilo Intercom) y lleva el registro de las conversaciones recibidas. Cada instancia es un agente web con su propio código de incrustación.",
-      "icon": "🤖",
-      "version": "1.0.0",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "multiInstance": true,
-      "permissions": [
-        "instance.read",
-        "instance.write",
-        "agent.control"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
       "id": "notas-equipo",
       "name": "Notas de Equipo",
       "description": "App de ejemplo multi-instancia: bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
