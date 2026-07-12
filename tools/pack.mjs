@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ALLOWED_PERMISSIONS = new Set(['instance.read', 'instance.write', 'agent.control']);
+const ALLOWED_PERMISSIONS = new Set(['instance.read', 'instance.write', 'agent.control', 'public.read', 'public.submit']);
 const APP_ID_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 const VERSION_RE = /^\d+(\.\d+){0,2}([-.][0-9A-Za-z-]+)*$/;
 const INCLUDE_TOP = new Set(['manifest.json', 'dist', 'assets', 'README.md']);
