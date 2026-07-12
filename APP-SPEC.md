@@ -275,6 +275,34 @@ backend propio, para apps oficiales curadas): `contact-forms` y `web-agents`.
 
 ---
 
+## 7.c Leer datos de OTRAS apps (`shell.data`)
+
+Tu app puede leer datos de otras apps (oficiales o de terceros) declarando el
+permiso en su manifest — el superadmin lo ve y aprueba al instalar:
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "data.read:contact-forms"]
+```
+
+En el bundle:
+
+```js
+if (shell.data) {
+  const forms = await shell.data.listInstances('contact-forms');  // instancias visibles
+  const items = await shell.data.listItems(forms[0].id);          // sus items
+}
+```
+
+Reglas:
+- `data.read:{templateId}` por cada template que leas (o `data.read:*` — pide
+  solo lo que necesites: el instalador lo verá).
+- El **RBAC del usuario es siempre el techo**: solo ves instancias de equipos
+  a los que el usuario ya tiene acceso. El permiso de la app nunca lo supera.
+- Solo lectura (los denegados quedan auditados). Escritura y suscripción a
+  cambios: evoluciones futuras del contrato.
+
+---
+
 ## 8. Checklist antes de publicar
 
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
