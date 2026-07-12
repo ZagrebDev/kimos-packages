@@ -1,11 +1,24 @@
-/* Formularios de Contacto — estilos con scope .kimos-contact-forms */
+/* Formularios de Contacto — estilos con scope .kimos-contact-forms.
+   v1.1: tema-consciente — usa las CSS vars del tema del shell (shadcn HSL)
+   con fallback claro, para verse bien en claro/oscuro y heredar el acento. */
 .kimos-contact-forms {
+  --kcf-bg: hsl(var(--background, 0 0% 100%));
+  --kcf-fg: hsl(var(--foreground, 220 25% 6%));
+  --kcf-muted: hsl(var(--muted-foreground, 215 20% 32%));
+  --kcf-faint: hsl(var(--muted-foreground, 215 20% 32%) / 0.65);
+  --kcf-border: hsl(var(--border, 214 18% 82%));
+  --kcf-border-soft: hsl(var(--border, 214 18% 82%) / 0.5);
+  --kcf-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
+  --kcf-accent: hsl(var(--primary, 182 75% 40%));
+  --kcf-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kcf-accent-soft: hsl(var(--primary, 182 75% 40%) / 0.1);
+
   height: 100%;
   display: flex;
   flex-direction: column;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #0a192f;
-  background: #fff;
+  color: var(--kcf-fg);
+  background: var(--kcf-bg);
   overflow: hidden;
 }
 
@@ -13,7 +26,7 @@
   display: flex;
   gap: 4px;
   padding: 10px 14px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--kcf-border-soft);
   flex-shrink: 0;
 }
 .kimos-contact-forms .kcf-tab {
@@ -22,14 +35,14 @@
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--kcf-muted);
   cursor: pointer;
   border-radius: 8px 8px 0 0;
   border-bottom: 2px solid transparent;
 }
 .kimos-contact-forms .kcf-tab-active {
-  color: #0a192f;
-  border-bottom-color: #19acb1;
+  color: var(--kcf-fg);
+  border-bottom-color: var(--kcf-accent);
 }
 .kimos-contact-forms .kcf-tab-right { margin-left: auto; }
 
@@ -47,21 +60,47 @@
   gap: 8px;
   height: 100%;
   min-height: 200px;
-  color: #374151;
+  color: var(--kcf-fg);
   font-size: 14px;
   text-align: center;
   padding: 20px;
 }
-.kimos-contact-forms .kcf-muted { color: #9ca3af; font-size: 12px; }
+.kimos-contact-forms .kcf-muted { color: var(--kcf-faint); font-size: 12px; }
+
+/* Filtros de bandeja */
+.kimos-contact-forms .kcf-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.kimos-contact-forms .kcf-chip {
+  border: 1px solid var(--kcf-border);
+  background: transparent;
+  color: var(--kcf-muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.kimos-contact-forms .kcf-chip-active {
+  background: var(--kcf-accent);
+  border-color: var(--kcf-accent);
+  color: var(--kcf-accent-fg);
+}
+.kimos-contact-forms .kcf-filters-right { margin-left: auto; }
 
 /* Bandeja */
 .kimos-contact-forms .kcf-list { display: flex; flex-direction: column; gap: 8px; }
 .kimos-contact-forms .kcf-msg {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--kcf-border-soft);
   border-radius: 10px;
   overflow: hidden;
 }
-.kimos-contact-forms .kcf-msg-new { border-color: #19acb1; background: #f0fbfb; }
+.kimos-contact-forms .kcf-msg-new { border-color: var(--kcf-accent); background: var(--kcf-accent-soft); }
 .kimos-contact-forms .kcf-msg-head {
   display: flex;
   align-items: center;
@@ -78,26 +117,26 @@
   font-weight: 500;
 }
 .kimos-contact-forms .kcf-msg-new .kcf-msg-first { font-weight: 700; }
-.kimos-contact-forms .kcf-msg-date { color: #9ca3af; font-size: 12px; flex-shrink: 0; }
+.kimos-contact-forms .kcf-msg-date { color: var(--kcf-faint); font-size: 12px; flex-shrink: 0; }
 .kimos-contact-forms .kcf-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
-.kimos-contact-forms .kcf-dot-new { background: #19acb1; }
-.kimos-contact-forms .kcf-dot-read { background: #d1d5db; }
+.kimos-contact-forms .kcf-dot-new { background: var(--kcf-accent); }
+.kimos-contact-forms .kcf-dot-read { background: var(--kcf-border); }
 .kimos-contact-forms .kcf-dot-archived { background: #f59e0b; }
 .kimos-contact-forms .kcf-msg-body {
   padding: 4px 12px 12px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--kcf-border-soft);
 }
 .kimos-contact-forms .kcf-table { width: 100%; font-size: 13px; border-collapse: collapse; }
 .kimos-contact-forms .kcf-table td { padding: 4px 8px; vertical-align: top; word-break: break-word; }
-.kimos-contact-forms .kcf-td-key { font-weight: 600; color: #6b7280; width: 130px; white-space: nowrap; }
+.kimos-contact-forms .kcf-td-key { font-weight: 600; color: var(--kcf-muted); width: 130px; white-space: nowrap; }
 .kimos-contact-forms .kcf-msg-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 /* Diseño / cards */
 .kimos-contact-forms .kcf-design { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
 .kimos-contact-forms .kcf-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--kcf-border-soft);
   border-radius: 12px;
   padding: 14px;
 }
@@ -109,33 +148,33 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #6b7280;
+  color: var(--kcf-muted);
   margin-bottom: 3px;
 }
 .kimos-contact-forms .kcf-input {
   width: 100%;
   box-sizing: border-box;
   padding: 7px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--kcf-border);
   border-radius: 8px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  background: #fff;
-  color: #0a192f;
+  background: var(--kcf-surface);
+  color: var(--kcf-fg);
 }
-.kimos-contact-forms .kcf-input:focus { border-color: #19acb1; }
-.kimos-contact-forms .kcf-input-err { border-color: #ef4444; background: #fef2f2; }
+.kimos-contact-forms .kcf-input:focus { border-color: var(--kcf-accent); }
+.kimos-contact-forms .kcf-input-err { border-color: #ef4444; background: rgba(239, 68, 68, 0.08); }
 .kimos-contact-forms .kcf-mono { font-family: ui-monospace, monospace; }
-.kimos-contact-forms .kcf-color { width: 48px; height: 32px; padding: 0; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; }
+.kimos-contact-forms .kcf-color { width: 48px; height: 32px; padding: 0; border: 1px solid var(--kcf-border); border-radius: 6px; cursor: pointer; background: transparent; }
 .kimos-contact-forms .kcf-inline { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
 .kimos-contact-forms .kcf-switch, .kimos-contact-forms .kcf-check {
   display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; white-space: nowrap;
 }
 .kimos-contact-forms .kcf-warn {
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  color: #92400e;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: var(--kcf-fg);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 12px;
@@ -144,7 +183,7 @@
 
 /* Editor de campos */
 .kimos-contact-forms .kcf-field-row {
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--kcf-border-soft);
   border-radius: 10px;
   padding: 8px;
   margin-bottom: 6px;
@@ -170,9 +209,9 @@
   font-family: inherit;
 }
 .kimos-contact-forms .kcf-btn:disabled { opacity: 0.45; cursor: default; }
-.kimos-contact-forms .kcf-btn-primary { background: #19acb1; color: #fff; }
-.kimos-contact-forms .kcf-btn-ghost { background: #f3f4f6; color: #374151; }
-.kimos-contact-forms .kcf-btn-danger { background: #fee2e2; color: #b91c1c; }
+.kimos-contact-forms .kcf-btn-primary { background: var(--kcf-accent); color: var(--kcf-accent-fg); }
+.kimos-contact-forms .kcf-btn-ghost { background: var(--kcf-surface); color: var(--kcf-fg); border: 1px solid var(--kcf-border-soft); }
+.kimos-contact-forms .kcf-btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
 .kimos-contact-forms .kcf-savebar {
   display: flex;
@@ -181,7 +220,7 @@
   gap: 12px;
   position: sticky;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.94);
+  background: hsl(var(--background, 0 0% 100%) / 0.94);
   padding: 10px 0;
 }
 
@@ -197,3 +236,4 @@
   white-space: pre;
   margin: 0 0 8px;
 }
+.kimos-contact-forms .kcf-snippet-actions { display: flex; gap: 6px; }

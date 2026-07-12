@@ -1,11 +1,24 @@
-/* Agentes Web — estilos con scope .kimos-web-agents */
+/* Agentes Web — estilos con scope .kimos-web-agents.
+   v1.1: tema-consciente — usa las CSS vars del tema del shell (shadcn HSL)
+   con fallback claro, para verse bien en claro/oscuro y heredar el acento. */
 .kimos-web-agents {
+  --kwa-bg: hsl(var(--background, 0 0% 100%));
+  --kwa-fg: hsl(var(--foreground, 220 25% 6%));
+  --kwa-muted: hsl(var(--muted-foreground, 215 20% 32%));
+  --kwa-faint: hsl(var(--muted-foreground, 215 20% 32%) / 0.65);
+  --kwa-border: hsl(var(--border, 214 18% 82%));
+  --kwa-border-soft: hsl(var(--border, 214 18% 82%) / 0.5);
+  --kwa-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
+  --kwa-accent: hsl(var(--primary, 182 75% 40%));
+  --kwa-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kwa-accent-soft: hsl(var(--primary, 182 75% 40%) / 0.1);
+
   height: 100%;
   display: flex;
   flex-direction: column;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #0a192f;
-  background: #fff;
+  color: var(--kwa-fg);
+  background: var(--kwa-bg);
   overflow: hidden;
 }
 
@@ -13,7 +26,7 @@
   display: flex;
   gap: 4px;
   padding: 10px 14px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--kwa-border-soft);
   flex-shrink: 0;
 }
 .kimos-web-agents .kwa-tab {
@@ -22,14 +35,14 @@
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--kwa-muted);
   cursor: pointer;
   border-radius: 8px 8px 0 0;
   border-bottom: 2px solid transparent;
 }
 .kimos-web-agents .kwa-tab-active {
-  color: #0a192f;
-  border-bottom-color: #19acb1;
+  color: var(--kwa-fg);
+  border-bottom-color: var(--kwa-accent);
 }
 .kimos-web-agents .kwa-tab-right { margin-left: auto; }
 
@@ -47,21 +60,47 @@
   gap: 8px;
   height: 100%;
   min-height: 200px;
-  color: #374151;
+  color: var(--kwa-fg);
   font-size: 14px;
   text-align: center;
   padding: 20px;
 }
-.kimos-web-agents .kwa-muted { color: #9ca3af; font-size: 12px; }
+.kimos-web-agents .kwa-muted { color: var(--kwa-faint); font-size: 12px; }
+
+/* Filtros */
+.kimos-web-agents .kwa-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.kimos-web-agents .kwa-chip {
+  border: 1px solid var(--kwa-border);
+  background: transparent;
+  color: var(--kwa-muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.kimos-web-agents .kwa-chip-active {
+  background: var(--kwa-accent);
+  border-color: var(--kwa-accent);
+  color: var(--kwa-accent-fg);
+}
+.kimos-web-agents .kwa-filters-right { margin-left: auto; }
 
 /* Conversaciones */
 .kimos-web-agents .kwa-list { display: flex; flex-direction: column; gap: 8px; }
 .kimos-web-agents .kwa-conv {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--kwa-border-soft);
   border-radius: 10px;
   overflow: hidden;
 }
-.kimos-web-agents .kwa-conv-new { border-color: #19acb1; background: #f0fbfb; }
+.kimos-web-agents .kwa-conv-new { border-color: var(--kwa-accent); background: var(--kwa-accent-soft); }
 .kimos-web-agents .kwa-conv-head {
   display: flex;
   align-items: center;
@@ -77,16 +116,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #6b7280;
+  color: var(--kwa-muted);
 }
-.kimos-web-agents .kwa-conv-count { color: #9ca3af; font-size: 11px; flex-shrink: 0; }
-.kimos-web-agents .kwa-conv-date { color: #9ca3af; font-size: 12px; flex-shrink: 0; }
+.kimos-web-agents .kwa-conv-count { color: var(--kwa-faint); font-size: 11px; flex-shrink: 0; }
+.kimos-web-agents .kwa-conv-date { color: var(--kwa-faint); font-size: 12px; flex-shrink: 0; }
 .kimos-web-agents .kwa-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.kimos-web-agents .kwa-dot-new { background: #19acb1; }
-.kimos-web-agents .kwa-dot-read { background: #d1d5db; }
+.kimos-web-agents .kwa-dot-new { background: var(--kwa-accent); }
+.kimos-web-agents .kwa-dot-read { background: var(--kwa-border); }
 .kimos-web-agents .kwa-conv-body {
   padding: 8px 12px 12px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--kwa-border-soft);
 }
 .kimos-web-agents .kwa-transcript {
   display: flex;
@@ -104,14 +143,15 @@
 }
 .kimos-web-agents .kwa-bubble-user {
   align-self: flex-end;
-  background: #19acb1;
-  color: #fff;
+  background: var(--kwa-accent);
+  color: var(--kwa-accent-fg);
   border-bottom-right-radius: 4px;
 }
 .kimos-web-agents .kwa-bubble-agent {
   align-self: flex-start;
-  background: #f3f4f6;
-  color: #0a192f;
+  background: var(--kwa-surface);
+  color: var(--kwa-fg);
+  border: 1px solid var(--kwa-border-soft);
   border-bottom-left-radius: 4px;
 }
 .kimos-web-agents .kwa-bubble-text { white-space: pre-wrap; word-break: break-word; }
@@ -121,7 +161,7 @@
 /* Diseño / cards */
 .kimos-web-agents .kwa-design { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
 .kimos-web-agents .kwa-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--kwa-border-soft);
   border-radius: 12px;
   padding: 14px;
 }
@@ -133,32 +173,32 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #6b7280;
+  color: var(--kwa-muted);
   margin-bottom: 3px;
 }
 .kimos-web-agents .kwa-input {
   width: 100%;
   box-sizing: border-box;
   padding: 7px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--kwa-border);
   border-radius: 8px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  background: #fff;
-  color: #0a192f;
+  background: var(--kwa-surface);
+  color: var(--kwa-fg);
 }
-.kimos-web-agents .kwa-input:focus { border-color: #19acb1; }
+.kimos-web-agents .kwa-input:focus { border-color: var(--kwa-accent); }
 .kimos-web-agents .kwa-mono { font-family: ui-monospace, monospace; }
-.kimos-web-agents .kwa-color { width: 48px; height: 32px; padding: 0; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; }
+.kimos-web-agents .kwa-color { width: 48px; height: 32px; padding: 0; border: 1px solid var(--kwa-border); border-radius: 6px; cursor: pointer; background: transparent; }
 .kimos-web-agents .kwa-inline { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
 .kimos-web-agents .kwa-switch {
   display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;
 }
 .kimos-web-agents .kwa-warn {
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  color: #92400e;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: var(--kwa-fg);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 12px;
@@ -176,9 +216,9 @@
   font-family: inherit;
 }
 .kimos-web-agents .kwa-btn:disabled { opacity: 0.45; cursor: default; }
-.kimos-web-agents .kwa-btn-primary { background: #19acb1; color: #fff; }
-.kimos-web-agents .kwa-btn-ghost { background: #f3f4f6; color: #374151; }
-.kimos-web-agents .kwa-btn-danger { background: #fee2e2; color: #b91c1c; }
+.kimos-web-agents .kwa-btn-primary { background: var(--kwa-accent); color: var(--kwa-accent-fg); }
+.kimos-web-agents .kwa-btn-ghost { background: var(--kwa-surface); color: var(--kwa-fg); border: 1px solid var(--kwa-border-soft); }
+.kimos-web-agents .kwa-btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
 .kimos-web-agents .kwa-savebar {
   display: flex;
@@ -187,7 +227,7 @@
   gap: 12px;
   position: sticky;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.94);
+  background: hsl(var(--background, 0 0% 100%) / 0.94);
   padding: 10px 0;
 }
 
@@ -203,3 +243,4 @@
   white-space: pre;
   margin: 0 0 8px;
 }
+.kimos-web-agents .kwa-snippet-actions { display: flex; gap: 6px; }

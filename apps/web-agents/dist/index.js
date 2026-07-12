@@ -126,6 +126,16 @@ export default function mount(shell) {
     }
   }
 
+  async function markAllRead() {
+    const pending = conversations.filter((c) => (c.status || 'new') === 'new');
+    for (const c of pending) {
+      try { await shell.items.update(c.id, { status: 'read' }); } catch (e) { /* noop */ }
+    }
+    conversations = sortConvs(conversations.map((c) => ((c.status || 'new') === 'new' ? { ...c, status: 'read' } : c)));
+    emit();
+    if (pending.length) shell.notify({ level: 'success', text: pending.length + ' conversación(es) marcadas como leídas.' });
+  }
+
   async function deleteConv(id) {
     try {
       await shell.items.remove(id);
@@ -135,6 +145,18 @@ export default function mount(shell) {
     } catch (e) {
       shell.notify({ level: 'error', text: 'No se pudo eliminar la conversación.' });
     }
+  }
+
+  // ── Documentos (AppShell v2): versionar la definición del widget ─────────
+  let offDocs = null;
+  if (shell.documents && typeof shell.documents.onSerialize === 'function') {
+    const offSer = shell.documents.onSerialize(() => ({ definition }));
+    const offLoad = shell.documents.onLoad((cfg) => {
+      if (cfg && cfg.definition && cfg.definition.kind === 'definition') {
+        void saveDefinition({ ...cfg.definition, id: 'definition' });
+      }
+    });
+    offDocs = () => { try { offSer(); offLoad(); } catch (e) { /* noop */ } };
   }
 
   // ── Agente (control de esta app por el agente del escritorio) ────────────
@@ -215,16 +237,29 @@ export default function mount(shell) {
   // ── Pestaña: Conversaciones ───────────────────────────────────────────────
   function ConvsTab({ state }) {
     const [openId, setOpenId] = useState(null);
-    const convs = state.conversations;
+    const [filter, setFilter] = useState('all'); // all | new
+    const all = state.conversations;
+    const newCount = all.filter((c) => (c.status || 'new') === 'new').length;
+    const convs = filter === 'new' ? all.filter((c) => (c.status || 'new') === 'new') : all;
     if (state.loading) return h('div', { className: 'kwa-empty' }, 'Cargando…');
-    if (!convs.length) {
+    if (!all.length) {
       return h('div', { className: 'kwa-empty' }, [
         h('div', { key: 'i', style: { fontSize: 40 } }, '💬'),
         h('div', { key: 't' }, 'Sin conversaciones todavía.'),
         h('div', { key: 'd', className: 'kwa-muted' }, 'Cuando alguien hable con el widget incrustado, la conversación aparecerá aquí.'),
       ]);
     }
-    return h('div', { className: 'kwa-list' }, convs.map((cv) => {
+    return h('div', null, [
+      h('div', { key: 'filters', className: 'kwa-filters' },
+        [['all', 'Todas (' + all.length + ')'], ['new', 'Nuevas (' + newCount + ')']].map(([id, label]) => h('button', {
+          key: id,
+          className: 'kwa-chip' + (filter === id ? ' kwa-chip-active' : ''),
+          onClick: () => setFilter(id),
+        }, label)).concat(newCount > 0 ? [
+          h('button', { key: 'allread', className: 'kwa-chip kwa-filters-right', onClick: () => void markAllRead() }, '✓ Marcar todo leído'),
+        ] : [])),
+      convs.length === 0 && h('div', { key: 'none', className: 'kwa-muted', style: { padding: '12px 4px' } }, 'Nada en este filtro.'),
+      h('div', { key: 'list', className: 'kwa-list' }, convs.map((cv) => {
       const status = cv.status || 'new';
       const msgs = cv.messages || [];
       const last = msgs.length ? msgs[msgs.length - 1].text : '(vacía)';
@@ -256,7 +291,8 @@ export default function mount(shell) {
           ]),
         ]),
       ]);
-    }));
+      })),
+    ]);
   }
 
   // ── Pestaña: Diseño ───────────────────────────────────────────────────────
@@ -356,11 +392,14 @@ export default function mount(shell) {
       '<iframe src="' + publicBase + '/widget?layout=panel"\n' +
       '  style="border:0;width:100%;height:600px" title="Chat"></iframe>';
 
-    const block = (title, desc, code, label) => h('div', { className: 'kwa-card' }, [
+    const block = (title, desc, code, label, previewUrl) => h('div', { className: 'kwa-card' }, [
       h('div', { key: 'h', className: 'kwa-card-title' }, title),
       h('div', { key: 'd', className: 'kwa-muted', style: { marginBottom: 8 } }, desc),
       h('pre', { key: 'c', className: 'kwa-code' }, code),
-      h('button', { key: 'b', className: 'kwa-btn kwa-btn-primary', onClick: () => copy(code, label) }, 'Copiar'),
+      h('div', { key: 'a', className: 'kwa-snippet-actions' }, [
+        h('button', { key: 'b', className: 'kwa-btn kwa-btn-primary', onClick: () => copy(code, label) }, 'Copiar'),
+        previewUrl && h('button', { key: 'p', className: 'kwa-btn kwa-btn-ghost', onClick: () => window.open(previewUrl, '_blank', 'noopener') }, 'Vista previa'),
+      ]),
     ]);
 
     return h('div', { className: 'kwa-design' }, [
@@ -376,7 +415,7 @@ export default function mount(shell) {
         scriptSnippet, 'Snippet del widget'),
       block('Opción 2 — Panel fijo (iframe)',
         'Chat siempre visible dentro de un recuadro de tamaño fijo. Útil en editores que no permiten scripts.',
-        iframeSnippet, 'Snippet de iframe'),
+        iframeSnippet, 'Snippet de iframe', publicBase + '/widget?layout=panel'),
     ]);
   }
 
@@ -389,7 +428,9 @@ export default function mount(shell) {
       listeners.add(setState);
       void refresh();
       void loadAgents();
-      const timer = setInterval(() => { void refresh(); }, 30000);
+      const timer = setInterval(() => {
+        if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh();
+      }, 30000);
       return () => { listeners.delete(setState); clearInterval(timer); };
     }, []);
 
@@ -398,7 +439,7 @@ export default function mount(shell) {
         h('div', { className: 'kwa-empty' }, [
           h('div', { key: 'i', style: { fontSize: 40 } }, '🤖'),
           h('div', { key: 't' }, 'Crea una instancia para tener un agente web.'),
-          h('div', { key: 'd', className: 'kwa-muted' }, 'Cada documento de esta app es un agente incrustable distinto (menú Apps → Nueva instancia).'),
+          h('div', { key: 'd', className: 'kwa-muted' }, 'Cada documento de esta app es un agente incrustable distinto. Ábrela desde el menú principal y crea o abre uno en la pantalla de bienvenida.'),
         ]));
     }
 
@@ -429,6 +470,7 @@ export default function mount(shell) {
     Component,
     unmount() {
       listeners.clear();
+      if (typeof offDocs === 'function') { try { offDocs(); } catch (e) { /* noop */ } }
       if (typeof unregisterAgent === 'function') {
         try { unregisterAgent(); } catch (e) { /* noop */ }
       }

@@ -120,6 +120,16 @@ export default function mount(shell) {
     }
   }
 
+  async function markAllRead() {
+    const pending = messages.filter((m) => (m.status || 'new') === 'new');
+    for (const m of pending) {
+      try { await shell.items.update(m.id, { status: 'read' }); } catch (e) { /* noop */ }
+    }
+    messages = sortMessages(messages.map((m) => ((m.status || 'new') === 'new' ? { ...m, status: 'read' } : m)));
+    emit();
+    if (pending.length) shell.notify({ level: 'success', text: pending.length + ' mensaje(s) marcados como leídos.' });
+  }
+
   async function deleteMessage(id) {
     try {
       await shell.items.remove(id);
@@ -129,6 +139,20 @@ export default function mount(shell) {
     } catch (e) {
       shell.notify({ level: 'error', text: 'No se pudo eliminar el mensaje.' });
     }
+  }
+
+  // ── Documentos (AppShell v2): versionar el diseño del formulario ─────────
+  // "Guardar versión" e "Historial (restaurar)" del menú 🗂️ operan sobre la
+  // definición: restaurar una versión re-aplica ese diseño del formulario.
+  let offDocs = null;
+  if (shell.documents && typeof shell.documents.onSerialize === 'function') {
+    const offSer = shell.documents.onSerialize(() => ({ definition }));
+    const offLoad = shell.documents.onLoad((cfg) => {
+      if (cfg && cfg.definition && cfg.definition.kind === 'definition') {
+        void saveDefinition({ ...cfg.definition, id: 'definition' });
+      }
+    });
+    offDocs = () => { try { offSer(); offLoad(); } catch (e) { /* noop */ } };
   }
 
   // ── Agente ────────────────────────────────────────────────────────────────
@@ -204,16 +228,36 @@ export default function mount(shell) {
   // ── Pestaña: Mensajes ─────────────────────────────────────────────────────
   function InboxTab({ state }) {
     const [openId, setOpenId] = useState(null);
-    const msgs = state.messages;
+    const [filter, setFilter] = useState('all'); // all | new | archived
+    const all = state.messages;
+    const counts = {
+      all: all.length,
+      new: all.filter((m) => (m.status || 'new') === 'new').length,
+      archived: all.filter((m) => m.status === 'archived').length,
+    };
+    const msgs = filter === 'all'
+      ? all.filter((m) => m.status !== 'archived')
+      : all.filter((m) => (filter === 'new' ? (m.status || 'new') === 'new' : m.status === 'archived'));
     if (state.loading) return h('div', { className: 'kcf-empty' }, 'Cargando…');
-    if (!msgs.length) {
+    if (!all.length) {
       return h('div', { className: 'kcf-empty' }, [
         h('div', { key: 'i', style: { fontSize: 40 } }, '📭'),
         h('div', { key: 't' }, 'Sin mensajes todavía.'),
         h('div', { key: 'd', className: 'kcf-muted' }, 'Cuando alguien envíe el formulario incrustado, el mensaje aparecerá aquí.'),
       ]);
     }
-    return h('div', { className: 'kcf-list' }, msgs.map((m) => {
+    const filters = [['all', 'Bandeja (' + (counts.all - counts.archived) + ')'], ['new', 'Nuevos (' + counts.new + ')'], ['archived', 'Archivados (' + counts.archived + ')']];
+    return h('div', null, [
+      h('div', { key: 'filters', className: 'kcf-filters' },
+        filters.map(([id, label]) => h('button', {
+          key: id,
+          className: 'kcf-chip' + (filter === id ? ' kcf-chip-active' : ''),
+          onClick: () => setFilter(id),
+        }, label)).concat(counts.new > 0 ? [
+          h('button', { key: 'allread', className: 'kcf-chip kcf-filters-right', onClick: () => void markAllRead() }, '✓ Marcar todo leído'),
+        ] : [])),
+      msgs.length === 0 && h('div', { key: 'none', className: 'kcf-muted', style: { padding: '12px 4px' } }, 'Nada en este filtro.'),
+      h('div', { key: 'list', className: 'kcf-list' }, msgs.map((m) => {
       const status = m.status || 'new';
       const data = m.data || {};
       const first = Object.values(data)[0] || '(sin datos)';
@@ -246,7 +290,8 @@ export default function mount(shell) {
           ]),
         ]),
       ]);
-    }));
+      })),
+    ]);
   }
 
   // ── Pestaña: Diseño ───────────────────────────────────────────────────────
@@ -374,11 +419,14 @@ export default function mount(shell) {
       '  })\n' +
       '});';
 
-    const block = (title, desc, code, label) => h('div', { className: 'kcf-card' }, [
+    const block = (title, desc, code, label, previewUrl) => h('div', { className: 'kcf-card' }, [
       h('div', { key: 'h', className: 'kcf-card-title' }, title),
       h('div', { key: 'd', className: 'kcf-muted', style: { marginBottom: 8 } }, desc),
       h('pre', { key: 'c', className: 'kcf-code' }, code),
-      h('button', { key: 'b', className: 'kcf-btn kcf-btn-primary', onClick: () => copy(code, label) }, 'Copiar'),
+      h('div', { key: 'a', className: 'kcf-snippet-actions' }, [
+        h('button', { key: 'b', className: 'kcf-btn kcf-btn-primary', onClick: () => copy(code, label) }, 'Copiar'),
+        previewUrl && h('button', { key: 'p', className: 'kcf-btn kcf-btn-ghost', onClick: () => window.open(previewUrl, '_blank', 'noopener') }, 'Vista previa'),
+      ]),
     ]);
 
     return h('div', { className: 'kcf-design' }, [
@@ -394,7 +442,7 @@ export default function mount(shell) {
         scriptSnippet, 'Snippet de script'),
       block('Opción 2 — iframe',
         'Aislamiento total de estilos. Útil en CMS que no permiten scripts.',
-        iframeSnippet, 'Snippet de iframe'),
+        iframeSnippet, 'Snippet de iframe', publicBase + '/embed'),
       block('Opción 3 — API (formulario propio)',
         'Si tu sitio ya tiene un formulario con su propio diseño (por ejemplo FIGIT), envía los datos por POST y gestiona los mensajes desde esta app.',
         apiSnippet, 'Ejemplo de API'),
@@ -409,7 +457,9 @@ export default function mount(shell) {
     useEffect(() => {
       listeners.add(setState);
       void refresh();
-      const timer = setInterval(() => { void refresh(); }, 30000);
+      const timer = setInterval(() => {
+        if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh();
+      }, 30000);
       return () => { listeners.delete(setState); clearInterval(timer); };
     }, []);
 
@@ -418,7 +468,7 @@ export default function mount(shell) {
         h('div', { className: 'kcf-empty' }, [
           h('div', { key: 'i', style: { fontSize: 40 } }, '📬'),
           h('div', { key: 't' }, 'Crea una instancia para tener un formulario.'),
-          h('div', { key: 'd', className: 'kcf-muted' }, 'Cada documento de esta app es un formulario incrustable distinto (menú Apps → Nueva instancia).'),
+          h('div', { key: 'd', className: 'kcf-muted' }, 'Cada documento de esta app es un formulario incrustable distinto. Ábrela desde el menú principal y crea o abre uno en la pantalla de bienvenida.'),
         ]));
     }
 
@@ -449,6 +499,7 @@ export default function mount(shell) {
     Component,
     unmount() {
       listeners.clear();
+      if (typeof offDocs === 'function') { try { offDocs(); } catch (e) { /* noop */ } }
       if (typeof unregisterAgent === 'function') {
         try { unregisterAgent(); } catch (e) { /* noop */ }
       }
