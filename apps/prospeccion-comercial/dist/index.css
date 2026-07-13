@@ -162,9 +162,18 @@
 
 .kimos-prospeccion .kp-modal { position: fixed; inset: 0; background: rgba(4, 12, 22, .7); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .kimos-prospeccion .kp-box { background: var(--kp-panel); border: 1px solid var(--kp-teal); border-radius: 16px; padding: 20px; width: 360px; max-width: 92%; }
+.kimos-prospeccion .kp-box-lg { width: 560px; max-height: 88vh; overflow-y: auto; }
 .kimos-prospeccion .kp-box h3 { margin: 0 0 12px; }
+.kimos-prospeccion .kp-modal-sub { margin: -6px 0 12px; color: var(--kp-mut); font-size: 12px; }
 .kimos-prospeccion .kp-erow { display: flex; gap: 8px; margin-bottom: 8px; }
 .kimos-prospeccion .kp-erow input { flex: 1; }
+.kimos-prospeccion .kp-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kimos-prospeccion .kp-flbl { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--kp-mut); margin-bottom: 8px; }
+.kimos-prospeccion .kp-flbl input, .kimos-prospeccion .kp-flbl select, .kimos-prospeccion .kp-flbl textarea { width: 100%; }
+.kimos-prospeccion .kp-added { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 12px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #04201d; background: var(--kp-teal); vertical-align: middle; }
+.kimos-prospeccion .kp-danger { border-color: var(--kp-rojo); color: #ffb4ae; }
+.kimos-prospeccion .kp-danger:hover { border-color: var(--kp-rojo); background: rgba(229, 83, 75, .14); transform: none; }
+@media (max-width: 620px) { .kimos-prospeccion .kp-form { grid-template-columns: 1fr; } .kimos-prospeccion .kp-box-lg { width: 92%; } }
 
 @media (max-width: 1050px) {
   .kimos-prospeccion .kp-grid { grid-template-columns: 1fr; }

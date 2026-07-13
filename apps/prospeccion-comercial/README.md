@@ -7,10 +7,20 @@ shell v2 y persistiendo el avance por instancia.
 
 ## Qué incluye
 
-- **59 prospectos** (RETAIL, SALUD, EDUCACIÓN, BANCA, TRANSPORTE, GOBIERNO,
+- **59 prospectos base** (RETAIL, SALUD, EDUCACIÓN, BANCA, TRANSPORTE, GOBIERNO,
   TELECOM, MINERÍA, ENERGÍA, MANUFACTURA, AUTOMOTOR, HOTELERÍA, DEPORTE) con
   descripción, tomador de decisión, contacto, problemática y propuesta.
   Estos datos maestros van **embebidos** en el bundle (`SEED`).
+- **Sumar prospectos** de dos formas (se guardan en `store.custom`, en el navegador):
+  - **➕ Manual**: formulario individual (sólo la empresa es obligatoria).
+  - **🗄️ Cargar BD**: importación masiva desde **JSON** o **CSV**
+    (Excel → *Guardar como CSV*; acepta separador `,`, `;` o tabulador, comillas
+    y acentos). Columnas reconocidas por nombre (es/en): `empresa`, `rubro`,
+    `persona`/`contacto`, `cargo`, `telefono`, `correo`/`email`, `linkedin_url`,
+    `descripcion`, `problematica`, `propuesta`, `notas`. Botón **📄 Plantilla**
+    descarga un CSV de ejemplo con las columnas.
+  - Los prospectos añadidos muestran una etiqueta **añadido** y se pueden
+    **eliminar** desde su ficha (los 59 base no).
 - **KPIs** (total, por estado, por resultado, interacciones) y **embudo comercial**.
 - **Gráficos** en SVG/HTML puro (sin Chart.js ni red): distribución de estados
   (dona), prospectos por rubro (barras) y carga por responsable (barras apiladas).
@@ -23,9 +33,12 @@ shell v2 y persistiendo el avance por instancia.
 
 App **singleton** (`multiInstance: false`): no crea instancias por equipo. El
 estado del usuario —`meta` (estado/resultado/responsable/notas por prospecto),
-`bit` (bitácora) y `equipo`— se guarda en el **navegador** con `localStorage`
-(clave `kimos_prospeccion_v1`), con guardado debounceado a 400 ms. Usa
-**Exportar / Importar** para mover el estado entre navegadores o equipos.
+`bit` (bitácora), `equipo` y `custom` (prospectos añadidos)— se guarda en el
+**navegador** con `localStorage` (clave `kimos_prospeccion_v1`), con guardado
+debounceado a 400 ms. **Exportar** descarga un respaldo completo (incluye los
+prospectos añadidos) e **Importar** lo restaura; úsalo para mover todo entre
+navegadores o equipos. **Reiniciar** borra sólo el avance y **conserva** los
+prospectos añadidos.
 
 ```json
 // localStorage["kimos_prospeccion_v1"]

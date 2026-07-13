@@ -268,9 +268,9 @@
     {
       "id": "prospeccion-comercial",
       "name": "Prospección Comercial",
-      "description": "Dashboard comercial FIGIT + KIMOS: 59 prospectos por rubro con embudo, KPIs, gráficos, filtros, bitácora de contacto y equipo editable. App singleton (sin instancias por equipo); el avance se guarda en el navegador, con Exportar/Importar.",
+      "description": "Dashboard comercial FIGIT + KIMOS: prospectos por rubro con embudo, KPIs, gráficos, filtros, bitácora y equipo editable. Suma prospectos manualmente o por base de datos (JSON/CSV, con plantilla). App singleton (sin instancias por equipo); el avance se guarda en el navegador, con Exportar/Importar.",
       "icon": "🎯",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": false,

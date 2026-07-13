@@ -35,8 +35,92 @@ const RESULTADOS = ["", "Aceptada", "Esperando Confirmacion", "Rechazo"];
 const DEFAULT_EQUIPO = ["Sin asignar", "Responsable 1", "Responsable 2", "Responsable 3"];
 
 const LS_KEY = "kimos_prospeccion_v1";
+
+// Campos de un prospecto (los mismos que trae SEED). Los prospectos añadidos
+// por el usuario (manual o importados) viven en store.custom con estos campos.
+const PROSPECTO_FIELDS = ["rubro", "empresa", "descripcion", "persona", "cargo", "telefono", "correo", "linkedin_url", "linkedin_q", "problematica", "propuesta", "notas"];
+function blankProspecto() { const o = {}; PROSPECTO_FIELDS.forEach((k) => (o[k] = "")); return o; }
+function nextId(list) { let mx = 0; list.forEach((p) => { const n = Number(p && p.id); if (isFinite(n) && n > mx) mx = n; }); return mx + 1; }
+
+// Normaliza un encabezado de columna: minúsculas, sin acentos, sin símbolos.
+function normKey(s) {
+  return String(s == null ? "" : s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+// Sinónimos de columna → campo canónico. Acepta JSON con las claves exactas
+// (linkedin_url → "linkedin url") y planillas en español/inglés.
+const COLUMN_ALIASES = {
+  "rubro": "rubro", "sector": "rubro", "industria": "rubro", "categoria": "rubro", "area": "rubro",
+  "empresa": "empresa", "compania": "empresa", "company": "empresa", "nombre": "empresa", "name": "empresa", "cuenta": "empresa", "razon social": "empresa",
+  "descripcion": "descripcion", "description": "descripcion", "detalle": "descripcion", "resumen empresa": "descripcion",
+  "persona": "persona", "contacto": "persona", "tomador": "persona", "tomador de decision": "persona", "decision maker": "persona", "referente": "persona",
+  "cargo": "cargo", "puesto": "cargo", "title": "cargo", "role": "cargo", "rol": "cargo",
+  "telefono": "telefono", "fono": "telefono", "phone": "telefono", "celular": "telefono", "movil": "telefono", "tel": "telefono",
+  "correo": "correo", "email": "correo", "mail": "correo", "e mail": "correo", "correo electronico": "correo",
+  "linkedin": "linkedin_url", "linkedin url": "linkedin_url", "url": "linkedin_url", "perfil": "linkedin_url", "linkedin link": "linkedin_url",
+  "linkedin q": "linkedin_q", "busqueda linkedin": "linkedin_q", "linkedin query": "linkedin_q",
+  "problematica": "problematica", "problema": "problematica", "pain": "problematica", "dolor": "problematica", "necesidad": "problematica",
+  "propuesta": "propuesta", "proposal": "propuesta", "solucion": "propuesta", "pitch": "propuesta",
+  "notas": "notas", "notes": "notas", "observaciones": "notas", "comentarios": "notas", "nota": "notas",
+};
+// Convierte una fila (objeto {encabezado: valor}) a un prospecto. Devuelve null
+// si no reconoce ninguna columna útil.
+function rowToProspecto(row) {
+  if (!row || typeof row !== "object") return null;
+  const p = blankProspecto();
+  let has = false;
+  Object.keys(row).forEach((k) => {
+    const field = COLUMN_ALIASES[normKey(k)];
+    if (field) { p[field] = String(row[k] == null ? "" : row[k]).trim(); if (p[field]) has = true; }
+  });
+  return has ? p : null;
+}
+// Detecta el separador de un CSV a partir del encabezado (coma, ; o tab).
+function detectDelim(line) {
+  const c = (line.match(/,/g) || []).length, s = (line.match(/;/g) || []).length, t = (line.match(/\t/g) || []).length;
+  if (t > c && t > s) return "\t";
+  return s > c ? ";" : ",";
+}
+// Parser CSV sin dependencias: soporta comillas, comillas escapadas (""),
+// separadores , ; o tab, y saltos CRLF/LF. Devuelve array de objetos por header.
+function parseCSV(text) {
+  text = String(text || "").replace(/^\uFEFF/, "");
+  const nl = text.indexOf("\n");
+  const delim = detectDelim(nl < 0 ? text : text.slice(0, nl));
+  const rows = []; let field = "", rec = [], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === delim) { rec.push(field); field = ""; }
+    else if (ch === "\n") { rec.push(field); rows.push(rec); rec = []; field = ""; }
+    else if (ch === "\r") { /* ignora */ }
+    else field += ch;
+  }
+  if (field.length || rec.length) { rec.push(field); rows.push(rec); }
+  if (!rows.length) return [];
+  const headers = rows[0].map((x) => x.trim());
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    if (rows[r].length === 1 && rows[r][0].trim() === "") continue;
+    const obj = {};
+    headers.forEach((hh, ci) => { obj[hh] = rows[r][ci] != null ? rows[r][ci] : ""; });
+    out.push(obj);
+  }
+  return out;
+}
+// Acepta array, {prospectos:[...]}, {custom:[...]} o un único objeto.
+function coerceRawList(j) {
+  if (Array.isArray(j)) return j;
+  if (j && Array.isArray(j.prospectos)) return j.prospectos;
+  if (j && Array.isArray(j.custom)) return j.custom;
+  if (j && typeof j === "object") return [j];
+  return [];
+}
+
 function freshStore() {
-  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice() };
+  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [] };
 }
 function loadLocal() {
   try {
@@ -49,7 +133,7 @@ function loadLocal() {
 function saveLocal(s) {
   try {
     const ls = globalThis.localStorage;
-    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo }));
+    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [] }));
   } catch { /* storage lleno o bloqueado */ }
 }
 function normalizeStore(s) {
@@ -58,6 +142,7 @@ function normalizeStore(s) {
     if (s.meta && typeof s.meta === "object") out.meta = s.meta;
     if (Array.isArray(s.bit)) out.bit = s.bit;
     if (Array.isArray(s.equipo) && s.equipo.length) out.equipo = s.equipo;
+    if (Array.isArray(s.custom)) out.custom = s.custom;
   }
   return out;
 }
@@ -94,8 +179,11 @@ export default function mount(shell) {
     const [expanded, setExpanded] = useState([]);
     const [equipoOpen, setEquipoOpen] = useState(false);
     const [equipoDraft, setEquipoDraft] = useState([]);
+    const [addOpen, setAddOpen] = useState(false);
+    const [addDraft, setAddDraft] = useState(null); // prospecto en edición (alta manual)
     const [forms, setForms] = useState({}); // bitácora en edición por id
-    const fileRef = useRef(null);
+    const fileRef = useRef(null); // importar respaldo (estado)
+    const bdRef = useRef(null);   // importar base de datos de prospectos
     const saveTimer = useRef(null);
     const skipSave = useRef(true);
 
@@ -158,10 +246,79 @@ export default function mount(shell) {
       setEquipoOpen(false);
     }, [equipoDraft]);
 
+    // ---------- Alta manual de prospecto ----------
+    const setField = useCallback((k, v) => setAddDraft((d) => ({ ...(d || blankProspecto()), [k]: v })), []);
+    const openAdd = useCallback(() => { setAddDraft(blankProspecto()); setAddOpen(true); }, []);
+    const saveAdd = useCallback(() => {
+      const d = addDraft || {};
+      if (!(d.empresa && d.empresa.trim())) { notify("warn", "Indica al menos el nombre de la empresa."); return; }
+      setStore((s) => {
+        const all = SEED.prospectos.concat(s.custom || []);
+        const p = { ...blankProspecto(), ...d, id: nextId(all) };
+        p.empresa = p.empresa.trim();
+        if (!p.rubro) p.rubro = "SIN RUBRO";
+        return { ...s, custom: (s.custom || []).concat([p]) };
+      });
+      setAddOpen(false);
+      notify("success", "Prospecto agregado.");
+    }, [addDraft]);
+    const delProspecto = useCallback((id) => {
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Eliminar este prospecto añadido?")) return;
+      setStore((s) => {
+        const meta = { ...s.meta }; delete meta[id];
+        return { ...s, meta, custom: (s.custom || []).filter((p) => p.id !== id) };
+      });
+    }, []);
+
+    // ---------- Importar base de datos de prospectos (JSON / CSV) ----------
+    const importBD = useCallback((e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const name = (f.name || "").toLowerCase();
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const txt = String(rd.result || "");
+          const isJson = name.endsWith(".json") || /^\s*[[{]/.test(txt);
+          const raw = isJson ? coerceRawList(JSON.parse(txt)) : parseCSV(txt);
+          const mapped = raw.map(rowToProspecto).filter(Boolean);
+          if (!mapped.length) { notify("warn", "No se reconocieron prospectos. Revisa las columnas (empresa, rubro, persona, correo…)."); return; }
+          setStore((s) => {
+            let all = SEED.prospectos.concat(s.custom || []);
+            const added = mapped.map((p) => {
+              const np = { ...blankProspecto(), ...p, id: nextId(all) };
+              np.empresa = (np.empresa || "").trim() || "(sin nombre)";
+              if (!np.rubro) np.rubro = "SIN RUBRO";
+              all = all.concat([np]);
+              return np;
+            });
+            return { ...s, custom: (s.custom || []).concat(added) };
+          });
+          notify("success", mapped.length + " prospecto(s) importado(s).");
+        } catch (err) { notify("error", "Archivo inválido: " + ((err && err.message) || "formato no reconocido")); }
+      };
+      rd.readAsText(f);
+      e.target.value = "";
+    }, []);
+    const downloadTemplate = useCallback(() => {
+      try {
+        const cols = ["empresa", "rubro", "persona", "cargo", "telefono", "correo", "linkedin_url", "descripcion", "problematica", "propuesta", "notas"];
+        const ej = ["ACME S.A.", "RETAIL", "Juan Pérez", "Gerente de Operaciones", "+56 2 2222 3333", "juan.perez@acme.cl", "https://www.linkedin.com/in/juanperez", "Descripción breve de la empresa", "Problemática detectada", "Propuesta FIGIT + KIMOS", "Nota inicial"];
+        const line = (arr) => arr.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",");
+        const csv = "﻿" + cols.join(",") + "\n" + line(ej) + "\n";
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "plantilla_prospectos.csv";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      } catch { notify("error", "No se pudo generar la plantilla."); }
+    }, []);
+
     // ---------- Export / Import / Reset ----------
     const exportJSON = useCallback(() => {
       try {
-        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo }, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [] }, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "kimos_prospeccion_estado.json";
@@ -174,20 +331,21 @@ export default function mount(shell) {
       if (!f) return;
       const rd = new FileReader();
       rd.onload = () => {
-        try { setStore(normalizeStore(JSON.parse(rd.result))); notify("success", "Estado importado."); }
+        try { setStore(normalizeStore(JSON.parse(rd.result))); notify("success", "Respaldo importado."); }
         catch { notify("error", "Archivo inválido."); }
       };
       rd.readAsText(f);
       e.target.value = "";
     }, []);
     const resetAll = useCallback(() => {
-      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar todos los estados, asignaciones y bitácora guardados?")) return;
-      setStore(freshStore());
-      notify("info", "Estado reiniciado.");
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar estados, asignaciones y bitácora? (Se conservan los prospectos añadidos)")) return;
+      setStore((s) => ({ ...freshStore(), custom: s.custom || [] }));
+      notify("info", "Avance reiniciado.");
     }, []);
 
     // ---------- Derivados ----------
-    const P = SEED.prospectos;
+    const P = SEED.prospectos.concat(store.custom || []);
+    const customIds = useMemo(() => { const s = new Set(); (store.custom || []).forEach((p) => s.add(p.id)); return s; }, [store.custom]);
     const stats = useMemo(() => {
       let pc = 0, co = 0, ra = 0, ac = 0, es = 0, re = 0;
       P.forEach((p) => {
@@ -200,7 +358,7 @@ export default function mount(shell) {
 
     const byRubro = useMemo(() => {
       const m = {}; SEED.rubros.forEach((r) => (m[r] = 0)); P.forEach((p) => { m[p.rubro] = (m[p.rubro] || 0) + 1; }); return m;
-    }, []);
+    }, [store]);
 
     const byResp = useMemo(() => {
       const team = store.equipo;
@@ -258,9 +416,13 @@ export default function mount(shell) {
               h("h1", null, "Dashboard Comercial · FIGIT + KIMOS"),
               h("p", null, "Prospección Chile — tótems IA + software de orquestación"))),
           h("div", { className: "kp-actions" },
+            h("button", { className: "kp-btn kp-primary", onClick: openAdd }, "➕ Prospecto"),
+            h("button", { className: "kp-btn", onClick: () => bdRef.current && bdRef.current.click(), title: "Importar prospectos desde JSON o CSV (Excel → Guardar como CSV)" }, "\u{1F5C4}️ Cargar BD"),
+            h("input", { type: "file", ref: bdRef, accept: ".json,.csv,text/csv,application/json", style: { display: "none" }, onChange: importBD }),
+            h("button", { className: "kp-btn", onClick: downloadTemplate, title: "Descargar plantilla CSV con las columnas" }, "\u{1F4C4} Plantilla"),
             h("button", { className: "kp-btn", onClick: openEquipo }, "\u{1F465} Equipo"),
-            h("button", { className: "kp-btn", onClick: exportJSON }, "⬇️ Exportar"),
-            h("button", { className: "kp-btn", onClick: () => fileRef.current && fileRef.current.click() }, "⬆️ Importar"),
+            h("button", { className: "kp-btn", onClick: exportJSON, title: "Descargar respaldo completo (avance + prospectos añadidos)" }, "⬇️ Exportar"),
+            h("button", { className: "kp-btn", onClick: () => fileRef.current && fileRef.current.click(), title: "Restaurar un respaldo exportado" }, "⬆️ Importar"),
             h("input", { type: "file", ref: fileRef, accept: "application/json", style: { display: "none" }, onChange: importJSON }),
             h("button", { className: "kp-btn", onClick: resetAll }, "↻ Reiniciar"))),
 
@@ -306,7 +468,8 @@ export default function mount(shell) {
         h("div", { className: "kp-grid" },
           h("div", { className: "kp-card" },
             h("h3", null, "\u{1F4CA} Prospectos por Rubro"),
-            BarList(SEED.rubros.map((r) => ({ label: (RUBRO_ICON[r] || "") + " " + r, value: byRubro[r] || 0, color: "#18b9ad" })))),
+            BarList(SEED.rubros.concat(Object.keys(byRubro).filter((r) => SEED.rubros.indexOf(r) < 0))
+              .map((r) => ({ label: (RUBRO_ICON[r] || "\u{1F4CC}") + " " + r, value: byRubro[r] || 0, color: "#18b9ad" })))),
           h("div", { className: "kp-card" },
             h("h3", null, "\u{1F465} Carga por Responsable"),
             StackedBars(store.equipo, byResp))),
@@ -358,8 +521,42 @@ export default function mount(shell) {
           h("button", { className: "kp-btn", onClick: () => setEquipoDraft((xs) => xs.concat(["Nuevo responsable"])) }, "+ Agregar responsable"),
           h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
             h("button", { className: "kp-btn", onClick: () => setEquipoOpen(false) }, "Cerrar"),
-            h("button", { className: "kp-btn kp-primary", onClick: saveEquipo }, "Guardar"))))
+            h("button", { className: "kp-btn kp-primary", onClick: saveEquipo }, "Guardar")))),
+
+      // Modal Alta manual de prospecto
+      addOpen && h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setAddOpen(false); } },
+        h("div", { className: "kp-box kp-box-lg" },
+          h("h3", null, "➕ Nuevo prospecto"),
+          h("p", { className: "kp-modal-sub" }, "Se añade a tu lista y se guarda en este navegador. Sólo la empresa es obligatoria."),
+          h("div", { className: "kp-form" },
+            Field("Empresa *", "empresa"),
+            h("label", { className: "kp-flbl" }, "Rubro",
+              h("select", { value: (addDraft && addDraft.rubro) || "", onChange: (e) => setField("rubro", e.target.value) },
+                h("option", { value: "" }, "— Selecciona un rubro —"),
+                SEED.rubros.map((r) => h("option", { key: r, value: r }, r)))),
+            Field("Tomador de decisión", "persona"),
+            Field("Cargo", "cargo"),
+            Field("Teléfono", "telefono"),
+            Field("Correo", "correo"),
+            Field("LinkedIn (URL)", "linkedin_url")),
+          Area("Descripción", "descripcion"),
+          Area("Posible problemática", "problematica"),
+          Area("Propuesta FIGIT + KIMOS", "propuesta"),
+          Area("Notas / próximo paso", "notas"),
+          h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
+            h("button", { className: "kp-btn", onClick: () => setAddOpen(false) }, "Cancelar"),
+            h("button", { className: "kp-btn kp-primary", onClick: saveAdd }, "Guardar prospecto"))))
     );
+
+    // Helpers de formulario (alta manual)
+    function Field(label, key) {
+      return h("label", { className: "kp-flbl" }, label,
+        h("input", { value: (addDraft && addDraft[key]) || "", onChange: (e) => setField(key, e.target.value) }));
+    }
+    function Area(label, key) {
+      return h("label", { className: "kp-flbl" }, label,
+        h("textarea", { style: { minHeight: "48px" }, value: (addDraft && addDraft[key]) || "", onChange: (e) => setField(key, e.target.value) }));
+    }
 
     // ---------- Sub-render: fila de la tabla ----------
     function Row(p) {
@@ -368,6 +565,7 @@ export default function mount(shell) {
       const nb = countBit(store, p.empresa);
       const fill = SEED.rubro_fill && SEED.rubro_fill[p.rubro] ? "#" + SEED.rubro_fill[p.rubro] : "#888";
       const open = expanded.indexOf(p.id) >= 0;
+      const isCustom = customIds.has(p.id);
       const tel = p.telefono && p.telefono.indexOf("Ver") < 0
         ? h("a", { className: "kp-cbtn", title: p.telefono, href: "tel:" + p.telefono.replace(/[^0-9+]/g, ""), onClick: (e) => e.stopPropagation() }, "\u{1F4DE}")
         : null;
@@ -377,7 +575,9 @@ export default function mount(shell) {
           h("div", { style: { fontSize: "18px" } }, RUBRO_ICON[p.rubro] || ""),
           h("div", { className: "kp-cmp" },
             h("span", { className: "kp-cd2", style: { background: fill } }),
-            h("div", null, p.empresa, h("small", null, p.rubro + (nb ? " · " + nb + " interacc." : "")))),
+            h("div", null, p.empresa,
+              isCustom ? h("span", { className: "kp-added" }, "añadido") : null,
+              h("small", null, p.rubro + (nb ? " · " + nb + " interacc." : "")))),
           h("div", { className: "kp-per" }, p.persona, h("small", null, p.cargo)),
           h("div", { className: "kp-contacts", onClick: (e) => e.stopPropagation() },
             h("a", { className: "kp-cbtn", title: "Escribir correo", href: "mailto:" + p.correo + "?subject=FIGIT%20+%20KIMOS%20-%20Propuesta" }, "✉️"),
@@ -422,7 +622,9 @@ export default function mount(shell) {
                 Object.keys(CANAL_ICON).map((c) => h("option", { key: c, value: c }, c))),
               h("input", { placeholder: "Resumen / resultado de la interacción", value: f.resumen || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), resumen: e.target.value } })) }),
               h("input", { type: "date", title: "Próximo seguimiento", value: f.proximo || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), proximo: e.target.value } })) }),
-              h("button", { className: "kp-btn kp-primary", onClick: () => addBit(p.empresa, p.id) }, "+ Registrar")))));
+              h("button", { className: "kp-btn kp-primary", onClick: () => addBit(p.empresa, p.id) }, "+ Registrar"))),
+          isCustom ? h("div", { style: { marginTop: "12px", textAlign: "right" } },
+            h("button", { className: "kp-btn kp-danger", onClick: (e) => { e.stopPropagation(); delProspecto(p.id); } }, "\u{1F5D1} Eliminar prospecto")) : null));
       }
       return h(R.Fragment, { key: p.id }, rows);
     }
