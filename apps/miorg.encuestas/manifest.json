@@ -1,0 +1,13 @@
+{
+  "id": "miorg.encuestas",
+  "name": "Encuesta Rápida (ejemplo 3ros)",
+  "version": "1.0.0",
+  "description": "App de EJEMPLO de terceros: encuesta de una pregunta incrustable en cualquier web, construida SOLO con el gateway público genérico (permissions public.read + public.submit) — sin backend a medida.",
+  "icon": "📊",
+  "author": "miorg (ejemplo de terceros)",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "public.read", "public.submit"]
+}

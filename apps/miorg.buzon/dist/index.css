@@ -1,0 +1,33 @@
+/* Buzón de Sugerencias (ejemplo 3ros) — scope .kimos-buzon, tema-consciente. */
+.kimos-buzon {
+  --buz-fg: hsl(var(--foreground, 220 25% 6%));
+  --buz-muted: hsl(var(--muted-foreground, 215 20% 32%) / 0.75);
+  --buz-border: hsl(var(--border, 214 18% 82%) / 0.6);
+  --buz-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
+  --buz-accent: hsl(var(--primary, 182 75% 40%));
+  --buz-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, sans-serif;
+  color: var(--buz-fg);
+  background: hsl(var(--background, 0 0% 100%));
+  overflow: hidden;
+}
+.kimos-buzon .buz-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--buz-border); flex-shrink: 0; }
+.kimos-buzon .buz-title { font-weight: 700; font-size: 14px; flex: 1; }
+.kimos-buzon .buz-switch { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.kimos-buzon .buz-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.kimos-buzon .buz-empty { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 160px; font-size: 14px; text-align: center; padding: 20px; }
+.kimos-buzon .buz-muted { color: var(--buz-muted); font-size: 12px; }
+.kimos-buzon .buz-card { border: 1px solid var(--buz-border); border-radius: 12px; padding: 14px; }
+.kimos-buzon .buz-card-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.kimos-buzon .buz-code { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; font-family: ui-monospace, monospace; overflow-x: auto; white-space: pre; margin: 0 0 8px; }
+.kimos-buzon .buz-btn { border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.kimos-buzon .buz-btn-primary { background: var(--buz-accent); color: var(--buz-accent-fg); }
+.kimos-buzon .buz-btn-ghost { background: var(--buz-surface); color: var(--buz-fg); border: 1px solid var(--buz-border); padding: 4px 10px; }
+.kimos-buzon .buz-btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; padding: 4px 8px; }
+.kimos-buzon .buz-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--buz-border); }
+.kimos-buzon .buz-item-text { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.kimos-buzon .buz-item-meta { display: flex; align-items: center; gap: 8px; color: var(--buz-muted); font-size: 11px; flex-shrink: 0; }
