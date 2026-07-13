@@ -13,9 +13,9 @@ shell v2 y persistiendo el avance por instancia.
   Estos datos maestros van **embebidos** en el bundle (`SEED`).
 - **Sumar prospectos** de dos formas (se guardan en `store.custom`, en el navegador):
   - **➕ Manual**: formulario individual (sólo la empresa es obligatoria).
-  - **🗄️ Cargar BD**: importación masiva desde **JSON** o **CSV**
-    (Excel → *Guardar como CSV*; acepta separador `,`, `;` o tabulador, comillas
-    y acentos). Columnas reconocidas por nombre (es/en): `empresa`, `rubro`,
+  - **🗄️ Cargar BD**: importación masiva desde **Excel `.xlsx`** (lector nativo,
+    sin dependencias ni red), **CSV** (separador `,`, `;` o tabulador, comillas y
+    acentos) o **JSON**. Columnas reconocidas por nombre (es/en): `empresa`, `rubro`,
     `persona`/`contacto`, `cargo`, `telefono`, `correo`/`email`, `linkedin_url`,
     `descripcion`, `problematica`, `propuesta`, `notas`. Botón **📄 Plantilla**
     descarga un CSV de ejemplo con las columnas.
@@ -79,6 +79,18 @@ de build en el host: todo es `React.createElement`.
 - Render con `React.createElement` sobre `globalThis.React` (sin JSX / sin build).
 - Persistencia en `localStorage` conservada (misma clave `kimos_prospeccion_v1`),
   igual que el HTML: sin instancias por equipo.
+
+## Notas de versión
+
+- **1.4.0** — Soporte **Excel `.xlsx` nativo**: lector propio sin dependencias
+  (descompresión DEFLATE + lectura ZIP + parseo del XML de Excel; lee la 1ª hoja,
+  shared strings, acentos y entidades). Fix: el modal de alta usa
+  `position: absolute` (antes `fixed`, que las ventanas del shell —con `transform`—
+  recortaban, dejándolo invisible). `accept` del selector ampliado (`.xlsx`, CSV,
+  TSV, TXT, JSON). `.xls` antiguo (binario) no soportado → guardar como `.xlsx`/CSV.
+- **1.2.0** — Alta manual (➕) e importación de base de datos (JSON/CSV) + plantilla.
+- **1.1.0** — App singleton (sin instancias por equipo); persistencia en navegador.
+- **1.0.0** — Conversión del HTML a app instalable de Kimos.
 
 ## Roadmap
 

@@ -7,6 +7,7 @@
   --kp-verde: #2ecc8f; --kp-amar: #f5b73d; --kp-rojo: #e5534b;
   height: 100%;
   width: 100%;
+  position: relative; /* ancla los modales (absolute) dentro de la ventana del shell */
   overflow: hidden;
   background: linear-gradient(160deg, #0a1422, #0c1726 40%, #0b1a2e);
   color: var(--kp-txt);
@@ -160,9 +161,10 @@
 .kimos-prospeccion .kp-footer { text-align: center; color: var(--kp-mut); font-size: 12px; margin: 22px 0 8px; }
 .kimos-prospeccion .kp-loadbar { text-align: center; color: var(--kp-mut); font-size: 12px; padding: 6px; }
 
-.kimos-prospeccion .kp-modal { position: fixed; inset: 0; background: rgba(4, 12, 22, .7); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.kimos-prospeccion .kp-modal { position: absolute; inset: 0; background: rgba(4, 12, 22, .7); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
 .kimos-prospeccion .kp-box { background: var(--kp-panel); border: 1px solid var(--kp-teal); border-radius: 16px; padding: 20px; width: 360px; max-width: 92%; }
-.kimos-prospeccion .kp-box-lg { width: 560px; max-height: 88vh; overflow-y: auto; }
+.kimos-prospeccion .kp-box { max-height: 100%; overflow-y: auto; }
+.kimos-prospeccion .kp-box-lg { width: 560px; }
 .kimos-prospeccion .kp-box h3 { margin: 0 0 12px; }
 .kimos-prospeccion .kp-modal-sub { margin: -6px 0 12px; color: var(--kp-mut); font-size: 12px; }
 .kimos-prospeccion .kp-erow { display: flex; gap: 8px; margin-bottom: 8px; }

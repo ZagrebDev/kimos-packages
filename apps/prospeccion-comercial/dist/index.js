@@ -119,6 +119,170 @@ function coerceRawList(j) {
   return [];
 }
 
+// ============================================================================
+// Lector .xlsx nativo (sin dependencias): DEFLATE (RFC1951) + ZIP + XML de Excel.
+// ============================================================================
+// Inflate raw (algoritmo tinf, dominio público, adaptado). in: Uint8Array.
+function inflateRaw(input) {
+  let bitBuf = 0, bitCnt = 0, pos = 0;
+  const out = [];
+  const LBASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+  const LEXT = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+  const DBASE = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+  const DEXT = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+  const ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  function bit() { if (bitCnt === 0) { bitBuf = input[pos++]; bitCnt = 8; } const b = bitBuf & 1; bitBuf >>= 1; bitCnt--; return b; }
+  function bits(n) { let v = 0; for (let i = 0; i < n; i++) v |= bit() << i; return v; }
+  function build(lengths, num) {
+    const counts = new Array(16).fill(0);
+    for (let i = 0; i < num; i++) counts[lengths[i]]++;
+    counts[0] = 0;
+    const offs = new Array(16).fill(0);
+    for (let i = 1; i < 16; i++) offs[i] = offs[i - 1] + counts[i - 1];
+    const symbols = new Array(num);
+    for (let i = 0; i < num; i++) if (lengths[i]) symbols[offs[lengths[i]]++] = i;
+    return { counts, symbols };
+  }
+  function decode(tree) {
+    let sum = 0, cur = 0, len = 0;
+    do { cur = cur * 2 + bit(); len++; sum += tree.counts[len]; cur -= tree.counts[len]; } while (cur >= 0);
+    return tree.symbols[sum + cur];
+  }
+  const fixedLit = (() => { const l = new Array(288); for (let i = 0; i < 144; i++) l[i] = 8; for (let i = 144; i < 256; i++) l[i] = 9; for (let i = 256; i < 280; i++) l[i] = 7; for (let i = 280; i < 288; i++) l[i] = 8; return build(l, 288); })();
+  const fixedDist = (() => { const l = new Array(30).fill(5); return build(l, 30); })();
+  let last = 0;
+  do {
+    last = bit();
+    const type = bits(2);
+    if (type === 0) {
+      bitCnt = 0;
+      const len = input[pos] | (input[pos + 1] << 8); pos += 4;
+      for (let i = 0; i < len; i++) out.push(input[pos++]);
+    } else {
+      let lt, dt;
+      if (type === 1) { lt = fixedLit; dt = fixedDist; }
+      else {
+        const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;
+        const cl = new Array(19).fill(0);
+        for (let i = 0; i < hclen; i++) cl[ORDER[i]] = bits(3);
+        const clt = build(cl, 19);
+        const lens = new Array(hlit + hdist).fill(0);
+        let n = 0;
+        while (n < hlit + hdist) {
+          const sym = decode(clt);
+          if (sym < 16) lens[n++] = sym;
+          else if (sym === 16) { const r = bits(2) + 3, prev = lens[n - 1]; for (let i = 0; i < r; i++) lens[n++] = prev; }
+          else if (sym === 17) { const r = bits(3) + 3; for (let i = 0; i < r; i++) lens[n++] = 0; }
+          else { const r = bits(7) + 11; for (let i = 0; i < r; i++) lens[n++] = 0; }
+        }
+        lt = build(lens.slice(0, hlit), hlit);
+        dt = build(lens.slice(hlit), hdist);
+      }
+      for (;;) {
+        const sym = decode(lt);
+        if (sym === 256) break;
+        if (sym < 256) out.push(sym);
+        else {
+          const s = sym - 257;
+          const length = LBASE[s] + bits(LEXT[s]);
+          const d = decode(dt);
+          const dist = DBASE[d] + bits(DEXT[d]);
+          const start = out.length - dist;
+          for (let i = 0; i < length; i++) out.push(out[start + i]);
+        }
+      }
+    }
+  } while (!last);
+  return Uint8Array.from(out);
+}
+// Lee un ZIP vía el directorio central. Devuelve { nombre: Uint8Array }.
+function unzip(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const dec = new TextDecoder("utf-8");
+  const out = {};
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0; i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  if (eocd < 0) throw new Error("ZIP inválido");
+  const cnt = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  for (let e = 0; e < cnt; e++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const commentLen = dv.getUint16(off + 32, true);
+    const localOff = dv.getUint32(off + 42, true);
+    const name = dec.decode(buf.subarray(off + 46, off + 46 + nameLen));
+    const lNameLen = dv.getUint16(localOff + 26, true);
+    const lExtraLen = dv.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    const comp = buf.subarray(dataStart, dataStart + compSize);
+    out[name] = method === 0 ? comp.slice() : inflateRaw(comp);
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+function xmlDecode(s) {
+  return String(s)
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function parseSharedStrings(xml) {
+  const arr = [];
+  if (!xml) return arr;
+  const siRe = /<si\b[^>]*>([\s\S]*?)<\/si>/g; let m;
+  while ((m = siRe.exec(xml))) {
+    let text = ""; const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g; let tm;
+    while ((tm = tRe.exec(m[1]))) text += xmlDecode(tm[1]);
+    arr.push(text);
+  }
+  return arr;
+}
+function colIndex(ref) { let s = 0; for (let i = 0; i < ref.length; i++) { const c = ref.charCodeAt(i); if (c >= 65 && c <= 90) s = s * 26 + (c - 64); else break; } return s - 1; }
+function parseSheet(xml, shared) {
+  const rows = [];
+  const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while ((rm = rowRe.exec(xml))) {
+    const cells = [];
+    const cRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let cm;
+    while ((cm = cRe.exec(rm[1]))) {
+      const attrs = cm[1] || "", body = cm[2] || "";
+      const rMatch = /r="([A-Z]+)\d+"/.exec(attrs);
+      const ci = rMatch ? colIndex(rMatch[1]) : cells.length;
+      const tMatch = /t="([^"]+)"/.exec(attrs); const type = tMatch ? tMatch[1] : "";
+      let val = "";
+      if (type === "s") { const v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body); val = v ? (shared[parseInt(v[1], 10)] || "") : ""; }
+      else if (type === "inlineStr") { let t = ""; const tRe = /<t\b[^>]*>([\s\S]*?)<\/t>/g; let tm; while ((tm = tRe.exec(body))) t += xmlDecode(tm[1]); val = t; }
+      else { const v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body); val = v ? xmlDecode(v[1]) : ""; }
+      cells[ci >= 0 ? ci : cells.length] = val;
+    }
+    for (let i = 0; i < cells.length; i++) if (cells[i] === undefined) cells[i] = "";
+    rows.push(cells);
+  }
+  return rows;
+}
+// .xlsx (ArrayBuffer) → filas [{encabezado: valor}] usando la 1ª hoja.
+function xlsxToRows(arrayBuffer) {
+  const files = unzip(new Uint8Array(arrayBuffer));
+  const dec = new TextDecoder("utf-8");
+  const shared = parseSharedStrings(files["xl/sharedStrings.xml"] ? dec.decode(files["xl/sharedStrings.xml"]) : "");
+  const sheetKey = Object.keys(files).filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort()[0];
+  if (!sheetKey) throw new Error("el .xlsx no tiene hojas legibles");
+  const rows = parseSheet(dec.decode(files[sheetKey]), shared);
+  if (!rows.length) return [];
+  const headers = rows[0].map((x) => String(x == null ? "" : x).trim());
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const rec = rows[r];
+    if (!rec || rec.every((c) => String(c == null ? "" : c).trim() === "")) continue;
+    const obj = {}; headers.forEach((hh, ci) => { obj[hh] = rec[ci] != null ? rec[ci] : ""; });
+    out.push(obj);
+  }
+  return out;
+}
+
 function freshStore() {
   return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [] };
 }
@@ -275,12 +439,23 @@ export default function mount(shell) {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
       const name = (f.name || "").toLowerCase();
+      const isXlsx = /\.xlsx$/.test(name);
       const rd = new FileReader();
       rd.onload = () => {
         try {
-          const txt = String(rd.result || "");
-          const isJson = name.endsWith(".json") || /^\s*[[{]/.test(txt);
-          const raw = isJson ? coerceRawList(JSON.parse(txt)) : parseCSV(txt);
+          let raw;
+          if (isXlsx) {
+            raw = xlsxToRows(rd.result); // ArrayBuffer → filas
+          } else {
+            const txt = String(rd.result || "");
+            // .xls antiguo (binario OLE) no soportado → pedir .xlsx o CSV.
+            if (/\.xls$/.test(name) || txt.charCodeAt(0) === 0xD0) {
+              notify("warn", "El formato .xls antiguo no se soporta. Guárdalo como .xlsx o CSV y vuelve a cargar.");
+              return;
+            }
+            const isJson = name.endsWith(".json") || /^\s*[[{]/.test(txt);
+            raw = isJson ? coerceRawList(JSON.parse(txt)) : parseCSV(txt);
+          }
           const mapped = raw.map(rowToProspecto).filter(Boolean);
           if (!mapped.length) { notify("warn", "No se reconocieron prospectos. Revisa las columnas (empresa, rubro, persona, correo…)."); return; }
           setStore((s) => {
@@ -297,7 +472,7 @@ export default function mount(shell) {
           notify("success", mapped.length + " prospecto(s) importado(s).");
         } catch (err) { notify("error", "Archivo inválido: " + ((err && err.message) || "formato no reconocido")); }
       };
-      rd.readAsText(f);
+      if (isXlsx) rd.readAsArrayBuffer(f); else rd.readAsText(f);
       e.target.value = "";
     }, []);
     const downloadTemplate = useCallback(() => {
@@ -417,8 +592,8 @@ export default function mount(shell) {
               h("p", null, "Prospección Chile — tótems IA + software de orquestación"))),
           h("div", { className: "kp-actions" },
             h("button", { className: "kp-btn kp-primary", onClick: openAdd }, "➕ Prospecto"),
-            h("button", { className: "kp-btn", onClick: () => bdRef.current && bdRef.current.click(), title: "Importar prospectos desde JSON o CSV (Excel → Guardar como CSV)" }, "\u{1F5C4}️ Cargar BD"),
-            h("input", { type: "file", ref: bdRef, accept: ".json,.csv,text/csv,application/json", style: { display: "none" }, onChange: importBD }),
+            h("button", { className: "kp-btn", onClick: () => bdRef.current && bdRef.current.click(), title: "Importar prospectos desde Excel (.xlsx), CSV o JSON" }, "\u{1F5C4}️ Cargar BD"),
+            h("input", { type: "file", ref: bdRef, accept: ".csv,.tsv,.txt,.json,.xlsx,.xls,text/csv,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", style: { display: "none" }, onChange: importBD }),
             h("button", { className: "kp-btn", onClick: downloadTemplate, title: "Descargar plantilla CSV con las columnas" }, "\u{1F4C4} Plantilla"),
             h("button", { className: "kp-btn", onClick: openEquipo }, "\u{1F465} Equipo"),
             h("button", { className: "kp-btn", onClick: exportJSON, title: "Descargar respaldo completo (avance + prospectos añadidos)" }, "⬇️ Exportar"),
