@@ -3,8 +3,19 @@
 Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y apps plugin que el backend descarga e instala bajo demanda.
 
 > **¿Quieres crear tu propia app?** Empieza por **[`CREA-TU-APP.md`](CREA-TU-APP.md)**
-> (guía pública paso a paso, sin necesidad de backend). La referencia técnica
-> completa del contrato está en [`APP-SPEC.md`](APP-SPEC.md).
+> (guía paso a paso, sin necesidad de backend). La referencia técnica completa
+> del contrato está en [`APP-SPEC.md`](APP-SPEC.md). Para terceros SIN acceso a
+> este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
+> descargable desde la Tienda de KIMOS o regenerable con
+> `node tools/build-creator-pack.mjs`.
+
+## Modelo de apps (v0.22)
+
+| Nivel | Distribución | Ejemplos |
+|---|---|---|
+| **Sistema** | Incluidas siempre (shell) | Archivos, Configuración, Tienda, Apariencia, Vitrina |
+| **Oficial** | Instalable desde esta Tienda. Las `runtime: "native"` viven en el producto y al instalarlas solo se HABILITAN (sin descarga de bundle); las demás descargan su `dist/`. **Desinstaladas por defecto.** | Kanban, Planificación, Panel HTML, Productos, Pedidos, Clientes (nativas) · Formularios de Contacto, Agentes Web, Notas, FossFLOW (bundle) |
+| **Externa** | Archivo `.kapp` (Tienda → Instalar desde archivo) con el creator pack | miorg.encuestas, miorg.buzon |
 
 ## Estructura
 
