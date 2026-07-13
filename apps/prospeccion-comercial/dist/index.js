@@ -284,7 +284,26 @@ function xlsxToRows(arrayBuffer) {
 }
 
 function freshStore() {
-  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [] };
+  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [], overrides: {} };
+}
+// Lista efectiva de prospectos: SEED + añadidos, con overrides (ediciones del
+// usuario/agente sobre cualquier prospecto, incluidos los 59 base) aplicados.
+function effProspectos(s) {
+  const ov = (s && s.overrides) || {};
+  return SEED.prospectos.concat((s && s.custom) || []).map((p) => (ov[p.id] ? { ...p, ...ov[p.id] } : p));
+}
+// Aplica un parche de campos a un prospecto: si es añadido se edita directo;
+// si es de SEED se guarda como override (SEED es inmutable en el bundle).
+function applyProspectoPatch(s, id, patch) {
+  const clean = {};
+  PROSPECTO_FIELDS.forEach((k) => { if (patch[k] !== undefined) clean[k] = String(patch[k]); });
+  if (!Object.keys(clean).length) return s;
+  if ((s.custom || []).some((p) => p.id === id)) {
+    return { ...s, custom: s.custom.map((p) => (p.id === id ? { ...p, ...clean } : p)) };
+  }
+  const ov = { ...(s.overrides || {}) };
+  ov[id] = { ...(ov[id] || {}), ...clean };
+  return { ...s, overrides: ov };
 }
 function loadLocal() {
   try {
@@ -297,7 +316,7 @@ function loadLocal() {
 function saveLocal(s) {
   try {
     const ls = globalThis.localStorage;
-    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [] }));
+    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {} }));
   } catch { /* storage lleno o bloqueado */ }
 }
 function normalizeStore(s) {
@@ -307,6 +326,7 @@ function normalizeStore(s) {
     if (Array.isArray(s.bit)) out.bit = s.bit;
     if (Array.isArray(s.equipo) && s.equipo.length) out.equipo = s.equipo;
     if (Array.isArray(s.custom)) out.custom = s.custom;
+    if (s.overrides && typeof s.overrides === "object") out.overrides = s.overrides;
   }
   return out;
 }
@@ -333,6 +353,113 @@ export default function mount(shell) {
     try { shell.notify({ level, text }); } catch { /* no-op */ }
   }
 
+  // Puente entre el Component montado y el agente: el Component publica aquí
+  // su setStore/estado actual en cada render (mismo estado → UI reactiva).
+  const bridge = { setStore: null, getStore: null };
+
+  function agentExists(id) {
+    const s = bridge.getStore && bridge.getStore();
+    return s ? effProspectos(s).some((p) => p.id === id) : false;
+  }
+
+  let unregisterAgent = null;
+  if (shell && shell.agent && typeof shell.agent.register === "function") {
+    try {
+      unregisterAgent = shell.agent.register({
+        label: "Prospección Comercial",
+        description: "Pipeline de prospección FIGIT+KIMOS. Puedes investigar en la web la información de contacto de los prospectos (nombre del tomador de decisión, cargo, teléfono, correo, LinkedIn, rubro) y actualizarla con UPDATE_PROSPECTO; sumar prospectos nuevos; y llevar el avance comercial (estado, resultado, responsable, notas y bitácora de contactos). Usa getSnapshot para conocer los ids antes de actuar.",
+        tools: [
+          { name: "UPDATE_PROSPECTO", description: "Actualiza campos de contacto/ficha de un prospecto (tras investigarlos): empresa, rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, campos: { type: "object" } }, required: ["id", "campos"] } },
+          { name: "ADD_PROSPECTO", description: "Agrega un prospecto nuevo. Campos: empresa (obligatorio), rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas.",
+            inputSchema: { type: "object", properties: { empresa: { type: "string" } }, required: ["empresa"] } },
+          { name: "SET_ESTADO", description: "Cambia el estado del pipeline: 'Por Contactar' | 'Contactado' | 'Reunion Agendada'.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, estado: { type: "string" } }, required: ["id", "estado"] } },
+          { name: "SET_RESULTADO", description: "Fija el resultado: 'Aceptada' | 'Esperando Confirmacion' | 'Rechazo' | '' (sin resultado).",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, resultado: { type: "string" } }, required: ["id", "resultado"] } },
+          { name: "SET_RESPONSABLE", description: "Asigna el prospecto a un responsable del equipo.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, responsable: { type: "string" } }, required: ["id", "responsable"] } },
+          { name: "ADD_NOTA", description: "Agrega/actualiza la nota de seguimiento del usuario sobre un prospecto.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, nota: { type: "string" } }, required: ["id", "nota"] } },
+          { name: "ADD_BITACORA", description: "Registra una interacción en la bitácora (fecha YYYY-MM-DD, canal: Telefono|Correo|LinkedIn|WhatsApp|Reunion presencial|Reunion online|Otro, resumen, proximo seguimiento opcional).",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, fecha: { type: "string" }, canal: { type: "string" }, resumen: { type: "string" }, proximo: { type: "string" } }, required: ["id", "resumen"] } },
+        ],
+        getSnapshot: () => {
+          if (!bridge.getStore) return { ready: false };
+          const s = bridge.getStore();
+          return {
+            ready: true,
+            equipo: s.equipo,
+            rubros: SEED.rubros,
+            prospectos: effProspectos(s).map((p) => {
+              const m = s.meta[p.id] || {};
+              return { id: p.id, empresa: p.empresa, rubro: p.rubro, persona: p.persona, cargo: p.cargo,
+                telefono: p.telefono, correo: p.correo, linkedin_url: p.linkedin_url,
+                estado: m.estado || "Por Contactar", resultado: m.resultado || "", responsable: m.responsable || "Sin asignar", notas: m.notas || "" };
+            }),
+          };
+        },
+        dispatchAction: async (action) => {
+          if (!bridge.setStore || !bridge.getStore) return { success: false, error: "La app aún no terminó de montar." };
+          const t = (action && action.type) || "";
+          const pl = (action && action.payload) || {};
+          const id = Number(pl.id);
+          const setMeta = (key, value) => {
+            if (!agentExists(id)) return false;
+            bridge.setStore((s) => {
+              const cur = s.meta[id] || { estado: "Por Contactar", resultado: "", responsable: "Sin asignar", notas: "" };
+              return { ...s, meta: { ...s.meta, [id]: { ...cur, [key]: value } } };
+            });
+            return true;
+          };
+          try {
+            if (t === "UPDATE_PROSPECTO") {
+              if (!agentExists(id)) return { success: false, error: "id no encontrado" };
+              bridge.setStore((s) => applyProspectoPatch(s, id, pl.campos || {}));
+              return { success: true, message: "Prospecto " + id + " actualizado." };
+            }
+            if (t === "ADD_PROSPECTO") {
+              const empresa = String(pl.empresa || "").trim();
+              if (!empresa) return { success: false, error: "empresa es obligatoria" };
+              const newId = nextId(effProspectos(bridge.getStore()));
+              bridge.setStore((s) => {
+                const p = { ...blankProspecto(), id: nextId(effProspectos(s)) };
+                PROSPECTO_FIELDS.forEach((k) => { if (pl[k] !== undefined) p[k] = String(pl[k]); });
+                p.empresa = empresa; if (!p.rubro) p.rubro = "SIN RUBRO";
+                return { ...s, custom: (s.custom || []).concat([p]) };
+              });
+              return { success: true, message: "Prospecto creado (id aprox. " + newId + "; confirma con getSnapshot)." };
+            }
+            if (t === "SET_ESTADO") {
+              if (ESTADOS.indexOf(pl.estado) < 0) return { success: false, error: "estado inválido: " + ESTADOS.join(" | ") };
+              return setMeta("estado", pl.estado) ? { success: true } : { success: false, error: "id no encontrado" };
+            }
+            if (t === "SET_RESULTADO") {
+              if (RESULTADOS.indexOf(pl.resultado) < 0) return { success: false, error: "resultado inválido: " + RESULTADOS.filter(Boolean).join(" | ") + " | ''" };
+              return setMeta("resultado", pl.resultado) ? { success: true } : { success: false, error: "id no encontrado" };
+            }
+            if (t === "SET_RESPONSABLE") {
+              return setMeta("responsable", String(pl.responsable || "Sin asignar")) ? { success: true } : { success: false, error: "id no encontrado" };
+            }
+            if (t === "ADD_NOTA") {
+              return setMeta("notas", String(pl.nota || "")) ? { success: true } : { success: false, error: "id no encontrado" };
+            }
+            if (t === "ADD_BITACORA") {
+              const p = effProspectos(bridge.getStore()).find((x) => x.id === id);
+              if (!p) return { success: false, error: "id no encontrado" };
+              const canal = CANAL_ICON[pl.canal] ? pl.canal : "Otro";
+              bridge.setStore((s) => ({ ...s, bit: s.bit.concat([{ empresa: p.empresa, fecha: String(pl.fecha || new Date().toISOString().slice(0, 10)), canal, resumen: String(pl.resumen || ""), proximo: String(pl.proximo || "") }]) }));
+              return { success: true };
+            }
+            return { success: false, error: "Acción desconocida: " + t };
+          } catch (err) {
+            return { success: false, error: (err && err.message) || "error interno" };
+          }
+        },
+      });
+    } catch { /* shell sin soporte de agente: la app sigue funcionando */ }
+  }
+
   function Component() {
     const [store, setStore] = useState(loadLocal);
     const [q, setQ] = useState("");
@@ -345,11 +472,29 @@ export default function mount(shell) {
     const [equipoDraft, setEquipoDraft] = useState([]);
     const [addOpen, setAddOpen] = useState(false);
     const [addDraft, setAddDraft] = useState(null); // prospecto en edición (alta manual)
+    const [editId, setEditId] = useState(null);     // prospecto en edición (✏️ ficha)
+    const [editDraft, setEditDraft] = useState(null);
+    const [chatOpen, setChatOpen] = useState(false);
+    const [chatMsgs, setChatMsgs] = useState(() => [{
+      who: "b",
+      text: "¡Hola! Soy tu asistente de prospección comercial FIGIT + KIMOS. Puedo buscar prospectos, darte el pitch, sugerir prioridades y actualizar datos por ti.\n\nPrueba por ejemplo:\n• resumen\n• ¿qué hago hoy?\n• busca Falabella\n• pitch para Metro\n• pendientes de retail\n• actualiza el correo de Ripley a maria.perez@ripley.cl\n• marca Cencosud como contactado\n• investiga Clínica Alemana",
+    }]);
+    const [chatInput, setChatInput] = useState("");
     const [forms, setForms] = useState({}); // bitácora en edición por id
     const fileRef = useRef(null); // importar respaldo (estado)
     const bdRef = useRef(null);   // importar base de datos de prospectos
     const saveTimer = useRef(null);
     const skipSave = useRef(true);
+    const storeRef = useRef(store);
+    storeRef.current = store;
+    // Publica el estado vivo para el agente (bridge). El wrapper refresca el
+    // espejo apenas React aplica el updater, para lecturas encadenadas.
+    bridge.getStore = () => storeRef.current;
+    bridge.setStore = (upd) => setStore((s) => {
+      const next = typeof upd === "function" ? upd(s) : upd;
+      storeRef.current = next;
+      return next;
+    });
 
     // Persistencia en el NAVEGADOR (sin instancias por equipo): localStorage,
     // con guardado debounceado. El estado inicial ya se cargó en useState.
@@ -434,6 +579,234 @@ export default function mount(shell) {
       });
     }, []);
 
+    // ---------- Edición de ficha (cualquier prospecto, incl. los 59 base) ----------
+    const updateProspecto = useCallback((id, patch) => setStore((s) => applyProspectoPatch(s, id, patch)), []);
+    const openEdit = useCallback((p) => {
+      const d = {}; PROSPECTO_FIELDS.forEach((k) => (d[k] = p[k] || ""));
+      setEditDraft(d); setEditId(p.id);
+    }, []);
+    const saveEdit = useCallback(() => {
+      if (editId == null) return;
+      updateProspecto(editId, editDraft || {});
+      setEditId(null);
+      notify("success", "Ficha actualizada.");
+    }, [editId, editDraft]);
+
+    // ---------- Asistente de prospección (chat consultivo) ----------
+    const chatEndRef = useRef(null);
+    useEffect(() => {
+      try { if (chatEndRef.current && chatEndRef.current.scrollIntoView) chatEndRef.current.scrollIntoView({ block: "end" }); } catch { /* no-op */ }
+    }, [chatMsgs, chatOpen]);
+
+    const kNorm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    function findMatches(q) {
+      const nq = kNorm(q).trim();
+      if (!nq) return [];
+      const toks = nq.split(/\s+/).filter(Boolean);
+      return P.filter((p) => {
+        const hay = kNorm(p.empresa + " " + p.persona + " " + p.rubro);
+        return toks.every((t) => hay.includes(t));
+      });
+    }
+    function fichaText(p) {
+      const m = metaOf(store, p.id);
+      return "🏢 " + p.empresa + " (" + p.rubro + ")\n" +
+        "👤 " + (p.persona || "—") + (p.cargo ? " · " + p.cargo : "") + "\n" +
+        "📞 " + (p.telefono || "—") + "  ✉️ " + (p.correo || "—") + "\n" +
+        "Estado: " + m.estado + (m.resultado ? " · Resultado: " + m.resultado : "") + " · Responsable: " + m.responsable +
+        (m.notas ? "\n📌 " + m.notas : "");
+    }
+    function researchLinks(p) {
+      const emp = encodeURIComponent(p.empresa);
+      return [
+        { label: "🔎 Google: gerente/contacto", href: "https://www.google.com/search?q=" + encodeURIComponent(p.empresa + " " + (p.cargo || "gerente operaciones") + " contacto") },
+        { label: "💼 LinkedIn", href: p.linkedin_url || ("https://www.linkedin.com/search/results/people/?keywords=" + emp) },
+        { label: "📰 Noticias recientes", href: "https://news.google.com/search?q=" + emp + "&hl=es-419" },
+        { label: "🌐 Sitio oficial", href: "https://www.google.com/search?q=" + emp + "+sitio+oficial" },
+      ];
+    }
+    function disambiguate(matches) {
+      return { who: "b", text: "Encontré varios prospectos. ¿A cuál te refieres?\n" + matches.slice(0, 6).map((p) => "• " + p.empresa + " (" + p.rubro + ")").join("\n") };
+    }
+    const FIELD_WORDS = {
+      "correo": "correo", "email": "correo", "mail": "correo",
+      "telefono": "telefono", "teléfono": "telefono", "fono": "telefono", "celular": "telefono",
+      "linkedin": "linkedin_url", "cargo": "cargo", "puesto": "cargo",
+      "contacto": "persona", "persona": "persona", "nombre": "persona", "tomador": "persona",
+      "empresa": "empresa", "rubro": "rubro", "descripcion": "descripcion", "descripción": "descripcion",
+      "problematica": "problematica", "problemática": "problematica", "propuesta": "propuesta", "nota": "notas", "notas": "notas",
+    };
+    function botReply(raw) {
+      const t = String(raw || "").trim();
+      const n = kNorm(t);
+      const out = [];
+      let m;
+
+      // 1) Actualizar un campo: "actualiza|cambia|pon el correo de X a|por Y" / "el correo de X es Y"
+      m = /(?:actualiza|cambia|corrige|pon|edita|guarda)\s+(?:el|la)?\s*([a-záéíóúñ]+)\s+(?:de|del|para)\s+(.+?)\s+(?:a|por|es|como|:)\s+(.+)$/i.exec(t) ||
+          /^(?:el|la)\s+([a-záéíóúñ]+)\s+de\s+(.+?)\s+es\s+(.+)$/i.exec(t);
+      if (m && FIELD_WORDS[kNorm(m[1])]) {
+        const field = FIELD_WORDS[kNorm(m[1])];
+        const matches = findMatches(m[2]);
+        if (!matches.length) return [{ who: "b", text: "No encontré ningún prospecto que coincida con “" + m[2].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const p = matches[0]; const value = m[3].trim().replace(/[.。]$/, "");
+        if (field === "notas") setMetaField(p.id, "notas", value);
+        else updateProspecto(p.id, { [field]: value });
+        return [{ who: "b", text: "✅ Listo: " + m[1].toLowerCase() + " de " + p.empresa + " → " + value }];
+      }
+
+      // 2) Estado: "marca X como contactado|reunión agendada|por contactar"
+      m = /(?:marca|pasa|pon|deja)\s+(?:a\s+)?(.+?)\s+(?:como|a|en)\s+(por contactar|contactad[oa]|reuni[oó]n(?:\s+agendada)?)/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const nv = kNorm(m[2]);
+        const estado = nv.startsWith("por") ? "Por Contactar" : nv.startsWith("contactad") ? "Contactado" : "Reunion Agendada";
+        setMetaField(matches[0].id, "estado", estado);
+        return [{ who: "b", text: "✅ " + matches[0].empresa + " → " + estado }];
+      }
+
+      // 3) Resultado: "X aceptó / rechazó / esperando"
+      m = /(?:resultado\s+de\s+)?(.+?)\s+(acept[oó]|acepta|aceptada|rechaz[oó]|rechazo|esperando(?:\s+confirmaci[oó]n)?|sin resultado)$/i.exec(t);
+      if (m && /acept|rechaz|esperando|sin resultado/i.test(m[2])) {
+        const matches = findMatches(m[1].replace(/^(marca|pon|deja)\s+/i, ""));
+        if (matches.length === 1) {
+          const nv = kNorm(m[2]);
+          const resultado = nv.startsWith("acept") ? "Aceptada" : nv.startsWith("rechaz") ? "Rechazo" : nv.startsWith("esperando") ? "Esperando Confirmacion" : "";
+          setMetaField(matches[0].id, "resultado", resultado);
+          return [{ who: "b", text: "✅ " + matches[0].empresa + " → resultado: " + (resultado || "—") }];
+        }
+        if (matches.length > 1) return [disambiguate(matches)];
+      }
+
+      // 4) Asignar: "asigna X a Y"
+      m = /asigna(?:le)?\s+(.+?)\s+a\s+(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const resp = m[2].trim();
+        const team = store.equipo.find((x) => kNorm(x) === kNorm(resp)) || resp;
+        if (store.equipo.indexOf(team) < 0) setStore((s) => ({ ...s, equipo: s.equipo.concat([team]) }));
+        setMetaField(matches[0].id, "responsable", team);
+        return [{ who: "b", text: "✅ " + matches[0].empresa + " asignado a " + team }];
+      }
+
+      // 5) Bitácora: "registra llamada|correo|reunión con X: resumen"
+      m = /registra(?:r)?\s+(llamada|tel[eé]fono|correo|mail|linkedin|whatsapp|reuni[oó]n(?:\s+(?:presencial|online))?)?\s*(?:con|a|para)\s+(.+?)\s*[:\-—]\s*(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[2]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[2].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const nv = kNorm(m[1] || "");
+        const canal = nv.startsWith("llamada") || nv.startsWith("telefono") ? "Telefono" : nv.startsWith("correo") || nv.startsWith("mail") ? "Correo" : nv.startsWith("linkedin") ? "LinkedIn" : nv.startsWith("whatsapp") ? "WhatsApp" : nv.includes("online") ? "Reunion online" : nv.startsWith("reunion") ? "Reunion presencial" : "Otro";
+        const hoy = new Date().toISOString().slice(0, 10);
+        setStore((s) => ({ ...s, bit: s.bit.concat([{ empresa: matches[0].empresa, fecha: hoy, canal, resumen: m[3].trim(), proximo: "" }]) }));
+        return [{ who: "b", text: "✅ Bitácora de " + matches[0].empresa + " (" + canal + ", " + hoy + "): " + m[3].trim() }];
+      }
+
+      // 6) Nota: "nota para X: ..."
+      m = /(?:agrega|añade|suma)?\s*nota\s+(?:a|para|de)\s+(.+?)\s*[:\-—]\s*(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        setMetaField(matches[0].id, "notas", m[2].trim());
+        return [{ who: "b", text: "✅ Nota guardada en " + matches[0].empresa }];
+      }
+
+      // 7) Investigar: "investiga X"
+      m = /investiga(?:r)?\s+(?:a\s+)?(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”. ¿Lo agrego? Usa el botón ➕ Prospecto." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const p = matches[0];
+        const faltan = PROSPECTO_FIELDS.filter((k) => ["persona", "cargo", "telefono", "correo", "linkedin_url"].includes(k) && (!p[k] || /identificar|ver sitio|nombre\.apellido|inicialapellido/i.test(p[k])));
+        return [{
+          who: "b",
+          text: "🔎 Dossier de investigación — " + p.empresa + "\n\n" + fichaText(p) +
+            (faltan.length ? "\n\n⚠️ Datos por confirmar: " + faltan.join(", ") + "." : "\n\n✅ La ficha de contacto se ve completa.") +
+            "\n\nAbre estos enlaces, confirma los datos y díctamelos (ej.: “el correo de " + p.empresa.split(" ")[0] + " es …”), o edítalos con ✏️ en la ficha. Si el agente KIMOS está autorizado en tu plataforma, también puede investigar y actualizar esta ficha automáticamente.",
+          links: researchLinks(p),
+        }];
+      }
+
+      // 8) Pitch: "pitch|propuesta para X"
+      m = /(?:pitch|propuesta|argumento(?:s)?|discurso)\s+(?:de|para)\s+(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
+        if (matches.length > 1) return [disambiguate(matches)];
+        const p = matches[0];
+        return [{ who: "b", text: "🎯 Pitch para " + p.empresa + "\n\n⚠️ Problemática: " + (p.problematica || "—") + "\n\n💡 Propuesta FIGIT + KIMOS: " + (p.propuesta || "—") + (p.notas ? "\n\n📌 Tip: " + p.notas : "") }];
+      }
+
+      // 9) Pendientes / listas: "pendientes de retail", "seguimientos"
+      m = /(pendientes|por contactar|sin contactar|seguimientos?)(?:\s+(?:de|en|del)\s+(.+))?$/i.exec(n);
+      if (m) {
+        const rubroQ = (m[2] || "").trim();
+        const hoy = new Date().toISOString().slice(0, 10);
+        if (m[1].startsWith("seguimiento")) {
+          const due = store.bit.filter((b) => b.proximo && b.proximo <= hoy);
+          if (!due.length) return [{ who: "b", text: "No hay seguimientos vencidos. 🎉" }];
+          return [{ who: "b", text: "⏰ Seguimientos vencidos o de hoy:\n" + due.slice(0, 10).map((b) => "• " + b.empresa + " — " + b.proximo + (b.resumen ? " (" + b.resumen + ")" : "")).join("\n") }];
+        }
+        let xs = P.filter((p) => metaOf(store, p.id).estado === "Por Contactar");
+        if (rubroQ) xs = xs.filter((p) => kNorm(p.rubro).includes(kNorm(rubroQ)));
+        if (!xs.length) return [{ who: "b", text: "Sin pendientes" + (rubroQ ? " en " + rubroQ : "") + ". 🎉" }];
+        return [{ who: "b", text: "⚪ Por contactar" + (rubroQ ? " (" + rubroQ + ")" : "") + " — " + xs.length + ":\n" + xs.slice(0, 12).map((p) => "• " + p.empresa + " · " + (p.persona || "contacto por identificar")).join("\n") + (xs.length > 12 ? "\n…y " + (xs.length - 12) + " más." : "") }];
+      }
+
+      // 10) Resumen / stats
+      if (/(resumen|estadistic|kpi|como vamos|avance|status|estado general)/.test(n)) {
+        return [{ who: "b", text: "📊 Resumen del pipeline\n• Total: " + P.length + " prospectos\n• ⚪ Por contactar: " + stats.pc + "\n• 🔵 Contactados: " + stats.co + "\n• 🟣 Reunión agendada: " + stats.ra + "\n• ✅ Aceptadas: " + stats.ac + " · ⏳ Esperando: " + stats.es + " · ❌ Rechazos: " + stats.re + "\n• 📝 Interacciones en bitácora: " + stats.bit }];
+      }
+
+      // 11) Sugerencia del día
+      if (/(que hago|qué hago|sugerencia|prioridad|a quien|a quién|siguiente|hoy)/.test(n)) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const due = store.bit.filter((b) => b.proximo && b.proximo <= hoy).slice(0, 3);
+        const tibios = P.filter((p) => { const mm = metaOf(store, p.id); return mm.estado === "Contactado" && !mm.resultado; }).slice(0, 3);
+        const frios = P.filter((p) => metaOf(store, p.id).estado === "Por Contactar" && p.persona && !/identificar/i.test(p.persona)).slice(0, 3);
+        let txt = "🎯 Prioridades sugeridas para hoy:\n";
+        if (due.length) txt += "\n1️⃣ Seguimientos comprometidos:\n" + due.map((b) => "• " + b.empresa + " (" + b.proximo + ")").join("\n") + "\n";
+        if (tibios.length) txt += "\n2️⃣ Contactados sin resultado — empuja una respuesta:\n" + tibios.map((p) => "• " + p.empresa).join("\n") + "\n";
+        if (frios.length) txt += "\n3️⃣ Por contactar con decisor identificado:\n" + frios.map((p) => "• " + p.empresa + " · " + p.persona).join("\n");
+        if (!due.length && !tibios.length && !frios.length) txt = "Sin acciones urgentes. Sugiero investigar contactos pendientes: dime “investiga <empresa>”.";
+        return [{ who: "b", text: txt }];
+      }
+
+      // 12) Buscar / ficha
+      m = /(?:busca(?:r)?|info(?:rmacion)?|informaci[oó]n|datos|ficha|quien es|qui[eé]n es|muestra(?:me)?)\s+(?:de\s+|sobre\s+)?(.+)$/i.exec(t);
+      if (m) {
+        const matches = findMatches(m[1]);
+        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”. Puedes agregarlo con ➕ Prospecto o cargarlo por BD." }];
+        if (matches.length === 1) return [{ who: "b", text: fichaText(matches[0]), links: researchLinks(matches[0]) }];
+        return [{ who: "b", text: "Coincidencias (" + matches.length + "):\n" + matches.slice(0, 8).map((p) => "• " + p.empresa + " (" + p.rubro + ") — " + metaOf(store, p.id).estado).join("\n") + "\nPide la ficha exacta: “busca <empresa>”." }];
+      }
+
+      // 13) Ayuda / saludo / fallback
+      if (/(hola|buenas|ayuda|help|que puedes|qué puedes)/.test(n) || !n) {
+        return [{ who: "b", text: "Puedo ayudarte así:\n\n🔍 Consultar\n• busca <empresa> · pitch para <empresa>\n• pendientes [de <rubro>] · seguimientos · resumen\n• ¿qué hago hoy?\n\n✏️ Actualizar (lo guardo al instante)\n• actualiza el correo/teléfono/linkedin/cargo/contacto de <empresa> a <valor>\n• marca <empresa> como contactado / reunión agendada\n• <empresa> aceptó / rechazó / esperando\n• asigna <empresa> a <responsable>\n• nota para <empresa>: <texto>\n• registra llamada con <empresa>: <resumen>\n\n🔎 Investigar\n• investiga <empresa> → dossier con enlaces y datos faltantes" }];
+      }
+      // Último intento: quizá escribió solo el nombre de una empresa
+      const direct = findMatches(t);
+      if (direct.length === 1) return [{ who: "b", text: fichaText(direct[0]), links: researchLinks(direct[0]) }];
+      if (direct.length > 1) return [disambiguate(direct)];
+      return [{ who: "b", text: "No entendí 🤔. Escribe “ayuda” para ver todo lo que puedo hacer." }];
+    }
+    const sendChat = useCallback(() => {
+      const t = chatInput.trim();
+      if (!t) return;
+      setChatInput("");
+      setChatMsgs((xs) => xs.concat([{ who: "u", text: t }]));
+      // Responde en el siguiente tick para que la pregunta se pinte primero.
+      setTimeout(() => { try { setChatMsgs((xs) => xs.concat(botReply(t))); } catch { setChatMsgs((xs) => xs.concat([{ who: "b", text: "Ocurrió un error procesando eso." }])); } }, 60);
+    }, [chatInput, store]);
+
     // ---------- Importar base de datos de prospectos (JSON / CSV) ----------
     const importBD = useCallback((e) => {
       const f = e.target.files && e.target.files[0];
@@ -493,7 +866,7 @@ export default function mount(shell) {
     // ---------- Export / Import / Reset ----------
     const exportJSON = useCallback(() => {
       try {
-        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [] }, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {} }, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "kimos_prospeccion_estado.json";
@@ -513,13 +886,13 @@ export default function mount(shell) {
       e.target.value = "";
     }, []);
     const resetAll = useCallback(() => {
-      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar estados, asignaciones y bitácora? (Se conservan los prospectos añadidos)")) return;
-      setStore((s) => ({ ...freshStore(), custom: s.custom || [] }));
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar estados, asignaciones y bitácora? (Se conservan los prospectos añadidos y los datos de contacto editados)")) return;
+      setStore((s) => ({ ...freshStore(), custom: s.custom || [], overrides: s.overrides || {} }));
       notify("info", "Avance reiniciado.");
     }, []);
 
     // ---------- Derivados ----------
-    const P = SEED.prospectos.concat(store.custom || []);
+    const P = effProspectos(store);
     const customIds = useMemo(() => { const s = new Set(); (store.custom || []).forEach((p) => s.add(p.id)); return s; }, [store.custom]);
     const stats = useMemo(() => {
       let pc = 0, co = 0, ra = 0, ac = 0, es = 0, re = 0;
@@ -720,8 +1093,67 @@ export default function mount(shell) {
           Area("Notas / próximo paso", "notas"),
           h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
             h("button", { className: "kp-btn", onClick: () => setAddOpen(false) }, "Cancelar"),
-            h("button", { className: "kp-btn kp-primary", onClick: saveAdd }, "Guardar prospecto"))))
+            h("button", { className: "kp-btn kp-primary", onClick: saveAdd }, "Guardar prospecto")))),
+
+      // Modal Editar ficha (todos los campos de contacto, incl. prospectos base)
+      editId != null && h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setEditId(null); } },
+        h("div", { className: "kp-box kp-box-lg" },
+          h("h3", null, "✏️ Editar ficha — " + ((editDraft && editDraft.empresa) || "")),
+          h("p", { className: "kp-modal-sub" }, "Actualiza aquí los datos que investigues (contacto, cargo, teléfono, correo, LinkedIn…). Se guardan al instante en este navegador."),
+          h("div", { className: "kp-form" },
+            EField("Empresa", "empresa"),
+            h("label", { className: "kp-flbl" }, "Rubro",
+              h("select", { value: (editDraft && editDraft.rubro) || "", onChange: (e) => setEditDraft((d) => ({ ...(d || {}), rubro: e.target.value })) },
+                h("option", { value: (editDraft && editDraft.rubro) || "" }, (editDraft && editDraft.rubro) || "— Selecciona —"),
+                SEED.rubros.filter((r) => r !== ((editDraft && editDraft.rubro) || "")).map((r) => h("option", { key: r, value: r }, r)))),
+            EField("Tomador de decisión", "persona"),
+            EField("Cargo", "cargo"),
+            EField("Teléfono", "telefono"),
+            EField("Correo", "correo"),
+            EField("LinkedIn (URL)", "linkedin_url")),
+          EArea("Descripción", "descripcion"),
+          EArea("Posible problemática", "problematica"),
+          EArea("Propuesta FIGIT + KIMOS", "propuesta"),
+          EArea("Notas base", "notas"),
+          h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
+            h("button", { className: "kp-btn", onClick: () => setEditId(null) }, "Cancelar"),
+            h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios")))),
+
+      // Asistente de prospección: botón flotante + panel de chat
+      h("button", { className: "kp-chatfab", onClick: () => setChatOpen((v) => !v), title: "Asistente de prospección" }, chatOpen ? "✕" : "\u{1F4AC}"),
+      chatOpen && h("div", { className: "kp-chatpanel" },
+        h("div", { className: "kp-chathead" },
+          h("div", { className: "kp-chatdot" }),
+          h("div", null,
+            h("div", { className: "kp-chattitle" }, "Asistente de Prospección"),
+            h("div", { className: "kp-chatsub" }, "Powered by KIMOS · consultivo + acciones")),
+          h("button", { className: "kp-chatx", onClick: () => setChatOpen(false) }, "✕")),
+        h("div", { className: "kp-chatmsgs" },
+          chatMsgs.map((msg, i) => h("div", { key: i, className: "kp-msg " + (msg.who === "u" ? "kp-msg-u" : "kp-msg-b") },
+            h("div", { className: "kp-msgtxt" }, msg.text),
+            msg.links ? h("div", { className: "kp-msglinks" },
+              msg.links.map((l, j) => h("a", { key: j, className: "kp-msglink", href: l.href, target: "_blank", rel: "noreferrer" }, l.label))) : null)),
+          h("div", { ref: chatEndRef })),
+        h("div", { className: "kp-chatquick" },
+          ["resumen", "¿qué hago hoy?", "seguimientos", "ayuda"].map((q) => h("button", { key: q, className: "kp-chip", onClick: () => { setChatMsgs((xs) => xs.concat([{ who: "u", text: q }])); setTimeout(() => setChatMsgs((xs) => xs.concat(botReply(q))), 60); } }, q))),
+        h("div", { className: "kp-chatbar" },
+          h("input", {
+            className: "kp-chatinput", placeholder: "Pregunta o da una orden…", value: chatInput,
+            onChange: (e) => setChatInput(e.target.value),
+            onKeyDown: (e) => { if (e.key === "Enter") sendChat(); },
+          }),
+          h("button", { className: "kp-btn kp-primary", onClick: sendChat }, "Enviar")))
     );
+
+    // Helpers de formulario (edición de ficha)
+    function EField(label, key) {
+      return h("label", { className: "kp-flbl" }, label,
+        h("input", { value: (editDraft && editDraft[key]) || "", onChange: (e) => setEditDraft((d) => ({ ...(d || {}), [key]: e.target.value })) }));
+    }
+    function EArea(label, key) {
+      return h("label", { className: "kp-flbl" }, label,
+        h("textarea", { style: { minHeight: "48px" }, value: (editDraft && editDraft[key]) || "", onChange: (e) => setEditDraft((d) => ({ ...(d || {}), [key]: e.target.value })) }));
+    }
 
     // Helpers de formulario (alta manual)
     function Field(label, key) {
@@ -798,8 +1230,11 @@ export default function mount(shell) {
               h("input", { placeholder: "Resumen / resultado de la interacción", value: f.resumen || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), resumen: e.target.value } })) }),
               h("input", { type: "date", title: "Próximo seguimiento", value: f.proximo || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), proximo: e.target.value } })) }),
               h("button", { className: "kp-btn kp-primary", onClick: () => addBit(p.empresa, p.id) }, "+ Registrar"))),
-          isCustom ? h("div", { style: { marginTop: "12px", textAlign: "right" } },
-            h("button", { className: "kp-btn kp-danger", onClick: (e) => { e.stopPropagation(); delProspecto(p.id); } }, "\u{1F5D1} Eliminar prospecto")) : null));
+          h("div", { className: "kp-rowactions", onClick: (e) => e.stopPropagation() },
+            h("span", { className: "kp-tag", style: { marginRight: "auto" } }, "\u{1F50E} Investigar:"),
+            researchLinks(p).map((l, j) => h("a", { key: j, className: "kp-btn kp-mini2", href: l.href, target: "_blank", rel: "noreferrer" }, l.label)),
+            h("button", { className: "kp-btn", onClick: () => openEdit(p) }, "✏️ Editar ficha"),
+            isCustom ? h("button", { className: "kp-btn kp-danger", onClick: () => delProspecto(p.id) }, "\u{1F5D1} Eliminar") : null)));
       }
       return h(R.Fragment, { key: p.id }, rows);
     }
@@ -869,5 +1304,14 @@ export default function mount(shell) {
       }));
   }
 
-  return { Component };
+  return {
+    Component,
+    unmount() {
+      bridge.setStore = null; bridge.getStore = null;
+      try {
+        if (typeof unregisterAgent === "function") unregisterAgent();
+        else if (unregisterAgent && typeof unregisterAgent.unregister === "function") unregisterAgent.unregister();
+      } catch { /* no-op */ }
+    },
+  };
 }
