@@ -13,7 +13,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ALLOWED_PERMISSIONS = new Set(['instance.read', 'instance.write', 'agent.control']);
+const ALLOWED_PERMISSIONS = new Set(['instance.read', 'instance.write', 'agent.control', 'public.read', 'public.submit']);
+// Permisos parametrizados: data.read:{templateId} o data.read:* (lecturas de
+// datos de otras apps vía shell.data, consentidas al instalar).
+const PARAM_PERMISSION_RE = /^data\.read:(\*|[a-z0-9][a-z0-9.\-]{0,60})$/;
+const permissionAllowed = (p) => ALLOWED_PERMISSIONS.has(p) || PARAM_PERMISSION_RE.test(p);
 const APP_ID_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 const VERSION_RE = /^\d+(\.\d+){0,2}([-.][0-9A-Za-z-]+)*$/;
 const INCLUDE_TOP = new Set(['manifest.json', 'dist', 'assets', 'README.md']);
@@ -100,8 +104,8 @@ const version = String(manifest.version || '').trim();
 if (!APP_ID_RE.test(id)) fail("`id` inválido (minúsculas/dígitos/. _ -; recomendado namespacing 'org.app').");
 if (!VERSION_RE.test(version)) fail('`version` inválida (usa SemVer, p.ej. 1.0.0).');
 const perms = manifest.permissions || [];
-if (!Array.isArray(perms) || perms.some((p) => !ALLOWED_PERMISSIONS.has(p)))
-  fail(`\`permissions\` inválidos. Permitidos: ${[...ALLOWED_PERMISSIONS].join(', ')}.`);
+if (!Array.isArray(perms) || perms.some((p) => !permissionAllowed(p)))
+  fail(`\`permissions\` inválidos. Permitidos: ${[...ALLOWED_PERMISSIONS].join(', ')} o data.read:{templateId}.`);
 const entry = String(manifest.entry || 'dist/index.js');
 if (!fs.existsSync(path.join(appDir, entry))) fail(`No existe el bundle '${entry}'.`);
 

@@ -2,6 +2,10 @@
 
 Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y apps plugin que el backend descarga e instala bajo demanda.
 
+> **¿Quieres crear tu propia app?** Empieza por **[`CREA-TU-APP.md`](CREA-TU-APP.md)**
+> (guía pública paso a paso, sin necesidad de backend). La referencia técnica
+> completa del contrato está en [`APP-SPEC.md`](APP-SPEC.md).
+
 ## Estructura
 
 ```

@@ -165,20 +165,6 @@
   ],
   "apps": [
     {
-      "id": "panel-html",
-      "name": "Panel HTML",
-      "description": "Edita HTML y visualízalo en un iframe seguro. Primera app instalable real.",
-      "icon": "🧩",
-      "version": "1.0.1",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "permissions": [
-        "instance.read",
-        "instance.write"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
       "id": "kanban",
       "name": "Kanban",
       "description": "Tablero visual con columnas configurables y drag & drop. Reabre tableros migrados desde v1.",
@@ -203,19 +189,6 @@
       "permissions": [
         "instance.read",
         "instance.write"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
-      "id": "triatlon-antofagasta",
-      "name": "Triatlón Antofagasta",
-      "description": "Kiosco del Americas Triathlon Championships Antofagasta 2026: inscripción de atletas por categoría, info del evento y atletas, controlable por un agente autorizado.",
-      "icon": "🏊",
-      "version": "2.1.0",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "permissions": [
-        "agent.control"
       ],
       "appShellApi": "1.x"
     },

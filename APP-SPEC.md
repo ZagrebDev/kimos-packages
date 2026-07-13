@@ -237,6 +237,72 @@ embébelos en el bundle, como hace FossFLOW con sus SVG.)
 
 ---
 
+## 7.b Endpoints públicos para tu app (sin backend a medida)
+
+Si tu app necesita recibir datos desde **sitios web externos** (formularios,
+encuestas, webhooks simples), NO necesitas escribir un módulo backend: existe
+un **gateway público genérico** gobernado por los `permissions` de tu manifest
+(el superadmin los ve y aprueba al instalar tu `.kapp`):
+
+| Permission | Endpoint público | Qué hace |
+|---|---|---|
+| `public.read` | `GET /api/public/app/{instanceId}/definition` | Devuelve **solo** `items/definition.public.data` (tú decides qué publicar). |
+| `public.submit` | `POST /api/public/app/{instanceId}/submit/{canal}` | Guarda el envío como item (`kind: "submission"`, `channel: <canal>`) que gestionas con `shell.items`. |
+
+**Opt-in por instancia** — tu bundle debe guardar en el item `definition`:
+
+```jsonc
+"public": {
+  "enabled": true,                 // sin esto, el gateway responde 403
+  "channels": ["contact"],         // canales de submit permitidos
+  "data": { "title": "…", "fields": [ … ] }   // lo que expone /definition
+}
+```
+
+**Guardarraíles de plataforma** (siempre activos, no configurables):
+rate-limit por IP+instancia, honeypot `_hp`, payload ≤ 32 KB, ≤ 30 campos,
+valores saneados a string plano (sin objetos anidados), y metadatos de
+origen (`origin`, `userAgent`, `ip`) en cada envío.
+
+**Patrón completo**: sirve tu propio `embed.js` como asset
+(`assets/embed.js` → `/api/apps/{appId}/asset/embed.js`, ya público), que lea
+`/definition` y postee a `/submit/{canal}`. Ejemplo real de referencia (con
+backend propio, para apps oficiales curadas): `contact-forms` y `web-agents`.
+
+> Validación fina (tipos de campo, email de aviso, widgets server-rendered)
+> sigue siendo territorio de apps oficiales con módulo backend propio; el
+> gateway cubre el caso general de terceros de forma segura.
+
+---
+
+## 7.c Leer datos de OTRAS apps (`shell.data`)
+
+Tu app puede leer datos de otras apps (oficiales o de terceros) declarando el
+permiso en su manifest — el superadmin lo ve y aprueba al instalar:
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "data.read:contact-forms"]
+```
+
+En el bundle:
+
+```js
+if (shell.data) {
+  const forms = await shell.data.listInstances('contact-forms');  // instancias visibles
+  const items = await shell.data.listItems(forms[0].id);          // sus items
+}
+```
+
+Reglas:
+- `data.read:{templateId}` por cada template que leas (o `data.read:*` — pide
+  solo lo que necesites: el instalador lo verá).
+- El **RBAC del usuario es siempre el techo**: solo ves instancias de equipos
+  a los que el usuario ya tiene acceso. El permiso de la app nunca lo supera.
+- Solo lectura (los denegados quedan auditados). Escritura y suscripción a
+  cambios: evoluciones futuras del contrato.
+
+---
+
 ## 8. Checklist antes de publicar
 
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
