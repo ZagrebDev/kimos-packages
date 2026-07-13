@@ -165,20 +165,6 @@
   ],
   "apps": [
     {
-      "id": "panel-html",
-      "name": "Panel HTML",
-      "description": "Edita HTML y visualízalo en un iframe seguro. Primera app instalable real.",
-      "icon": "🧩",
-      "version": "1.0.1",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "permissions": [
-        "instance.read",
-        "instance.write"
-      ],
-      "appShellApi": "1.x"
-    },
-    {
       "id": "kanban",
       "name": "Kanban",
       "description": "Tablero visual con columnas configurables y drag & drop. Reabre tableros migrados desde v1.",
@@ -250,20 +236,57 @@
       "configSchema": {
         "title": "Preferencias de FossFLOW",
         "fields": [
-          { "key": "showGrid", "label": "Mostrar líneas de la cuadrícula", "type": "boolean", "help": "Aplica al abrir el diagrama." },
-          { "key": "newConnStyle", "label": "Línea de conexiones nuevas", "type": "select", "options": [
-            { "value": "solid", "label": "Sólida" },
-            { "value": "dashed", "label": "Discontinua" },
-            { "value": "dotted", "label": "Punteada" }
-          ] },
-          { "key": "newConnArrow", "label": "Punta final de conexiones nuevas", "type": "select", "options": [
-            { "value": "arrow", "label": "Flecha" },
-            { "value": "dot", "label": "Punto" },
-            { "value": "none", "label": "Sin punta" }
-          ] }
+          {
+            "key": "showGrid",
+            "label": "Mostrar líneas de la cuadrícula",
+            "type": "boolean",
+            "help": "Aplica al abrir el diagrama."
+          },
+          {
+            "key": "newConnStyle",
+            "label": "Línea de conexiones nuevas",
+            "type": "select",
+            "options": [
+              {
+                "value": "solid",
+                "label": "Sólida"
+              },
+              {
+                "value": "dashed",
+                "label": "Discontinua"
+              },
+              {
+                "value": "dotted",
+                "label": "Punteada"
+              }
+            ]
+          },
+          {
+            "key": "newConnArrow",
+            "label": "Punta final de conexiones nuevas",
+            "type": "select",
+            "options": [
+              {
+                "value": "arrow",
+                "label": "Flecha"
+              },
+              {
+                "value": "dot",
+                "label": "Punto"
+              },
+              {
+                "value": "none",
+                "label": "Sin punta"
+              }
+            ]
+          }
         ]
       },
-      "defaultConfig": { "showGrid": true, "newConnStyle": "solid", "newConnArrow": "arrow" }
+      "defaultConfig": {
+        "showGrid": true,
+        "newConnStyle": "solid",
+        "newConnArrow": "arrow"
+      }
     }
   ]
 }
