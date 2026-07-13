@@ -167,30 +167,100 @@
     {
       "id": "kanban",
       "name": "Kanban",
-      "description": "Tablero visual con columnas configurables y drag & drop. Reabre tableros migrados desde v1.",
       "icon": "🗂️",
-      "version": "1.0.0",
-      "entry": "dist/index.js",
-      "css": "dist/index.css",
-      "permissions": [
-        "instance.read",
-        "instance.write"
-      ],
-      "appShellApi": "1.x"
+      "version": "2.0.0",
+      "description": "Tablero visual de tareas con columnas configurables, entidades y agente IA.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
     },
     {
       "id": "gantt",
-      "name": "Gantt",
-      "description": "Planificación temporal por períodos. Reabre planes migrados desde v1.",
+      "name": "Planificación",
       "icon": "📊",
+      "version": "2.0.0",
+      "description": "Planificación temporal por períodos con hitos, tareas y agente IA.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
+    },
+    {
+      "id": "html-panel",
+      "name": "Panel HTML",
+      "icon": "🧩",
+      "version": "2.0.0",
+      "description": "Paneles HTML personalizables con datos de otras apps y vista pública.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
+    },
+    {
+      "id": "products",
+      "name": "Productos",
+      "icon": "📦",
       "version": "1.0.0",
+      "description": "Catálogo de productos con variantes, precios por variante y sincronización bidireccional con Jumpseller.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
+    },
+    {
+      "id": "orders",
+      "name": "Pedidos",
+      "icon": "🛒",
+      "version": "1.0.0",
+      "description": "Gestión de pedidos: estado, cliente, pago y envío. Sincronizable desde Jumpseller.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
+    },
+    {
+      "id": "customers",
+      "name": "Clientes",
+      "icon": "👥",
+      "version": "1.0.0",
+      "description": "Directorio de clientes con contacto, ubicación y notas. Sincronizable desde Jumpseller.",
+      "runtime": "native",
+      "appShellApi": "native",
+      "multiInstance": true,
+      "permissions": []
+    },
+    {
+      "id": "contact-forms",
+      "name": "Formularios de Contacto",
+      "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",
+      "icon": "📬",
+      "version": "1.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
       "permissions": [
         "instance.read",
-        "instance.write"
-      ],
-      "appShellApi": "1.x"
+        "instance.write",
+        "agent.control"
+      ]
+    },
+    {
+      "id": "web-agents",
+      "name": "Agentes Web",
+      "description": "Crea agentes de chat incrustables en cualquier sitio web (widget flotante estilo Intercom) y lleva el registro de las conversaciones recibidas. Cada instancia es un agente web con su propio código de incrustación.",
+      "icon": "🤖",
+      "version": "1.1.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
     },
     {
       "id": "notas-equipo",
