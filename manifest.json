@@ -211,24 +211,32 @@
     {
       "id": "orders",
       "name": "Pedidos",
-      "icon": "🛒",
-      "version": "1.0.0",
       "description": "Gestión de pedidos: estado, cliente, pago y envío. Sincronizable desde Jumpseller.",
-      "runtime": "native",
-      "appShellApi": "native",
+      "icon": "🛒",
+      "version": "2.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
       "multiInstance": true,
-      "permissions": []
+      "permissions": [
+        "instance.read",
+        "instance.write"
+      ]
     },
     {
       "id": "customers",
       "name": "Clientes",
+      "description": "Directorio de clientes: contacto, ubicación y notas. Sincronizable desde Jumpseller.",
       "icon": "👥",
-      "version": "1.0.0",
-      "description": "Directorio de clientes con contacto, ubicación y notas. Sincronizable desde Jumpseller.",
-      "runtime": "native",
-      "appShellApi": "native",
+      "version": "2.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
       "multiInstance": true,
-      "permissions": []
+      "permissions": [
+        "instance.read",
+        "instance.write"
+      ]
     },
     {
       "id": "contact-forms",

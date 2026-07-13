@@ -1,0 +1,13 @@
+{
+  "id": "orders",
+  "name": "Pedidos",
+  "version": "2.0.0",
+  "description": "Gestión de pedidos: estado, cliente, pago y envío. Sincronizable desde Jumpseller.",
+  "icon": "🛒",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write"]
+}

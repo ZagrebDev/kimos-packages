@@ -1,0 +1,13 @@
+{
+  "id": "customers",
+  "name": "Clientes",
+  "version": "2.0.0",
+  "description": "Directorio de clientes: contacto, ubicación y notas. Sincronizable desde Jumpseller.",
+  "icon": "👥",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write"]
+}
