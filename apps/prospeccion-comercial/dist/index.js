@@ -474,12 +474,6 @@ export default function mount(shell) {
     const [addDraft, setAddDraft] = useState(null); // prospecto en edición (alta manual)
     const [editId, setEditId] = useState(null);     // prospecto en edición (✏️ ficha)
     const [editDraft, setEditDraft] = useState(null);
-    const [chatOpen, setChatOpen] = useState(false);
-    const [chatMsgs, setChatMsgs] = useState(() => [{
-      who: "b",
-      text: "¡Hola! Soy tu asistente de prospección comercial FIGIT + KIMOS. Puedo buscar prospectos, darte el pitch, sugerir prioridades y actualizar datos por ti.\n\nPrueba por ejemplo:\n• resumen\n• ¿qué hago hoy?\n• busca Falabella\n• pitch para Metro\n• pendientes de retail\n• actualiza el correo de Ripley a maria.perez@ripley.cl\n• marca Cencosud como contactado\n• investiga Clínica Alemana",
-    }]);
-    const [chatInput, setChatInput] = useState("");
     const [forms, setForms] = useState({}); // bitácora en edición por id
     const fileRef = useRef(null); // importar respaldo (estado)
     const bdRef = useRef(null);   // importar base de datos de prospectos
@@ -592,30 +586,7 @@ export default function mount(shell) {
       notify("success", "Ficha actualizada.");
     }, [editId, editDraft]);
 
-    // ---------- Asistente de prospección (chat consultivo) ----------
-    const chatEndRef = useRef(null);
-    useEffect(() => {
-      try { if (chatEndRef.current && chatEndRef.current.scrollIntoView) chatEndRef.current.scrollIntoView({ block: "end" }); } catch { /* no-op */ }
-    }, [chatMsgs, chatOpen]);
-
-    const kNorm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    function findMatches(q) {
-      const nq = kNorm(q).trim();
-      if (!nq) return [];
-      const toks = nq.split(/\s+/).filter(Boolean);
-      return P.filter((p) => {
-        const hay = kNorm(p.empresa + " " + p.persona + " " + p.rubro);
-        return toks.every((t) => hay.includes(t));
-      });
-    }
-    function fichaText(p) {
-      const m = metaOf(store, p.id);
-      return "🏢 " + p.empresa + " (" + p.rubro + ")\n" +
-        "👤 " + (p.persona || "—") + (p.cargo ? " · " + p.cargo : "") + "\n" +
-        "📞 " + (p.telefono || "—") + "  ✉️ " + (p.correo || "—") + "\n" +
-        "Estado: " + m.estado + (m.resultado ? " · Resultado: " + m.resultado : "") + " · Responsable: " + m.responsable +
-        (m.notas ? "\n📌 " + m.notas : "");
-    }
+    // ---------- Enlaces de investigación por prospecto ----------
     function researchLinks(p) {
       const emp = encodeURIComponent(p.empresa);
       return [
@@ -625,187 +596,7 @@ export default function mount(shell) {
         { label: "🌐 Sitio oficial", href: "https://www.google.com/search?q=" + emp + "+sitio+oficial" },
       ];
     }
-    function disambiguate(matches) {
-      return { who: "b", text: "Encontré varios prospectos. ¿A cuál te refieres?\n" + matches.slice(0, 6).map((p) => "• " + p.empresa + " (" + p.rubro + ")").join("\n") };
-    }
-    const FIELD_WORDS = {
-      "correo": "correo", "email": "correo", "mail": "correo",
-      "telefono": "telefono", "teléfono": "telefono", "fono": "telefono", "celular": "telefono",
-      "linkedin": "linkedin_url", "cargo": "cargo", "puesto": "cargo",
-      "contacto": "persona", "persona": "persona", "nombre": "persona", "tomador": "persona",
-      "empresa": "empresa", "rubro": "rubro", "descripcion": "descripcion", "descripción": "descripcion",
-      "problematica": "problematica", "problemática": "problematica", "propuesta": "propuesta", "nota": "notas", "notas": "notas",
-    };
-    function botReply(raw) {
-      const t = String(raw || "").trim();
-      const n = kNorm(t);
-      const out = [];
-      let m;
 
-      // 1) Actualizar un campo: "actualiza|cambia|pon el correo de X a|por Y" / "el correo de X es Y"
-      m = /(?:actualiza|cambia|corrige|pon|edita|guarda)\s+(?:el|la)?\s*([a-záéíóúñ]+)\s+(?:de|del|para)\s+(.+?)\s+(?:a|por|es|como|:)\s+(.+)$/i.exec(t) ||
-          /^(?:el|la)\s+([a-záéíóúñ]+)\s+de\s+(.+?)\s+es\s+(.+)$/i.exec(t);
-      if (m && FIELD_WORDS[kNorm(m[1])]) {
-        const field = FIELD_WORDS[kNorm(m[1])];
-        const matches = findMatches(m[2]);
-        if (!matches.length) return [{ who: "b", text: "No encontré ningún prospecto que coincida con “" + m[2].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const p = matches[0]; const value = m[3].trim().replace(/[.。]$/, "");
-        if (field === "notas") setMetaField(p.id, "notas", value);
-        else updateProspecto(p.id, { [field]: value });
-        return [{ who: "b", text: "✅ Listo: " + m[1].toLowerCase() + " de " + p.empresa + " → " + value }];
-      }
-
-      // 2) Estado: "marca X como contactado|reunión agendada|por contactar"
-      m = /(?:marca|pasa|pon|deja)\s+(?:a\s+)?(.+?)\s+(?:como|a|en)\s+(por contactar|contactad[oa]|reuni[oó]n(?:\s+agendada)?)/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const nv = kNorm(m[2]);
-        const estado = nv.startsWith("por") ? "Por Contactar" : nv.startsWith("contactad") ? "Contactado" : "Reunion Agendada";
-        setMetaField(matches[0].id, "estado", estado);
-        return [{ who: "b", text: "✅ " + matches[0].empresa + " → " + estado }];
-      }
-
-      // 3) Resultado: "X aceptó / rechazó / esperando"
-      m = /(?:resultado\s+de\s+)?(.+?)\s+(acept[oó]|acepta|aceptada|rechaz[oó]|rechazo|esperando(?:\s+confirmaci[oó]n)?|sin resultado)$/i.exec(t);
-      if (m && /acept|rechaz|esperando|sin resultado/i.test(m[2])) {
-        const matches = findMatches(m[1].replace(/^(marca|pon|deja)\s+/i, ""));
-        if (matches.length === 1) {
-          const nv = kNorm(m[2]);
-          const resultado = nv.startsWith("acept") ? "Aceptada" : nv.startsWith("rechaz") ? "Rechazo" : nv.startsWith("esperando") ? "Esperando Confirmacion" : "";
-          setMetaField(matches[0].id, "resultado", resultado);
-          return [{ who: "b", text: "✅ " + matches[0].empresa + " → resultado: " + (resultado || "—") }];
-        }
-        if (matches.length > 1) return [disambiguate(matches)];
-      }
-
-      // 4) Asignar: "asigna X a Y"
-      m = /asigna(?:le)?\s+(.+?)\s+a\s+(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const resp = m[2].trim();
-        const team = store.equipo.find((x) => kNorm(x) === kNorm(resp)) || resp;
-        if (store.equipo.indexOf(team) < 0) setStore((s) => ({ ...s, equipo: s.equipo.concat([team]) }));
-        setMetaField(matches[0].id, "responsable", team);
-        return [{ who: "b", text: "✅ " + matches[0].empresa + " asignado a " + team }];
-      }
-
-      // 5) Bitácora: "registra llamada|correo|reunión con X: resumen"
-      m = /registra(?:r)?\s+(llamada|tel[eé]fono|correo|mail|linkedin|whatsapp|reuni[oó]n(?:\s+(?:presencial|online))?)?\s*(?:con|a|para)\s+(.+?)\s*[:\-—]\s*(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[2]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[2].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const nv = kNorm(m[1] || "");
-        const canal = nv.startsWith("llamada") || nv.startsWith("telefono") ? "Telefono" : nv.startsWith("correo") || nv.startsWith("mail") ? "Correo" : nv.startsWith("linkedin") ? "LinkedIn" : nv.startsWith("whatsapp") ? "WhatsApp" : nv.includes("online") ? "Reunion online" : nv.startsWith("reunion") ? "Reunion presencial" : "Otro";
-        const hoy = new Date().toISOString().slice(0, 10);
-        setStore((s) => ({ ...s, bit: s.bit.concat([{ empresa: matches[0].empresa, fecha: hoy, canal, resumen: m[3].trim(), proximo: "" }]) }));
-        return [{ who: "b", text: "✅ Bitácora de " + matches[0].empresa + " (" + canal + ", " + hoy + "): " + m[3].trim() }];
-      }
-
-      // 6) Nota: "nota para X: ..."
-      m = /(?:agrega|añade|suma)?\s*nota\s+(?:a|para|de)\s+(.+?)\s*[:\-—]\s*(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        setMetaField(matches[0].id, "notas", m[2].trim());
-        return [{ who: "b", text: "✅ Nota guardada en " + matches[0].empresa }];
-      }
-
-      // 7) Investigar: "investiga X"
-      m = /investiga(?:r)?\s+(?:a\s+)?(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”. ¿Lo agrego? Usa el botón ➕ Prospecto." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const p = matches[0];
-        const faltan = PROSPECTO_FIELDS.filter((k) => ["persona", "cargo", "telefono", "correo", "linkedin_url"].includes(k) && (!p[k] || /identificar|ver sitio|nombre\.apellido|inicialapellido/i.test(p[k])));
-        return [{
-          who: "b",
-          text: "🔎 Dossier de investigación — " + p.empresa + "\n\n" + fichaText(p) +
-            (faltan.length ? "\n\n⚠️ Datos por confirmar: " + faltan.join(", ") + "." : "\n\n✅ La ficha de contacto se ve completa.") +
-            "\n\nAbre estos enlaces, confirma los datos y díctamelos (ej.: “el correo de " + p.empresa.split(" ")[0] + " es …”), o edítalos con ✏️ en la ficha. Si el agente KIMOS está autorizado en tu plataforma, también puede investigar y actualizar esta ficha automáticamente.",
-          links: researchLinks(p),
-        }];
-      }
-
-      // 8) Pitch: "pitch|propuesta para X"
-      m = /(?:pitch|propuesta|argumento(?:s)?|discurso)\s+(?:de|para)\s+(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”." }];
-        if (matches.length > 1) return [disambiguate(matches)];
-        const p = matches[0];
-        return [{ who: "b", text: "🎯 Pitch para " + p.empresa + "\n\n⚠️ Problemática: " + (p.problematica || "—") + "\n\n💡 Propuesta FIGIT + KIMOS: " + (p.propuesta || "—") + (p.notas ? "\n\n📌 Tip: " + p.notas : "") }];
-      }
-
-      // 9) Pendientes / listas: "pendientes de retail", "seguimientos"
-      m = /(pendientes|por contactar|sin contactar|seguimientos?)(?:\s+(?:de|en|del)\s+(.+))?$/i.exec(n);
-      if (m) {
-        const rubroQ = (m[2] || "").trim();
-        const hoy = new Date().toISOString().slice(0, 10);
-        if (m[1].startsWith("seguimiento")) {
-          const due = store.bit.filter((b) => b.proximo && b.proximo <= hoy);
-          if (!due.length) return [{ who: "b", text: "No hay seguimientos vencidos. 🎉" }];
-          return [{ who: "b", text: "⏰ Seguimientos vencidos o de hoy:\n" + due.slice(0, 10).map((b) => "• " + b.empresa + " — " + b.proximo + (b.resumen ? " (" + b.resumen + ")" : "")).join("\n") }];
-        }
-        let xs = P.filter((p) => metaOf(store, p.id).estado === "Por Contactar");
-        if (rubroQ) xs = xs.filter((p) => kNorm(p.rubro).includes(kNorm(rubroQ)));
-        if (!xs.length) return [{ who: "b", text: "Sin pendientes" + (rubroQ ? " en " + rubroQ : "") + ". 🎉" }];
-        return [{ who: "b", text: "⚪ Por contactar" + (rubroQ ? " (" + rubroQ + ")" : "") + " — " + xs.length + ":\n" + xs.slice(0, 12).map((p) => "• " + p.empresa + " · " + (p.persona || "contacto por identificar")).join("\n") + (xs.length > 12 ? "\n…y " + (xs.length - 12) + " más." : "") }];
-      }
-
-      // 10) Resumen / stats
-      if (/(resumen|estadistic|kpi|como vamos|avance|status|estado general)/.test(n)) {
-        return [{ who: "b", text: "📊 Resumen del pipeline\n• Total: " + P.length + " prospectos\n• ⚪ Por contactar: " + stats.pc + "\n• 🔵 Contactados: " + stats.co + "\n• 🟣 Reunión agendada: " + stats.ra + "\n• ✅ Aceptadas: " + stats.ac + " · ⏳ Esperando: " + stats.es + " · ❌ Rechazos: " + stats.re + "\n• 📝 Interacciones en bitácora: " + stats.bit }];
-      }
-
-      // 11) Sugerencia del día
-      if (/(que hago|qué hago|sugerencia|prioridad|a quien|a quién|siguiente|hoy)/.test(n)) {
-        const hoy = new Date().toISOString().slice(0, 10);
-        const due = store.bit.filter((b) => b.proximo && b.proximo <= hoy).slice(0, 3);
-        const tibios = P.filter((p) => { const mm = metaOf(store, p.id); return mm.estado === "Contactado" && !mm.resultado; }).slice(0, 3);
-        const frios = P.filter((p) => metaOf(store, p.id).estado === "Por Contactar" && p.persona && !/identificar/i.test(p.persona)).slice(0, 3);
-        let txt = "🎯 Prioridades sugeridas para hoy:\n";
-        if (due.length) txt += "\n1️⃣ Seguimientos comprometidos:\n" + due.map((b) => "• " + b.empresa + " (" + b.proximo + ")").join("\n") + "\n";
-        if (tibios.length) txt += "\n2️⃣ Contactados sin resultado — empuja una respuesta:\n" + tibios.map((p) => "• " + p.empresa).join("\n") + "\n";
-        if (frios.length) txt += "\n3️⃣ Por contactar con decisor identificado:\n" + frios.map((p) => "• " + p.empresa + " · " + p.persona).join("\n");
-        if (!due.length && !tibios.length && !frios.length) txt = "Sin acciones urgentes. Sugiero investigar contactos pendientes: dime “investiga <empresa>”.";
-        return [{ who: "b", text: txt }];
-      }
-
-      // 12) Buscar / ficha
-      m = /(?:busca(?:r)?|info(?:rmacion)?|informaci[oó]n|datos|ficha|quien es|qui[eé]n es|muestra(?:me)?)\s+(?:de\s+|sobre\s+)?(.+)$/i.exec(t);
-      if (m) {
-        const matches = findMatches(m[1]);
-        if (!matches.length) return [{ who: "b", text: "No encontré “" + m[1].trim() + "”. Puedes agregarlo con ➕ Prospecto o cargarlo por BD." }];
-        if (matches.length === 1) return [{ who: "b", text: fichaText(matches[0]), links: researchLinks(matches[0]) }];
-        return [{ who: "b", text: "Coincidencias (" + matches.length + "):\n" + matches.slice(0, 8).map((p) => "• " + p.empresa + " (" + p.rubro + ") — " + metaOf(store, p.id).estado).join("\n") + "\nPide la ficha exacta: “busca <empresa>”." }];
-      }
-
-      // 13) Ayuda / saludo / fallback
-      if (/(hola|buenas|ayuda|help|que puedes|qué puedes)/.test(n) || !n) {
-        return [{ who: "b", text: "Puedo ayudarte así:\n\n🔍 Consultar\n• busca <empresa> · pitch para <empresa>\n• pendientes [de <rubro>] · seguimientos · resumen\n• ¿qué hago hoy?\n\n✏️ Actualizar (lo guardo al instante)\n• actualiza el correo/teléfono/linkedin/cargo/contacto de <empresa> a <valor>\n• marca <empresa> como contactado / reunión agendada\n• <empresa> aceptó / rechazó / esperando\n• asigna <empresa> a <responsable>\n• nota para <empresa>: <texto>\n• registra llamada con <empresa>: <resumen>\n\n🔎 Investigar\n• investiga <empresa> → dossier con enlaces y datos faltantes" }];
-      }
-      // Último intento: quizá escribió solo el nombre de una empresa
-      const direct = findMatches(t);
-      if (direct.length === 1) return [{ who: "b", text: fichaText(direct[0]), links: researchLinks(direct[0]) }];
-      if (direct.length > 1) return [disambiguate(direct)];
-      return [{ who: "b", text: "No entendí 🤔. Escribe “ayuda” para ver todo lo que puedo hacer." }];
-    }
-    const sendChat = useCallback(() => {
-      const t = chatInput.trim();
-      if (!t) return;
-      setChatInput("");
-      setChatMsgs((xs) => xs.concat([{ who: "u", text: t }]));
-      // Responde en el siguiente tick para que la pregunta se pinte primero.
-      setTimeout(() => { try { setChatMsgs((xs) => xs.concat(botReply(t))); } catch { setChatMsgs((xs) => xs.concat([{ who: "b", text: "Ocurrió un error procesando eso." }])); } }, 60);
-    }, [chatInput, store]);
 
     // ---------- Importar base de datos de prospectos (JSON / CSV) ----------
     const importBD = useCallback((e) => {
@@ -1117,32 +908,7 @@ export default function mount(shell) {
           EArea("Notas base", "notas"),
           h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
             h("button", { className: "kp-btn", onClick: () => setEditId(null) }, "Cancelar"),
-            h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios")))),
-
-      // Asistente de prospección: botón flotante + panel de chat
-      h("button", { className: "kp-chatfab", onClick: () => setChatOpen((v) => !v), title: "Asistente de prospección" }, chatOpen ? "✕" : "\u{1F4AC}"),
-      chatOpen && h("div", { className: "kp-chatpanel" },
-        h("div", { className: "kp-chathead" },
-          h("div", { className: "kp-chatdot" }),
-          h("div", null,
-            h("div", { className: "kp-chattitle" }, "Asistente de Prospección"),
-            h("div", { className: "kp-chatsub" }, "Powered by KIMOS · consultivo + acciones")),
-          h("button", { className: "kp-chatx", onClick: () => setChatOpen(false) }, "✕")),
-        h("div", { className: "kp-chatmsgs" },
-          chatMsgs.map((msg, i) => h("div", { key: i, className: "kp-msg " + (msg.who === "u" ? "kp-msg-u" : "kp-msg-b") },
-            h("div", { className: "kp-msgtxt" }, msg.text),
-            msg.links ? h("div", { className: "kp-msglinks" },
-              msg.links.map((l, j) => h("a", { key: j, className: "kp-msglink", href: l.href, target: "_blank", rel: "noreferrer" }, l.label))) : null)),
-          h("div", { ref: chatEndRef })),
-        h("div", { className: "kp-chatquick" },
-          ["resumen", "¿qué hago hoy?", "seguimientos", "ayuda"].map((q) => h("button", { key: q, className: "kp-chip", onClick: () => { setChatMsgs((xs) => xs.concat([{ who: "u", text: q }])); setTimeout(() => setChatMsgs((xs) => xs.concat(botReply(q))), 60); } }, q))),
-        h("div", { className: "kp-chatbar" },
-          h("input", {
-            className: "kp-chatinput", placeholder: "Pregunta o da una orden…", value: chatInput,
-            onChange: (e) => setChatInput(e.target.value),
-            onKeyDown: (e) => { if (e.key === "Enter") sendChat(); },
-          }),
-          h("button", { className: "kp-btn kp-primary", onClick: sendChat }, "Enviar")))
+            h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios"))))
     );
 
     // Helpers de formulario (edición de ficha)

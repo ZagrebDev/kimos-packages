@@ -80,22 +80,7 @@ de build en el host: todo es `React.createElement`.
 - Persistencia en `localStorage` conservada (misma clave `kimos_prospeccion_v1`),
   igual que el HTML: sin instancias por equipo.
 
-## Asistente conversacional (💬) e investigación de contactos
-
-Desde la **v2.0.0** la app incluye un **asistente de chat consultivo** (burbuja
-flotante, estilo del widget KIMOS de triatlonantofagasta.cl) especialista en
-prospección. Funciona 100 % offline sobre los datos del tablero:
-
-- **Consultas**: `busca <empresa>`, `pitch para <empresa>`, `pendientes de
-  <rubro>`, `seguimientos`, `resumen`, `¿qué hago hoy?` (prioriza seguimientos
-  vencidos → contactados sin respuesta → decisores identificados).
-- **Órdenes en español** (se aplican y guardan al instante):
-  `actualiza el correo/teléfono/linkedin/cargo/contacto de <empresa> a <valor>`,
-  `marca <empresa> como contactado`, `<empresa> aceptó/rechazó`,
-  `asigna <empresa> a <responsable>`, `nota para <empresa>: …`,
-  `registra llamada con <empresa>: …`.
-- **Investigación**: `investiga <empresa>` genera un dossier con los datos
-  faltantes y enlaces de búsqueda (Google/LinkedIn/prensa/sitio oficial).
+## Investigación y actualización de contactos
 
 **Actualización de datos de contacto**: todos los campos de la ficha (empresa,
 rubro, persona, cargo, teléfono, correo, LinkedIn, descripción, problemática,
@@ -113,11 +98,13 @@ CORS — igual que el widget del triatlón, cuyo cerebro es kimos.dev).
 
 ## Notas de versión
 
-- **2.0.0** — **Asistente conversacional consultivo** (chat flotante, offline,
-  especialista en prospección) con órdenes en español; **ficha 100 % editable**
-  (overrides para los 59 base); enlaces 🔎 de investigación por prospecto;
-  **control por agente KIMOS** (`agent.control`, 7 tools + snapshot) para
-  investigar y actualizar contactos automáticamente.
+- **2.1.0** — Se retira el widget de chat embebido (la conversación vive en el
+  agente de la plataforma KIMOS, vía `agent.control`). Se mantienen la edición
+  de fichas, los enlaces 🔎 y las 7 tools del agente.
+- **2.0.0** — **Ficha 100 % editable** (overrides para los 59 base); enlaces 🔎
+  de investigación por prospecto; **control por agente KIMOS** (`agent.control`,
+  7 tools + snapshot) para investigar y actualizar contactos automáticamente.
+  (Incluía un chat embebido, retirado en 2.1.0.)
 - **1.4.0** — Soporte **Excel `.xlsx` nativo**: lector propio sin dependencias
   (descompresión DEFLATE + lectura ZIP + parseo del XML de Excel; lee la 1ª hoja,
   shared strings, acentos y entidades). Fix: el modal de alta usa
