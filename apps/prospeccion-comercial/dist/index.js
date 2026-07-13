@@ -38,9 +38,43 @@ const LS_KEY = "kimos_prospeccion_v1";
 
 // Campos de un prospecto (los mismos que trae SEED). Los prospectos añadidos
 // por el usuario (manual o importados) viven en store.custom con estos campos.
-const PROSPECTO_FIELDS = ["rubro", "empresa", "descripcion", "persona", "cargo", "telefono", "correo", "linkedin_url", "linkedin_q", "problematica", "propuesta", "notas"];
+const PROSPECTO_FIELDS = ["rubro", "empresa", "descripcion", "persona", "cargo", "telefono", "correo", "linkedin_url", "linkedin_q", "problematica", "propuesta", "notas", "foto"];
 function blankProspecto() { const o = {}; PROSPECTO_FIELDS.forEach((k) => (o[k] = "")); return o; }
 function nextId(list) { let mx = 0; list.forEach((p) => { const n = Number(p && p.id); if (isFinite(n) && n > mx) mx = n; }); return mx + 1; }
+
+// Iniciales de respaldo para el avatar (persona; si no hay, empresa).
+function initialsOf(p) {
+  let src = p.persona || "";
+  if (!src || /identificar|ver sitio/i.test(src)) src = p.empresa || "?";
+  const words = src.replace(/\(.*?\)/g, "").trim().split(/\s+/).filter(Boolean);
+  return ((words[0] || "?")[0] + ((words[1] || "")[0] || "")).toUpperCase();
+}
+// Archivo de imagen → data URI JPEG cuadrado 160x160 (recorte centrado), para
+// que las fotos quepan holgadas en localStorage. cb(dataUri|null).
+function fileToSquareDataUri(file, cb) {
+  try {
+    const rd = new FileReader();
+    rd.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const S = 160;
+          const c = document.createElement("canvas");
+          c.width = S; c.height = S;
+          const ctx = c.getContext("2d");
+          const scale = Math.max(S / img.width, S / img.height);
+          const w = img.width * scale, hgt = img.height * scale;
+          ctx.drawImage(img, (S - w) / 2, (S - hgt) / 2, w, hgt);
+          cb(c.toDataURL("image/jpeg", 0.82));
+        } catch { cb(null); }
+      };
+      img.onerror = () => cb(null);
+      img.src = rd.result;
+    };
+    rd.onerror = () => cb(null);
+    rd.readAsDataURL(file);
+  } catch { cb(null); }
+}
 
 // Normaliza un encabezado de columna: minúsculas, sin acentos, sin símbolos.
 function normKey(s) {
@@ -61,6 +95,7 @@ const COLUMN_ALIASES = {
   "problematica": "problematica", "problema": "problematica", "pain": "problematica", "dolor": "problematica", "necesidad": "problematica",
   "propuesta": "propuesta", "proposal": "propuesta", "solucion": "propuesta", "pitch": "propuesta",
   "notas": "notas", "notes": "notas", "observaciones": "notas", "comentarios": "notas", "nota": "notas",
+  "foto": "foto", "photo": "foto", "imagen": "foto", "image": "foto", "avatar": "foto", "picture": "foto", "foto url": "foto",
 };
 // Convierte una fila (objeto {encabezado: valor}) a un prospecto. Devuelve null
 // si no reconoce ninguna columna útil.
@@ -369,7 +404,7 @@ export default function mount(shell) {
         label: "Prospección Comercial",
         description: "Pipeline de prospección FIGIT+KIMOS. Puedes investigar en la web la información de contacto de los prospectos (nombre del tomador de decisión, cargo, teléfono, correo, LinkedIn, rubro) y actualizarla con UPDATE_PROSPECTO; sumar prospectos nuevos; y llevar el avance comercial (estado, resultado, responsable, notas y bitácora de contactos). Usa getSnapshot para conocer los ids antes de actuar.",
         tools: [
-          { name: "UPDATE_PROSPECTO", description: "Actualiza campos de contacto/ficha de un prospecto (tras investigarlos): empresa, rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas.",
+          { name: "UPDATE_PROSPECTO", description: "Actualiza campos de contacto/ficha de un prospecto (tras investigarlos): empresa, rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas, foto (URL de imagen del contacto, p.ej. su foto de perfil de LinkedIn — verifica que corresponda a la persona real antes de asignarla).",
             inputSchema: { type: "object", properties: { id: { type: "number" }, campos: { type: "object" } }, required: ["id", "campos"] } },
           { name: "ADD_PROSPECTO", description: "Agrega un prospecto nuevo. Campos: empresa (obligatorio), rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas.",
             inputSchema: { type: "object", properties: { empresa: { type: "string" } }, required: ["empresa"] } },
@@ -395,6 +430,7 @@ export default function mount(shell) {
               const m = s.meta[p.id] || {};
               return { id: p.id, empresa: p.empresa, rubro: p.rubro, persona: p.persona, cargo: p.cargo,
                 telefono: p.telefono, correo: p.correo, linkedin_url: p.linkedin_url,
+                foto: p.foto ? (String(p.foto).startsWith("data:") ? "(foto subida manualmente)" : p.foto) : "",
                 estado: m.estado || "Por Contactar", resultado: m.resultado || "", responsable: m.responsable || "Sin asignar", notas: m.notas || "" };
             }),
           };
@@ -477,6 +513,8 @@ export default function mount(shell) {
     const [forms, setForms] = useState({}); // bitácora en edición por id
     const fileRef = useRef(null); // importar respaldo (estado)
     const bdRef = useRef(null);   // importar base de datos de prospectos
+    const fotoRef = useRef(null);       // input file de foto (compartido)
+    const fotoTargetRef = useRef(null); // id del prospecto destino, o "edit" para el modal
     const saveTimer = useRef(null);
     const skipSave = useRef(true);
     const storeRef = useRef(store);
@@ -586,6 +624,40 @@ export default function mount(shell) {
       notify("success", "Ficha actualizada.");
     }, [editId, editDraft]);
 
+    // ---------- Foto del contacto ----------
+    const pickFoto = useCallback((target) => {
+      fotoTargetRef.current = target; // id numérico, o "edit" (modal ✏️)
+      if (fotoRef.current) fotoRef.current.click();
+    }, []);
+    const onFotoFile = useCallback((e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      fileToSquareDataUri(f, (uri) => {
+        if (!uri) { notify("error", "No se pudo leer la imagen."); return; }
+        const target = fotoTargetRef.current;
+        if (target === "edit") setEditDraft((d) => ({ ...(d || {}), foto: uri }));
+        else if (target != null) { updateProspecto(target, { foto: uri }); notify("success", "Foto guardada."); }
+      });
+    }, []);
+    const askFotoUrl = useCallback((id, current) => {
+      if (typeof window === "undefined" || !window.prompt) return;
+      const url = window.prompt("Pega la URL de la imagen (en LinkedIn: clic derecho sobre la foto del perfil → “Copiar dirección de la imagen”). Verifica visualmente que corresponda a la persona real.", current && !String(current).startsWith("data:") ? current : "");
+      if (url == null) return;
+      updateProspecto(id, { foto: url.trim() });
+      notify(url.trim() ? "success" : "info", url.trim() ? "Foto enlazada. Confirma que coincide con la persona." : "Foto quitada.");
+    }, []);
+    // Avatar: foto si hay (con fallback automático a iniciales si la URL falla).
+    function Avatar(p, size) {
+      const st = { width: size + "px", height: size + "px", fontSize: Math.round(size * 0.38) + "px" };
+      return h("div", { className: "kp-avatar", style: st },
+        h("span", { className: "kp-avatar-ini" }, initialsOf(p)),
+        p.foto ? h("img", {
+          src: p.foto, alt: p.persona || p.empresa, loading: "lazy", referrerPolicy: "no-referrer",
+          onError: (e) => { try { e.target.style.display = "none"; } catch { /* no-op */ } },
+        }) : null);
+    }
+
     // ---------- Enlaces de investigación por prospecto ----------
     function researchLinks(p) {
       const emp = encodeURIComponent(p.empresa);
@@ -641,8 +713,8 @@ export default function mount(shell) {
     }, []);
     const downloadTemplate = useCallback(() => {
       try {
-        const cols = ["empresa", "rubro", "persona", "cargo", "telefono", "correo", "linkedin_url", "descripcion", "problematica", "propuesta", "notas"];
-        const ej = ["ACME S.A.", "RETAIL", "Juan Pérez", "Gerente de Operaciones", "+56 2 2222 3333", "juan.perez@acme.cl", "https://www.linkedin.com/in/juanperez", "Descripción breve de la empresa", "Problemática detectada", "Propuesta FIGIT + KIMOS", "Nota inicial"];
+        const cols = ["empresa", "rubro", "persona", "cargo", "telefono", "correo", "linkedin_url", "foto", "descripcion", "problematica", "propuesta", "notas"];
+        const ej = ["ACME S.A.", "RETAIL", "Juan Pérez", "Gerente de Operaciones", "+56 2 2222 3333", "juan.perez@acme.cl", "https://www.linkedin.com/in/juanperez", "https://ejemplo.com/foto-juan.jpg", "Descripción breve de la empresa", "Problemática detectada", "Propuesta FIGIT + KIMOS", "Nota inicial"];
         const line = (arr) => arr.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",");
         const csv = "﻿" + cols.join(",") + "\n" + line(ej) + "\n";
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -763,6 +835,7 @@ export default function mount(shell) {
             h("button", { className: "kp-btn", onClick: exportJSON, title: "Descargar respaldo completo (avance + prospectos añadidos)" }, "⬇️ Exportar"),
             h("button", { className: "kp-btn", onClick: () => fileRef.current && fileRef.current.click(), title: "Restaurar un respaldo exportado" }, "⬆️ Importar"),
             h("input", { type: "file", ref: fileRef, accept: "application/json", style: { display: "none" }, onChange: importJSON }),
+            h("input", { type: "file", ref: fotoRef, accept: "image/*", style: { display: "none" }, onChange: onFotoFile }),
             h("button", { className: "kp-btn", onClick: resetAll }, "↻ Reiniciar"))),
 
         // Hero
@@ -891,6 +964,18 @@ export default function mount(shell) {
         h("div", { className: "kp-box kp-box-lg" },
           h("h3", null, "✏️ Editar ficha — " + ((editDraft && editDraft.empresa) || "")),
           h("p", { className: "kp-modal-sub" }, "Actualiza aquí los datos que investigues (contacto, cargo, teléfono, correo, LinkedIn…). Se guardan al instante en este navegador."),
+          h("div", { className: "kp-fotorow kp-fotorow-modal" },
+            Avatar({ ...(editDraft || {}), id: editId }, 64),
+            h("div", { className: "kp-fotoinfo" },
+              h("div", { className: "kp-fotobtns" },
+                h("button", { className: "kp-btn kp-mini2", onClick: () => pickFoto("edit") }, "\u{1F4F7} Subir foto"),
+                (editDraft && editDraft.foto) ? h("button", { className: "kp-btn kp-mini2 kp-danger", onClick: () => setEditDraft((d) => ({ ...(d || {}), foto: "" })) }, "✕ Quitar") : null),
+              h("label", { className: "kp-flbl", style: { marginBottom: 0 } }, "URL de imagen (ej. foto de su LinkedIn)",
+                h("input", {
+                  placeholder: "https://media.licdn.com/…",
+                  value: (editDraft && editDraft.foto && !String(editDraft.foto).startsWith("data:")) ? editDraft.foto : "",
+                  onChange: (e) => setEditDraft((d) => ({ ...(d || {}), foto: e.target.value })),
+                })))),
           h("div", { className: "kp-form" },
             EField("Empresa", "empresa"),
             h("label", { className: "kp-flbl" }, "Rubro",
@@ -951,7 +1036,9 @@ export default function mount(shell) {
             h("div", null, p.empresa,
               isCustom ? h("span", { className: "kp-added" }, "añadido") : null,
               h("small", null, p.rubro + (nb ? " · " + nb + " interacc." : "")))),
-          h("div", { className: "kp-per" }, p.persona, h("small", null, p.cargo)),
+          h("div", { className: "kp-per kp-per-av" },
+            Avatar(p, 30),
+            h("div", null, p.persona, h("small", null, p.cargo))),
           h("div", { className: "kp-contacts", onClick: (e) => e.stopPropagation() },
             h("a", { className: "kp-cbtn", title: "Escribir correo", href: "mailto:" + p.correo + "?subject=FIGIT%20+%20KIMOS%20-%20Propuesta" }, "✉️"),
             h("a", { className: "kp-cbtn", title: "Buscar en LinkedIn", href: p.linkedin_url, target: "_blank", rel: "noreferrer" }, "\u{1F4BC}"),
@@ -996,6 +1083,18 @@ export default function mount(shell) {
               h("input", { placeholder: "Resumen / resultado de la interacción", value: f.resumen || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), resumen: e.target.value } })) }),
               h("input", { type: "date", title: "Próximo seguimiento", value: f.proximo || "", onChange: (e) => setForms((mm) => ({ ...mm, [p.id]: { ...(mm[p.id] || {}), proximo: e.target.value } })) }),
               h("button", { className: "kp-btn kp-primary", onClick: () => addBit(p.empresa, p.id) }, "+ Registrar"))),
+          h("div", { className: "kp-fotorow", onClick: (e) => e.stopPropagation() },
+            Avatar(p, 72),
+            h("div", { className: "kp-fotoinfo" },
+              h("h4", null, "\u{1F4F7} Foto del contacto"),
+              h("p", { className: "kp-tag" }, p.foto
+                ? "Verifica que la imagen corresponda a la persona real antes de usarla."
+                : "Sube una fotografía o pega la URL de la imagen de su LinkedIn (clic derecho sobre la foto → “Copiar dirección de la imagen”)."),
+              h("div", { className: "kp-fotobtns" },
+                h("button", { className: "kp-btn kp-mini2", onClick: () => pickFoto(p.id) }, "\u{1F4F7} Subir foto"),
+                h("button", { className: "kp-btn kp-mini2", onClick: () => askFotoUrl(p.id, p.foto) }, "\u{1F517} URL / LinkedIn"),
+                p.linkedin_url ? h("a", { className: "kp-btn kp-mini2", href: p.linkedin_url, target: "_blank", rel: "noreferrer" }, "\u{1F4BC} Abrir LinkedIn") : null,
+                p.foto ? h("button", { className: "kp-btn kp-mini2 kp-danger", onClick: () => { updateProspecto(p.id, { foto: "" }); notify("info", "Foto quitada."); } }, "✕ Quitar") : null))),
           h("div", { className: "kp-rowactions", onClick: (e) => e.stopPropagation() },
             h("span", { className: "kp-tag", style: { marginRight: "auto" } }, "\u{1F50E} Investigar:"),
             researchLinks(p).map((l, j) => h("a", { key: j, className: "kp-btn kp-mini2", href: l.href, target: "_blank", rel: "noreferrer" }, l.label)),

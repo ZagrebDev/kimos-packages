@@ -278,9 +278,9 @@
     {
       "id": "prospeccion-comercial",
       "name": "Prospección Comercial",
-      "description": "Dashboard comercial FIGIT + KIMOS: prospectos por rubro con embudo, KPIs, gráficos, filtros, bitácora y equipo editable. Ficha 100% editable, enlaces de investigación por prospecto y control por agente KIMOS (agent.control) para investigar y actualizar contactos o sumar prospectos. Carga masiva por Excel .xlsx, CSV o JSON. Singleton; avance guardado en el navegador.",
+      "description": "Dashboard comercial FIGIT + KIMOS: prospectos por rubro con embudo, KPIs, gráficos, filtros, bitácora y equipo editable. Ficha 100% editable con foto del contacto (subida manual o URL de LinkedIn), enlaces de investigación y control por agente KIMOS (agent.control) para investigar y actualizar contactos o sumar prospectos. Carga masiva por Excel .xlsx, CSV o JSON. Singleton; avance guardado en el navegador.",
       "icon": "🎯",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": false,

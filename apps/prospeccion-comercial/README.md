@@ -96,8 +96,31 @@ actualizarlos automáticamente** en el tablero (la investigación web vive en el
 agente/backfront de KIMOS; el bundle del navegador no puede rastrear la web por
 CORS — igual que el widget del triatlón, cuyo cerebro es kimos.dev).
 
+## Foto del contacto (📷)
+
+Cada prospecto tiene un campo `foto` con avatar en la tabla (iniciales si no
+hay imagen) y un bloque **📷 Foto del contacto** en la ficha expandida y en el
+modal ✏️, con tres vías:
+
+1. **Subir foto** (archivo/cámara): se recorta a cuadrado 160×160 JPEG en el
+   navegador (canvas) para que quepa holgada en `localStorage`.
+2. **URL / LinkedIn**: abre el perfil (💼), clic derecho sobre la foto →
+   *“Copiar dirección de la imagen”* → pégala. La app la muestra al instante;
+   **verifica visualmente que corresponda a la persona real** (la app no puede
+   garantizar la coincidencia; LinkedIn no permite extracción automática desde
+   el navegador).
+3. **Agente KIMOS**: `UPDATE_PROSPECTO` acepta `campos.foto` (URL) — un agente
+   autorizado puede investigar el perfil y asignar la imagen verificada.
+
+`foto` también se importa por BD (columna `foto`/`photo`/`imagen`/`avatar`) y
+viaja en Exportar/Importar. Las fotos subidas a mano se reportan al snapshot
+del agente como `"(foto subida manualmente)"` (el data URI no se filtra).
+
 ## Notas de versión
 
+- **2.2.0** — Campo **foto del contacto**: avatar con iniciales, subida manual
+  (recorte cuadrado en canvas), URL de LinkedIn pegada, columna `foto` en BD y
+  `campos.foto` en `UPDATE_PROSPECTO` para el agente.
 - **2.1.0** — Se retira el widget de chat embebido (la conversación vive en el
   agente de la plataforma KIMOS, vía `agent.control`). Se mantienen la edición
   de fichas, los enlaces 🔎 y las 7 tools del agente.

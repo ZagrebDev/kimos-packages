@@ -180,3 +180,19 @@
 /* Acciones de la ficha expandida (investigar / editar / eliminar) */
 .kimos-prospeccion .kp-rowactions { margin-top: 12px; display: flex; gap: 7px; flex-wrap: wrap; align-items: center; border-top: 1px dashed var(--kp-line); padding-top: 10px; }
 .kimos-prospeccion .kp-mini2 { padding: 5px 9px; font-size: 11.5px; }
+
+/* Avatar / foto del contacto */
+.kimos-prospeccion .kp-avatar {
+  position: relative; border-radius: 50%; overflow: hidden; flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--kp-panel2), #0e1c30);
+  border: 1px solid var(--kp-line);
+  display: flex; align-items: center; justify-content: center;
+}
+.kimos-prospeccion .kp-avatar-ini { color: var(--kp-mut); font-weight: 700; letter-spacing: .5px; user-select: none; }
+.kimos-prospeccion .kp-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.kimos-prospeccion .kp-per-av { display: flex; align-items: center; gap: 9px; }
+.kimos-prospeccion .kp-fotorow { margin-top: 12px; display: flex; gap: 14px; align-items: center; border-top: 1px dashed var(--kp-line); padding-top: 12px; }
+.kimos-prospeccion .kp-fotorow-modal { margin: 0 0 12px; border-top: none; padding: 10px; background: #0e1c30; border: 1px solid var(--kp-line); border-radius: 12px; }
+.kimos-prospeccion .kp-fotoinfo { flex: 1; min-width: 0; }
+.kimos-prospeccion .kp-fotoinfo h4 { margin: 0 0 4px; font-size: 12px; color: var(--kp-teal); text-transform: uppercase; letter-spacing: .4px; }
+.kimos-prospeccion .kp-fotobtns { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 6px; margin-bottom: 6px; }
