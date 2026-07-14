@@ -199,13 +199,18 @@
     {
       "id": "products",
       "name": "Productos",
+      "description": "Catálogo de productos con variantes, precios por variante, atributos del workspace, agente IA y sincronización bidireccional con Jumpseller.",
       "icon": "📦",
-      "version": "1.0.0",
-      "description": "Catálogo de productos con variantes, precios por variante y sincronización bidireccional con Jumpseller.",
-      "runtime": "native",
-      "appShellApi": "native",
+      "version": "2.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
       "multiInstance": true,
-      "permissions": []
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
     },
     {
       "id": "orders",
