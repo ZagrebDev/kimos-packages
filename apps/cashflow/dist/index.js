@@ -1,5 +1,5 @@
 /**
- * KIMOS Cashflow — Agente Financiero Inteligente (v1.0, bundle AppShell v1).
+ * KIMOS Cashflow — Agente Financiero Inteligente (v1.1, bundle AppShell v1).
  *
  * Módulos: Flujo de Caja · Libro Diario Inteligente · Gestor Documental ·
  * OCR + IA Financiera (extractor local + agente KIMOS, IA agnóstica) ·
@@ -1783,6 +1783,42 @@ export default function mount(shell) {
           h('input', { className: 'kcf-input', placeholder: 'Nuevo centro de costos…', value: newCc, onChange: (e) => setNewCc(e.target.value) }),
           h('button', { className: 'kcf-btn', onClick: () => { if (addCatalogItem('costCenter', { name: newCc }).success) setNewCc(''); } }, '＋'))),
       h('div', { className: 'kcf-panel kcf-span12' },
+        h('h4', null, '⚖️ Parámetros tributarios y de la app'),
+        h('div', { className: 'kcf-form', style: { maxWidth: '780px' } },
+          Field('Tasa de IVA (%)', h('input', {
+            className: 'kcf-input', type: 'number', min: 0, max: 30, step: 0.5,
+            value: model.settings.ivaRate,
+            onChange: (e) => {
+              const v = Math.max(0, Math.min(30, num(e.target.value)));
+              commit((m) => { m.settings.ivaRate = v; }, 'parámetro tributario', 'tasa de IVA cambiada a ' + v + '%');
+            },
+          })),
+          Field('Moneda', Sel({
+            value: model.settings.currency,
+            onChange: (e) => { const v = e.target.value; commit((m) => { m.settings.currency = v; }, 'parámetro', 'moneda cambiada a ' + v); },
+          }, [
+            { value: 'CLP', label: 'Peso chileno (CLP)' }, { value: 'USD', label: 'Dólar (USD)' },
+            { value: 'EUR', label: 'Euro (EUR)' }, { value: 'PEN', label: 'Sol peruano (PEN)' },
+            { value: 'MXN', label: 'Peso mexicano (MXN)' }, { value: 'COP', label: 'Peso colombiano (COP)' },
+            { value: 'ARS', label: 'Peso argentino (ARS)' },
+          ])),
+          Field('Alerta de liquidez (días de cobertura mínimos)', h('input', {
+            className: 'kcf-input', type: 'number', min: 1, max: 365,
+            value: model.settings.liquidityDays,
+            onChange: (e) => {
+              const v = Math.max(1, Math.min(365, Math.round(num(e.target.value)) || 1));
+              commit((m) => { m.settings.liquidityDays = v; }, 'parámetro', 'umbral de liquidez cambiado a ' + v + ' días');
+            },
+          })),
+          Field('Decimales en montos', Sel({
+            value: String(model.settings.showCents === true),
+            onChange: (e) => { const v = e.target.value === 'true'; commit((m) => { m.settings.showCents = v; }, 'parámetro', 'decimales en montos: ' + (v ? 'sí' : 'no')); },
+          }, [{ value: 'false', label: 'No (montos redondeados)' }, { value: 'true', label: 'Sí (mostrar decimales)' }]))),
+        h('p', { style: { fontSize: '11px', color: 'var(--kcf-muted)', marginBottom: 0 } },
+          '⚖️ Legislación chilena: la tasa general del IVA es 19% desde el 1 de octubre de 2003 (art. 14 del DL 825, Ley sobre Impuesto a las Ventas y Servicios). ' +
+          'Modifícala solo si la ley cambia o si operas con otra tasa: alimenta la calculadora 🧮 neto/IVA del editor de movimientos y la validación «IVA no calza con la tasa configurada» del Análisis Inteligente. ' +
+          'Cada cambio queda registrado en la Auditoría. Estos parámetros también pueden fijarse desde ⚙️ Configurar del shell KIMOS (al guardar allí, sobreescriben los de aquí).')),
+      h('div', { className: 'kcf-panel kcf-span12' },
         h('h4', null, '🧾 Auditoría (trazabilidad financiera)',
           h('span', { className: 'kcf-spacer' }),
           h('button', { className: 'kcf-btn', onClick: exportAudit, disabled: !model.audit.length }, '⬇ CSV'),
@@ -1793,7 +1829,7 @@ export default function mount(shell) {
               h('span', null, h('b', null, a.action + ': '), a.detail))))
           : h('div', { className: 'kcf-empty' }, 'Aún sin eventos.'),
         h('p', { style: { fontSize: '11px', color: 'var(--kcf-muted)', marginBottom: 0 } },
-          'KIMOS Cashflow v1.0 · Agente ' + (agentRegistered ? 'conectado ✅ (IA agnóstica: OpenAI, Claude, Gemini, Ollama, modelos locales, MCP vía KIMOS)' : 'no disponible en este shell') +
+          'KIMOS Cashflow v1.1 · Agente ' + (agentRegistered ? 'conectado ✅ (IA agnóstica: OpenAI, Claude, Gemini, Ollama, modelos locales, MCP vía KIMOS)' : 'no disponible en este shell') +
           ' · Principios: Seguridad, Privacidad, Transparencia, Human in the Loop, IA Responsable, Modularidad y Trazabilidad Financiera. ' +
           'Los datos viven en tu instancia (local-first) y se sincronizan con KIMOS Cloud a través del shell.')));
   }

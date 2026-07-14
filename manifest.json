@@ -169,7 +169,7 @@
       "name": "KIMOS Cashflow",
       "description": "Agente Financiero Inteligente del ecosistema KIMOS: flujo de caja multiempresa, libro diario inteligente, gestor documental con extracción OCR/IA, aprobación Human-in-the-Loop, dashboard de KPIs, proyecciones, presupuestos y análisis financiero con alertas. Controlable por agentes KIMOS (IA agnóstica) y con auditoría completa.",
       "icon": "💰",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "KIMOS",
       "entry": "dist/index.js",
       "css": "dist/index.css",

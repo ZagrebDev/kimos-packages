@@ -18,6 +18,7 @@ escenarios y asiste la toma de decisiones — siempre con el humano al mando.
 | 📈 **Proyecciones y Presupuestos** | Proyección de flujo por tendencia + recurrentes + CxC/CxP pendientes; presupuestos por categoría y período con semáforo de ejecución. |
 | 🔍 **Análisis Inteligente** | Detección de gastos duplicados, documentos repetidos, inconsistencias (IVA/neto/total), baja liquidez, gastos inusuales, alza de costos y caída de ingresos, con recomendaciones. |
 | 🏢 **Multiempresa** | Empresas con RUT/giro, múltiples cajas y cuentas bancarias, centros de costos, proyectos y categorías personalizadas. Multitenant vía equipos/instancias del shell. |
+| ⚖️ **Parámetros tributarios** | Tasa de IVA editable en Ajustes (19% por defecto — tasa general vigente en Chile, art. 14 DL 825): alimenta la calculadora neto/IVA y la validación de consistencia del Análisis. Además: moneda, umbral de liquidez y decimales, con cada cambio auditado. También configurables vía ⚙️ del shell. |
 
 ## Human in the Loop (contrato)
 
