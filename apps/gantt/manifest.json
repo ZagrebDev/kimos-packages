@@ -1,0 +1,13 @@
+{
+  "id": "gantt",
+  "name": "Planificación",
+  "version": "3.0.0",
+  "description": "Planes con tareas por períodos: línea temporal configurable, avance, estados, responsables y agente IA.",
+  "icon": "📊",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"]
+}
