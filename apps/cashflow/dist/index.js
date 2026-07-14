@@ -1,5 +1,5 @@
 /**
- * KIMOS Cashflow — Agente Financiero Inteligente (v1.1, bundle AppShell v1).
+ * KIMOS Cashflow — Agente Financiero Inteligente (v1.2, bundle AppShell v1).
  *
  * Módulos: Flujo de Caja · Libro Diario Inteligente · Gestor Documental ·
  * OCR + IA Financiera (extractor local + agente KIMOS, IA agnóstica) ·
@@ -12,6 +12,122 @@
  * saveData/loadData con debounce, CSS con scope .kimos-cashflow y control por
  * agente vía shell.agent.register (permissions: agent.control).
  */
+// ── Utilidades puras a nivel de módulo (exportadas para test) ────────────
+
+/**
+ * Mantiene bruto/neto/IVA/exento alineados: al editar cualquiera de ellos
+ * recalcula los demás al instante con la tasa de IVA configurada.
+ * `f` son los campos del formulario (strings), `k` el campo editado y `raw`
+ * su nuevo valor. Devuelve el objeto de campos actualizado.
+ */
+export function syncAmounts(f, k, raw, ratePct, showCents) {
+  const n = (v) => { const x = Number(v); return isFinite(x) ? Math.abs(x) : 0; };
+  const rnd = (v) => (showCents ? Math.round(v * 100) / 100 : Math.round(v));
+  const g = Object.assign({}, f, { [k]: raw });
+  if (raw === '' || raw == null) return g; // permitir borrar el campo sin recalcular
+  const v = n(raw);
+  const ex = n(k === 'exento' ? raw : f.exento);
+  const rt = Math.max(0, Number(ratePct) || 0) / 100;
+  if (k === 'amount') {
+    const afecto = Math.max(0, v - ex);
+    const neto = rt > 0 ? rnd(afecto / (1 + rt)) : rnd(afecto);
+    g.neto = String(neto);
+    g.iva = String(rnd(afecto - neto));
+  } else if (k === 'neto') {
+    const iva = rnd(v * rt);
+    g.iva = String(iva);
+    g.amount = String(rnd(v + iva + ex));
+  } else if (k === 'iva') {
+    let neto = n(f.neto);
+    if (!(neto > 0) && rt > 0) { neto = rnd(v / rt); g.neto = String(neto); }
+    g.amount = String(rnd(neto + v + ex));
+  } else if (k === 'exento') {
+    const neto = n(f.neto); const iva = n(f.iva);
+    if (neto > 0 || iva > 0 || v > 0) g.amount = String(rnd(neto + iva + v));
+  }
+  return g;
+}
+
+// Extracción de texto embebido en PDF (best-effort, 100% local, sin
+// dependencias): infla los streams FlateDecode con DecompressionStream y
+// recupera las cadenas de los operadores de texto (BT…ET / Tj / TJ). Las
+// facturas y boletas electrónicas en PDF y los comprobantes de pago de
+// Mercado Pago, SumUp, Transbank, etc. suelen traer texto embebido; los PDF
+// escaneados (solo imagen) y fuentes CID sin Unicode quedan para el OCR del
+// agente KIMOS.
+async function inflateBytes(bytes) {
+  if (typeof DecompressionStream !== 'function' || typeof Blob !== 'function' || typeof Response !== 'function') return null;
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) { return null; }
+}
+function decodePdfString(t) {
+  let out = t
+    .replace(/\\(\r\n|\n|\r)/g, '')
+    .replace(/\\([0-7]{1,3})/g, (m, o) => String.fromCharCode(parseInt(o, 8)))
+    .replace(/\\n/g, '\n').replace(/\\r/g, '').replace(/\\t/g, ' ')
+    .replace(/\\([()\\])/g, '$1');
+  if (out.length >= 2 && out.charCodeAt(0) === 0xFE && out.charCodeAt(1) === 0xFF) {
+    let s2 = '';
+    for (let i = 2; i + 1 < out.length; i += 2) s2 += String.fromCharCode((out.charCodeAt(i) << 8) | out.charCodeAt(i + 1));
+    out = s2;
+  }
+  return out;
+}
+function pdfStreamToText(src) {
+  if (src.indexOf('Tj') < 0 && src.indexOf('TJ') < 0) return '';
+  // Tokenizador: los literales (…) se consumen completos ANTES de mirar
+  // operadores, así un «ET» dentro de una palabra (FERRETERIA) no corta nada.
+  // Tj/TJ muestran el texto pendiente; Td/TD/T*/Tm/BT/ET separan renglones.
+  const lines = [];
+  let cur = [];
+  let pend = [];
+  const flush = () => {
+    if (cur.length) { const t = cur.join(' ').replace(/\s+/g, ' ').trim(); if (t) lines.push(t); }
+    cur = [];
+  };
+  const tokRe = /\((?:\\.|[^\\)])*\)|\bT[jJ]\b|\bT[dD]\b|T\*|\bTm\b|\bBT\b|\bET\b/g;
+  let m;
+  while ((m = tokRe.exec(src))) {
+    const tok = m[0];
+    if (tok[0] === '(') {
+      pend.push(decodePdfString(tok.slice(1, -1)));
+    } else if (tok === 'Tj' || tok === 'TJ') {
+      // Las piezas de un TJ (kerning) se concatenan sin espacio.
+      const t = pend.join(''); pend = [];
+      if (t.trim()) cur.push(t);
+    } else {
+      pend = []; flush();
+    }
+  }
+  flush();
+  return lines.join('\n');
+}
+export async function extractPdfText(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const latin = new TextDecoder('latin1').decode(bytes);
+  if (latin.indexOf('%PDF') !== 0) return '';
+  const out = [];
+  const re = /stream\r?\n/g;
+  let m;
+  while ((m = re.exec(latin))) {
+    let end = latin.indexOf('endstream', m.index);
+    if (end < 0) break;
+    const start = m.index + m[0].length;
+    let stop = end;
+    // recorta el \r\n final previo a endstream (no es parte del stream)
+    while (stop > start && (latin[stop - 1] === '\n' || latin[stop - 1] === '\r')) stop--;
+    const raw = bytes.subarray(start, stop);
+    const inflated = await inflateBytes(raw);
+    const content = inflated ? new TextDecoder('latin1').decode(inflated) : latin.slice(start, stop);
+    const t = pdfStreamToText(content);
+    if (t) out.push(t);
+    re.lastIndex = end + 9;
+  }
+  return out.join('\n').trim();
+}
+
 export default function mount(shell) {
   const React = globalThis.React;
   if (!React || typeof React.createElement !== 'function') {
@@ -77,6 +193,7 @@ export default function mount(shell) {
       categories: DEFAULT_CATEGORIES.map((c) => Object.assign({}, c)),
       costCenters: [], projects: [], budgets: [],
       movements: [], documents: [], proposals: [], audit: [],
+      memory: { counterparts: {}, keywords: {} },
     };
   }
 
@@ -117,6 +234,9 @@ export default function mount(shell) {
         'movements', 'documents', 'proposals', 'audit'].forEach((k) => {
         if (!Array.isArray(model[k])) model[k] = [];
       });
+      if (!model.memory || typeof model.memory !== 'object') model.memory = {};
+      if (!model.memory.counterparts) model.memory.counterparts = {};
+      if (!model.memory.keywords) model.memory.keywords = {};
       if (!model.companies.some((c) => c.id === model.activeCompanyId)) {
         model.activeCompanyId = model.companies[0].id;
       }
@@ -169,6 +289,108 @@ export default function mount(shell) {
   function pushAudit(action, detail) {
     model.audit.unshift({ id: uid('aud'), at: nowIso(), action: s(action), detail: s(detail) });
     if (model.audit.length > 500) model.audit.length = 500;
+  }
+
+  // ── Memoria Financiera Inteligente ──────────────────────────────────────
+  // Aprende progresivamente de cada movimiento registrado/aprobado:
+  // proveedor/cliente → categoría, proyecto, centro de costos y tipo; y
+  // palabras clave de glosas e ítems → clasificación. Se usa para enriquecer
+  // las propuestas con confianza creciente (SODIMAC→Materiales, MDF→
+  // Producción, etc.). NUNCA registra sola: siempre pasa por Human in the
+  // Loop, y bajo el umbral de confianza pide confirmación explícita.
+  const normKey = (t) => s(t).toLowerCase().replace(/[^a-z0-9áéíóúñü ]/g, ' ').replace(/\s+/g, ' ').trim();
+  function memBump(map, key, field, value) {
+    if (!key || !value) return;
+    const e = map[key] || (map[key] = {});
+    const f = e[field] || (e[field] = {});
+    f[value] = (f[value] || 0) + 1;
+  }
+  function memBest(freq) {
+    let total = 0; let bv = ''; let bc = 0;
+    Object.keys(freq || {}).forEach((k) => { total += freq[k]; if (freq[k] > bc) { bc = freq[k]; bv = k; } });
+    if (!bv || !total) return null;
+    // Confianza = dominancia del valor × madurez de la muestra (satura en 4
+    // observaciones): 5/5 iguales ≈ 98%, 2/2 ≈ 75%, 3/5 ≈ 72%.
+    return { value: bv, conf: Math.min(0.98, 0.5 + 0.5 * (bc / total) * Math.min(1, bc / 4)), n: bc };
+  }
+  function memTokens(text) {
+    const seen = new Set();
+    normKey(text).split(' ').forEach((t) => { if (t.length >= 4 && seen.size < 16) seen.add(t); });
+    return Array.from(seen);
+  }
+  function learnFromMovement(m, mv) {
+    const mem = m.memory;
+    const ck = normKey(mv.counterpart);
+    if (ck) {
+      memBump(mem.counterparts, ck, 'category', mv.categoryId);
+      memBump(mem.counterparts, ck, 'project', mv.projectId);
+      memBump(mem.counterparts, ck, 'costCenter', mv.costCenterId);
+      memBump(mem.counterparts, ck, 'type', mv.type);
+    }
+    memTokens(mv.description + ' ' + (mv.items || []).map((it) => it.desc).join(' ')).forEach((t) => {
+      memBump(mem.keywords, t, 'category', mv.categoryId);
+      memBump(mem.keywords, t, 'project', mv.projectId);
+      memBump(mem.keywords, t, 'costCenter', mv.costCenterId);
+    });
+    // Poda: memoria acotada; sobreviven las asociaciones más frecuentes.
+    ['counterparts', 'keywords'].forEach((k) => {
+      const keys = Object.keys(mem[k]);
+      const cap = k === 'counterparts' ? 400 : 1200;
+      if (keys.length > cap) {
+        const score = (e) => Object.keys(e).reduce((a, f) => a + Object.keys(e[f]).reduce((x, v) => x + e[f][v], 0), 0);
+        keys.sort((a, b) => score(mem[k][a]) - score(mem[k][b])).slice(0, keys.length - cap).forEach((kk) => { delete mem[k][kk]; });
+      }
+    });
+  }
+  // Enriquece un borrador con la memoria (muta draft y fieldConf); devuelve
+  // notas legibles de lo que reconoció y con qué confianza.
+  function applyMemory(draft, fieldConf) {
+    const mem = model.memory;
+    const notes = [];
+    const entry = mem.counterparts[normKey(draft.counterpart)] || null;
+    const kwAgg = { category: {}, project: {}, costCenter: {} };
+    memTokens(s(draft.description) + ' ' + (draft.items || []).map((it) => it.desc).join(' ')).forEach((t) => {
+      const e = mem.keywords[t];
+      if (!e) return;
+      ['category', 'project', 'costCenter'].forEach((fld) => {
+        Object.keys(e[fld] || {}).forEach((v) => { kwAgg[fld][v] = (kwAgg[fld][v] || 0) + e[fld][v]; });
+      });
+    });
+    if (entry) { notes.push('proveedor/cliente reconocido (' + Object.keys(entry.type || {}).reduce((a, k) => a + entry.type[k], 0) + ' registros previos)'); }
+    const pick = (fld) => (entry && memBest(entry[fld])) || memBest(kwAgg[fld]);
+    const cat = pick('category');
+    if (cat && catById(cat.value) && cat.conf >= (fieldConf.category || 0)) {
+      draft.categoryId = cat.value; fieldConf.category = cat.conf;
+      notes.push('categoría «' + catById(cat.value).name + '» ' + Math.round(cat.conf * 100) + '% (' + cat.n + '×)');
+    }
+    const prj = pick('project');
+    if (prj && projById(prj.value)) {
+      draft.projectId = prj.value; fieldConf.project = prj.conf;
+      notes.push('proyecto «' + projById(prj.value).name + '» ' + Math.round(prj.conf * 100) + '%');
+    }
+    const cc = pick('costCenter');
+    if (cc && ccById(cc.value)) {
+      draft.costCenterId = cc.value; fieldConf.costCenter = cc.conf;
+      notes.push('centro de costos «' + ccById(cc.value).name + '» ' + Math.round(cc.conf * 100) + '%');
+    }
+    if (entry) {
+      const ty = memBest(entry.type);
+      if (ty && ty.n >= 3 && ty.conf >= 0.85 && draft.type !== ty.value) {
+        draft.type = ty.value; fieldConf.type = ty.conf;
+        notes.push('tipo corregido a ' + ty.value + ' según historial');
+      }
+    }
+    return notes;
+  }
+  // Validación de RUT chileno (módulo 11) para la confianza del campo.
+  function validaRut(rut) {
+    const clean = s(rut).replace(/[.\s]/g, '').toUpperCase();
+    const m = clean.match(/^(\d{7,8})-([\dK])$/);
+    if (!m) return false;
+    let sum = 0; let mul = 2;
+    for (let i = m[1].length - 1; i >= 0; i--) { sum += Number(m[1][i]) * mul; mul = mul === 7 ? 2 : mul + 1; }
+    const dv = 11 - (sum % 11);
+    return (dv === 11 ? '0' : dv === 10 ? 'K' : String(dv)) === m[2];
   }
 
   // ── Catálogos ───────────────────────────────────────────────────────────
@@ -250,6 +472,7 @@ export default function mount(shell) {
         const doc = m.documents.find((d) => d.id === docId);
         if (doc) { doc.status = 'vinculado'; doc.movementId = mov.id; }
       });
+      learnFromMovement(m, mov); // Memoria Financiera: cada registro enseña
     }, existing ? 'movimiento editado' : 'movimiento creado',
       (source || 'usuario') + ': ' + mov.type + ' ' + fmtMoney(mov.amount) + ' — ' + (mov.description || mov.counterpart || 'sin glosa'));
     return { success: true, id: mov.id };
@@ -284,6 +507,7 @@ export default function mount(shell) {
       source: s(meta && meta.source) || 'ia',
       documentId: s(meta && meta.documentId),
       confidence: Math.max(0, Math.min(1, num(meta && meta.confidence))) || 0.5,
+      fieldConf: (meta && meta.fieldConf && typeof meta.fieldConf === 'object') ? meta.fieldConf : null,
       notes: s(meta && meta.notes),
       draft: Object.assign({ type: 'egreso', date: todayISO() }, draft || {}),
     };
@@ -329,7 +553,7 @@ export default function mount(shell) {
       const ex = extractFromText(text, { fileName: doc.name });
       commit((m) => {
         m.proposals = m.proposals.map((x) => (x.id === id
-          ? Object.assign({}, x, { draft: Object.assign({}, x.draft, ex.draft), confidence: ex.confidence, notes: 'Reinterpretada ' + new Date().toLocaleString() })
+          ? Object.assign({}, x, { draft: Object.assign({}, x.draft, ex.draft), confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Reinterpretada ' + new Date().toLocaleString() + (ex.memNotes && ex.memNotes.length ? ' · 🧠 ' + ex.memNotes.join('; ') : '') })
           : x));
       }, 'propuesta reinterpretada', s(doc.name));
       return { success: true };
@@ -380,11 +604,15 @@ export default function mount(shell) {
     }
     return 0;
   }
+  // Pipeline de Comprensión Documental: identificación del tipo → extracción
+  // de datos → validación (RUT módulo 11, cuadratura de montos) → IA
+  // financiera (clasificación) → Memoria Financiera (proveedor/proyecto) →
+  // confianza por campo → propuesta Human in the Loop.
   function extractFromText(rawText, opts) {
     const text = s(rawText).slice(0, 40000);
     const low = text.toLowerCase();
     const fileName = s(opts && opts.fileName);
-    let confidence = 0.35;
+    const fieldConf = {}; // confianza 0..1 por campo extraído
     const found = [];
 
     // Tipo de documento
@@ -398,53 +626,87 @@ export default function mount(shell) {
       ['transferencia', 'transferencia'], ['comprobante de pago', 'comprobante de pago'],
     ];
     for (let i = 0; i < TYPES.length; i++) { if (low.indexOf(TYPES[i][0]) >= 0) { docType = TYPES[i][1]; break; } }
-    if (docType) { confidence += 0.1; found.push('tipo'); }
+    // Procesadores de pago POS (Mercado Pago, SumUp, Transbank…): el
+    // comprobante es un voucher aunque no diga la palabra.
+    const PROCESSORS = ['mercado pago', 'mercadopago', 'sumup', 'sum up', 'getnet', 'transbank', 'redelcom', 'klap', 'compraqui', 'haulmer', 'tuu.'];
+    let processor = '';
+    for (let i = 0; i < PROCESSORS.length; i++) { if (low.indexOf(PROCESSORS[i]) >= 0) { processor = PROCESSORS[i]; break; } }
+    if (processor && !docType) docType = 'voucher POS';
+    if (docType) { fieldConf.docType = 0.9; found.push('tipo'); }
 
-    // RUT + contraparte (línea previa al RUT suele ser la razón social)
-    let counterpartRut = ''; let counterpart = '';
+    // RUT (validado con módulo 11) + contraparte: la línea previa al RUT
+    // suele ser la razón social.
+    let counterpartRut = ''; let counterpart = ''; let counterpartConf = 0;
     const rutM = text.match(RUT_RE);
     if (rutM) {
       counterpartRut = rutM[1].replace(/\s/g, '');
-      confidence += 0.12; found.push('rut');
+      fieldConf.rut = validaRut(counterpartRut) ? 0.99 : 0.6;
+      found.push('rut' + (fieldConf.rut > 0.9 ? ' ✓' : ' (dígito verificador no calza)'));
       const lines = text.split(/\n/);
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].indexOf(rutM[1]) >= 0) {
           for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
             const cand = lines[j].trim();
-            if (cand.length > 3 && !RUT_RE.test(cand) && !/^(rut|r\.u\.t)/i.test(cand)) { counterpart = cand.slice(0, 80); break; }
+            if (cand.length > 3 && !RUT_RE.test(cand) && !/^(rut|r\.u\.t)/i.test(cand)) { counterpart = cand.slice(0, 80); counterpartConf = 0.75; break; }
           }
           break;
         }
       }
     }
-    const senM = text.match(/(?:se[ñn]or\(?e?s?\)?|raz[oó]n social|proveedor|cliente)\s*[:.]?\s*([^\n]{3,80})/i);
-    if (senM && !counterpart) counterpart = senM[1].trim();
-    if (counterpart) { confidence += 0.08; found.push('contraparte'); }
+    // Etiquetas explícitas: razón social / proveedor / cliente / comercio…
+    const senM = text.match(/(?:se[ñn]or\(?e?s?\)?|raz[oó]n social|proveedor|cliente|comercio|empresa|local|merchant)\s*[:.]\s*([^\n]{3,80})/i);
+    if (senM) { counterpart = senM[1].trim(); counterpartConf = 0.88; }
+    // Identificación del comercio en tickets/vouchers: el nombre va arriba.
+    // Se toma la primera línea "con pinta de nombre" (letras, sin folios ni
+    // palabras estructurales del documento, distinta del procesador de pago).
+    if (!counterpart) {
+      const top = text.split(/\n/).map((l) => l.trim()).filter(Boolean).slice(0, 6);
+      for (let i = 0; i < top.length; i++) {
+        const cand = top[i];
+        if (cand.length < 3 || cand.length > 60) continue;
+        if (RUT_RE.test(cand) || /\d{3,}/.test(cand)) continue;
+        if (/boleta|factura|nota de|voucher|comprobante|electr[oó]nic|s\.?i\.?i\.?|copia|cliente|original|transferencia|recibo|ticket|venta|pago|fecha|total|d[ée]bito|cr[ée]dito/i.test(cand)) continue;
+        if (processor && cand.toLowerCase().indexOf(processor.replace(/\.$/, '')) >= 0) continue;
+        if (!/[a-záéíóúñ]/i.test(cand)) continue;
+        counterpart = cand.slice(0, 80); counterpartConf = 0.6;
+        break;
+      }
+    }
+    if (counterpart) { fieldConf.counterpart = counterpartConf; found.push('contraparte'); }
 
     // Giro y dirección
     const giroM = text.match(/giro\s*[:.]?\s*([^\n]{3,80})/i);
     const dirM = text.match(/(?:direcci[oó]n|dir\.)\s*[:.]?\s*([^\n]{3,90})/i);
 
-    // Fecha y hora
+    // Fecha y hora (formatos dd/mm/aaaa, ISO y «12 de marzo de 2026»)
     const date = parseDateFrom(text);
-    if (date) { confidence += 0.12; found.push('fecha'); }
+    if (date) { fieldConf.date = 0.95; found.push('fecha'); }
     const timeM = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
     const time = timeM ? pad2(timeM[1]) + ':' + timeM[2] : '';
 
     // Folio / número de documento
     let docNumber = '';
     const folioM = text.match(/(?:folio|n[°ºo]\.?|nro\.?|no\.)\s*[:#]?\s*(\d{2,12})/i);
-    if (folioM) { docNumber = folioM[1]; confidence += 0.08; found.push('folio'); }
+    if (folioM) { docNumber = folioM[1]; fieldConf.docNumber = 0.85; found.push('folio'); }
 
-    // Montos
+    // Montos + validación de cuadratura (neto + IVA + exento ≈ total)
     const total = grabAmount(text, ['monto\\s+total', 'total\\s+a\\s+pagar', '\\btotal\\b']);
     const neto = grabAmount(text, ['monto\\s+neto', '\\bneto\\b', '\\bsubtotal\\b', 'sub-total']);
     const iva = grabAmount(text, ['\\bi\\.?v\\.?a\\.?(?:\\s*\\(?\\d{1,2}\\s*%?\\)?)?']);
     const exento = grabAmount(text, ['\\bexento\\b', 'monto\\s+exento']);
     const discount = grabAmount(text, ['\\bdescuento\\b', '\\bdscto\\b']);
     const amount = total || (neto + iva + exento) || neto;
-    if (amount > 0) { confidence += 0.15; found.push('total'); }
-    if (iva > 0) found.push('iva');
+    if (amount > 0) {
+      fieldConf.total = total > 0 ? 0.9 : 0.7; // etiquetado vs reconstruido
+      found.push('total');
+    }
+    if (neto > 0) fieldConf.neto = 0.88;
+    if (iva > 0) { fieldConf.iva = 0.88; found.push('iva'); }
+    if (exento > 0) fieldConf.exento = 0.85;
+    if (total > 0 && neto > 0 && iva > 0 && Math.abs(neto + iva + exento - total) <= Math.max(2, total * 0.005)) {
+      fieldConf.total = 0.99; fieldConf.neto = 0.99; fieldConf.iva = 0.99;
+      found.push('montos cuadrados ✓');
+    }
 
     // Forma / medio de pago
     let paymentMethod = '';
@@ -471,7 +733,10 @@ export default function mount(shell) {
         if (tot > 0 && tot !== num(docNumber)) items.push({ qty: Number(m[1]), desc: m[2].trim(), unit: 0, total: tot });
       }
     });
-    if (items.length) found.push('detalle (' + items.length + ' ítems)');
+    if (items.length) { fieldConf.items = 0.7; found.push('detalle (' + items.length + ' ítems)'); }
+    if (paymentMethod) fieldConf.paymentMethod = 0.9;
+    if (bank) fieldConf.bank = 0.85;
+    if (reference) fieldConf.reference = 0.8;
 
     // Dirección del flujo: si el RUT emisor es el de la empresa activa → venta.
     const myRut = s(activeCompany() && activeCompany().rut).replace(/\s/g, '');
@@ -491,8 +756,9 @@ export default function mount(shell) {
     ];
     let categoryId = '';
     for (let i = 0; i < KEYS.length; i++) { if (KEYS[i][0].test(low)) { categoryId = KEYS[i][1]; break; } }
+    fieldConf.category = categoryId ? 0.55 : 0.3; // heurística; la memoria puede subirla
     if (!categoryId) categoryId = type === 'ingreso' ? 'cat-ventas' : 'cat-otros-out';
-    if (!catById(categoryId)) categoryId = '';
+    if (!catById(categoryId)) { categoryId = ''; fieldConf.category = 0; }
 
     const draft = {
       type, date: date || todayISO(), time, amount, neto, iva, exento, discount,
@@ -501,7 +767,15 @@ export default function mount(shell) {
       companyId: model.activeCompanyId, paymentMethod, installments, bank, reference, items,
       notes: [giroM ? 'Giro: ' + giroM[1].trim() : '', dirM ? 'Dirección: ' + dirM[1].trim() : ''].filter(Boolean).join(' · '),
     };
-    return { draft, confidence: Math.min(0.95, confidence), found, rawText: text.slice(0, 6000) };
+    // Memoria Financiera: si el proveedor o las palabras clave ya se conocen,
+    // completa/ajusta categoría, proyecto, centro de costos y tipo.
+    const memNotes = applyMemory(draft, fieldConf);
+    // Confianza global = promedio ponderado de los campos núcleo.
+    const W = { total: 0.35, date: 0.2, counterpart: 0.2, category: 0.15, docType: 0.1 };
+    let acc = 0; let wsum = 0;
+    Object.keys(W).forEach((k) => { wsum += W[k]; acc += W[k] * (fieldConf[k] || 0); });
+    const confidence = Math.min(0.97, acc / wsum);
+    return { draft, confidence, fieldConf, memNotes, found, rawText: text.slice(0, 6000) };
   }
 
   // XML DTE (factura/boleta electrónica chilena) — parse nativo, sin IA.
@@ -538,7 +812,11 @@ export default function mount(shell) {
         dueDate: get('FchVenc'),
       };
       if (!(draft.amount > 0)) return null;
-      return { draft, confidence: 0.92, found: ['XML DTE completo'], rawText: '' };
+      // El DTE es estructurado: confianza alta en todos los campos, salvo la
+      // clasificación contable (la memoria financiera puede mejorarla).
+      const fieldConf = { docType: 0.98, rut: 0.98, date: 0.98, total: 0.99, neto: 0.99, iva: 0.99, counterpart: 0.95, docNumber: 0.98, items: 0.9, category: 0.6 };
+      const memNotes = applyMemory(draft, fieldConf);
+      return { draft, confidence: 0.92, fieldConf, memNotes, found: ['XML DTE completo'], rawText: '' };
     } catch (e) { return null; }
   }
 
@@ -584,12 +862,15 @@ export default function mount(shell) {
       if (iType >= 0 && /ingreso|abono|venta/i.test(s(cells[iType]))) type = 'ingreso';
       if (iAmt >= 0 && s(cells[iAmt]).indexOf('-') >= 0) type = 'egreso';
       const date = iDate >= 0 ? (parseDateFrom(s(cells[iDate])) || todayISO()) : todayISO();
-      createProposal({
+      const draft = {
         type, date, amount,
         description: (iDesc >= 0 ? s(cells[iDesc]).trim().slice(0, 120) : '') || (fileName + ' fila ' + r),
         categoryId: type === 'ingreso' ? 'cat-ventas' : 'cat-otros-out',
         companyId: model.activeCompanyId,
-      }, { source: 'importación CSV', documentId, confidence: 0.6, notes: fileName + ' · fila ' + r });
+      };
+      const fieldConf = { total: 0.9, date: iDate >= 0 ? 0.85 : 0.4, counterpart: 0, category: 0.35 };
+      const memNotes = applyMemory(draft, fieldConf);
+      createProposal(draft, { source: 'importación CSV', documentId, confidence: 0.6, fieldConf, notes: fileName + ' · fila ' + r + (memNotes.length ? ' · 🧠 ' + memNotes.join('; ') : '') });
       count++;
     }
     return count;
@@ -597,6 +878,29 @@ export default function mount(shell) {
 
   // ── Gestor Documental ───────────────────────────────────────────────────
   const MAX_DOC_BYTES = 1200 * 1024; // límite por archivo dentro del modelo
+  // Captura Inteligente — preprocesamiento local de la fotografía: estira el
+  // histograma (auto-contraste con recorte del 2%) para mejorar iluminación y
+  // legibilidad antes del OCR/visión del agente. Si la imagen ya está bien
+  // expuesta, no se toca.
+  function autoContrast(ctx, w, hgt) {
+    try {
+      const img = ctx.getImageData(0, 0, w, hgt);
+      const d = img.data;
+      const hist = new Array(256).fill(0);
+      for (let i = 0; i < d.length; i += 4) hist[((d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000) | 0]++;
+      const totalPx = d.length / 4;
+      let lo = 0; let hi = 255; let acc = 0;
+      for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc >= totalPx * 0.02) { lo = i; break; } }
+      acc = 0;
+      for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= totalPx * 0.02) { hi = i; break; } }
+      if (hi - lo < 30 || (lo < 12 && hi > 243)) return;
+      const scale = 255 / (hi - lo);
+      const lut = new Uint8ClampedArray(256);
+      for (let i = 0; i < 256; i++) lut[i] = Math.max(0, Math.min(255, Math.round((i - lo) * scale)));
+      for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; }
+      ctx.putImageData(img, 0, 0);
+    } catch (e) { /* sin mejora si el canvas no lo permite */ }
+  }
   function compressImage(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
@@ -608,7 +912,9 @@ export default function mount(shell) {
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(img.width * scale));
           canvas.height = Math.max(1, Math.round(img.height * scale));
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          autoContrast(ctx, canvas.width, canvas.height);
           URL.revokeObjectURL(url);
           resolve(canvas.toDataURL('image/jpeg', 0.78));
         } catch (e) { URL.revokeObjectURL(url); reject(e); }
@@ -619,6 +925,13 @@ export default function mount(shell) {
   }
   const readAsText = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(s(r.result)); r.onerror = () => rej(r.error); r.readAsText(file); });
   const readAsDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(s(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(file); });
+  const readAsArrayBuffer = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsArrayBuffer(file); });
+  function attachExtraction(docId, draft, rawText) {
+    commit((m) => {
+      const dd = m.documents.find((x) => x.id === docId);
+      if (dd) dd.extraction = Object.assign({}, draft, { rawText: s(rawText).slice(0, 6000) });
+    }, null);
+  }
 
   async function addFiles(fileList, opts) {
     const files = Array.from(fileList || []);
@@ -650,8 +963,18 @@ export default function mount(shell) {
         } else if (isXml || isCsv || (isText && !isExcel)) {
           if (file.size > MAX_DOC_BYTES) throw new Error('archivo de texto supera 1,2 MB');
           doc.textContent = await readAsText(file);
-        } else if (isPdf || isExcel) {
-          if (file.size > MAX_DOC_BYTES) throw new Error((isPdf ? 'PDF' : 'Excel') + ' supera 1,2 MB — súbelo comprimido o como imagen');
+        } else if (isPdf) {
+          if (file.size > MAX_DOC_BYTES) throw new Error('PDF supera 1,2 MB — súbelo comprimido o como imagen');
+          doc.dataUrl = await readAsDataUrl(file);
+          // Comprensión documental: los PDF de facturas/boletas electrónicas y
+          // comprobantes de pago (Mercado Pago, SumUp, Transbank…) suelen traer
+          // texto embebido → se interpreta 100% local, sin salir del equipo.
+          try {
+            const pdfText = await extractPdfText(await readAsArrayBuffer(file));
+            if (pdfText && pdfText.replace(/\s+/g, ' ').length > 40) doc.textContent = pdfText;
+          } catch (e) { /* PDF escaneado o CID: queda para el OCR del agente */ }
+        } else if (isExcel) {
+          if (file.size > MAX_DOC_BYTES) throw new Error('Excel supera 1,2 MB — expórtalo como CSV para interpretación automática');
           doc.dataUrl = await readAsDataUrl(file);
         } else {
           if (file.size > MAX_DOC_BYTES) throw new Error('archivo supera 1,2 MB');
@@ -665,20 +988,22 @@ export default function mount(shell) {
         if (isXml && doc.textContent) {
           const dte = parseDteXml(doc.textContent);
           if (dte) {
-            createProposal(dte.draft, { source: 'XML DTE', documentId: docId, confidence: dte.confidence, notes: 'Parseado localmente desde ' + name });
+            attachExtraction(docId, dte.draft, '');
+            createProposal(dte.draft, { source: 'XML DTE', documentId: docId, confidence: dte.confidence, fieldConf: dte.fieldConf, notes: 'Parseado localmente desde ' + name });
             proposals++;
           } else {
             const ex = extractFromText(doc.textContent, { fileName: name });
-            if (num(ex.draft.amount) > 0) { createProposal(ex.draft, { source: 'extractor local', documentId: docId, confidence: ex.confidence, notes: 'Campos: ' + ex.found.join(', ') }); proposals++; }
+            if (num(ex.draft.amount) > 0) { attachExtraction(docId, ex.draft, ex.rawText); createProposal(ex.draft, { source: 'extractor local', documentId: docId, confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Campos: ' + ex.found.join(', ') }); proposals++; }
           }
         } else if (isCsv && doc.textContent) {
           proposals += proposalsFromCsv(doc.textContent, name, docId);
-        } else if (isText && doc.textContent) {
+        } else if ((isText || isPdf) && doc.textContent) {
           const ex = extractFromText(doc.textContent, { fileName: name });
-          if (num(ex.draft.amount) > 0) { createProposal(ex.draft, { source: 'extractor local', documentId: docId, confidence: ex.confidence, notes: 'Campos: ' + ex.found.join(', ') }); proposals++; }
+          if (num(ex.draft.amount) > 0) { attachExtraction(docId, ex.draft, ex.rawText); createProposal(ex.draft, { source: isPdf ? 'PDF (texto embebido)' : 'extractor local', documentId: docId, confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Campos: ' + ex.found.join(', ') }); proposals++; }
         }
-        // Imágenes/PDF quedan 'pendiente': el agente KIMOS (o el usuario con
-        // «pegar texto») aporta el OCR → PROPOSE_FROM_TEXT referencia el doc.
+        // Fotografías y PDF escaneados quedan 'pendiente': el agente KIMOS
+        // (visión/OCR de cualquier proveedor) o el usuario con «pegar texto»
+        // aporta el texto → PROPOSE_FROM_TEXT referencia el documento.
       } catch (e) {
         errors.push(name + ': ' + ((e && e.message) || 'error'));
       }
@@ -978,6 +1303,8 @@ export default function mount(shell) {
                 pending: { type: 'boolean', description: 'true = cuenta por cobrar/pagar' },
                 dueDate: { type: 'string' },
                 documentId: { type: 'string', description: 'ID de documento ya cargado al que se asocia' },
+                items: { type: 'array', description: 'Detalle: [{qty, desc, unit, total}]' },
+                fieldConfidence: { type: 'object', description: 'Confianza 0..1 por campo extraído por visión/OCR, ej: {"total":0.99,"date":0.95,"counterpart":0.8,"rut":0.99}. Bajo 0.6 la app exige confirmación humana explícita.' },
                 confidence: { type: 'number' }, notes: { type: 'string' },
               },
               required: ['type', 'amount', 'description'],
@@ -1049,7 +1376,19 @@ export default function mount(shell) {
             pendingProposals: model.proposals.map((p) => ({ id: p.id, status: p.status, source: p.source, type: s(p.draft.type), amount: num(p.draft.amount), description: s(p.draft.description) })),
             documentsAwaitingOcr: model.documents.filter((d) => d.status === 'pendiente' && !d.textContent).map((d) => ({ id: d.id, name: d.name, mime: d.mime })),
             movementsCount: model.movements.length,
-            humanInTheLoop: 'Las propuestas requieren aprobación del usuario en la pestaña Revisión.',
+            // Memoria Financiera: asociaciones aprendidas para que los agentes
+            // de visión/LLM clasifiquen consistentemente con el historial.
+            financialMemory: Object.keys(model.memory.counterparts).slice(0, 25).map((k) => {
+              const e = model.memory.counterparts[k];
+              const c = memBest(e.category); const pj = memBest(e.project); const cx = memBest(e.costCenter);
+              return {
+                counterpart: k,
+                category: c && catById(c.value) ? (catById(c.value) || {}).name : undefined,
+                project: pj && projById(pj.value) ? (projById(pj.value) || {}).name : undefined,
+                costCenter: cx && ccById(cx.value) ? (ccById(cx.value) || {}).name : undefined,
+              };
+            }),
+            humanInTheLoop: 'Las propuestas requieren aprobación del usuario en la pestaña Revisión; los campos con confianza < 60% exigen confirmación explícita.',
           };
         },
         dispatchAction: async (action) => {
@@ -1061,7 +1400,7 @@ export default function mount(shell) {
               const cat = byName(model.categories, p.categoryName);
               const prj = byName(model.projects, p.projectName);
               const cc = byName(model.costCenters, p.costCenterName);
-              const prop = createProposal({
+              const draft = {
                 type: p.type, amount: p.amount, date: p.date, description: p.description,
                 counterpart: p.counterpart, counterpartRut: p.counterpartRut,
                 neto: p.neto, iva: p.iva, exento: p.exento, docType: p.docType, docNumber: p.docNumber,
@@ -1069,8 +1408,21 @@ export default function mount(shell) {
                 paymentMethod: p.paymentMethod, bank: p.bank, reference: p.reference,
                 status: p.pending ? 'pendiente' : 'realizado', dueDate: p.dueDate,
                 companyId: model.activeCompanyId,
-              }, { source: 'agente KIMOS', documentId: s(p.documentId), confidence: p.confidence, notes: p.notes });
-              return { success: true, message: 'Propuesta ' + prop.id + ' creada. Requiere aprobación humana en Revisión (Human in the Loop).' };
+                items: Array.isArray(p.items) ? p.items : [],
+              };
+              // Confianza por campo declarada por el agente (visión/LLM),
+              // saneada a [0,1]; la memoria financiera la complementa.
+              const fieldConf = {};
+              if (p.fieldConfidence && typeof p.fieldConfidence === 'object') {
+                Object.keys(p.fieldConfidence).forEach((k) => {
+                  const v = num(p.fieldConfidence[k]);
+                  if (v > 0) fieldConf[s(k).slice(0, 24)] = Math.min(1, v > 1 ? v / 100 : v);
+                });
+              }
+              if (cat) fieldConf.category = fieldConf.category || 0.8;
+              const memNotes = applyMemory(draft, fieldConf);
+              const prop = createProposal(draft, { source: 'agente KIMOS', documentId: s(p.documentId), confidence: p.confidence, fieldConf, notes: s(p.notes) + (memNotes.length ? ' · 🧠 Memoria: ' + memNotes.join('; ') : '') });
+              return { success: true, message: 'Propuesta ' + prop.id + ' creada. Requiere aprobación humana en Revisión (Human in the Loop).', memoryNotes: memNotes };
             }
             if (type === 'PROPOSE_FROM_TEXT') {
               if (!s(p.text).trim()) return { success: false, error: 'text vacío.' };
@@ -1080,8 +1432,8 @@ export default function mount(shell) {
               if (docId && docById(docId)) {
                 commit((m) => { const d = m.documents.find((x) => x.id === docId); if (d) d.extraction = Object.assign({}, ex.draft, { rawText: ex.rawText }); }, null);
               }
-              const prop = createProposal(ex.draft, { source: 'OCR agente KIMOS', documentId: docId, confidence: ex.confidence, notes: 'Campos detectados: ' + ex.found.join(', ') });
-              return { success: true, message: 'Propuesta ' + prop.id + ' creada desde texto (confianza ' + Math.round(ex.confidence * 100) + '%). Requiere aprobación humana.' };
+              const prop = createProposal(ex.draft, { source: 'OCR agente KIMOS', documentId: docId, confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Campos detectados: ' + ex.found.join(', ') + (ex.memNotes && ex.memNotes.length ? ' · 🧠 Memoria: ' + ex.memNotes.join('; ') : '') });
+              return { success: true, message: 'Propuesta ' + prop.id + ' creada desde texto (confianza ' + Math.round(ex.confidence * 100) + '%). Requiere aprobación humana.', fieldConfidence: ex.fieldConf, memoryNotes: ex.memNotes };
             }
             if (type === 'LIST_MOVEMENTS') {
               const from = s(p.from) || '0000-01-01'; const to = s(p.to) || '9999-12-31';
@@ -1145,14 +1497,9 @@ export default function mount(shell) {
     }, initial || {}));
     const set = (k) => (e) => setF(Object.assign({}, f, { [k]: e && e.target ? e.target.value : e }));
     const setType = (t) => setF(Object.assign({}, f, { type: t, categoryId: '' }));
-    const autoIva = () => {
-      const amt = num(f.amount);
-      if (amt > 0) {
-        const rate = num(model.settings.ivaRate) / 100;
-        const neto = Math.round(amt / (1 + rate));
-        setF(Object.assign({}, f, { neto: String(neto), iva: String(amt - neto) }));
-      }
-    };
+    // Bruto/neto/IVA/exento alineados: editar cualquiera recalcula los demás
+    // al instante con la tasa configurada (Ajustes → Parámetros tributarios).
+    const setMoney = (k) => (e) => setF(syncAmounts(f, k, e.target.value, model.settings.ivaRate, model.settings.showCents));
     return h('div', { className: 'kcf-overlay', onClick: (e) => { if (e.target === e.currentTarget) onCancel(); } },
       h('div', { className: 'kcf-modal' },
         h('div', { className: 'kcf-modal-head' },
@@ -1171,11 +1518,10 @@ export default function mount(shell) {
           h('div', { className: 'kcf-form' },
             Field('Fecha', h('input', { className: 'kcf-input', type: 'date', value: f.date, onChange: set('date') })),
             Field('Hora', h('input', { className: 'kcf-input', type: 'time', value: f.time, onChange: set('time') })),
-            Field('Monto total *', h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.amount, onChange: set('amount'), placeholder: '0' })),
-            Field('Neto / IVA', h('div', { style: { display: 'flex', gap: '6px' } },
-              h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.neto, onChange: set('neto'), placeholder: 'neto', style: { width: '50%' } }),
-              h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.iva, onChange: set('iva'), placeholder: 'IVA', style: { width: '35%' } }),
-              h('button', { className: 'kcf-mini', title: 'Calcular neto e IVA desde el total (' + model.settings.ivaRate + '%)', onClick: autoIva }, '🧮'))),
+            Field('Monto total (bruto) *', h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.amount, onChange: setMoney('amount'), placeholder: '0', title: 'Al editarlo, neto e IVA se recalculan al instante (IVA ' + model.settings.ivaRate + '%)' })),
+            Field('Neto / IVA (sincronizados, ' + model.settings.ivaRate + '%)', h('div', { style: { display: 'flex', gap: '6px' } },
+              h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.neto, onChange: setMoney('neto'), placeholder: 'neto', style: { width: '50%' }, title: 'Al editarlo, IVA y bruto se recalculan al instante' }),
+              h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.iva, onChange: setMoney('iva'), placeholder: 'IVA', style: { width: '50%' }, title: 'Al editarlo, el bruto se recalcula al instante' }))),
             Field('Glosa / descripción *', h('input', { className: 'kcf-input', value: f.description, onChange: set('description'), placeholder: 'Ej: Factura insumos de oficina' }), true),
             Field(f.type === 'ingreso' ? 'Cliente' : 'Proveedor', h('input', { className: 'kcf-input', value: f.counterpart, onChange: set('counterpart') })),
             Field('RUT', h('input', { className: 'kcf-input', value: f.counterpartRut, onChange: set('counterpartRut'), placeholder: '76.123.456-7' })),
@@ -1488,7 +1834,8 @@ export default function mount(shell) {
       const dte = /\.xml$/i.test(d.name) || /xml/i.test(d.mime) ? parseDteXml(d.textContent) : null;
       const ex = dte || extractFromText(d.textContent, { fileName: d.name });
       if (num(ex.draft.amount) > 0) {
-        createProposal(ex.draft, { source: dte ? 'XML DTE' : 'extractor local', documentId: d.id, confidence: ex.confidence, notes: 'Reprocesado por el usuario' });
+        attachExtraction(d.id, ex.draft, ex.rawText || '');
+        createProposal(ex.draft, { source: dte ? 'XML DTE' : 'extractor local', documentId: d.id, confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Reprocesado por el usuario' + (ex.memNotes && ex.memNotes.length ? ' · 🧠 ' + ex.memNotes.join('; ') : '') });
         shell.notify && shell.notify({ level: 'success', text: 'Propuesta creada en Revisión ✅.' });
       } else shell.notify && shell.notify({ level: 'warn', text: 'No se detectó un monto en el documento.' });
     };
@@ -1518,7 +1865,7 @@ export default function mount(shell) {
               h('button', { className: 'kcf-mini', title: 'Ver documento', onClick: () => onView(d.id) }, '👁'),
               d.status !== 'vinculado' ? h('button', { className: 'kcf-mini', title: d.textContent ? 'Reinterpretar y proponer' : 'Pegar texto OCR y proponer', onClick: () => reExtract(d) }, '🧠') : null,
               h('button', { className: 'kcf-mini kcf-danger', title: 'Eliminar', onClick: () => { if (window.confirm('¿Eliminar «' + d.name + '» y sus propuestas asociadas?')) deleteDocument(d.id); } }, '🗑')))))
-        : h('div', { className: 'kcf-empty' }, h('span', { className: 'big' }, '🗂️'), 'Aún no hay documentos. Los XML DTE, CSV y textos se interpretan al instante; imágenes y PDF quedan listos para el OCR del agente KIMOS.'));
+        : h('div', { className: 'kcf-empty' }, h('span', { className: 'big' }, '🗂️'), 'Aún no hay documentos. Los XML DTE, CSV, textos y PDF con texto embebido (facturas/boletas electrónicas, comprobantes de Mercado Pago, SumUp, etc.) se comprenden e interpretan al instante, 100% local; las fotografías se mejoran automáticamente (auto-contraste) y quedan listas para la visión/OCR del agente KIMOS.'));
   }
 
   // ── Visor de documento ──────────────────────────────────────────────────
@@ -1575,7 +1922,7 @@ export default function mount(shell) {
               const ex = extractFromText(text, { fileName: doc ? doc.name : 'texto pegado' });
               if (!(num(ex.draft.amount) > 0)) { shell.notify && shell.notify({ level: 'warn', text: 'No se detectó un monto en el texto.' }); return; }
               if (doc) commit((m) => { const dd = m.documents.find((x) => x.id === doc.id); if (dd) dd.extraction = Object.assign({}, ex.draft, { rawText: ex.rawText }); }, null);
-              createProposal(ex.draft, { source: 'OCR pegado', documentId: doc ? doc.id : '', confidence: ex.confidence, notes: 'Campos detectados: ' + ex.found.join(', ') });
+              createProposal(ex.draft, { source: 'OCR pegado', documentId: doc ? doc.id : '', confidence: ex.confidence, fieldConf: ex.fieldConf, notes: 'Campos detectados: ' + ex.found.join(', ') + (ex.memNotes && ex.memNotes.length ? ' · 🧠 Memoria: ' + ex.memNotes.join('; ') : '') });
               onClose();
               shell.notify && shell.notify({ level: 'success', text: 'Propuesta creada — revísala en la pestaña Revisión ✅.' });
             },
@@ -1583,42 +1930,66 @@ export default function mount(shell) {
   }
 
   // ── Pestaña: Revisión (Human in the Loop) ───────────────────────────────
+  const CONF_LABELS = { total: 'monto total', date: 'fecha', counterpart: 'proveedor/cliente', rut: 'RUT', category: 'categoría', project: 'proyecto', costCenter: 'centro de costos', docType: 'tipo de documento', docNumber: 'folio', neto: 'neto', iva: 'IVA', exento: 'exento', paymentMethod: 'medio de pago', bank: 'banco', reference: 'referencia', items: 'detalle', type: 'tipo de movimiento' };
+  const MIN_FIELD_CONF = 0.6; // bajo esto, aprobar exige confirmación explícita
+  function lowConfFields(p) {
+    const fc = p.fieldConf || {};
+    return Object.keys(fc).filter((k) => fc[k] != null && fc[k] > 0 && fc[k] < MIN_FIELD_CONF)
+      .map((k) => (CONF_LABELS[k] || k) + ' (' + Math.round(fc[k] * 100) + '%)');
+  }
   function ReviewTab({ onEditApprove, onViewDoc }) {
     const props = model.proposals;
-    const kv = (k, v) => (s(v) ? h('div', null, h('div', { className: 'k' }, k), h('div', { className: 'v' }, s(v))) : null);
+    // Chip de confianza por campo: verde ≥90%, ámbar 60–89%, rojo <60%.
+    const confChip = (c) => (c == null || !(c > 0) ? null
+      : h('span', { className: 'kcf-chip ' + (c >= 0.9 ? 'in' : c >= MIN_FIELD_CONF ? 'warn' : 'out'), style: { marginLeft: '5px', fontSize: '10px' }, title: 'Confianza de la extracción' }, Math.round(c * 100) + '%'));
+    const kv = (k, v, c) => (s(v) ? h('div', null, h('div', { className: 'k' }, k), h('div', { className: 'v' }, s(v), confChip(c))) : null);
     if (!props.length) {
       return h('div', { className: 'kcf-empty' }, h('span', { className: 'big' }, '🤝'),
         h('b', null, 'Bandeja Human in the Loop vacía.'), h('br'), h('br'),
-        'Aquí llegan las propuestas de la IA (extractor local, XML DTE, CSV y agentes KIMOS). ',
-        'Nada se contabiliza sin tu aprobación: puedes aprobar, editar, rechazar, posponer o pedir una nueva interpretación. ',
+        'Aquí llegan las propuestas de la comprensión documental (XML DTE, PDF con texto, CSV, texto OCR y agentes de visión KIMOS), con confianza por campo y enriquecidas por la Memoria Financiera (aprende de cada aprobación: proveedor→categoría→proyecto). ',
+        'Nada se contabiliza sin tu aprobación: puedes aprobar, editar, rechazar, posponer o pedir una nueva interpretación, y bajo 60% de confianza se exige confirmación explícita. ',
         'Cada decisión queda registrada en la Auditoría (pestaña Ajustes).');
     }
     return h('div', { className: 'kcf-proposals' }, props.map((p) => {
       const d = p.draft;
+      const fc = p.fieldConf || {};
       const cat = catById(d.categoryId);
       const doc = p.documentId ? docById(p.documentId) : null;
+      const low = lowConfFields(p);
       return h('div', { key: p.id, className: 'kcf-proposal' + (p.status === 'pospuesta' ? ' postponed' : '') },
         h('div', { className: 'kcf-proposal-head' },
           h('span', { className: 'kcf-chip ' + (d.type === 'ingreso' ? 'in' : 'out') }, d.type === 'ingreso' ? '↑ ingreso' : '↓ egreso'),
           h('span', { className: 'kcf-proposal-title' }, s(d.description) || s(d.counterpart) || 'Propuesta'),
           h('span', { className: 'kcf-chip acc' }, '🤖 ' + p.source),
           p.status === 'pospuesta' ? h('span', { className: 'kcf-chip warn' }, '🕓 pospuesta') : null,
-          h('span', { className: 'kcf-conf' }, 'confianza ' + Math.round(num(p.confidence) * 100) + '%')),
+          low.length ? h('span', { className: 'kcf-chip out', title: low.join(', ') }, '⚠ ' + low.length + ' campo(s) con baja confianza') : null,
+          h('span', { className: 'kcf-conf' }, 'confianza global ' + Math.round(num(p.confidence) * 100) + '%')),
         h('div', { className: 'kcf-kv' },
-          kv('Monto', fmtMoney(num(d.amount))),
-          kv('Fecha', fmtDate(d.date)),
-          kv('Neto', num(d.neto) ? fmtMoney(num(d.neto)) : ''),
-          kv('IVA', num(d.iva) ? fmtMoney(num(d.iva)) : ''),
-          kv('Contraparte', d.counterpart),
-          kv('RUT', d.counterpartRut),
-          kv('Documento', s(d.docType) + (d.docNumber ? ' N°' + d.docNumber : '')),
-          kv('Categoría sugerida', cat ? cat.name : ''),
-          kv('Medio de pago', d.paymentMethod),
-          kv('Banco / Ref.', [d.bank, d.reference].filter(Boolean).join(' · ')),
-          kv('Ítems detectados', Array.isArray(d.items) && d.items.length ? d.items.length + ' líneas' : '')),
+          kv('Monto', fmtMoney(num(d.amount)), fc.total),
+          kv('Fecha', fmtDate(d.date), fc.date),
+          kv('Neto', num(d.neto) ? fmtMoney(num(d.neto)) : '', fc.neto),
+          kv('IVA', num(d.iva) ? fmtMoney(num(d.iva)) : '', fc.iva),
+          kv('Contraparte', d.counterpart, fc.counterpart),
+          kv('RUT', d.counterpartRut, fc.rut),
+          kv('Documento', s(d.docType) + (d.docNumber ? ' N°' + d.docNumber : ''), fc.docType),
+          kv('Categoría sugerida', cat ? cat.name : '', fc.category),
+          kv('Proyecto sugerido', (projById(d.projectId) || {}).name || '', fc.project),
+          kv('Centro de costos', (ccById(d.costCenterId) || {}).name || '', fc.costCenter),
+          kv('Medio de pago', d.paymentMethod, fc.paymentMethod),
+          kv('Banco / Ref.', [d.bank, d.reference].filter(Boolean).join(' · '), fc.bank),
+          kv('Ítems detectados', Array.isArray(d.items) && d.items.length ? d.items.length + ' líneas' : '', fc.items)),
         p.notes ? h('div', { style: { fontSize: '11.5px', color: 'var(--kcf-muted)', marginBottom: '4px' } }, 'ℹ️ ' + p.notes) : null,
         h('div', { className: 'kcf-proposal-actions' },
-          h('button', { className: 'kcf-btn kcf-btn-income', onClick: () => { const r = resolveProposal(p.id, 'aprobar'); if (!r.success) shell.notify && shell.notify({ level: 'warn', text: r.error }); } }, '✔ Aprobar'),
+          h('button', {
+            className: 'kcf-btn kcf-btn-income',
+            onClick: () => {
+              // Human in the Loop reforzado: bajo el umbral de confianza NO se
+              // registra sin confirmación explícita del usuario.
+              if (low.length && !window.confirm('⚠️ Campos con confianza insuficiente:\n\n· ' + low.join('\n· ') + '\n\nRecomendado: «Editar y aprobar» para corregirlos.\n¿Aprobar de todos modos?')) return;
+              const r = resolveProposal(p.id, 'aprobar');
+              if (!r.success) shell.notify && shell.notify({ level: 'warn', text: r.error });
+            },
+          }, '✔ Aprobar'),
           h('button', { className: 'kcf-btn', onClick: () => onEditApprove(p) }, '✏️ Editar y aprobar'),
           h('button', { className: 'kcf-btn', onClick: () => resolveProposal(p.id, 'posponer') }, p.status === 'pospuesta' ? '⏰ Reactivar' : '🕓 Posponer'),
           h('button', { className: 'kcf-btn', onClick: () => { const r = resolveProposal(p.id, 'reinterpretar'); shell.notify && shell.notify(r.success ? { level: 'success', text: 'Documento reinterpretado.' } : { level: 'warn', text: r.error }); } }, '🔄 Reinterpretar'),
@@ -1829,7 +2200,7 @@ export default function mount(shell) {
               h('span', null, h('b', null, a.action + ': '), a.detail))))
           : h('div', { className: 'kcf-empty' }, 'Aún sin eventos.'),
         h('p', { style: { fontSize: '11px', color: 'var(--kcf-muted)', marginBottom: 0 } },
-          'KIMOS Cashflow v1.1 · Agente ' + (agentRegistered ? 'conectado ✅ (IA agnóstica: OpenAI, Claude, Gemini, Ollama, modelos locales, MCP vía KIMOS)' : 'no disponible en este shell') +
+          'KIMOS Cashflow v1.2 · Agente ' + (agentRegistered ? 'conectado ✅ (IA agnóstica: OpenAI, Claude, Gemini, Ollama, modelos locales, MCP vía KIMOS)' : 'no disponible en este shell') +
           ' · Principios: Seguridad, Privacidad, Transparencia, Human in the Loop, IA Responsable, Modularidad y Trazabilidad Financiera. ' +
           'Los datos viven en tu instancia (local-first) y se sincronizan con KIMOS Cloud a través del shell.')));
   }
