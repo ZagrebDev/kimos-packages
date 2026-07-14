@@ -199,9 +199,9 @@
     {
       "id": "products",
       "name": "Productos",
-      "description": "Catálogo de productos con variantes, precios por variante, atributos del workspace, agente IA y sincronización bidireccional con Jumpseller.",
+      "description": "Catálogo de productos con gestión completa de opciones y variantes (tipos, addons, precios y stock por variante) y sincronización bidireccional con Jumpseller.",
       "icon": "📦",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

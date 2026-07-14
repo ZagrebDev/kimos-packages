@@ -15,6 +15,15 @@
  *             actualiza los enlazados; el backend devuelve syncStatusByItem)
  *  - Import: POST /api/integrations/jumpseller/sync-to-apps
  *
+ * v2.1: gestión COMPLETA de opciones y variantes según el API oficial —
+ * definiciones de opciones del producto (item.options: nombre, tipo
+ * option/addon/custom, recargo addon, orden y valores) que el backend
+ * sincroniza con los endpoints dedicados /products/{id}/options.json y
+ * .../values.json (crear/actualizar/eliminar), variantes con barcode,
+ * precio tachado (compare_at_price) y costo (cost_per_item) propios, poda de
+ * variantes eliminadas, y campos de producto brand/barcode/compareAtPrice/
+ * costPerItem/weight.
+ *
  * Bundle ESM puro sobre el contrato AppShell: globalThis.React, sin JSX,
  * CSS con scope .kimos-products.
  */
@@ -87,6 +96,15 @@ export default function mount(shell) {
       description: raw.description ? s(raw.description) : undefined,
       imageUrl: raw.imageUrl ? s(raw.imageUrl) : undefined,
       variants: Array.isArray(raw.variants) ? raw.variants : undefined,
+      // Definiciones de opciones del producto (Color, Talla, …) con tipo,
+      // precio addon y valores — se gestionan vía los endpoints dedicados
+      // de Jumpseller en el push.
+      options: Array.isArray(raw.options) ? raw.options : undefined,
+      brand: raw.brand ? s(raw.brand) : undefined,
+      barcode: raw.barcode ? s(raw.barcode) : undefined,
+      compareAtPrice: typeof raw.compareAtPrice === 'number' ? raw.compareAtPrice : undefined,
+      costPerItem: typeof raw.costPerItem === 'number' ? raw.costPerItem : undefined,
+      weight: typeof raw.weight === 'number' ? raw.weight : undefined,
       entityIds: Array.isArray(raw.entityIds) ? raw.entityIds.map(s).filter(Boolean) : [],
       sourceLinks: sourceLinks,
       syncStatus: raw.syncStatus === 'synced' || raw.syncStatus === 'pending' || raw.syncStatus === 'sync_error' ? raw.syncStatus : undefined,
@@ -566,11 +584,15 @@ export default function mount(shell) {
     };
     const openNew = () => {
       setIsNew(true);
-      setEditing({ id: newId('prod'), name: '', sku: '', status: 'active', description: '', imageUrl: '', entityIds: [], variants: [] });
+      setEditing({ id: newId('prod'), name: '', sku: '', status: 'active', description: '', imageUrl: '', entityIds: [], variants: [], options: [] });
     };
     const openEdit = (item) => {
       setIsNew(false);
-      setEditing(Object.assign({}, item, { entityIds: (item.entityIds || []).slice(), variants: (item.variants || []).slice() }));
+      setEditing(Object.assign({}, item, {
+        entityIds: (item.entityIds || []).slice(),
+        variants: (item.variants || []).slice(),
+        options: (item.options || []).map((o) => Object.assign({}, o, { values: ((o && o.values) || []).slice() })),
+      }));
     };
     const saveEditor = async () => {
       if (!editing || !s(editing.name).trim()) return;
@@ -737,6 +759,23 @@ export default function mount(shell) {
             h('label', { className: 'kp-label' }, 'Stock',
               h('input', { className: 'kp-input', type: 'number', value: editing.stock != null ? editing.stock : '', placeholder: '0',
                 onChange: (e) => setEditing(Object.assign({}, editing, { stock: e.target.value === '' ? undefined : Number(e.target.value) })) }))),
+          h('div', { className: 'kp-row' },
+            h('label', { className: 'kp-label' }, 'Marca',
+              h('input', { className: 'kp-input', value: editing.brand || '', placeholder: 'ACME',
+                onChange: (e) => setEditing(Object.assign({}, editing, { brand: e.target.value || undefined })) })),
+            h('label', { className: 'kp-label' }, 'Código de barras',
+              h('input', { className: 'kp-input', value: editing.barcode || '', placeholder: 'EAN/UPC',
+                onChange: (e) => setEditing(Object.assign({}, editing, { barcode: e.target.value || undefined })) }))),
+          h('div', { className: 'kp-row' },
+            h('label', { className: 'kp-label', title: 'Precio anterior tachado (compare_at_price de Jumpseller)' }, 'Precio antes (tachado)',
+              h('input', { className: 'kp-input', type: 'number', value: editing.compareAtPrice != null ? editing.compareAtPrice : '', placeholder: '12990',
+                onChange: (e) => setEditing(Object.assign({}, editing, { compareAtPrice: e.target.value === '' ? undefined : Number(e.target.value) })) })),
+            h('label', { className: 'kp-label', title: 'Costo por unidad (cost_per_item de Jumpseller)' }, 'Costo',
+              h('input', { className: 'kp-input', type: 'number', value: editing.costPerItem != null ? editing.costPerItem : '', placeholder: '5000',
+                onChange: (e) => setEditing(Object.assign({}, editing, { costPerItem: e.target.value === '' ? undefined : Number(e.target.value) })) })),
+            h('label', { className: 'kp-label' }, 'Peso (kg)',
+              h('input', { className: 'kp-input', type: 'number', value: editing.weight != null ? editing.weight : '', placeholder: '0.5',
+                onChange: (e) => setEditing(Object.assign({}, editing, { weight: e.target.value === '' ? undefined : Number(e.target.value) })) }))),
           h('label', { className: 'kp-label' }, 'URL de imagen',
             h('input', { className: 'kp-input', value: editing.imageUrl || '', placeholder: 'https://…',
               onChange: (e) => setEditing(Object.assign({}, editing, { imageUrl: e.target.value })) })),
@@ -744,8 +783,78 @@ export default function mount(shell) {
             h('textarea', { className: 'kp-input', rows: 3, value: editing.description || '',
               onChange: (e) => setEditing(Object.assign({}, editing, { description: e.target.value })) })),
 
-          // Variantes: opciones (Color: Negro, Talla: M) con precio/stock/SKU
-          // propios. Compatibles con las variantes de Jumpseller.
+          // Opciones del producto (Color, Talla, …): definiciones con tipo
+          // (opción o addon con recargo), orden y valores. Se sincronizan con
+          // los endpoints /products/{id}/options.json de Jumpseller; las que
+          // se quitan aquí se ELIMINAN también en la tienda al sincronizar.
+          h('div', { className: 'kp-section' },
+            h('div', { className: 'kp-section-head' },
+              h('span', null, 'Opciones del producto' + ((editing.options || []).length ? ' (' + editing.options.length + ')' : '')),
+              h('button', { className: 'kp-mini', title: 'Añadir opción (p.ej. Color)',
+                onClick: () => setEditing(Object.assign({}, editing, {
+                  options: (editing.options || []).concat([{ name: '', optionType: 'option', values: [] }]),
+                })) }, '+')),
+            (editing.options || []).map((odef, oi) => {
+              const setOption = (patch) => {
+                const next = (editing.options || []).map((o) => Object.assign({}, o, { values: (o.values || []).slice() }));
+                next[oi] = Object.assign({}, next[oi], patch);
+                setEditing(Object.assign({}, editing, { options: next }));
+              };
+              const moveOption = (dir) => {
+                const next = (editing.options || []).slice();
+                const j = oi + dir;
+                if (j < 0 || j >= next.length) return;
+                const tmp = next[oi]; next[oi] = next[j]; next[j] = tmp;
+                setEditing(Object.assign({}, editing, { options: next }));
+              };
+              return h('div', { key: oi, className: 'kp-variant' },
+                h('div', { className: 'kp-variant-row' },
+                  h('input', { className: 'kp-input', value: odef.name || '', placeholder: 'Nombre — p.ej. Color',
+                    onChange: (e) => setOption({ name: e.target.value }) }),
+                  h('select', { className: 'kp-input kp-input-sm', value: odef.optionType || 'option',
+                    title: 'Opción: define variantes. Addon: extra con recargo (p.ej. envoltorio de regalo).',
+                    onChange: (e) => setOption({ optionType: e.target.value }) },
+                    h('option', { value: 'option' }, 'Opción'),
+                    h('option', { value: 'addon' }, 'Addon'),
+                    h('option', { value: 'custom' }, 'Personalizada')),
+                  odef.optionType === 'addon' ? h('input', {
+                    className: 'kp-input kp-input-sm', type: 'number', placeholder: 'Recargo',
+                    value: odef.addonPrice != null ? odef.addonPrice : '',
+                    title: 'Precio adicional del addon (addon_price)',
+                    onChange: (e) => setOption({ addonPrice: e.target.value === '' ? null : Number(e.target.value) }),
+                  }) : null,
+                  h('button', { className: 'kp-mini', title: 'Subir', disabled: oi === 0, onClick: () => moveOption(-1) }, '↑'),
+                  h('button', { className: 'kp-mini', title: 'Bajar', disabled: oi === (editing.options || []).length - 1, onClick: () => moveOption(1) }, '↓'),
+                  h('button', { className: 'kp-mini kp-danger', title: 'Quitar opción (se elimina también en Jumpseller al sincronizar)',
+                    onClick: () => setEditing(Object.assign({}, editing, { options: (editing.options || []).filter((_, i) => i !== oi) })) }, '🗑')),
+                h('div', { className: 'kp-entpick' },
+                  (odef.values || []).map((vdef, vvi) => h('span', { key: vvi, className: 'kp-chip' },
+                    vdef.name,
+                    h('button', { className: 'kp-chip-x', title: 'Quitar valor',
+                      onClick: () => setOption({ values: (odef.values || []).filter((_, i) => i !== vvi) }) }, '×'))),
+                  h('input', {
+                    className: 'kp-input kp-input-sm', placeholder: '+ valor (Enter)',
+                    title: 'Escribe un valor (p.ej. Negro) y presiona Enter',
+                    onKeyDown: (e) => {
+                      if (e.key !== 'Enter') return;
+                      const val = e.target.value.trim();
+                      if (!val) return;
+                      if (!(odef.values || []).some((x) => norm(x.name) === norm(val))) {
+                        setOption({ values: (odef.values || []).concat([{ name: val }]) });
+                      }
+                      e.target.value = '';
+                    },
+                  })),
+                odef.sourceOptionId ? h('div', { className: 'kp-muted-xs' }, 'Enlazada a Jumpseller (#' + odef.sourceOptionId + ')') : null,
+              );
+            }),
+            !(editing.options || []).length ? h('div', { className: 'kp-muted-xs' },
+              'Sin opciones definidas. Las variantes también pueden crear opciones al vuelo (Color: Negro).') : null,
+          ),
+
+          // Variantes: opciones (Color: Negro, Talla: M) con precio/stock/SKU/
+          // barcode/precio-tachado/costo propios. Las variantes eliminadas aquí
+          // se eliminan también en Jumpseller al sincronizar.
           h('div', { className: 'kp-section' },
             h('div', { className: 'kp-section-head' },
               h('span', null, 'Variantes' + ((editing.variants || []).length ? ' (' + editing.variants.length + ')' : '')),
@@ -786,9 +895,20 @@ export default function mount(shell) {
                     onChange: (e) => setVariant({ stock: e.target.value === '' ? null : Number(e.target.value) }) }),
                   h('input', { className: 'kp-input', value: variant.sku || '', placeholder: 'SKU',
                     onChange: (e) => setVariant({ sku: e.target.value || null }) })),
+                h('div', { className: 'kp-variant-row' },
+                  h('input', { className: 'kp-input', value: variant.barcode || '', placeholder: 'Código de barras',
+                    onChange: (e) => setVariant({ barcode: e.target.value || null }) }),
+                  h('input', { className: 'kp-input', type: 'number', value: variant.compareAtPrice != null ? variant.compareAtPrice : '', placeholder: 'Precio antes',
+                    title: 'Precio anterior tachado de esta variante (compare_at_price)',
+                    onChange: (e) => setVariant({ compareAtPrice: e.target.value === '' ? null : Number(e.target.value) }) }),
+                  h('input', { className: 'kp-input', type: 'number', value: variant.costPerItem != null ? variant.costPerItem : '', placeholder: 'Costo',
+                    title: 'Costo por unidad de esta variante (cost_per_item)',
+                    onChange: (e) => setVariant({ costPerItem: e.target.value === '' ? null : Number(e.target.value) }) })),
                 variant.sourceVariantId ? h('div', { className: 'kp-muted-xs' }, 'Enlazada a Jumpseller (#' + variant.sourceVariantId + ')') : null,
               );
             }),
+            (editing.variants || []).length ? h('div', { className: 'kp-muted-xs' },
+              'Al sincronizar, las variantes que ya no estén aquí se eliminan también en Jumpseller.') : null,
             !(editing.variants || []).length ? h('div', { className: 'kp-muted-xs' }, 'Sin variantes: el producto usa el precio y stock generales.') : null,
           ),
 
