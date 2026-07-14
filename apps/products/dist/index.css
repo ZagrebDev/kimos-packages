@@ -66,6 +66,11 @@
 .kimos-products .kp-chip-btn { cursor: pointer; font-size: 11px; padding: 3px 9px; }
 .kimos-products .kp-chip-active { background: var(--kp-accent-soft); border-color: var(--kp-accent); color: var(--kp-accent); }
 .kimos-products .kp-chip-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.kimos-products .kp-chip-x {
+  border: none; background: transparent; color: var(--kp-muted); cursor: pointer;
+  padding: 0 0 0 2px; font-size: 12px; line-height: 1;
+}
+.kimos-products .kp-chip-x:hover { color: hsl(0 72% 46%); }
 .kimos-products .kp-entchips { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 .kimos-products .kp-badge {

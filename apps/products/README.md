@@ -12,16 +12,28 @@ resto (p. ej. `allowedUserIds`, `dataSources`) en cada guardado.
 
 - Vistas **tabla** y **grid** (persistida en `config.viewMode`).
 - Búsqueda + filtros por estado (activo/borrador/inactivo) y por atributos.
-- Editor: SKU, precio, stock, imagen, descripción, **variantes** con
-  opciones (`Color: Negro, Talla: M`) y precio/stock/SKU propios, campos
+- Editor: SKU, precio, stock, imagen, descripción, marca, código de barras,
+  precio tachado (`compareAtPrice`), costo (`costPerItem`), peso, campos
   personalizados (`config.extraFields`) y atributos del workspace.
+- **Opciones del producto** (v2.1, `item.options`): definiciones con nombre,
+  tipo (`option` | `addon` con recargo | `custom`), orden y valores. El
+  backend las sincroniza con los endpoints dedicados del API oficial
+  (`/products/{id}/options.json` y `.../values.json`): crea, actualiza,
+  reordena y **elimina** en Jumpseller lo que se quite en Kimos.
+- **Variantes** con opciones (`Color: Negro, Talla: M`) y precio, stock,
+  SKU, código de barras, precio tachado y costo **propios por variante**.
+  Las variantes eliminadas localmente se **eliminan también en Jumpseller**
+  en el siguiente push (poda).
 - **Jumpseller** (vía `shell.authFetch`):
   - Vincular la instancia (`config.integrationBindings`).
   - Importar catálogo (`POST /api/integrations/jumpseller/sync-to-apps`).
-  - Pull manual (`POST …/items/sync-pull`).
+  - Pull manual (`POST …/items/sync-pull`) — trae también opciones,
+    variantes extendidas y campos de comercio (Jumpseller es la fuente de
+    verdad para productos enlazados).
   - Push global y por producto (`POST …/items/sync-push`): crea en
-    Jumpseller los productos locales sin enlace y actualiza los enlazados;
-    badges `↑ JS / ○ pend. / ↑ Error` según `syncStatus`.
+    Jumpseller los productos locales sin enlace y actualiza los enlazados
+    (producto → opciones/valores → variantes, en ese orden); badges
+    `↑ JS / ○ pend. / ↑ Error` según `syncStatus`.
 - **Agente IA** (`shell.agent.register`, activo con la ventana abierta):
   `UPSERT_PRODUCT`, `DELETE_PRODUCT`, `ASSIGN_ENTITY`, `SET_FILTER`,
   `SYNC_PULL`, `SYNC_PUSH`.
