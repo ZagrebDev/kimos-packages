@@ -1,0 +1,13 @@
+{
+  "id": "kanban",
+  "name": "Kanban",
+  "version": "3.0.0",
+  "description": "Tablero visual de tareas: columnas configurables, drag&drop, responsables, entidades del workspace y control por agente IA.",
+  "icon": "🗂️",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"]
+}
