@@ -52,6 +52,9 @@ export default function mount(shell) {
       radius: 'round',
       position: 'right',
       logMessages: true,
+      // Límite anti-abuso del backend por IP: mensajes por ventana (defaults 20 / 300s)
+      rateMax: 20,
+      rateWindowS: 300,
     };
   }
 
@@ -327,6 +330,12 @@ export default function mount(shell) {
           'El agente seleccionado no es público: el widget se mostrará pero el chat quedará deshabilitado hasta que un admin lo marque como público.'),
         row('Nombre a mostrar', h('input', { key: 'i', className: 'kwa-input', placeholder: '(por defecto, el nombre del agente)', value: draft.displayName || '', onChange: (e) => up({ displayName: e.target.value }) })),
         row('Mensaje de bienvenida', h('input', { key: 'i', className: 'kwa-input', placeholder: '¡Hola! ¿En qué puedo ayudarte?', maxLength: 300, value: draft.welcome || '', onChange: (e) => up({ welcome: e.target.value }) }), 'Primer mensaje del agente al abrir el chat.'),
+        row('Límite de mensajes (anti-abuso)', h('div', { key: 'rl', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+          h('input', { key: 'm', className: 'kwa-input', type: 'number', min: 1, max: 200, style: { width: '90px' }, value: draft.rateMax == null ? 20 : draft.rateMax, onChange: (e) => up({ rateMax: Math.max(1, Number(e.target.value) || 20) }) }),
+          h('span', { key: 's1', className: 'kwa-help' }, 'mensajes cada'),
+          h('input', { key: 'w', className: 'kwa-input', type: 'number', min: 30, max: 3600, style: { width: '90px' }, value: draft.rateWindowS == null ? 300 : draft.rateWindowS, onChange: (e) => up({ rateWindowS: Math.max(30, Number(e.target.value) || 300) }) }),
+          h('span', { key: 's2', className: 'kwa-help' }, 'segundos'),
+        ]), 'Por visitante (IP). Al superarlo, el widget pide esperar unos minutos.'),
         row('Saludo junto a la burbuja', h('input', { key: 'i', className: 'kwa-input', placeholder: 'Ej: ¿Te ayudo? (vacío = solo el icono)', maxLength: 160, value: draft.greeting || '', onChange: (e) => up({ greeting: e.target.value }) }), 'Texto que aparece al lado del icono flotante sin abrir el chat.'),
       ]),
 
