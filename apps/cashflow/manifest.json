@@ -1,0 +1,45 @@
+{
+  "id": "cashflow",
+  "name": "KIMOS Cashflow",
+  "description": "Agente Financiero Inteligente del ecosistema KIMOS: flujo de caja multiempresa, libro diario inteligente, gestor documental con extracción OCR/IA, aprobación Human-in-the-Loop, dashboard de KPIs, proyecciones, presupuestos y análisis financiero con alertas. Controlable por agentes KIMOS (IA agnóstica) y con auditoría completa.",
+  "icon": "💰",
+  "version": "1.2.0",
+  "author": "KIMOS",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ],
+  "configSchema": {
+    "title": "Preferencias de KIMOS Cashflow",
+    "fields": [
+      {
+        "key": "currency",
+        "label": "Moneda",
+        "type": "select",
+        "options": [
+          { "value": "CLP", "label": "Peso chileno (CLP)" },
+          { "value": "USD", "label": "Dólar (USD)" },
+          { "value": "EUR", "label": "Euro (EUR)" },
+          { "value": "PEN", "label": "Sol peruano (PEN)" },
+          { "value": "MXN", "label": "Peso mexicano (MXN)" },
+          { "value": "COP", "label": "Peso colombiano (COP)" },
+          { "value": "ARS", "label": "Peso argentino (ARS)" }
+        ]
+      },
+      { "key": "ivaRate", "label": "Tasa de IVA (%)", "type": "number", "min": 0, "max": 30 },
+      { "key": "liquidityDays", "label": "Alerta de liquidez (días de cobertura mínimos)", "type": "number", "min": 1, "max": 365 },
+      { "key": "showCents", "label": "Mostrar decimales en montos", "type": "boolean" }
+    ]
+  },
+  "defaultConfig": {
+    "currency": "CLP",
+    "ivaRate": 19,
+    "liquidityDays": 30,
+    "showCents": false
+  }
+}
