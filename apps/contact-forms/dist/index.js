@@ -43,6 +43,44 @@ export default function mount(shell) {
     ['select', 'Selección'],
   ];
 
+  // Colores por defecto de cada base del widget (deben coincidir con los del
+  // backend público contactFormsAPI.py en kimos-enterprice).
+  const STYLE_BASES = {
+    light: { bgColor: '#ffffff', textColor: '#111827', inputBgColor: '#ffffff', borderColor: '#d1d5db', successColor: '#059669', errorColor: '#dc2626' },
+    dark: { bgColor: '#111827', textColor: '#f9fafb', inputBgColor: '#1f2937', borderColor: '#374151', successColor: '#34d399', errorColor: '#f87171' },
+  };
+
+  function defaultStyle(base, accent) {
+    const b = base === 'dark' ? 'dark' : 'light';
+    return {
+      base: b,
+      accentColor: accent || '#19ACB1',
+      border: true,
+      borderWidth: 1,
+      rounded: true,
+      fontSize: 14,
+      ...STYLE_BASES[b],
+    };
+  }
+
+  // Estilo efectivo del widget: combina `style` con los campos legados
+  // `theme` / `accentColor` de definiciones guardadas antes de v1.2.
+  function effectiveStyle(def) {
+    if (!def) return defaultStyle('light');
+    const base = (def.style && def.style.base) || def.theme || 'light';
+    return { ...defaultStyle(base, def.accentColor), ...(def.style || {}) };
+  }
+
+  // Altura inicial estimada del iframe (px) según campos y tamaño de texto,
+  // para que el snippet no necesite ajustes a mano aunque el sitio bloquee <script>.
+  function estimateIframeHeight(def) {
+    const st = effectiveStyle(def);
+    const scale = (st.fontSize || 14) / 14;
+    let px = 64 + (def.title ? 32 : 0) + (def.description ? 28 : 0) + 66;
+    (def.fields || []).forEach((f) => { px += f.type === 'textarea' ? 152 : 80; });
+    return Math.ceil(px * scale);
+  }
+
   function defaultDefinition() {
     return {
       id: 'definition',
@@ -55,6 +93,7 @@ export default function mount(shell) {
       notifyEmail: '',
       accentColor: '#19ACB1',
       theme: 'light',
+      style: defaultStyle('light'),
       fields: [
         { key: 'company', label: 'Empresa', type: 'text', required: true, maxLength: 120, placeholder: '' },
         { key: 'name', label: 'Nombre de contacto', type: 'text', required: true, maxLength: 120, placeholder: '' },
@@ -294,6 +333,75 @@ export default function mount(shell) {
     ]);
   }
 
+  // ── Vista previa en tiempo real del widget incrustado ────────────────────
+  // Réplica visual del render de embed.js (contactFormsAPI.py): cualquier
+  // cambio de apariencia en el borrador se refleja al instante, incluyendo
+  // el modal superpuesto de éxito/error.
+  function WidgetPreview({ def }) {
+    const [modal, setModal] = useState(null); // null | 'ok' | 'err'
+    const st = effectiveStyle(def);
+    const dark = st.base === 'dark';
+    const bw = st.border === false ? 0 : (typeof st.borderWidth === 'number' ? st.borderWidth : 1);
+    const rounded = st.rounded !== false;
+    const rad = rounded ? 14 : 0;
+    const inRad = rounded ? 8 : 0;
+    const fs = typeof st.fontSize === 'number' ? st.fontSize : 14;
+
+    const inputStyle = {
+      width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+      border: '1px solid ' + st.borderColor, borderRadius: inRad,
+      font: 'inherit', fontSize: fs, background: st.inputBgColor, color: st.textColor,
+    };
+    const labelStyle = { display: 'block', fontSize: fs - 2, fontWeight: 600, margin: '12px 0 4px', color: st.textColor };
+
+    const fieldNodes = (def.fields || []).map((f, i) => h(React.Fragment, { key: f.key + '-' + i }, [
+      h('label', { key: 'l', style: labelStyle }, f.label + (f.required ? ' *' : '')),
+      f.type === 'textarea'
+        ? h('textarea', { key: 'i', rows: 3, readOnly: true, placeholder: f.placeholder || '', style: { ...inputStyle, resize: 'none' } })
+        : f.type === 'select'
+          ? h('select', { key: 'i', disabled: true, style: inputStyle }, h('option', null, f.placeholder || '—'))
+          : h('input', { key: 'i', type: 'text', readOnly: true, placeholder: f.placeholder || '', style: inputStyle }),
+    ]));
+
+    return h('div', null, [
+      h('div', { key: 'stage', className: 'kcf-preview-stage' },
+        h('div', { style: { position: 'relative', fontFamily: 'system-ui, sans-serif' } }, [
+          h('div', { key: 'form', style: {
+            background: st.bgColor, color: st.textColor, padding: 20, boxSizing: 'border-box',
+            border: bw > 0 ? bw + 'px solid ' + st.borderColor : 'none', borderRadius: rad, fontSize: fs,
+          } }, [
+            def.title && h('div', { key: 't', style: { fontSize: fs + 4, fontWeight: 700 } }, def.title),
+            def.description && h('div', { key: 'd', style: { fontSize: fs - 1, opacity: 0.75, marginTop: 4 } }, def.description),
+            ...fieldNodes,
+            h('button', { key: 'b', type: 'button', style: {
+              marginTop: 16, padding: '10px 22px', border: 'none', borderRadius: inRad,
+              background: st.accentColor, color: '#fff', fontWeight: 600, fontSize: fs, cursor: 'default',
+            } }, def.buttonLabel || 'Enviar'),
+          ]),
+          modal && h('div', { key: 'overlay', style: {
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box',
+            zIndex: 5, borderRadius: rad, background: dark ? 'rgba(0,0,0,.55)' : 'rgba(17,24,39,.35)',
+          } }, h('div', { style: {
+            background: st.bgColor, color: st.textColor, border: '1px solid ' + st.borderColor,
+            borderRadius: rounded ? 12 : 0, padding: '20px 22px', maxWidth: '88%', boxSizing: 'border-box',
+            textAlign: 'center', boxShadow: '0 12px 32px rgba(0,0,0,.28)',
+          } }, [
+            h('div', { key: 'm', style: { fontSize: fs + 1, fontWeight: 600, lineHeight: 1.45, color: modal === 'ok' ? st.successColor : st.errorColor } },
+              modal === 'ok' ? (def.successMessage || '¡Mensaje enviado!') : 'No se pudo enviar. Intenta nuevamente.'),
+            h('button', { key: 'c', type: 'button', onClick: () => setModal(null), style: {
+              marginTop: 14, padding: '8px 20px', border: 'none', borderRadius: inRad,
+              background: st.accentColor, color: '#fff', fontWeight: 600, fontSize: fs - 1, cursor: 'pointer',
+            } }, 'Cerrar'),
+          ])),
+        ])),
+      h('div', { key: 'actions', className: 'kcf-preview-actions' }, [
+        h('button', { key: 'ok', className: 'kcf-btn kcf-btn-ghost', onClick: () => setModal(modal === 'ok' ? null : 'ok') }, 'Ver modal de éxito'),
+        h('button', { key: 'err', className: 'kcf-btn kcf-btn-ghost', onClick: () => setModal(modal === 'err' ? null : 'err') }, 'Ver modal de error'),
+      ]),
+    ]);
+  }
+
   // ── Pestaña: Diseño ───────────────────────────────────────────────────────
   function DesignTab({ state }) {
     const def = state.definition;
@@ -303,6 +411,19 @@ export default function mount(shell) {
     if (!draft) return h('div', { className: 'kcf-empty' }, 'Cargando…');
 
     const up = (patch) => { setDraft({ ...draft, ...patch }); setDirty(true); };
+    const st = effectiveStyle(draft);
+    // Mantiene sincronizados los campos legados theme/accentColor con `style`
+    // (los usan definiciones públicas cacheadas y versiones previas del widget).
+    const upStyle = (patch) => {
+      const style = { ...st, ...patch };
+      up({ style, theme: style.base, accentColor: style.accentColor });
+    };
+    // Cambiar la base re-aplica los colores por defecto de esa base como punto
+    // de partida; el usuario luego ajusta los que quiera.
+    const setBase = (base) => {
+      const b = base === 'dark' ? 'dark' : 'light';
+      upStyle({ base: b, ...STYLE_BASES[b] });
+    };
     const upField = (i, patch) => {
       const fields = draft.fields.slice();
       fields[i] = { ...fields[i], ...patch };
@@ -337,23 +458,74 @@ export default function mount(shell) {
         row('Mensaje de éxito', h('input', { key: 'i', className: 'kcf-input', value: draft.successMessage || '', onChange: (e) => up({ successMessage: e.target.value }) })),
         row('Notificar por email a', h('input', { key: 'i', className: 'kcf-input', type: 'email', placeholder: 'opcional — requiere SMTP configurado', value: draft.notifyEmail || '', onChange: (e) => up({ notifyEmail: e.target.value }) })),
         h('div', { key: 'inline', className: 'kcf-inline' }, [
-          h('div', { key: 'c', className: 'kcf-form-row' }, [
-            h('label', { key: 'l', className: 'kcf-label' }, 'Color de acento'),
-            h('input', { key: 'i', type: 'color', className: 'kcf-color', value: draft.accentColor || '#19ACB1', onChange: (e) => up({ accentColor: e.target.value }) }),
-          ]),
-          h('div', { key: 't', className: 'kcf-form-row' }, [
-            h('label', { key: 'l', className: 'kcf-label' }, 'Tema del widget'),
-            h('select', { key: 'i', className: 'kcf-input', value: draft.theme || 'light', onChange: (e) => up({ theme: e.target.value }) }, [
-              h('option', { key: 'l', value: 'light' }, 'Claro'),
-              h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
-            ]),
-          ]),
           h('div', { key: 'e', className: 'kcf-form-row' }, [
             h('label', { key: 'l', className: 'kcf-label' }, 'Publicado'),
             h('label', { key: 'i', className: 'kcf-switch' }, [
               h('input', { key: 'c', type: 'checkbox', checked: !!draft.enabled, onChange: (e) => up({ enabled: e.target.checked }) }),
               h('span', { key: 's' }, draft.enabled ? 'Sí — recibe envíos' : 'No — rechaza envíos'),
             ]),
+          ]),
+        ]),
+      ]),
+
+      h('div', { key: 'appearance', className: 'kcf-card' }, [
+        h('div', { key: 'h', className: 'kcf-card-title' }, 'Apariencia del widget incrustado'),
+        h('div', { key: 'd', className: 'kcf-muted', style: { marginBottom: 10 } },
+          'Ajusta el diseño para que combine con el sitio donde lo incrustes. Los cambios se ven al instante en la vista previa.'),
+        h('div', { key: 'grid', className: 'kcf-appearance' }, [
+          h('div', { key: 'controls' }, [
+            row('Base', h('select', { key: 'i', className: 'kcf-input', value: st.base, onChange: (e) => setBase(e.target.value) }, [
+              h('option', { key: 'l', value: 'light' }, 'Claro'),
+              h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
+            ])),
+            h('div', { key: 'colors', className: 'kcf-style-grid' }, [
+              ['bgColor', 'Fondo'],
+              ['textColor', 'Texto'],
+              ['inputBgColor', 'Fondo de inputs'],
+              ['accentColor', 'Botón y resaltado'],
+              ['borderColor', 'Bordes'],
+              ['successColor', 'Texto modal de éxito'],
+              ['errorColor', 'Texto modal de error'],
+            ].map(([key, label]) => h('div', { key, className: 'kcf-form-row' }, [
+              h('label', { key: 'l', className: 'kcf-label' }, label),
+              h('input', { key: 'i', type: 'color', className: 'kcf-color', value: st[key], onChange: (e) => upStyle({ [key]: e.target.value }) }),
+            ]))),
+            h('div', { key: 'border', className: 'kcf-inline', style: { marginTop: 6 } }, [
+              h('div', { key: 'on', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Borde'),
+                h('label', { key: 'i', className: 'kcf-check' }, [
+                  h('input', { key: 'c', type: 'checkbox', checked: st.border !== false, onChange: (e) => upStyle({ border: e.target.checked }) }),
+                  h('span', { key: 's' }, st.border !== false ? 'Con borde' : 'Sin borde'),
+                ]),
+              ]),
+              st.border !== false && h('div', { key: 'w', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Ancho (px)'),
+                h('input', {
+                  key: 'i', type: 'number', min: 1, max: 8, className: 'kcf-input', style: { width: 70 },
+                  value: typeof st.borderWidth === 'number' ? st.borderWidth : 1,
+                  onChange: (e) => upStyle({ borderWidth: Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 8) }),
+                }),
+              ]),
+              h('div', { key: 'r', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Esquinas'),
+                h('select', { key: 'i', className: 'kcf-input', value: st.rounded !== false ? 'rounded' : 'square', onChange: (e) => upStyle({ rounded: e.target.value === 'rounded' }) }, [
+                  h('option', { key: 'ro', value: 'rounded' }, 'Redondeadas'),
+                  h('option', { key: 'sq', value: 'square' }, 'Rectas'),
+                ]),
+              ]),
+              h('div', { key: 'fs', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Tamaño de texto (px)'),
+                h('input', {
+                  key: 'i', type: 'number', min: 11, max: 22, className: 'kcf-input', style: { width: 70 },
+                  value: typeof st.fontSize === 'number' ? st.fontSize : 14,
+                  onChange: (e) => upStyle({ fontSize: Math.min(Math.max(parseInt(e.target.value, 10) || 14, 11), 22) }),
+                }),
+              ]),
+            ]),
+          ]),
+          h('div', { key: 'preview', className: 'kcf-preview-col' }, [
+            h('label', { key: 'l', className: 'kcf-label' }, 'Vista previa en tiempo real'),
+            h(WidgetPreview, { key: 'p', def: draft }),
           ]),
         ]),
       ]),
@@ -407,9 +579,19 @@ export default function mount(shell) {
     const scriptSnippet =
       '<div data-kimos-contact-form="' + instanceId + '"></div>\n' +
       '<script src="' + publicBase + '/embed.js" async></script>';
+    const iframeId = 'kcf-' + instanceId;
     const iframeSnippet =
-      '<iframe src="' + publicBase + '/embed"\n' +
-      '  style="border:0;width:100%;min-height:560px" title="' + (def.title || 'Formulario de contacto') + '"></iframe>';
+      '<iframe id="' + iframeId + '" src="' + publicBase + '/embed"\n' +
+      '  style="border:0;width:100%;height:' + estimateIframeHeight(def) + 'px" title="' + (def.title || 'Formulario de contacto') + '"></iframe>\n' +
+      '<script>\n' +
+      '  window.addEventListener("message", function (e) {\n' +
+      '    var d = e.data || {};\n' +
+      '    if (d.type === "kimos-contact-form:height" && d.formId === "' + instanceId + '") {\n' +
+      '      var f = document.getElementById("' + iframeId + '");\n' +
+      '      if (f) f.style.height = d.height + "px";\n' +
+      '    }\n' +
+      '  });\n' +
+      '<' + '/script>';
     const apiSnippet =
       'fetch("' + publicBase + '/submissions", {\n' +
       '  method: "POST",\n' +
@@ -441,7 +623,7 @@ export default function mount(shell) {
         'Pega este código donde quieras que aparezca el formulario. El widget hereda el color y tema configurados.',
         scriptSnippet, 'Snippet de script'),
       block('Opción 2 — iframe',
-        'Aislamiento total de estilos. Útil en CMS que no permiten scripts.',
+        'Aislamiento total de estilos. La altura inicial se calcula según los campos del formulario y el <script> incluido la auto-ajusta para que nunca aparezcan scrollbars. Si tu CMS elimina los <script>, deja solo el <iframe>: la altura calculada ya evita el scroll (el mensaje de éxito/error sale en un modal sobre el formulario, sin cambiar el alto).',
         iframeSnippet, 'Snippet de iframe', publicBase + '/embed'),
       block('Opción 3 — API (formulario propio)',
         'Si tu sitio ya tiene un formulario con su propio diseño (por ejemplo FIGIT), envía los datos por POST y gestiona los mensajes desde esta app.',

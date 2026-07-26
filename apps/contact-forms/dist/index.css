@@ -1,6 +1,7 @@
 /* Formularios de Contacto — estilos con scope .kimos-contact-forms.
    v1.1: tema-consciente — usa las CSS vars del tema del shell (shadcn HSL)
-   con fallback claro, para verse bien en claro/oscuro y heredar el acento. */
+   con fallback claro, para verse bien en claro/oscuro y heredar el acento.
+   v1.2: editor de Apariencia con vista previa en tiempo real del widget. */
 .kimos-contact-forms {
   --kcf-bg: hsl(var(--background, 0 0% 100%));
   --kcf-fg: hsl(var(--foreground, 220 25% 6%));
@@ -223,6 +224,37 @@
   background: hsl(var(--background, 0 0% 100%) / 0.94);
   padding: 10px 0;
 }
+
+/* Apariencia + vista previa en tiempo real */
+.kimos-contact-forms .kcf-appearance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 780px) {
+  .kimos-contact-forms .kcf-appearance { grid-template-columns: 1fr; }
+}
+.kimos-contact-forms .kcf-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 4px 10px;
+}
+.kimos-contact-forms .kcf-preview-col { position: sticky; top: 0; }
+/* Fondo ajedrezado neutro: deja ver el contraste real del widget
+   independiente del tema del shell. */
+.kimos-contact-forms .kcf-preview-stage {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--kcf-border);
+  background-color: #e5e7eb;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.08) 75%),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.08) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+.kimos-contact-forms .kcf-preview-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 
 /* Snippets */
 .kimos-contact-forms .kcf-code {
