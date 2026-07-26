@@ -54,6 +54,7 @@ export default function mount(shell) {
     const b = base === 'dark' ? 'dark' : 'light';
     return {
       base: b,
+      align: 'center',
       accentColor: accent || '#19ACB1',
       border: true,
       borderWidth: 1,
@@ -363,9 +364,13 @@ export default function mount(shell) {
           : h('input', { key: 'i', type: 'text', readOnly: true, placeholder: f.placeholder || '', style: inputStyle }),
     ]));
 
+    const align = st.align || 'center';
     return h('div', null, [
       h('div', { key: 'stage', className: 'kcf-preview-stage' },
-        h('div', { style: { position: 'relative', fontFamily: 'system-ui, sans-serif' } }, [
+        h('div', { style: {
+          position: 'relative', fontFamily: 'system-ui, sans-serif', maxWidth: 560,
+          margin: align === 'center' ? '0 auto' : align === 'right' ? '0 0 0 auto' : '0 auto 0 0',
+        } }, [
           h('div', { key: 'form', style: {
             background: st.bgColor, color: st.textColor, padding: 20, boxSizing: 'border-box',
             border: bw > 0 ? bw + 'px solid ' + st.borderColor : 'none', borderRadius: rad, fontSize: fs,
@@ -474,10 +479,23 @@ export default function mount(shell) {
           'Ajusta el diseño para que combine con el sitio donde lo incrustes. Los cambios se ven al instante en la vista previa.'),
         h('div', { key: 'grid', className: 'kcf-appearance' }, [
           h('div', { key: 'controls' }, [
-            row('Base', h('select', { key: 'i', className: 'kcf-input', value: st.base, onChange: (e) => setBase(e.target.value) }, [
-              h('option', { key: 'l', value: 'light' }, 'Claro'),
-              h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
-            ])),
+            h('div', { key: 'basealign', className: 'kcf-inline' }, [
+              h('div', { key: 'b', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Base'),
+                h('select', { key: 'i', className: 'kcf-input', value: st.base, onChange: (e) => setBase(e.target.value) }, [
+                  h('option', { key: 'l', value: 'light' }, 'Claro'),
+                  h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
+                ]),
+              ]),
+              h('div', { key: 'a', className: 'kcf-form-row' }, [
+                h('label', { key: 'l', className: 'kcf-label' }, 'Alineación en el contenedor'),
+                h('select', { key: 'i', className: 'kcf-input', value: st.align || 'center', onChange: (e) => upStyle({ align: e.target.value }) }, [
+                  h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                  h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                  h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                ]),
+              ]),
+            ]),
             h('div', { key: 'colors', className: 'kcf-style-grid' }, [
               ['bgColor', 'Fondo'],
               ['textColor', 'Texto'],
@@ -576,12 +594,15 @@ export default function mount(shell) {
   function EmbedTab({ state }) {
     if (!instanceId) return h('div', { className: 'kcf-empty' }, 'Esta ventana no tiene instancia.');
     const def = state.definition || {};
+    // Cache-buster: cambia con cada guardado del diseño, para que el sitio
+    // (y CDNs como el de Jumpseller) no sirvan una versión antigua del widget.
+    const ver = encodeURIComponent(String(def.updatedAt || Date.now()).replace(/[^0-9TZ:.-]/g, ''));
     const scriptSnippet =
       '<div data-kimos-contact-form="' + instanceId + '"></div>\n' +
-      '<script src="' + publicBase + '/embed.js" async></script>';
+      '<script src="' + publicBase + '/embed.js?v=' + ver + '" async></script>';
     const iframeId = 'kcf-' + instanceId;
     const iframeSnippet =
-      '<iframe id="' + iframeId + '" src="' + publicBase + '/embed"\n' +
+      '<iframe id="' + iframeId + '" src="' + publicBase + '/embed?v=' + ver + '"\n' +
       '  style="border:0;width:100%;height:' + estimateIframeHeight(def) + 'px" title="' + (def.title || 'Formulario de contacto') + '"></iframe>\n' +
       '<script>\n' +
       '  window.addEventListener("message", function (e) {\n' +
