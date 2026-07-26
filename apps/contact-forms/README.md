@@ -18,16 +18,35 @@ código de incrustación.
   resaltado / bordes / texto de los modales de éxito y error, borde (con/sin,
   ancho, esquinas rectas o redondeadas) y tamaño de texto.
 - **🔗 Incrustar** — tres formas de usar el formulario en un sitio externo:
-  1. **Script**: `<div data-kimos-contact-form="ID"></div><script src=".../embed.js" async></script>`
-  2. **iframe**: `<iframe src=".../embed">` — el snippet trae la altura inicial
-     calculada según los campos y un `<script>` opcional que la auto-ajusta vía
-     `postMessage` (`kimos-contact-form:height`), sin scrollbars internos.
+  1. **Script**: snippet con snapshot de diseño + `assets/embed.js` (asset de
+     la app, sin backend a medida).
+  2. **iframe**: `assets/embed.html` con la configuración en el fragmento
+     (`#cfg=base64url`). El snippet trae la altura inicial calculada según los
+     campos y un `<script>` opcional que la auto-ajusta vía `postMessage`
+     (`kimos-contact-form:height`), sin scrollbars internos.
   3. **API**: `POST /api/public/contact-forms/{ID}/submissions` desde un
      formulario propio con diseño a medida (ej. sitio FIGIT).
 
 El widget muestra el resultado del envío (éxito o error) en un **modal
 superpuesto** sobre el formulario: el alto no cambia al enviar, por lo que el
 iframe mantiene una altura fija.
+
+## Widget sin backend a medida (v1.3)
+
+`assets/embed.js` y `assets/embed.html` viven en el paquete de la app:
+
+- **Hosting**: si la app se instala como `.kapp` (sideload), la plataforma
+  sirve los assets públicos en `/api/apps/contact-forms/asset/…`; si se
+  instala desde el registro, la pestaña Incrustar genera los snippets contra
+  el CDN del repo `kimos-packages@main` (la instalación desde registro aún no
+  sube `assets/` ni guarda `permissions`).
+- **Lectura**: el widget intenta el gateway genérico
+  `GET /api/public/app/{ID}/definition` (requiere `public.read` en el manifest
+  y el bloque `public` que esta app escribe al guardar — incluye **estilo en
+  vivo**), y cae al endpoint histórico
+  `GET /api/public/contact-forms/{ID}/definition` si no está disponible.
+- **Envíos**: siempre por `POST /api/public/contact-forms/{ID}/submissions`
+  (validación por definición, honeypot, rate-limit y aviso por email SMTP).
 
 ## Modelo de datos
 

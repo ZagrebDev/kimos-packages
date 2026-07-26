@@ -1,7 +1,7 @@
 {
   "id": "contact-forms",
   "name": "Formularios de Contacto",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",
   "icon": "📬",
   "author": "kimos",
@@ -12,6 +12,7 @@
   "permissions": [
     "instance.read",
     "instance.write",
+    "public.read",
     "agent.control"
   ]
 }

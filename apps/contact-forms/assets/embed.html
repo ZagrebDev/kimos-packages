@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formulario de contacto</title>
+<!-- Página anfitriona para el modo iframe (asset de la app, sin backend a
+     medida). La configuración viaja en el fragmento (#cfg=base64url), que no
+     llega al servidor ni afecta cachés. Carga ./embed.js del mismo directorio,
+     que renderiza el formulario y avisa su altura al sitio padre. -->
+<style>html{overflow:hidden}body{margin:0;padding:12px;background:transparent}</style>
+</head>
+<body>
+<div id="kcf-root"></div>
+<script>
+(function () {
+  function decode(b64) {
+    b64 = String(b64).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return JSON.parse(decodeURIComponent(escape(atob(b64))));
+  }
+  var m = (location.hash || '').match(/cfg=([A-Za-z0-9_-]+)/);
+  var cfg = null;
+  if (m) { try { cfg = decode(m[1]); } catch (e) { /* noop */ } }
+  if (!cfg || !cfg.formId || !cfg.api) {
+    document.body.textContent = 'Formulario no configurado: falta #cfg en la URL del iframe.';
+    return;
+  }
+  cfg.container = '#kcf-root';
+  cfg.postHeight = true;
+  window.KimosContactForms = [cfg];
+  var s = document.createElement('script');
+  s.src = 'embed.js' + (location.search || '');
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>

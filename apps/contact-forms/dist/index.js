@@ -33,7 +33,13 @@ export default function mount(shell) {
       return window.location.origin;
     }
   }
-  const publicBase = apiBase() + '/api/public/contact-forms/' + (instanceId || '');
+  const apiRoot = apiBase();
+  const publicBase = apiRoot + '/api/public/contact-forms/' + (instanceId || '');
+
+  // Hosting alternativo del widget: CDN del repo público kimos-packages (el
+  // mismo del que la plataforma instala los paquetes). Se usa cuando la app
+  // no fue instalada como .kapp y por tanto no tiene assets subidos.
+  const CDN_ASSETS = 'https://cdn.jsdelivr.net/gh/ZagrebDev/kimos-packages@main/apps/contact-forms/assets';
 
   const FIELD_TYPES = [
     ['text', 'Texto'],
@@ -133,7 +139,26 @@ export default function mount(shell) {
     emit();
   }
 
+  // Bloque `public` de la definición: lo lee el gateway genérico de la
+  // plataforma (GET /api/public/app/{id}/definition, permission public.read).
+  // Publica textos, campos Y estilo — así el widget incrustado toma los
+  // cambios de diseño en vivo, sin backend a medida ni re-pegar snippets.
+  function publicBlock(def) {
+    return {
+      enabled: !!def.enabled,
+      data: {
+        title: def.title || '',
+        description: def.description || '',
+        buttonLabel: def.buttonLabel || '',
+        successMessage: def.successMessage || '',
+        fields: def.fields || [],
+        style: effectiveStyle(def),
+      },
+    };
+  }
+
   async function saveDefinition(next) {
+    next = { ...next, public: publicBlock(next) };
     definition = next;
     emit();
     try {
@@ -591,18 +616,54 @@ export default function mount(shell) {
   }
 
   // ── Pestaña: Incrustar ────────────────────────────────────────────────────
+  // El widget es un asset de esta app (assets/embed.js — sin backend a
+  // medida). Se sirve desde /api/apps/contact-forms/asset/ si la instalación
+  // subió los assets (.kapp); si no, desde el CDN del repo kimos-packages.
+  function b64url(obj) {
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
   function EmbedTab({ state }) {
+    const [assetHost, setAssetHost] = useState(null); // null=verificando
+    useEffect(() => {
+      let alive = true;
+      fetch(apiRoot + '/api/apps/contact-forms/asset/embed.js', { method: 'HEAD', cache: 'no-store' })
+        .then((r) => { if (alive) setAssetHost(!!r.ok); })
+        .catch(() => { if (alive) setAssetHost(false); });
+      return () => { alive = false; };
+    }, []);
     if (!instanceId) return h('div', { className: 'kcf-empty' }, 'Esta ventana no tiene instancia.');
     const def = state.definition || {};
+    const widgetBase = assetHost ? apiRoot + '/api/apps/contact-forms/asset' : CDN_ASSETS;
     // Cache-buster: cambia con cada guardado del diseño, para que el sitio
     // (y CDNs como el de Jumpseller) no sirvan una versión antigua del widget.
     const ver = encodeURIComponent(String(def.updatedAt || Date.now()).replace(/[^0-9TZ:.-]/g, ''));
-    const scriptSnippet =
-      '<div data-kimos-contact-form="' + instanceId + '"></div>\n' +
-      '<script src="' + publicBase + '/embed.js?v=' + ver + '" async></script>';
+
+    // Snapshot que viaja en el snippet: el widget pinta al instante con esto y
+    // luego se sincroniza con la definición publicada (gateway público).
+    const cfg = {
+      formId: instanceId,
+      api: apiRoot,
+      style: effectiveStyle(def),
+      form: {
+        title: def.title || '', description: def.description || '',
+        buttonLabel: def.buttonLabel || '', successMessage: def.successMessage || '',
+        fields: def.fields || [],
+      },
+    };
     const iframeId = 'kcf-' + instanceId;
+    const cfgJson = JSON.stringify({ ...cfg, container: '#' + iframeId }).replace(/</g, '\\u003c');
+    const scriptSnippet =
+      '<div id="' + iframeId + '"></div>\n' +
+      '<script>\n' +
+      '  window.KimosContactForms = window.KimosContactForms || [];\n' +
+      '  window.KimosContactForms.push(' + cfgJson + ');\n' +
+      '<' + '/script>\n' +
+      '<script src="' + widgetBase + '/embed.js?v=' + ver + '" async><' + '/script>';
+    const iframeUrl = widgetBase + '/embed.html?v=' + ver + '#cfg=' + b64url(cfg);
     const iframeSnippet =
-      '<iframe id="' + iframeId + '" src="' + publicBase + '/embed?v=' + ver + '"\n' +
+      '<iframe id="' + iframeId + '" src="' + iframeUrl + '"\n' +
       '  style="border:0;width:100%;height:' + estimateIframeHeight(def) + 'px" title="' + (def.title || 'Formulario de contacto') + '"></iframe>\n' +
       '<script>\n' +
       '  window.addEventListener("message", function (e) {\n' +
@@ -639,13 +700,17 @@ export default function mount(shell) {
         h('div', { key: 'h', className: 'kcf-card-title' }, 'ID del formulario'),
         h('pre', { key: 'c', className: 'kcf-code' }, instanceId),
         h('div', { key: 'd', className: 'kcf-muted' }, 'URL base pública: ' + publicBase),
+        h('div', { key: 'w', className: 'kcf-muted', style: { marginTop: 4 } },
+          'Widget servido desde: ' + (assetHost === null ? 'verificando…'
+            : assetHost ? 'tu plataforma (asset de la app)'
+              : 'CDN del paquete kimos-packages (instala la app como .kapp para servirlo desde tu plataforma)')),
       ]),
       block('Opción 1 — Script (recomendada)',
-        'Pega este código donde quieras que aparezca el formulario. El widget hereda el color y tema configurados.',
+        'Pega este código donde quieras que aparezca el formulario. Se dibuja directo en tu página (alto natural, sin scrollbars) con el diseño configurado en Apariencia, y se sincroniza solo con los cambios que guardes aquí.',
         scriptSnippet, 'Snippet de script'),
       block('Opción 2 — iframe',
         'Aislamiento total de estilos. La altura inicial se calcula según los campos del formulario y el <script> incluido la auto-ajusta para que nunca aparezcan scrollbars. Si tu CMS elimina los <script>, deja solo el <iframe>: la altura calculada ya evita el scroll (el mensaje de éxito/error sale en un modal sobre el formulario, sin cambiar el alto).',
-        iframeSnippet, 'Snippet de iframe', publicBase + '/embed'),
+        iframeSnippet, 'Snippet de iframe', iframeUrl),
       block('Opción 3 — API (formulario propio)',
         'Si tu sitio ya tiene un formulario con su propio diseño (por ejemplo FIGIT), envía los datos por POST y gestiona los mensajes desde esta app.',
         apiSnippet, 'Ejemplo de API'),
