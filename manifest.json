@@ -165,6 +165,24 @@
   ],
   "apps": [
     {
+      "id": "productlab",
+      "name": "ProductLab",
+      "description": "Laboratorio de productos personalizables: componentes con costos de proveedor, stock y compatibilidades; reglas de margen; pasos de configuración con dependencias, cantidades y valores neutros; previsualizador en vivo; builder de descripción (heros y secciones de imagen de alto adaptable); visualizador 3D embebible con AR; y publicación del configurador para el ecommerce (Jumpseller hoy; Shopify/WooCommerce en el roadmap). Aplica precio, opciones y variantes por combinación vía la app Productos.",
+      "icon": "🧪",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "data.read:products"
+      ]
+    },
+    {
       "id": "kanban",
       "name": "Kanban",
       "description": "Tablero visual de tareas: columnas configurables, drag&drop, responsables, entidades del workspace y control por agente IA.",

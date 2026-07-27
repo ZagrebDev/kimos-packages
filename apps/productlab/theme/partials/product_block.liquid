@@ -1,0 +1,30 @@
+{% comment %}
+	═══════════════════════════════════════════════════════════════════════
+	ProductLab — badge "Personalízalo" en las grillas de categoría/relacionados.
+
+	Este archivo NO reemplaza al partials/product_block.liquid del theme
+	anfitrión: es el FRAGMENTO a insertar dentro de ese partial, en el
+	contenedor de labels del bloque de producto (en Streamly:
+	.product-block__labels, junto a los labels de "nuevo" y descuento,
+	justo antes del cierre de ese <div>).
+
+	Requiere:
+	  - Las opciones pb_label_config / pb_label_config_text en
+	    config/options.json y config/settings.json (ver
+	    config-options.snippet.json de este kit).
+	  - La clase .product-block__label--config de assets/configurador.css
+	    (los estilos inline de abajo son el fallback si el CSS del
+	    configurador no está cargado en las páginas de categoría).
+
+	El badge aparece solo en productos con el campo personalizado
+	diseno = personalizado (los mismos que activan el configurador).
+	Acento ProductLab: #19ACB1.
+	═══════════════════════════════════════════════════════════════════════
+{% endcomment %}
+{%- assign pp_configurable = false %}
+{%- for field in prod.fields %}
+	{%- if field.label == 'diseno' and field.value == 'personalizado' %}{% assign pp_configurable = true %}{% endif %}
+{%- endfor %}
+{%- if pp_configurable and options.pb_label_config != false %}
+	<div class="product-block__label product-block__label--config" style="background:#19ACB1;color:#ffffff;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">{{ options.pb_label_config_text | default: 'Personalízalo' }}</div>
+{%- endif %}
