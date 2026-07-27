@@ -49,6 +49,10 @@ export default function mount(shell) {
       greeting: '',
       primary: '#19ACB1',
       mode: 'light',
+      // Fondos personalizados del chat ('' = automático según el tema).
+      // El backend ya los soporta (_widget_theme(primary, mode, bg, surface)).
+      bg: '',
+      surface: '',
       radius: 'round',
       position: 'right',
       logMessages: true,
@@ -303,6 +307,9 @@ export default function mount(shell) {
     const def = state.definition;
     const [draft, setDraft] = useState(def);
     const [dirty, setDirty] = useState(false);
+    // La vista previa incrusta el widget REAL (página pública del backend):
+    // muestra el diseño GUARDADO; el nonce fuerza recarga tras cada guardado.
+    const [previewNonce, setPreviewNonce] = useState(0);
     useEffect(() => { if (!dirty) setDraft(def); }, [def]);
     if (!draft) return h('div', { className: 'kwa-empty' }, 'Cargando…');
 
@@ -341,31 +348,62 @@ export default function mount(shell) {
 
       h('div', { key: 'look', className: 'kwa-card' }, [
         h('div', { key: 'h', className: 'kwa-card-title' }, 'Apariencia'),
-        h('div', { key: 'grid', className: 'kwa-inline' }, [
-          h('div', { key: 'c', className: 'kwa-form-row' }, [
-            h('label', { key: 'l', className: 'kwa-label' }, 'Color principal'),
-            h('input', { key: 'i', type: 'color', className: 'kwa-color', value: draft.primary || '#19ACB1', onChange: (e) => up({ primary: e.target.value }) }),
-          ]),
-          h('div', { key: 'm', className: 'kwa-form-row' }, [
-            h('label', { key: 'l', className: 'kwa-label' }, 'Tema'),
-            h('select', { key: 'i', className: 'kwa-input', value: draft.mode || 'light', onChange: (e) => up({ mode: e.target.value }) }, [
-              h('option', { key: 'l', value: 'light' }, 'Claro'),
-              h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
+        h('div', { key: 'wrap', className: 'kwa-appearance' }, [
+          h('div', { key: 'controls' }, [
+            h('div', { key: 'grid', className: 'kwa-inline' }, [
+              h('div', { key: 'c', className: 'kwa-form-row' }, [
+                h('label', { key: 'l', className: 'kwa-label' }, 'Color principal'),
+                h('input', { key: 'i', type: 'color', className: 'kwa-color', value: draft.primary || '#19ACB1', onChange: (e) => up({ primary: e.target.value }) }),
+              ]),
+              h('div', { key: 'm', className: 'kwa-form-row' }, [
+                h('label', { key: 'l', className: 'kwa-label' }, 'Tema'),
+                h('select', { key: 'i', className: 'kwa-input', value: draft.mode || 'light', onChange: (e) => up({ mode: e.target.value }) }, [
+                  h('option', { key: 'l', value: 'light' }, 'Claro'),
+                  h('option', { key: 'd', value: 'dark' }, 'Oscuro'),
+                ]),
+              ]),
+              h('div', { key: 'r', className: 'kwa-form-row' }, [
+                h('label', { key: 'l', className: 'kwa-label' }, 'Bordes'),
+                h('select', { key: 'i', className: 'kwa-input', value: draft.radius || 'round', onChange: (e) => up({ radius: e.target.value }) }, [
+                  h('option', { key: 'ro', value: 'round' }, 'Redondeados'),
+                  h('option', { key: 'sq', value: 'square' }, 'Rectos'),
+                ]),
+              ]),
+              h('div', { key: 'p', className: 'kwa-form-row' }, [
+                h('label', { key: 'l', className: 'kwa-label' }, 'Posición'),
+                h('select', { key: 'i', className: 'kwa-input', value: draft.position || 'right', onChange: (e) => up({ position: e.target.value }) }, [
+                  h('option', { key: 'r', value: 'right' }, 'Abajo a la derecha'),
+                  h('option', { key: 'l', value: 'left' }, 'Abajo a la izquierda'),
+                ]),
+              ]),
             ]),
+            h('div', { key: 'bgs', className: 'kwa-inline', style: { marginTop: 6 } },
+              [['bg', 'Fondo del chat'], ['surface', 'Superficie (burbujas/entrada)']].map(([key, label]) =>
+                h('div', { key, className: 'kwa-form-row' }, [
+                  h('label', { key: 'l', className: 'kwa-label' }, label),
+                  h('div', { key: 'c', style: { display: 'flex', gap: 6, alignItems: 'center' } }, [
+                    h('input', {
+                      key: 'i', type: 'color', className: 'kwa-color',
+                      value: draft[key] || (draft.mode === 'dark' ? (key === 'bg' ? '#0f172a' : '#1f2937') : (key === 'bg' ? '#ffffff' : '#f4f4f5')),
+                      onChange: (e) => up({ [key]: e.target.value }),
+                    }),
+                    draft[key]
+                      ? h('button', { key: 'a', className: 'kwa-btn kwa-btn-ghost', onClick: () => up({ [key]: '' }) }, 'Auto')
+                      : h('span', { key: 'a', className: 'kwa-muted' }, 'auto (según tema)'),
+                  ]),
+                ]))),
           ]),
-          h('div', { key: 'r', className: 'kwa-form-row' }, [
-            h('label', { key: 'l', className: 'kwa-label' }, 'Bordes'),
-            h('select', { key: 'i', className: 'kwa-input', value: draft.radius || 'round', onChange: (e) => up({ radius: e.target.value }) }, [
-              h('option', { key: 'ro', value: 'round' }, 'Redondeados'),
-              h('option', { key: 'sq', value: 'square' }, 'Rectos'),
-            ]),
-          ]),
-          h('div', { key: 'p', className: 'kwa-form-row' }, [
-            h('label', { key: 'l', className: 'kwa-label' }, 'Posición'),
-            h('select', { key: 'i', className: 'kwa-input', value: draft.position || 'right', onChange: (e) => up({ position: e.target.value }) }, [
-              h('option', { key: 'r', value: 'right' }, 'Abajo a la derecha'),
-              h('option', { key: 'l', value: 'left' }, 'Abajo a la izquierda'),
-            ]),
+          h('div', { key: 'preview', className: 'kwa-preview-col' }, [
+            h('label', { key: 'l', className: 'kwa-label' }, 'Vista previa (diseño guardado)'),
+            draft.enabled
+              ? h('iframe', {
+                key: 'f' + previewNonce, className: 'kwa-preview-frame', title: 'Vista previa del widget',
+                src: publicBase + '/widget?layout=panel&pv=' + previewNonce,
+              })
+              : h('div', { key: 'off', className: 'kwa-muted', style: { padding: '20px 8px' } },
+                'Publica y guarda el agente web para ver la vista previa (el widget despublicado no carga).'),
+            h('div', { key: 'note', className: 'kwa-muted', style: { marginTop: 4 } },
+              'Muestra el último diseño guardado; se recarga al guardar.'),
           ]),
         ]),
       ]),
@@ -386,7 +424,10 @@ export default function mount(shell) {
         dirty && h('span', { key: 's', className: 'kwa-muted' }, 'Cambios sin guardar'),
         h('button', {
           key: 'b', className: 'kwa-btn kwa-btn-primary', disabled: !dirty || !(draft.agentId || '').trim(),
-          onClick: () => { setDirty(false); void saveDefinition(draft); },
+          onClick: () => {
+            setDirty(false);
+            Promise.resolve(saveDefinition(draft)).then(() => setPreviewNonce((n) => n + 1));
+          },
         }, 'Guardar agente web'),
       ]),
     ]);
@@ -396,9 +437,12 @@ export default function mount(shell) {
   function EmbedTab({ state }) {
     if (!instanceId) return h('div', { className: 'kwa-empty' }, 'Esta ventana no tiene instancia.');
     const def = state.definition || {};
-    const scriptSnippet = '<script src="' + publicBase + '/widget.js" async></script>';
+    // Cache-buster: cambia con cada guardado del diseño, para que el sitio
+    // (y su CDN) no sirvan una versión antigua del widget al re-pegar.
+    const ver = encodeURIComponent(String(def.updatedAt || Date.now()).replace(/[^0-9TZ:.-]/g, ''));
+    const scriptSnippet = '<script src="' + publicBase + '/widget.js?v=' + ver + '" async></script>';
     const iframeSnippet =
-      '<iframe src="' + publicBase + '/widget?layout=panel"\n' +
+      '<iframe src="' + publicBase + '/widget?layout=panel&v=' + ver + '"\n' +
       '  style="border:0;width:100%;height:600px" title="Chat"></iframe>';
 
     const block = (title, desc, code, label, previewUrl) => h('div', { className: 'kwa-card' }, [

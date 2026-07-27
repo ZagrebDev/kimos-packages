@@ -15,8 +15,10 @@ código de incrustación.
   no leído, eliminar. Se refresca automáticamente cada 30 s.
 - **🛠️ Diseño** — agente vinculado (selector desde `/api/identity/agents`),
   nombre a mostrar, mensaje de bienvenida, saludo junto a la burbuja, color
-  principal, tema claro/oscuro, bordes, posición (izq/der), publicado on/off
-  y registro de mensajes on/off.
+  principal, tema claro/oscuro, colores de fondo y superficie del chat
+  (auto según tema o personalizados), bordes, posición (izq/der), publicado
+  on/off, registro de mensajes on/off y **vista previa en vivo** del widget
+  (el diseño guardado, recargada en cada guardado).
 - **🔗 Incrustar** — dos formas de usar el agente en un sitio externo:
   1. **Widget flotante**: `<script src=".../widget.js" async></script>`
   2. **Panel fijo**: `<iframe src=".../widget?layout=panel">`
