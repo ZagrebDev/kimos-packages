@@ -22,7 +22,7 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
-  const APP_VERSION = '1.3.4'; // mantener en sincronía con manifest.json
+  const APP_VERSION = '1.3.5'; // mantener en sincronía con manifest.json
 
   // Base pública del API: shell.assetUrl devuelve `${API_URL}/api/apps/...`;
   // recortamos y resolvemos contra el origin por si API_URL es relativo.
@@ -48,7 +48,7 @@ export default function mount(shell) {
   // Protocolo al cambiar assets/: primero commit de los assets, luego
   // actualizar ASSETS_COMMIT a ese SHA (y bump de versión) en un segundo
   // commit.
-  const ASSETS_COMMIT = '006149a985b1ff0a3c3fd62682e802bc3ca7b579';
+  const ASSETS_COMMIT = 'dfd6ec8697f5b9309d60fd24a155eb162586d39c';
   const CDN_ASSETS = 'https://cdn.jsdelivr.net/gh/ZagrebDev/kimos-packages@' + ASSETS_COMMIT + '/apps/contact-forms/assets';
 
   const FIELD_TYPES = [
