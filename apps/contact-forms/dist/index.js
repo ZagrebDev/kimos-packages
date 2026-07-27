@@ -22,6 +22,7 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
+  const APP_VERSION = '1.3.2'; // mantener en sincronía con manifest.json
 
   // Base pública del API: shell.assetUrl devuelve `${API_URL}/api/apps/...`;
   // recortamos y resolvemos contra el origin por si API_URL es relativo.
@@ -658,9 +659,10 @@ export default function mount(shell) {
     if (!instanceId) return h('div', { className: 'kcf-empty' }, 'Esta ventana no tiene instancia.');
     const def = state.definition || {};
     const widgetBase = assetHost ? apiRoot + '/api/apps/contact-forms/asset' : CDN_ASSETS;
-    // Cache-buster: cambia con cada guardado del diseño, para que el sitio
-    // (y CDNs como el de Jumpseller) no sirvan una versión antigua del widget.
-    const ver = encodeURIComponent(String(def.updatedAt || Date.now()).replace(/[^0-9TZ:.-]/g, ''));
+    // Cache-buster: versión de la app + fecha de guardado. Cambia en cada
+    // release y en cada guardado del diseño, para que ni el navegador ni los
+    // CDNs (jsDelivr, Jumpseller) sirvan una versión antigua del widget.
+    const ver = APP_VERSION + '-' + encodeURIComponent(String(def.updatedAt || Date.now()).replace(/[^0-9TZ:.-]/g, ''));
 
     // Snapshot que viaja en el snippet: el widget pinta al instante con esto y
     // luego se sincroniza con la definición publicada (gateway público).

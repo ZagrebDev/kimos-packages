@@ -47,6 +47,14 @@
     return e;
   }
 
+  // Blindaje contra el CSS del sitio anfitrión: los temas (p. ej. Jumpseller)
+  // suelen estilar inputs/textarea/button con !important, pisando estilos
+  // inline normales. Declarar cada propiedad inline con !important gana
+  // siempre (inline+important > stylesheet+important).
+  function imp(css) {
+    return css.replace(/\s*;\s*/g, ' !important;');
+  }
+
   function rgba(hex, alpha) {
     var h = String(hex || '').replace('#', '');
     if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
@@ -97,15 +105,18 @@
     var fs = st.fs;
     var margin = st.align === 'center' ? '0 auto' : st.align === 'right' ? '0 0 0 auto' : '0 auto 0 0';
 
-    var inputStyle = 'width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid ' + st.border +
-      ';border-radius:' + inRad + 'px;font:inherit;font-size:' + fs + 'px;background:' + st.inputBg + ';color:' + st.fg + ';';
-    var labelStyle = 'display:block;font-size:' + (fs - 2) + 'px;font-weight:600;margin:12px 0 4px;color:' + st.fg + ';';
+    var inputStyle = imp('width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid ' + st.border +
+      ';border-radius:' + inRad + 'px;font-family:inherit;font-size:' + fs + 'px;line-height:1.4;margin:0;' +
+      'box-shadow:none;text-transform:none;background:' + st.inputBg + ';color:' + st.fg + ';');
+    var labelStyle = imp('display:block;font-size:' + (fs - 2) + 'px;font-weight:600;margin:12px 0 4px;' +
+      'line-height:1.3;text-transform:none;letter-spacing:normal;color:' + st.fg + ';');
 
-    var wrap = el('div', { style: 'position:relative;max-width:560px;margin:' + margin + ';font-family:system-ui,sans-serif;' });
-    var formEl = el('form', { style: 'background:' + st.bg + ';color:' + st.fg + ';padding:20px;box-sizing:border-box;' +
-      'border:' + (st.bw > 0 ? st.bw + 'px solid ' + st.border : 'none') + ';border-radius:' + rad + 'px;font-size:' + fs + 'px;' });
-    if (def.title) formEl.appendChild(el('div', { style: 'font-size:' + (fs + 4) + 'px;font-weight:700;' }, [def.title]));
-    if (def.description) formEl.appendChild(el('div', { style: 'font-size:' + (fs - 1) + 'px;opacity:.75;margin-top:4px;' }, [def.description]));
+    var wrap = el('div', { style: imp('position:relative;max-width:560px;margin:' + margin + ';font-family:system-ui,sans-serif;') });
+    var formEl = el('form', { style: imp('background:' + st.bg + ';color:' + st.fg + ';padding:20px;box-sizing:border-box;' +
+      'margin:0;line-height:1.5;text-align:left;' +
+      'border:' + (st.bw > 0 ? st.bw + 'px solid ' + st.border : 'none') + ';border-radius:' + rad + 'px;font-size:' + fs + 'px;') });
+    if (def.title) formEl.appendChild(el('div', { style: imp('font-size:' + (fs + 4) + 'px;font-weight:700;line-height:1.3;margin:0;color:' + st.fg + ';') }, [def.title]));
+    if (def.description) formEl.appendChild(el('div', { style: imp('font-size:' + (fs - 1) + 'px;opacity:.75;margin:4px 0 0;line-height:1.5;color:' + st.fg + ';') }, [def.description]));
 
     var inputs = {};
     (def.fields || []).forEach(function (f) {
@@ -113,7 +124,7 @@
       formEl.appendChild(el('label', { style: labelStyle, for: 'kcf-' + cfg.formId + '-' + f.key }, [String(f.label || f.key) + (f.required ? ' *' : '')]));
       var node;
       if (f.type === 'textarea') {
-        node = el('textarea', { rows: '4', style: inputStyle + 'resize:vertical;' });
+        node = el('textarea', { rows: '4', style: inputStyle + imp('resize:vertical;height:auto;') });
       } else if (f.type === 'select') {
         node = el('select', { style: inputStyle },
           [el('option', { value: '' }, [f.placeholder || '—'])].concat((f.options || []).map(function (o) {
@@ -132,30 +143,33 @@
 
     // Honeypot oculto
     var hp = el('input', { type: 'text', name: '_hp', tabindex: '-1', autocomplete: 'off',
-      style: 'position:absolute;left:-9999px;height:1px;width:1px;opacity:0;' });
+      style: imp('position:absolute;left:-9999px;height:1px;width:1px;opacity:0;') });
     formEl.appendChild(hp);
 
-    var btn = el('button', { type: 'submit', style: 'margin-top:16px;padding:10px 22px;border:none;border-radius:' + inRad + 'px;' +
-      'background:' + st.accent + ';color:#fff;font-weight:600;font-size:' + fs + 'px;cursor:pointer;' }, [def.buttonLabel || 'Enviar']);
+    var btnStyle = 'margin:16px 0 0;padding:10px 22px;border:none;border-radius:' + inRad + 'px;' +
+      'line-height:1.2;box-shadow:none;text-transform:none;letter-spacing:normal;width:auto;font-family:inherit;' +
+      'background:' + st.accent + ';color:#ffffff;font-weight:600;font-size:' + fs + 'px;cursor:pointer;';
+    var btn = el('button', { type: 'submit', style: imp(btnStyle) }, [def.buttonLabel || 'Enviar']);
     formEl.appendChild(btn);
 
     // Modal superpuesto para éxito/error: el alto del formulario no cambia.
-    var modalText = el('div', { style: 'font-size:' + (fs + 1) + 'px;font-weight:600;line-height:1.45;' });
-    var modalClose = el('button', { type: 'button', style: 'margin-top:14px;padding:8px 20px;border:none;border-radius:' + inRad + 'px;' +
-      'background:' + st.accent + ';color:#fff;font-weight:600;font-size:' + (fs - 1) + 'px;cursor:pointer;' }, ['Cerrar']);
-    var modalCard = el('div', { style: 'background:' + st.bgSolid + ';color:' + st.fg + ';border:1px solid ' + st.border +
+    var modalText = el('div', { style: imp('font-size:' + (fs + 1) + 'px;font-weight:600;line-height:1.45;margin:0;') });
+    var modalClose = el('button', { type: 'button', style: imp('margin:14px 0 0;padding:8px 20px;border:none;border-radius:' + inRad + 'px;' +
+      'line-height:1.2;box-shadow:none;text-transform:none;letter-spacing:normal;width:auto;font-family:inherit;' +
+      'background:' + st.accent + ';color:#ffffff;font-weight:600;font-size:' + (fs - 1) + 'px;cursor:pointer;') }, ['Cerrar']);
+    var modalCard = el('div', { style: imp('background:' + st.bgSolid + ';color:' + st.fg + ';border:1px solid ' + st.border +
       ';border-radius:' + (st.rounded ? 12 : 0) + 'px;padding:20px 22px;max-width:88%;box-sizing:border-box;text-align:center;' +
-      'box-shadow:0 12px 32px rgba(0,0,0,.28);' }, [modalText, modalClose]);
-    var overlay = el('div', { style: 'position:absolute;top:0;left:0;right:0;bottom:0;display:none;align-items:center;' +
-      'justify-content:center;padding:16px;box-sizing:border-box;z-index:5;border-radius:' + rad + 'px;' +
-      'background:' + (st.dark ? 'rgba(0,0,0,.55)' : 'rgba(17,24,39,.35)') + ';' }, [modalCard]);
+      'box-shadow:0 12px 32px rgba(0,0,0,.28);') }, [modalText, modalClose]);
+    var overlay = el('div', { style: imp('position:absolute;top:0;left:0;right:0;bottom:0;display:none;align-items:center;' +
+      'justify-content:center;padding:16px;box-sizing:border-box;z-index:5;border-radius:' + rad + 'px;margin:0;' +
+      'background:' + (st.dark ? 'rgba(0,0,0,.55)' : 'rgba(17,24,39,.35)') + ';') }, [modalCard]);
     function showModal(kind, text) {
-      modalText.style.color = kind === 'ok' ? st.ok : st.err;
+      modalText.style.setProperty('color', kind === 'ok' ? st.ok : st.err, 'important');
       modalText.textContent = text;
-      overlay.style.display = 'flex';
+      overlay.style.setProperty('display', 'flex', 'important');
       modalClose.focus();
     }
-    modalClose.addEventListener('click', function () { overlay.style.display = 'none'; });
+    modalClose.addEventListener('click', function () { overlay.style.setProperty('display', 'none', 'important'); });
 
     formEl.addEventListener('input', function () { state.touched = true; });
     formEl.addEventListener('submit', function (ev) {
