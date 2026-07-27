@@ -216,6 +216,11 @@ shell.agent.register({
 3. La Tienda instala (descarga `dist/index.js`/`index.css` y los sirve).
 4. Un **bump de `version`** propaga cambios (reinstala).
 
+> Desde jul-2026 el install por registry también **persiste los `permissions`**
+> del manifest raíz (backend kimos-enterprice), así las apps oficiales pueden
+> usar `public.read` / `data.read:*` sin sideload (ej: `productlab`). Los
+> `assets/` siguen siendo solo-sideload por esta vía.
+
 **B. Vía comprimido `.kapp` (sideload):**
 - Un ZIP con `manifest.json` + `dist/` (+ `assets/`) en la raíz. Genéralo con el
   empaquetador (valida id/version/permissions/entry y comprime sin dependencias):

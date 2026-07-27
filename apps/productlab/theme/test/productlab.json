@@ -1,0 +1,143 @@
+{
+  "version": 2,
+  "updatedAt": "2026-07-27T12:00:00Z",
+  "currency": "CLP",
+  "store": "productlab",
+  "productos": [
+    {
+      "sku": "PL-DESK-01",
+      "productId": "555001",
+      "name": "Escritorio Pro",
+      "basePrice": 189990,
+      "deliveryDays": 4,
+      "assemblyDays": 2,
+      "deliveryMode": "max",
+      "baseDeliveryDays": 2,
+      "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400'%3E%3Crect width='600' height='400' fill='%23C89F6B'/%3E%3Ctext x='300' y='210' fill='%23fff' font-family='sans-serif' font-size='40' text-anchor='middle'%3EESCRITORIO ROBLE%3C/text%3E%3C/svg%3E",
+      "model3d": {
+        "enabled": true,
+        "viewerUrl": "",
+        "modelUrl": "",
+        "arUrl": "escritorio-ar.glb",
+        "bindStepId": "",
+        "config": null,
+        "embedUrl": "about:blank"
+      },
+      "storefront": {
+        "style": {
+          "accentColor": "#7C3AED",
+          "bgColor": "#FBFAFF",
+          "radius": 12,
+          "cardStyle": "list",
+          "showDeltas": "delta",
+          "stepsCollapsed": false
+        },
+        "photosNote": "Fotos de prueba del harness local (SVG embebidos, sin red externa).",
+        "tabs": {
+          "explorar": "",
+          "specs": "Ficha técnica",
+          "fotos": "Galería",
+          "comprar": "",
+          "showSpecs": true,
+          "showFotos": true,
+          "order": ["explorar", "specs", "fotos"]
+        },
+        "specs": [
+          { "id": "s1", "group": "", "label": "Cubierta", "value": "Madera enchapada 25 mm" },
+          { "id": "s2", "group": "", "label": "Estructura", "value": "Acero pintado electrostático" },
+          { "id": "s3", "group": "", "label": "Capacidad", "value": "80 kg distribuidos" }
+        ],
+        "pageSections": [
+          {
+            "id": "hb1",
+            "kind": "hero",
+            "pattern": "clasico",
+            "height": "auto",
+            "bgColor": "#1D1D1B",
+            "bgImageUrl": "",
+            "textColor": "",
+            "overlay": true,
+            "slots": {
+              "top": [
+                { "id": "b1", "type": "title" },
+                { "id": "b2", "type": "text", "text": "Tu escritorio, a tu medida.", "size": "xl", "color": "" }
+              ],
+              "center": [
+                { "id": "b3", "type": "photo", "size": "auto", "anim": "none" }
+              ],
+              "bottom": [
+                { "id": "b4", "type": "cta", "label": "Personalízalo", "style": "primary", "action": "configurar", "url": "" }
+              ]
+            }
+          },
+          {
+            "id": "ps-img1",
+            "kind": "imagen",
+            "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='300'%3E%3Crect width='1200' height='300' fill='%2319ACB1'/%3E%3Ctext x='600' y='160' fill='%23fff' font-family='sans-serif' font-size='44' text-anchor='middle'%3ESECCION IMAGEN full 1200x300%3C/text%3E%3C/svg%3E",
+            "alt": "Banda full-width de 300px de alto natural",
+            "width": "full",
+            "link": ""
+          },
+          {
+            "id": "ps-img2",
+            "kind": "imagen",
+            "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='600'%3E%3Crect width='1200' height='600' fill='%2300295D'/%3E%3Ctext x='600' y='310' fill='%23fff' font-family='sans-serif' font-size='44' text-anchor='middle'%3ESECCION IMAGEN content 1200x600 (con link)%3C/text%3E%3C/svg%3E",
+            "alt": "Imagen de contenido, el doble de alta",
+            "width": "content",
+            "link": "https://example.com"
+          },
+          { "id": "ps-v3d", "kind": "visor3d", "height": 420 },
+          { "id": "ps-specs", "kind": "specs", "show": true },
+          { "id": "ps-fotos", "kind": "fotos", "show": true },
+          { "id": "ps-note", "kind": "note", "show": true }
+        ]
+      },
+      "groups": [
+        {
+          "id": "grp-size",
+          "label": "Tamaño",
+          "type": "other",
+          "affectsPhoto": false,
+          "dependsOn": null,
+          "values": [
+            { "id": "val-140", "name": "140 cm", "qty": 1, "neutral": false, "desc": "Cubierta 140×70 cm", "swatchColor": "", "imageUrl": "", "delta": 0, "deliveryDays": 2, "tags": ["t140"], "requires": [], "excludes": [], "isDefault": true },
+            { "id": "val-160", "name": "160 cm", "qty": 1, "neutral": false, "desc": "Cubierta 160×80 cm", "swatchColor": "", "imageUrl": "", "delta": 30000, "deliveryDays": 3, "tags": ["t160"], "requires": [], "excludes": [], "isDefault": false }
+          ]
+        },
+        {
+          "id": "grp-top",
+          "label": "Cubierta",
+          "type": "other",
+          "affectsPhoto": true,
+          "dependsOn": null,
+          "values": [
+            { "id": "val-roble", "name": "Roble", "qty": 1, "neutral": false, "desc": "Enchape roble claro", "swatchColor": "#C89F6B", "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400'%3E%3Crect width='600' height='400' fill='%23C89F6B'/%3E%3Ctext x='300' y='210' fill='%23fff' font-family='sans-serif' font-size='40' text-anchor='middle'%3EESCRITORIO ROBLE%3C/text%3E%3C/svg%3E", "delta": 0, "deliveryDays": 0, "tags": [], "requires": [], "excludes": [], "isDefault": true },
+            { "id": "val-nogal", "name": "Nogal", "qty": 1, "neutral": false, "desc": "Enchape nogal oscuro", "swatchColor": "#6B4A2F", "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400'%3E%3Crect width='600' height='400' fill='%236B4A2F'/%3E%3Ctext x='300' y='210' fill='%23fff' font-family='sans-serif' font-size='40' text-anchor='middle'%3EESCRITORIO NOGAL%3C/text%3E%3C/svg%3E", "delta": 15000, "deliveryDays": 1, "tags": [], "requires": [], "excludes": [], "isDefault": false }
+          ]
+        },
+        {
+          "id": "grp-acc",
+          "label": "Accesorio",
+          "type": "other",
+          "affectsPhoto": false,
+          "dependsOn": null,
+          "values": [
+            { "id": "val-sinacc", "name": "Sin accesorio", "qty": 1, "neutral": true, "desc": "Solo el escritorio", "swatchColor": "", "imageUrl": "", "delta": 0, "deliveryDays": 0, "tags": [], "requires": [], "excludes": [], "isDefault": true },
+            { "id": "val-pack", "name": "Pack 2 soportes", "qty": 2, "neutral": false, "desc": "Soporte de monitor articulado", "swatchColor": "", "imageUrl": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%23444'/%3E%3Ctext x='150' y='108' fill='%23fff' font-family='sans-serif' font-size='24' text-anchor='middle'%3ESOPORTE x2%3C/text%3E%3C/svg%3E", "delta": 25000, "deliveryDays": 2, "tags": [], "requires": [], "excludes": [], "isDefault": false }
+          ]
+        },
+        {
+          "id": "grp-sop",
+          "label": "Color del soporte",
+          "type": "other",
+          "affectsPhoto": false,
+          "dependsOn": { "groupId": "grp-acc", "valueIds": ["val-pack"] },
+          "values": [
+            { "id": "val-neg", "name": "Negro", "qty": 1, "neutral": false, "desc": "", "swatchColor": "#1D1D1B", "imageUrl": "", "delta": 0, "deliveryDays": 0, "tags": [], "requires": [], "excludes": [], "isDefault": true },
+            { "id": "val-bla", "name": "Blanco", "qty": 1, "neutral": false, "desc": "", "swatchColor": "#F5F5F5", "imageUrl": "", "delta": 5000, "deliveryDays": 0, "tags": [], "requires": [], "excludes": [], "isDefault": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

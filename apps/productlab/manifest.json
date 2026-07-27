@@ -1,0 +1,19 @@
+{
+  "id": "productlab",
+  "name": "ProductLab",
+  "version": "1.0.0",
+  "description": "Laboratorio de productos personalizables para la tienda: componentes con costos de proveedor, stock y compatibilidades; reglas de margen; pasos de configuración con dependencias, cantidades y valores neutros; previsualizador en vivo del configurador; builder de descripción (heros, secciones de imagen con alto adaptable); visualizador 3D embebible con AR; y publicación del JSON del configurador para el ecommerce (Jumpseller hoy, Shopify/WooCommerce en el roadmap). Aplica precio, opciones y variantes por combinación a través de la app Productos. Evolución generalizada de las apps computadores y personalizador.",
+  "icon": "🧪",
+  "author": "Kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control",
+    "public.read",
+    "data.read:products"
+  ]
+}

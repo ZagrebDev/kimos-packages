@@ -48,13 +48,13 @@ El bundle debe:
   `/equipos/{teamId}/data/{instanceId}/instance.json` por debajo.
 - Declarar `appShellApi: "1.x"` en `manifest.json` para que el loader rechace mismatch mayor.
 
-Apps actualmente publicadas:
+Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
+`manifest.json` raíz):
 
-| id           | versión | descripción                                |
-|--------------|---------|--------------------------------------------|
-| `panel-html` | 1.0.0   | Editor de HTML embebido con vista sandbox  |
-
-Pendientes de extracción desde el monorepo (siguiendo el patrón de `panel-html`): `kanban`, `gantt`, `editor`.
+| id              | descripción breve |
+|-----------------|-------------------|
+| `productlab` 🧪 | **Laboratorio de productos personalizables**: componentes/costos, pasos con dependencias y cantidades, previsualizador, builder de descripción, visualizador 3D/AR y publicación del configurador (Jumpseller). Ver [`apps/productlab/`](apps/productlab/). |
+| `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla
 

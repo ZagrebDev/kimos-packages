@@ -1,0 +1,31 @@
+{
+  "__instructions": [
+    "ProductLab — opciones del componente product-template para el editor visual de Jumpseller.",
+    "Este archivo NO reemplaza al components/product-template.json del theme anfitrión:",
+    "abre ese archivo y agrega las claves de `options` de abajo DENTRO de su objeto `options`",
+    "(al principio, junto a las opciones existentes como columns_order / text_alignment).",
+    "El template Liquid las lee como component.options.kimos_url / pp_locale / pp_currency_prefix.",
+    "Tras subir el theme, pega la URL pública del JSON en el editor visual del producto:",
+    "componente Template → 'URL del configurador ProductLab (JSON público)'."
+  ],
+  "options": {
+    "kimos_url": {
+      "name": "URL del configurador ProductLab (JSON público)",
+      "type": "input",
+      "default": "",
+      "help": "URL pública de la app ProductLab (pestaña Publicación): https://SU-KIMOS/api/public/app/{instancia}/definition. Solo afecta a productos con campo personalizado **diseno = personalizado**."
+    },
+    "pp_locale": {
+      "name": "Locale para formatear precios",
+      "type": "input",
+      "default": "es-CL",
+      "help": "Locale BCP-47 usado por el configurador para toLocaleString (ej. es-CL, es-MX, en-US)."
+    },
+    "pp_currency_prefix": {
+      "name": "Prefijo de moneda",
+      "type": "input",
+      "default": "$",
+      "help": "Prefijo mostrado antes de los precios del configurador (ej. $, US$, €)."
+    }
+  }
+}
