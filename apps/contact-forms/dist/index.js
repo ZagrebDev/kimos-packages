@@ -22,7 +22,7 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
-  const APP_VERSION = '1.3.5'; // mantener en sincronía con manifest.json
+  const APP_VERSION = '1.3.6'; // mantener en sincronía con manifest.json
 
   // Base pública del API: shell.assetUrl devuelve `${API_URL}/api/apps/...`;
   // recortamos y resolvemos contra el origin por si API_URL es relativo.
@@ -517,7 +517,18 @@ export default function mount(shell) {
               h('span', { key: 's' }, draft.enabled ? 'Sí — recibe envíos' : 'No — rechaza envíos'),
             ]),
           ]),
+          h('div', { key: 'rd', className: 'kcf-form-row' }, [
+            h('label', { key: 'l', className: 'kcf-label' }, 'Origen de los envíos'),
+            h('label', { key: 'i', className: 'kcf-switch' }, [
+              h('input', { key: 'c', type: 'checkbox', checked: !!draft.restrictDomains, onChange: (e) => up({ restrictDomains: e.target.checked }) }),
+              h('span', { key: 's' }, draft.restrictDomains
+                ? 'Solo mis dominios verificados (Ajustes → Integraciones → Dominios)'
+                : 'Cualquier sitio'),
+            ]),
+          ]),
         ]),
+        draft.restrictDomains && h('div', { key: 'rdnote', className: 'kcf-muted', style: { marginTop: 4 } },
+          'Requiere dominios verificados en Integraciones → Dominios del sitio. Ojo: la Opción 3 (API server-to-server) no manda cabecera Origin y sería rechazada con esta restricción activa.'),
       ]),
 
       h('div', { key: 'appearance', className: 'kcf-card' }, [
