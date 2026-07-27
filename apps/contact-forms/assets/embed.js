@@ -171,17 +171,36 @@
     }
     modalClose.addEventListener('click', function () { overlay.style.setProperty('display', 'none', 'important'); });
 
+    // Envío con tolerancia a CORS restringido: el POST normal (JSON) exige
+    // preflight, y si ALLOWED_ORIGINS del enterprise no incluye el dominio del
+    // sitio, el navegador lo bloquea ANTES de llegar al servidor. En ese caso
+    // se reenvía como "simple request" sin preflight (text/plain + no-cors):
+    // el backend parsea el body como JSON igual y guarda/notifica, aunque la
+    // respuesta llega opaca (sin confirmación legible). No hay doble envío:
+    // el intento bloqueado por preflight nunca se ejecutó en el servidor.
+    function postSubmission(payload) {
+      var url = cfg.api + '/api/public/contact-forms/' + cfg.formId + '/submissions';
+      var body = JSON.stringify(payload);
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+        .then(function (r) {
+          return r.json()
+            .catch(function () { return null; })
+            .then(function (j) { return { ok: r.ok, j: j }; });
+        })
+        .catch(function (err) {
+          console.warn('[kimos-contact-form] POST bloqueado (¿CORS? agrega el dominio a ALLOWED_ORIGINS del enterprise); reintentando sin preflight', err);
+          return fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: body })
+            .then(function () { return { ok: true, opaque: true, j: null }; });
+        });
+    }
+
     formEl.addEventListener('input', function () { state.touched = true; });
     formEl.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var payload = { _hp: hp.value };
       Object.keys(inputs).forEach(function (k) { payload[k] = inputs[k].value; });
       btn.disabled = true; btn.style.opacity = '.6';
-      fetch(cfg.api + '/api/public/contact-forms/' + cfg.formId + '/submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      postSubmission(payload)
         .then(function (res) {
           if (res.ok) {
             showModal('ok', (res.j && res.j.message) || def.successMessage || 'Enviado.');
@@ -190,7 +209,8 @@
             showModal('err', (res.j && res.j.detail) || 'No se pudo enviar. Intenta nuevamente.');
           }
         })
-        .catch(function () {
+        .catch(function (err) {
+          console.error('[kimos-contact-form] submissions', err);
           showModal('err', 'Error de red. Intenta nuevamente.');
         })
         .then(function () { btn.disabled = false; btn.style.opacity = '1'; });
