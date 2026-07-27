@@ -1,0 +1,433 @@
+{
+  "data": {
+    "version": 2,
+    "updatedAt": "2026-07-27T22:43:41.543Z",
+    "currency": "CLP",
+    "store": "i1",
+    "productos": [
+      {
+        "sku": "PACK-HANOI-2",
+        "productId": 23008278,
+        "name": "Pack 2 Hanoi",
+        "basePrice": 100000,
+        "deliveryDays": 3,
+        "leadTimeDays": 3,
+        "assemblyDays": 3,
+        "deliveryMode": "max",
+        "baseDeliveryDays": 0,
+        "imageUrl": "",
+        "images": [],
+        "description": "",
+        "storefront": {
+          "hero": {
+            "bgImageUrl": "",
+            "titleColor": "",
+            "headline": "",
+            "ctaText": "",
+            "layout": "center",
+            "height": "m",
+            "photoPos": "center",
+            "photoVAlign": "center",
+            "photoSize": "m",
+            "photoAnim": "none",
+            "titleH": "left",
+            "titleV": "top",
+            "float": true,
+            "items": []
+          },
+          "specs": [],
+          "photosNote": "",
+          "pageSections": [
+            {
+              "kind": "hero",
+              "id": "hb-ms3tctw1-r0rmg",
+              "pattern": "columnas",
+              "height": "l",
+              "bgColor": "",
+              "bgImageUrl": "",
+              "textColor": "",
+              "overlay": true,
+              "slots": {
+                "top": [],
+                "left": [
+                  {
+                    "id": "blk-ms3tctw1-t535t",
+                    "type": "title",
+                    "align": "left"
+                  },
+                  {
+                    "id": "blk-ms3tctw1-b6y04",
+                    "type": "description",
+                    "align": "left",
+                    "size": "m",
+                    "max": 320
+                  },
+                  {
+                    "id": "blk-ms3tctw1-uab7l",
+                    "type": "cta",
+                    "align": "left",
+                    "label": "Configurar",
+                    "style": "primary",
+                    "action": "configurar",
+                    "url": ""
+                  }
+                ],
+                "right": [
+                  {
+                    "id": "blk-ms3tctw1-oii88",
+                    "type": "photo",
+                    "align": "center",
+                    "size": "l",
+                    "anim": "float"
+                  }
+                ],
+                "bottom": []
+              }
+            },
+            {
+              "id": "ps-ms3tctw1-aqf9v",
+              "kind": "specs",
+              "show": true
+            },
+            {
+              "id": "ps-ms3tctw1-ia5sg",
+              "kind": "fotos",
+              "show": true
+            },
+            {
+              "id": "ps-ms3tctw1-lte5a",
+              "kind": "note",
+              "show": true
+            }
+          ],
+          "heroSeeded": true,
+          "style": {
+            "accentColor": "",
+            "bgColor": "",
+            "radius": 0,
+            "cardStyle": "cards",
+            "showDeltas": "delta",
+            "stepsCollapsed": false
+          },
+          "tabs": {
+            "explorar": "",
+            "fotos": "",
+            "specs": "",
+            "comprar": "",
+            "showSpecs": true,
+            "showFotos": true,
+            "order": [
+              "explorar",
+              "specs",
+              "fotos"
+            ]
+          },
+          "sections": []
+        },
+        "model3d": {
+          "url": "mesa_hanoi_pack2.glb",
+          "rotation": [
+            -1.5707963267948966,
+            0,
+            3.141592653589793
+          ],
+          "mirror": true,
+          "realSizeCm": 0,
+          "arUrl": "",
+          "parts": [
+            {
+              "id": "superficie_1",
+              "label": "Superficie Hanoi 1",
+              "materials": [
+                "Pino_1"
+              ],
+              "defaultColor": "#c8a165",
+              "defaultFinish": "natural",
+              "roughness": null,
+              "grainVertical": false,
+              "grainAngle": 0,
+              "grainAlongMaterials": []
+            },
+            {
+              "id": "estructura_1",
+              "label": "Estructura Hanoi 1",
+              "materials": [
+                "Pino_-_Brillante_1",
+                "Travesano_1"
+              ],
+              "defaultColor": "#8a6642",
+              "defaultFinish": "natural",
+              "roughness": null,
+              "grainVertical": true,
+              "grainAngle": 0.24,
+              "grainAlongMaterials": [
+                "Travesano_1"
+              ]
+            },
+            {
+              "id": "superficie_2",
+              "label": "Superficie Hanoi 2",
+              "materials": [
+                "Pino_2"
+              ],
+              "defaultColor": "#c8a165",
+              "defaultFinish": "natural",
+              "roughness": null,
+              "grainVertical": false,
+              "grainAngle": 0,
+              "grainAlongMaterials": []
+            },
+            {
+              "id": "estructura_2",
+              "label": "Estructura Hanoi 2",
+              "materials": [
+                "Pino_-_Brillante_2",
+                "Travesano_2"
+              ],
+              "defaultColor": "#8a6642",
+              "defaultFinish": "natural",
+              "roughness": null,
+              "grainVertical": true,
+              "grainAngle": 0.24,
+              "grainAlongMaterials": [
+                "Travesano_2"
+              ]
+            }
+          ],
+          "finishes": [
+            {
+              "id": "natural",
+              "label": "Natural",
+              "color": "#ffffff",
+              "texture": "wood_col.webp",
+              "roughness": 0.7,
+              "textureScale": 0.09,
+              "grain": 0.3,
+              "opacity": 1,
+              "triplanar": true,
+              "plySpacing": null
+            },
+            {
+              "id": "carbonizado",
+              "label": "Carbonizado",
+              "color": "#3f4147",
+              "texture": "wood_col.webp",
+              "roughness": 0.4,
+              "textureScale": 0.09,
+              "grain": 1,
+              "opacity": 1,
+              "triplanar": true,
+              "plySpacing": null
+            }
+          ]
+        },
+        "groups": [
+          {
+            "id": "grp-ms3tctwm-zq8yo",
+            "label": "Superficie Hanoi 1",
+            "type": "other",
+            "affectsPhoto": false,
+            "dependsOn": null,
+            "values": [
+              {
+                "id": "val-ms3tctwm-kb09u",
+                "name": "Natural",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#ffffff",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": true,
+                "model3d": [
+                  {
+                    "partId": "superficie_1",
+                    "type": "finish",
+                    "finishId": "natural"
+                  }
+                ]
+              },
+              {
+                "id": "val-ms3tctwm-v7u54",
+                "name": "Carbonizado",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#3f4147",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": false,
+                "model3d": [
+                  {
+                    "partId": "superficie_1",
+                    "type": "finish",
+                    "finishId": "carbonizado"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "grp-ms3tctwm-cdkki",
+            "label": "Estructura Hanoi 1",
+            "type": "other",
+            "affectsPhoto": false,
+            "dependsOn": null,
+            "values": [
+              {
+                "id": "val-ms3tctwm-4960c",
+                "name": "Natural",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#ffffff",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": true,
+                "model3d": [
+                  {
+                    "partId": "estructura_1",
+                    "type": "finish",
+                    "finishId": "natural"
+                  }
+                ]
+              },
+              {
+                "id": "val-ms3tctwm-bv07w",
+                "name": "Carbonizado",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#3f4147",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": false,
+                "model3d": [
+                  {
+                    "partId": "estructura_1",
+                    "type": "finish",
+                    "finishId": "carbonizado"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "grp-ms3tctwm-rv3t0",
+            "label": "Superficie Hanoi 2",
+            "type": "other",
+            "affectsPhoto": false,
+            "dependsOn": null,
+            "values": [
+              {
+                "id": "val-ms3tctwm-qtf04",
+                "name": "Natural",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#ffffff",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": true,
+                "model3d": [
+                  {
+                    "partId": "superficie_2",
+                    "type": "finish",
+                    "finishId": "natural"
+                  }
+                ]
+              },
+              {
+                "id": "val-ms3tctwm-pamdc",
+                "name": "Carbonizado",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#3f4147",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": false,
+                "model3d": [
+                  {
+                    "partId": "superficie_2",
+                    "type": "finish",
+                    "finishId": "carbonizado"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "grp-ms3tctwm-cgw0f",
+            "label": "Estructura Hanoi 2",
+            "type": "other",
+            "affectsPhoto": false,
+            "dependsOn": null,
+            "values": [
+              {
+                "id": "val-ms3tctwm-f8iw7",
+                "name": "Natural",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#ffffff",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": true,
+                "model3d": [
+                  {
+                    "partId": "estructura_2",
+                    "type": "finish",
+                    "finishId": "natural"
+                  }
+                ]
+              },
+              {
+                "id": "val-ms3tctwm-ej1ui",
+                "name": "Carbonizado",
+                "qty": 1,
+                "desc": "",
+                "swatchColor": "#3f4147",
+                "imageUrl": "",
+                "delta": 0,
+                "deliveryDays": 0,
+                "tags": [],
+                "requires": [],
+                "excludes": [],
+                "isDefault": false,
+                "model3d": [
+                  {
+                    "partId": "estructura_2",
+                    "type": "finish",
+                    "finishId": "carbonizado"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

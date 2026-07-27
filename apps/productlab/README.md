@@ -1,130 +1,107 @@
 # ProductLab 🧪
 
-**Laboratorio de productos personalizables para la tienda.** App oficial de
-KIMOS (`apps/productlab`). Gestiona el catálogo de componentes/insumos, arma
-productos configurables con pasos, calcula precios desde los costos y publica
-todo hacia el ecommerce: precio + opciones + variantes por combinación (vía la
+**Laboratorio de productos personalizables para la tienda — app oficial de
+KIMOS** (`apps/productlab`, v2.0.0). Gestiona componentes/insumos y costos
+reales, arma productos configurables paso a paso, calcula precios con reglas
+parametrizables, muestra el producto en un **visor 3D con AR**, y publica todo
+hacia el ecommerce: precio + opciones + **variantes por combinación** (vía la
 app Productos → Jumpseller) y el JSON público que alimenta el configurador del
-theme y el visualizador 3D.
+theme.
 
-> **Herencia.** ProductLab es la evolución **generalizada** de dos apps:
-> `hubpro.computadores` (repo `computadores`, v3.6.1 — toda su funcionalidad
-> está incluida) y el `Personalizador 3D` (repo `personalizador` — hoy
-> "ProductLab Visualizador"). Sin dominio fijo: sirve para muebles, equipos,
-> indumentaria o cualquier producto configurable. Cuando antes se hablaba de
-> "equipos" ahora son **productos**; cuando se hablaba de "veta" ahora es
-> **textura**. La continuidad completa está en `docs/ARQUITECTURA.md`.
-
----
+> **Herencia (continuidad del proyecto).** ProductLab 2.0.0 es la unión de las
+> dos líneas de desarrollo paralelas:
+> - Base: **"Gestión Avanzada de Productos" v1.13.2** (repo `personalizador`,
+>   rama `claude/generic-product-management-3d-q8zewx`) — la generalización de
+>   la app de computadores con modos de precio, multimoneda, visor 3D nativo y
+>   cadena AR completa. **Todo su código y conocimiento están aquí.**
+> - Paridad verificada con **`hubpro.computadores` v3.6.1** (repo
+>   `computadores`): gestion-productos ya era superset de sus funcionalidades.
+> - Más las mejoras nuevas de ProductLab (abajo). Detalle completo en
+>   `docs/ARQUITECTURA.md`.
 
 ## Qué hace
 
-- **Componentes** (pestaña Componentes): catálogo de insumos con costo de
-  proveedor (CLP/USD + impuesto de importación %), link de verificación,
-  stock, días de entrega y compatibilidades (`tags` / `requires` / `excludes`).
-  Verificación rápida por fila, acciones masivas e importación desde el
-  catálogo de la tienda.
-- **Productos** (pestaña Productos): cada producto enlaza un producto real de
-  la app Productos (y por ella, de Jumpseller) y define:
-  - **Base**: componentes siempre incluidos + costos adicionales manuales.
-  - **Pasos**: valores genéricos que ve el cliente ("Roble natural"), cada uno
-    con un pool de componentes alternativos — siempre se usa el más económico
-    **disponible**. Novedades ProductLab:
-    - **Cantidad por valor** (`qty`): un valor puede incluir N unidades del
-      componente elegido (ej. "16GB (2×8)" = 2 módulos; exige stock ≥ N).
-    - **Valores neutros** (`neutral`): opción válida de $0 sin componentes
-      ("Sin accesorio") — se marca explícitamente.
-    - **Pasos dependientes** (`dependsOn`): un paso se muestra solo si un paso
-      anterior tiene elegido cierto valor (ej. "Tarjeta de video" solo con la
-      placa que la admite). Oculto = se usa su default (idealmente neutro).
-    - **Previsualizador en vivo**: el paso a paso tal como lo verá el cliente
-      (interactivo: dependencias, precios, entrega, estilo), escritorio y móvil.
-  - **Ficha de tienda**: builder de descripción por secciones (heros con 12
-    patrones y 9 tipos de bloque, **secciones de imagen con alto adaptable a la
-    foto**, sección de visor 3D, especificaciones, fotos, nota), pestañas de la
-    barra, **estilo del configurador** (acento, fondo, radio de esquinas,
-    presentación de cards, precios en cards, pasos colapsados) y **visualizador
-    3D** (visor embebible + GLB + partes/texturas + AR).
-- **Precios** (pestaña Precios): base del margen (sobre costo o sobre venta),
-  IVA %, tipo de cambio, margen por tipo de componente, redondeos, días de
-  preparación, alerta de verificación, y recálculo global con sincronización.
-- **Publicación** (pestaña Publicación): publica el JSON del configurador
-  (`GET /api/public/app/{instanceId}/definition`) y se **republica solo** en
-  cada guardado. Inspección del JSON y del payload de opciones/variantes.
-- **Agente IA**: cobertura completa por tools (ver más abajo) con snapshot
-  rico, contrato embebido (`builderRef`) y errores didácticos.
+- **Componentes** — insumos de cualquier rubro (telas, tableros, piezas, mano
+  de obra, procesos externalizados) con costo de proveedor multimoneda (mapa
+  FX), impuesto de importación %, stock, días de entrega, link de verificación
+  y compatibilidades (`tags`/`requires`/`excludes`). Presets de tipos por rubro.
+- **Productos** — enlazados a la app Productos/Jumpseller:
+  - **Modos de precio**: `auto` (desde costos + margen), `fixed` (a mano,
+    exacto) o `store` (el de la tienda). Guardia de precio cero.
+  - **Pasos** con valores genéricos y pool de alternativas (siempre la más
+    económica disponible), valores **sin costo**, **recargos** (`priceDelta`),
+    **cantidades** (`qty` — "2×8" con el mismo componente, ProductLab 2.0) y
+    **pasos dependientes** (`dependsOn` — un paso aparece según lo elegido en
+    un paso anterior, ProductLab 2.0).
+  - **Previsualizador en vivo** del paso a paso como lo verá el cliente
+    (dependencias, precios por modo, entrega, estilo — ProductLab 2.0).
+  - **Visor 3D opcional** (motor propio `assets/engine3d.js`, three.js
+    vanilla): partes y acabados del GLB, efectos por valor (color / acabado /
+    ocultar pieza), generación de pasos desde el modelo, y **AR**: Scene
+    Viewer (Android, GLB parcheado con la configuración), Quick Look (iPhone,
+    USDZ generado en el navegador con la textura horneada), QR de escritorio a
+    móvil y AR en vivo opcional (8th Wall).
+  - **Ficha de tienda**: builder de descripción por secciones (12 patrones de
+    hero, 10 tipos de bloque incluida la descripción viva de la tienda,
+    **secciones de imagen con alto adaptable a la foto** y tamaños `auto` —
+    ProductLab 2.0), specs, fotos, nota, pestañas, y **estilo del configurador
+    por producto** (acento, fondo, radio, cards, precios en cards, colapsado —
+    ProductLab 2.0).
+- **Precios** — moneda base/símbolo/decimales/locale, monedas de costo con FX,
+  impuesto de venta con nombre (IVA/VAT/IGV), márgenes por tipo con base sobre
+  costo o sobre venta, 4 modos de redondeo, plazos, alerta de verificación.
+- **Publicación** — JSON público del configurador
+  (`GET /api/public/app/{instanceId}/definition`, contrato **version 2**) con
+  republicación automática; marca (`brandName`), tienda, URL base y custom
+  field parametrizable.
+- **Agente IA** — 16 tools con snapshot completo, contrato embebido
+  (`builderRef`), alias en español, errores didácticos y sincronía con el
+  editor abierto (banner de conflicto).
 
 ## Instalación
 
-1. **Tienda KIMOS** → instalar **ProductLab** (esta app) y aprobar permisos.
-   Requiere backend kimos-enterprice con persistencia de `permissions` en
-   installs de registry (parche jul-2026) — alternativamente instalar el
-   `.kapp` (sideload): `node tools/pack.mjs apps/productlab`.
-2. Requiere la app **Productos v2.1+** con credenciales Jumpseller y catálogo
-   importado (el push a la tienda existe solo para instancias de `products`).
-3. Crear **una instancia** por tienda. El header debe decir
-   `PRODUCTOS · N EN CATÁLOGO` (si dice `SIN ACCESO`, falta `data.read:products`).
-4. Theme: instalar el kit de `theme/` en el theme Jumpseller
-   (ver `theme/INSTALL.md` y `docs/JUMPSELLER.md`).
-5. Visualizador 3D (opcional): desplegar el visor del repo `personalizador`
-   ("ProductLab Visualizador") y configurar su URL por producto
-   (ver `docs/VISUALIZADOR.md`).
+1. **Tienda KIMOS** → ProductLab → Instalar (requiere backend jul-2026+ con
+   persistencia de `permissions` y `assets` en installs de registry), o
+   sideload: `node tools/pack.mjs apps/productlab` → "Instalar desde archivo".
+2. Requiere app **Productos v2.1+** con credenciales Jumpseller y catálogo
+   importado. Crear una instancia de ProductLab por tienda.
+3. **Theme**: kit en `theme/` — se integra **sin editar liquid** (se engancha
+   a `.prod-options` desde `assets/custom.js`): ver `theme/README.md` y
+   `docs/JUMPSELLER.md`.
+4. 3D/AR: ver `docs/VISUALIZADOR.md` y los packs de ejemplo en `packs/`.
 
-## Motor de precios
+## Tools del agente (16)
 
-```
-venta(componente) = redondeo( margen( costoCLP × (1+impuesto%) ) × (1+IVA%) )
-margen 'cost' (markup): venta = costo × (1 + m%)     [m% por tipo]
-margen 'sale':          venta = costo ÷ (1 − m%)
-precio(combinación) = redondeoFinal( base + Σ valor elegido de cada paso )
-valor = qty × alternativa más económica DISPONIBLE (activa, stock ≥ qty)
-```
-El precio cobrable **siempre** es la **variante Jumpseller** (precio absoluto
-por combinación, generado por "Aplicar a la tienda"); el JSON público es solo
-presentación. Límites: aviso >150 variantes, bloqueo >400.
-
-## Tools del agente
-
-| Tool | Qué hace |
-|---|---|
-| `UPSERT_COMPONENT` | Crea/actualiza componente por nombre (costo, moneda, impuesto %, stock, tags…) |
-| `SET_COMPONENT_COST` | Actualiza costo y marca verificado hoy |
-| `SET_MARGIN` | Margen % por tipo (o `default` / `base`) |
-| `SET_STOCK` | Stock individual o masivo |
-| `RECALC_PRICES` | Recalcula todos los productos; `apply` re-aplica y republica |
-| `UPSERT_PRODUCTO` | Datos básicos del producto (sku, entrega, modo de entrega) |
-| `SET_PRODUCTO_STEPS` | Reemplaza pasos: valores con `qty`, `neutral`, `dependsOn` |
-| `SET_STOREFRONT` | Builder (`pageSections` con hero/imagen/visor3d/specs/fotos/note), specs, nota, tabs y `style` |
-| `COMPOSE_HERO` | Compone un hero desde campos planos (preferida para heros) |
-| `SET_MODEL3D` | Visualizador 3D: visor, GLB, AR, paso vinculado, config de partes/texturas |
-| `LINK_PRODUCT` | Enlaza a un producto de la app Productos |
-| `APPLY_PRODUCTO` | Escribe precio + opciones + variantes en la tienda |
-| `PUBLISH_CONFIG` | Publica/despublica el JSON del configurador |
-| `IMPORT_IMAGE` | Importa una imagen (adjunto del chat / URL) al área pública |
-
-El snapshot expone el estado completo (componentes, productos con pasos y
-ficha, `builderRef` con el contrato exacto del builder) y todos los errores
-listan los valores válidos para que el agente se autocorrija.
+`UPSERT_COMPONENT` · `SET_COMPONENT_COST` · `SET_MARGIN` · `SET_STOCK` ·
+`RECALC_PRICES` · `UPSERT_PRODUCTO` (con `priceMode`/`fixedPrice`) ·
+`SET_PRODUCTO_STEPS` (valores con `qty`, `priceDelta`, `dependsOn`, efectos
+3D, alias en español) · `COMPOSE_HERO` · `SET_STOREFRONT` (pageSections con
+secciones `imagen`, `style` por producto, validación estricta + anti-borrado)
+· `LINK_PRODUCT` · `APPLY_PRODUCTO` · `PUBLISH_CONFIG` · `IMPORT_IMAGE` ·
+`SET_MODEL3D` · `BUILD_3D_STEPS` (genera pasos desde el modelo 3D).
 
 ## Estructura
 
 ```
 apps/productlab/
-├─ manifest.json          # + entrada en el manifest.json raíz del repo
-├─ dist/index.js          # bundle ESM legible (fuente = dist, sin build)
+├─ manifest.json          # + entrada en el manifest.json raíz (en sync)
+├─ dist/index.js          # bundle ESM legible (fuente = dist)
 ├─ dist/index.css
-├─ theme/                 # kit para themes Jumpseller (configurador + liquid + harness)
+├─ assets/engine3d.js     # motor 3D (three.js vanilla, carga diferida)
+├─ engine-src/            # fuente del motor (esbuild: npm run build:engine)
+├─ theme/                 # kit Jumpseller sin tocar liquid (+ AR + tests)
+├─ packs/mesa-hanoi/      # pack de ejemplo (model3d.json + pasos.json)
 ├─ docs/                  # ARQUITECTURA · JUMPSELLER · PLATAFORMAS · VISUALIZADOR
-└─ test/test-app.mjs      # smoke test completo (node test/test-app.mjs)
+└─ test/test-app.mjs      # smoke test completo offline (node test/test-app.mjs)
 ```
 
 ## Verificar antes de publicar
 
 ```bash
-node --input-type=module -e "import('./apps/productlab/dist/index.js').then(m=>console.log(typeof m.default))"
-node apps/productlab/test/test-app.mjs      # smoke test completo
-node tools/pack.mjs apps/productlab         # genera el .kapp (sideload)
+node apps/productlab/test/test-app.mjs     # smoke test completo (obligatorio)
+node tools/pack.mjs apps/productlab        # .kapp para sideload
 ```
 
-Un **bump de `version`** (en ambos manifests, app y raíz) + merge a `main` es
-lo que propaga una nueva versión a las tiendas.
+Un **bump de `version`** (manifest de la app **y** raíz, en sync) + merge a
+`main` propaga la nueva versión; para el motor 3D, `npm run build:engine`
+desde `apps/productlab/` regenera `assets/engine3d.js`.

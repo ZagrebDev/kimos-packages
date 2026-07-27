@@ -1,0 +1,52 @@
+{
+  "_comentario": [
+    "Payload para la tool SET_PRODUCTO_STEPS. Convierte los acabados del",
+    "personalizador en PASOS del configurador: el cliente elige el acabado de la",
+    "superficie y el de la estructura por separado, igual que en el personalizador,",
+    "y cada elección repinta el 3D.",
+    "",
+    "IMPORTANTE: los `components` son los insumos con COSTO REAL que ya tengas",
+    "creados en la pestaña Componentes (aquí van de ejemplo). Un valor sin",
+    "componentes disponibles se ve en el visor pero se excluye de la tienda,",
+    "porque la app no sabría a qué precio venderlo."
+  ],
+  "producto": "Mesa Hanoi",
+  "steps": [
+    {
+      "label": "Acabado de la superficie",
+      "default": "Natural",
+      "values": [
+        {
+          "label": "Natural",
+          "components": ["Barniz natural"],
+          "swatchColor": "#c8a165",
+          "model3d": [{ "partId": "superficie", "type": "finish", "finishId": "natural" }]
+        },
+        {
+          "label": "Carbonizado",
+          "components": ["Tinte carbonizado"],
+          "swatchColor": "#3f4147",
+          "model3d": [{ "partId": "superficie", "type": "finish", "finishId": "carbonizado" }]
+        }
+      ]
+    },
+    {
+      "label": "Acabado de la estructura",
+      "default": "Natural",
+      "values": [
+        {
+          "label": "Natural",
+          "components": ["Barniz natural"],
+          "swatchColor": "#8a6642",
+          "model3d": [{ "partId": "estructura", "type": "finish", "finishId": "natural" }]
+        },
+        {
+          "label": "Carbonizado",
+          "components": ["Tinte carbonizado"],
+          "swatchColor": "#3f4147",
+          "model3d": [{ "partId": "estructura", "type": "finish", "finishId": "carbonizado" }]
+        }
+      ]
+    }
+  ]
+}

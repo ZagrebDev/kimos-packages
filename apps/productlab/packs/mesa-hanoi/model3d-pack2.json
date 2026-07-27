@@ -1,0 +1,74 @@
+{
+  "_comentario": [
+    "Payload SET_MODEL3D para el PACK DE 2 UNIDADES (mesa_hanoi_pack2.glb).",
+    "Cada unidad tiene sus propios materiales, así que los pasos de la unidad 2",
+    "no repintan la 1. Sube mesa_hanoi_pack2.glb y wood_col.webp y reemplaza",
+    "las URLs. Después pide BUILD_3D_STEPS y los 4 pasos se generan solos.",
+    "Si el pack tiene precio fijo, ponlo con UPSERT_PRODUCTO:",
+    "{producto, priceMode:'fixed', fixedPrice:100000}."
+  ],
+  "producto": "Pack 2 Hanoi",
+  "url": "REEMPLAZAR_CON_LA_URL_DEL_GLB_PACK2",
+  "publish": true,
+  "enabled": true,
+  "rotation": [-1.5707963267948966, 0, 3.141592653589793],
+  "mirror": true,
+  "parts": [
+    {
+      "id": "superficie_1",
+      "label": "Superficie Hanoi 1",
+      "materials": ["Pino_1"],
+      "defaultColor": "#c8a165",
+      "defaultFinish": "natural"
+    },
+    {
+      "id": "estructura_1",
+      "label": "Estructura Hanoi 1",
+      "materials": ["Pino_-_Brillante_1", "Travesano_1"],
+      "defaultColor": "#8a6642",
+      "defaultFinish": "natural",
+      "grainVertical": true,
+      "grainAngle": 0.24,
+      "grainAlongMaterials": ["Travesano_1"]
+    },
+    {
+      "id": "superficie_2",
+      "label": "Superficie Hanoi 2",
+      "materials": ["Pino_2"],
+      "defaultColor": "#c8a165",
+      "defaultFinish": "natural"
+    },
+    {
+      "id": "estructura_2",
+      "label": "Estructura Hanoi 2",
+      "materials": ["Pino_-_Brillante_2", "Travesano_2"],
+      "defaultColor": "#8a6642",
+      "defaultFinish": "natural",
+      "grainVertical": true,
+      "grainAngle": 0.24,
+      "grainAlongMaterials": ["Travesano_2"]
+    }
+  ],
+  "finishes": [
+    {
+      "id": "natural",
+      "label": "Natural",
+      "color": "#ffffff",
+      "texture": "REEMPLAZAR_CON_LA_URL_DE_LA_TEXTURA",
+      "roughness": 0.7,
+      "textureScale": 0.09,
+      "grain": 0.3,
+      "triplanar": true
+    },
+    {
+      "id": "carbonizado",
+      "label": "Carbonizado",
+      "color": "#3f4147",
+      "texture": "REEMPLAZAR_CON_LA_URL_DE_LA_TEXTURA",
+      "roughness": 0.4,
+      "textureScale": 0.09,
+      "grain": 1.0,
+      "triplanar": true
+    }
+  ]
+}

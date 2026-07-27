@@ -1,250 +1,242 @@
-# ProductLab — Arquitectura, herencia y funcionamiento
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.0.0)
 
-Documento de continuidad: todo lo que hay que saber para seguir desarrollando
-ProductLab sin perder el conocimiento adquirido en las apps `computadores`
-(hubpro.computadores v3.6.1) y `personalizador` (Personalizador 3D).
+Documento de continuidad: todo lo necesario para seguir desarrollando
+ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
 
 ---
 
-## 1. Mapa del ecosistema
+## 1. Linaje (qué viene de dónde)
 
 ```
-┌───────────────────┐  productRef    ┌──────────────────┐   sync-push   ┌────────────┐
-│ ProductLab        │ ─────────────► │ app products     │ ────────────► │ Ecommerce  │
-│ (componentes,     │  PUT item:     │ (item producto)  │  backend      │ (Jumpseller│
-│  costos, márgenes,│  price +       │                  │  KIMOS        │  hoy)      │
-│  pasos, ficha,    │  options[] +   │                  │               │  producto  │
-│  visual 3D)       │  variants[]    │                  │               │  opciones  │
-└─────────┬─────────┘                └──────────────────┘               │  variantes │
-          │ publica JSON público (permiso public.read)                  └──────┬─────┘
+computadores (hubpro.computadores v3.6.1)          personalizador
+  pasos/valores/alternativas, precios,               visor 3D R3F (Vite) +
+  builder, COMPOSE_HERO, agentes robustos,           pipeline de modelos
+  Jumpseller (options/variants/custom fields)              │
+        │                                                  │
+        └──► gestion-productos v1.13.2 (rama claude/generic-product-management-3d-…
+             del repo personalizador) — "la app personalizador":
+             generalización TOTAL (rubro/moneda/impuesto/redondeo por parámetro),
+             priceMode auto/fixed/store, recargos, valores sin costo,
+             visor 3D nativo (engine3d, three vanilla) con efectos por valor,
+             BUILD_3D_STEPS, cadena AR completa (Scene Viewer + USDZ en el
+             navegador + QR + 8th Wall), theme sin tocar liquid, sincronía
+             agente↔editor, bloque description, hero de arranque
+                    │
+                    └──► ProductLab 2.0.0 (ESTA app, kimos-packages/apps/productlab)
+                         = gestion-productos 1.13.2 (base, íntegra) + mejoras:
+                         · pasos DEPENDIENTES (dependsOn)
+                         · CANTIDAD por valor (qty; stock exigido ×qty)
+                         · secciones de IMAGEN de alto adaptable + tamaños auto
+                         · ESTILO del configurador por producto (style)
+                         · PREVISUALIZADOR en vivo del paso a paso
+                         · aviso de 150 variantes reactivado, blockSchema
+                           completo (description) y curaduría final de marca
+```
+
+La paridad gestion-productos ⊇ computadores v3.6.1 fue verificada feature por
+feature (única excepción: el aviso de 150 variantes, reactivado aquí). El
+visor 3D standalone del repo personalizador (Vite/R3F, main) queda como
+**visor independiente opcional**; el visor integrado de la app y del theme es
+`assets/engine3d.js` (mismo núcleo `engine-src/` para ambos anfitriones).
+
+## 2. Mapa del ecosistema
+
+```
+┌───────────────────┐  storeRef      ┌──────────────────┐   sync-push   ┌────────────┐
+│ ProductLab        │ ─────────────► │ app products     │ ────────────► │ Jumpseller │
+│ (componentes,     │  PUT item:     │ (item producto)  │  backend      │  producto  │
+│  costos, márgenes,│  price +       │                  │  KIMOS        │  opciones  │
+│  pasos, ficha,    │  options[] +   │                  │               │  variantes │
+│  3D/AR)           │  variants[]    │                  │               │  cust.field│
+└─────────┬─────────┘                └──────────────────┘               └──────┬─────┘
+          │ publica JSON público (public.read, republicación automática)       │
           ▼                                                                    ▼
-GET /api/public/app/{instanceId}/definition ◄── theme/assets/configurador.js ◄── página
-          │                                                              de producto
-          ├──► ProductLab Visualizador (repo personalizador): ?def=…&producto=…
-          └──► AR: GET /api/public/app/{instanceId}/ar/{sku}.glb?m=Material:hex
+GET /api/public/app/{instanceId}/definition ◄── theme/custom.js ─► kimos-configurador.js
+          │                                        (sin tocar liquid)  + kimos3d.js (3D)
+          ├──► AR Android: GET …/ar/{ref}.glb?m=Material:hex  (glb_materials del backend)
+          └──► AR iPhone: USDZ generado EN el navegador (engine3d.exportUSDZ)
 ```
 
-Repos:
-
-| Repo | Rol |
-|---|---|
-| `kimos-packages` | **Esta app** (`apps/productlab`): bundle + theme kit + docs. Registro en el `manifest.json` raíz. |
-| `kimos-enterprice` | Plataforma: AppShell, agentes, gateway público (`appPublicAPI.py`), datos entre apps (`appDataAPI.py`), push Jumpseller (`appInstancesAPI.py` + `integrations/jumpseller_sync.py`), AR GLB (`glb_materials.py`). |
-| `personalizador` | **ProductLab Visualizador**: visor 3D web (Vite+R3F) embebible; lee el JSON público (`?def&producto`). |
-| `computadores` | Origen histórico (app v3.6.1 + theme hubpro). Queda como referencia; el desarrollo continúa aquí. |
-| `setup-kimos` | Aprovisionamiento de tenants. **No** participa en publicar apps. |
-
-## 2. Los 4 hechos que fijan el diseño (heredados y vigentes)
-
-1. **El push a Jumpseller solo existe para instancias del template `products`**
-   (`appInstancesAPI.py`: `_push_item_to_integrations` rechaza otros
-   templates). Por eso ProductLab escribe *a través* del item de products
-   (`PUT /api/app-instances/{pInst}/items/{itemId}` con `shell.authFetch` +
-   RBAC del usuario) y dispara `POST …/items/sync-push`.
-2. **El precio por configuración se cobra con VARIANTES** (precio absoluto por
-   combinación). Nunca calcular precio cobrable en JS del theme.
-3. **La API de Jumpseller no tiene CORS**: todo pasa por el backend KIMOS.
-4. **La presentación no cabe en el ecommerce** (imágenes por valor, specs,
-   dependencias, entrega, estilo, 3D): viaja en el JSON público.
-
-Reglas intocables heredadas:
-- Los componentes jamás se pushean (no llevan `sourceLinks`).
-- Opciones/variantes de productos aplicados son propiedad de la app (regenera
-  y poda), preservando `sourceOptionId`/`sourceValueId`/`sourceVariantId` para
-  actualizar en vez de recrear (carros y URLs `?variant_id` no se rompen).
-- Renombrar una etiqueta genérica crea un valor nuevo en Jumpseller (matching
-  por nombre normalizado): renombrar y re-aplicar de inmediato.
-- Custom field `diseno=personalizado` activa la vista personalizada del theme;
-  se asegura automáticamente al aplicar (warning no bloqueante).
-- Caches en cadena: CDN ~10 min + `?_t` rotatorio 5 min + sessionStorage 3 min
-  → cambios publicados visibles en ≤5-8 min.
+Los 4 hechos de diseño heredados siguen vigentes: (1) el push a Jumpseller
+solo existe para instancias del template `products` (ProductLab escribe a
+través de ellas con `shell.authFetch` + RBAC); (2) el precio cobrable es
+SIEMPRE la variante (nunca se calcula en el navegador); (3) la API de
+Jumpseller no tiene CORS (todo pasa por el backend); (4) la presentación viaja
+en el JSON público.
 
 ## 3. Modelo de datos (items de la instancia)
 
-- `definition` (único): `types[]` (tipos de componente, editables), `rules`
-  (IVA, USD, base y márgenes, redondeos, staleDays, assemblyDays),
-  `storeBaseUrl`, `public {enabled, data}` (lo que sirve el gateway).
-- `component`: `{name, type, brand, specs, imageUrl, currency, cost, taxPct,
-  supplierName, supplierUrl, verifiedAt, deliveryDays, stock (null = sin
-  control), productRef?, tags[], requires[], excludes[], active, notes}`.
-- `producto` (kind `producto`): `{name, sku, storeUrl, status, deliveryMode
-  ('max'|'sum'), deliveryExtraDays, baseComponentIds[], extraCosts[],
-  groups[], storefront{}, model3d{}, galleryImages[], productRef{instanceId,
-  itemId, sourceId, sku, name, imageUrl}, price, lastPush{}}`.
+### `definition` (singleton)
+`types[]` (presets por rubro: genérico/confección/mobiliario/computación, y
+propios), `rules` (`currency`+`currencySymbol`+`currencyDecimals`+`locale`,
+`fx{}` monedas de costo, `salesTaxLabel`+`salesTaxPct`, `marginBasis`
+cost/sale + `marginDefaultPct` + `marginBasePct` + `marginByType`,
+`roundMode` none/nearest/up/ending + `roundTo` + `roundEnding`,
+`deltaRoundTo`, `leadTimeDays`, `staleDays`), `brandName`, `storeName`,
+`storeBaseUrl`, `storeCustomField {name,value}` (parametrizable; vacío = no se
+envía), `public {enabled, data}`. Alias legacy aceptados en lectura: `ivaPct`,
+`usdRate`, `assemblyDays`, `end990`/`up1000`.
 
-### 3.1 Pasos (`groups[]`) — con las novedades ProductLab
+### `component`
+`{name, type, brand, specs, imageUrl, currency (validada contra fx), cost,
+taxPct (se suma al costo antes del margen), supplierName, supplierUrl,
+verifiedAt, deliveryDays, stock (null = sin control), storeRef?, tags[],
+requires[], excludes[], active, notes}`.
 
+### `producto`
+`{name, sku, status, storeUrl, storeRef{instanceId,itemId,sourceId,sku,name,
+imageUrl}, priceMode (auto|fixed|store), fixedPrice, deliveryMode (max|sum),
+deliveryExtraDays, baseComponentIds[], extraCosts[], groups[], model3d,
+storefront{}, galleryImages[], price, lastPush{}}`.
+
+**`groups[]` (pasos) — con las novedades ProductLab:**
 ```jsonc
 {
   "id": "grp-…", "typeId": "material", "label": "Cubierta",
-  "photoStep": false,                 // true = su selección cambia la foto (swatches)
-  "dependsOn": {                      // NUEVO: paso condicional
-    "stepId": "grp-anterior",         //   solo apunta a un paso ANTERIOR (sin ciclos)
-    "valueIds": ["val-roble"]         //   visible solo si la selección está aquí
+  "photoStep": false,                  // su selección cambia la foto (swatches)
+  "dependsOn": {                       // NUEVO: paso condicional
+    "stepId": "grp-anterior",          //   solo un paso ANTERIOR (sin ciclos)
+    "valueIds": ["val-roble"]          //   visible solo si la selección está aquí
   },
   "defaultValueId": "val-roble",
   "values": [{
-    "id": "val-…", "label": "Roble natural",
-    "qty": 1,                         // NUEVO: unidades del componente elegido (≥1)
-    "neutral": false,                 // NUEVO: true = valor $0 sin componentes (explícito)
+    "id": "val-…", "label": "Roble",
+    "qty": 1,                          // NUEVO: unidades del componente (precio ×qty, stock ≥ qty)
+    "priceDelta": 0,                   // recargo manual de venta (herencia GP)
     "imageUrl": "", "swatchColor": "",
-    "componentIds": ["cmp-a", "cmp-b"] // pool de alternativas; se usa la más barata disponible
+    "componentIds": ["cmp-a", "cmp-b"],// pool de alternativas ([] = valor sin costo)
+    "model3d": [{ "partId": "superficie", "type": "finish", "finishId": "roble" }]
   }]
 }
 ```
+Semántica: un valor con `componentIds: []` es una **opción sin costo** (válida
+y publicada; cobra con `priceDelta` si quieres). El default de un paso
+dependiente debe ser sin costo — la app lo advierte si no (se cobraría
+oculto). Las variantes siguen siendo el cartesiano completo (Jumpseller exige
+un valor por opción); el theme fuerza el default de los pasos ocultos en los
+selects nativos.
 
-Semántica clave:
-- **`qty`**: precio del valor = `qty × alternativa elegida`; disponibilidad
-  exige `stock ≥ qty`. Permite "2×8GB" y "2×16GB" en un solo paso reutilizando
-  el mismo componente.
-- **`neutral`**: opción válida de $0. Es **explícito** a propósito: un valor
-  que quedó sin componentes por accidente (componente eliminado) sigue siendo
-  "no disponible", nunca gratis.
-- **`dependsOn`**: la tienda oculta el paso si no se cumple; oculto se fuerza
-  su default. Las variantes siguen siendo el **producto cartesiano completo**
-  (Jumpseller exige un valor por opción en cada variante): las combinaciones
-  imposibles existen pero el cliente no puede seleccionarlas. Por eso el
-  default de un paso dependiente debe ser **neutro** — la app lo advierte si
-  no lo es (se cobraría oculto).
-- `normalizeDependsOn()` sanea al guardar: solo pasos anteriores, solo valores
-  existentes; lo inválido se descarta.
+**`model3d`** (visor 3D opcional): `{enabled, url (GLB), rotation, mirror,
+publish, realSizeCm (0 = sin AR), arUrl (GLB a escala real para Scene
+Viewer), parts[{id,label,materials[],defaultColor,defaultFinish,roughness,
+grainVertical,grainAngle,grainAlongMaterials}], finishes[{id,label,color,
+texture,roughness,textureScale,grain,opacity,triplanar,plySpacing}]}`.
 
-### 3.2 Ficha (`storefront`)
+**`storefront`**: `pageSections[]` (builder: heros con 12 patrones y 10 tipos
+de bloque incluido `description`; secciones fijas `specs`/`fotos`/`note`; y
+**NUEVO** `{kind:'imagen', imageUrl, alt, width:'content'|'full', link}` —
+repetible, alto adaptado a la foto), `specs[]`, `photosNote`, `tabs{}`,
+`heroSeeded`, y **NUEVO `style{accentColor,bgColor,radius,cardStyle,
+showDeltas,stepsCollapsed}`** (estilo del configurador por producto). Bloques
+`photo`/`gallery` y la altura del hero aceptan `'auto'` (alto natural).
 
-- `pageSections[]` — builder por secciones ordenadas:
-  - `hero` (repetible): patrón flexbox (12), bloques (9 tipos) por contenedor,
-    `height` ahora acepta `'auto'`; bloques `photo`/`gallery` aceptan
-    `size:'auto'` (alto natural de la foto).
-  - `imagen` (repetible, **NUEVO**): `{imageUrl, alt, width:'content'|'full',
-    link}` — solo una foto cuyo **alto se adapta a la imagen** (sin recortes).
-    Resuelve descripciones hechas de muchas fotos apiladas de alturas
-    distintas.
-  - `visor3d` (única, **NUEVO**): `{height}` — embebe el visualizador 3D
-    (`model3d.embedUrl`) en esa posición.
-  - `specs` / `fotos` / `note` (fijas): existen una vez, se reordenan/ocultan.
-- `specs[]`, `photosNote`, `tabs{}` — igual que la herencia.
-- `style{}` (**NUEVO**): `{accentColor, bgColor, radius (0-24), cardStyle
-  ('cards'|'list'|'compact'), showDeltas ('delta'|'total'|'none'),
-  stepsCollapsed}` — personalización del configurador/página por producto;
-  vacío = theme del sitio. El previsualizador de Pasos lo refleja.
+## 4. Motor de precios
 
-### 3.3 Visualizador 3D (`model3d`)
-
-```jsonc
-{
-  "enabled": true,
-  "viewerUrl": "https://visualizador.mitienda.cl/",  // visor desplegado (repo personalizador)
-  "modelUrl": "https://cdn/…/producto.glb",          // GLB (meshopt+WebP recomendado)
-  "arUrl": "/api/public/files/imagenes/productlab/producto-ar.glb",  // AR (allowlist del backend)
-  "bindStepId": "grp-…",                              // paso que elige textura/acabado en el visor
-  "config": {                                         // contrato del visor (docs/VISUALIZADOR.md)
-    "parts":    [{ "id": "superficie", "label": "Superficie", "materials": ["Mat1"] }],
-    "finishes": [{ "id": "roble", "label": "Roble", "color": "#ffffff",
-                   "texture": "https://…/roble.webp", "roughness": 0.7,
-                   "textureScale": 0.09, "grain": 0.3 }],
-    "palette":  ["#f4f4f5", "#0a0a0a"]
-  }
-}
 ```
-
-Publicado en el JSON con `embedUrl` calculado
-(`viewerUrl?def=<publicUrl>&producto=<sku>`). El backend además sirve
-`GET /api/public/app/{instanceId}/ar/{sku}.glb?m=Material:hex,Otro:hide`
-parcheando colores del GLB al vuelo (`glb_materials.py`) — usa `arUrl`.
-
-## 4. JSON público (contrato version 2)
-
-`GET {KIMOS}/api/public/app/{instanceId}/definition` → envoltorio
-`{instanceId, data}`. El theme y el visor desenvuelven y aceptan
-`data.productos || data.equipos` (compatibilidad con la herencia).
-
-```jsonc
-{
-  "version": 2, "updatedAt": "…", "currency": "CLP", "store": "productlab",
-  "productos": [{
-    "sku": "PL-…", "productId": "424242", "name": "…",
-    "basePrice": 345990, "deliveryDays": 5, "assemblyDays": 3,
-    "deliveryMode": "max", "baseDeliveryDays": 2, "imageUrl": "…",
-    "storefront": { "pageSections": […], "specs": […], "photosNote": "…",
-                    "tabs": {…}, "style": {…} },
-    "model3d": { "enabled": true, "viewerUrl": "…", "modelUrl": "…",
-                 "arUrl": "…", "bindStepId": "…", "config": {…}, "embedUrl": "…" } | null,
-    "groups": [{
-      "id": "…", "label": "Cubierta", "type": "material", "affectsPhoto": false,
-      "dependsOn": { "groupId": "…", "valueIds": ["…"] } | null,
-      "values": [{ "id": "…", "name": "Roble", "qty": 1, "neutral": false,
-                   "desc": "…", "swatchColor": "", "imageUrl": "…", "delta": 0,
-                   "deliveryDays": 3, "tags": [], "requires": [], "excludes": [],
-                   "isDefault": true }]
-    }]
-  }]
-}
+venta(componente) = redondeoRecargos( margen( costoBase × (1+taxPct%) ) × (1+salesTaxPct%) )
+costoBase = costo × fx[moneda] (moneda sin tasa → se trata como base, no se inventa)
+margen 'cost': ×(1+m%) · margen 'sale': ÷(1−m%), por tipo
+valor = alternativa más económica DISPONIBLE (stock ≥ qty) × qty + priceDelta
+precio(auto)        = redondeoFinal( base + Σ valor default de cada paso )
+precio(fixed|store) = exacto (sin redondeo); cada combinación = base + Σ (valor − default del paso)
 ```
+Guardias: precio ≤ 0 no se aplica a la tienda (diagnóstico por modo);
+aviso > 150 variantes, bloqueo > 400; el modo `store` nunca colapsa a 0 si el
+catálogo no cargó.
 
-Notas: no expone costos, proveedores ni marcas de alternativas. Un paso sin
-valores disponibles no se publica; un valor sin stock suficiente (según su
-`qty`) se excluye. `delta` es presentacional (fallback): el precio real es la
-variante.
+## 5. JSON público (contrato version 2)
 
-## 5. Agentes (cómo interactúa el agente KIMOS con la app)
+`GET {KIMOS}/api/public/app/{instanceId}/definition` → `{instanceId, data}`.
+Claves de `data`: `version: 2`, `currency`, `store`, `productos[]` (el theme
+acepta también `equipos` legacy) con: `sku`, `productId`, `name`, `basePrice`,
+`deliveryDays`, `leadTimeDays` (+ alias `assemblyDays`), `deliveryMode`,
+`baseDeliveryDays`, `imageUrl`, `images[]` (galería viva), `description`
+(HTML vivo de la tienda), `storefront` **íntegro** (incluye `style` y las
+secciones `imagen`), `model3d` (solo si `enabled && publish`; incluye `arUrl`
+y `realSizeCm`), y `groups[]` con `dependsOn {groupId,valueIds}` (**NUEVO**) y
+values con `qty` (**NUEVO**), `priceDelta` implícito en `delta`, `desc`,
+`swatchColor`, `imageUrl`, `deliveryDays`, `tags/requires/excludes`,
+`isDefault`, `model3d[]` (efectos). Un paso sin valores disponibles no se
+publica; un valor sin stock suficiente para su `qty` se excluye.
 
-Todo lo aprendido en la saga de computadores está incorporado:
+## 6. Visor 3D y AR (conocimiento crítico heredado)
 
-- **Registro**: `shell.agent.register({label, description, tools[], getSnapshot,
-  dispatchAction})` con permiso `agent.control`. Las tools viajan al prompt en
-  `[APP_CAPS]` (nombre, params, required) y el snapshot en `[CTX]`. La app solo
-  está registrada con su ventana abierta: el agente la ve en `[APPS_CERRADAS]`
-  y la abre con `OPEN_APP`.
-- **`builderRef` en el snapshot**: contrato exacto del builder
-  (`sectionShape`, `blockSchema`, `example`, `patterns[].containers`,
-  `heights` con `auto`, `extraSections: imagen/visor3d`). La regla 16 del
-  system prompt instruye a copiar estos esquemas.
-- **`COMPOSE_HERO`**: el agente entrega campos planos y la app compone la
-  estructura — el único fix definitivo a los fallos de formato de LLM.
-- **Validación estricta + errores didácticos**: todo rechazo lista los valores
-  válidos (productos existentes, contenedores del patrón, tipos de bloque,
-  ejemplo mínimo inline) para autocorrección en el siguiente turno; guardia
-  anti-borrado (`allowEmpty`); alias de payload (`producto`/`productoId`/
-  `id`/`name`/`sku`; payloads como string JSON se parsean).
-- **El checker del chat NO valida estructura** (solo ruteo/fugas/PII/
-  destructivos, fail-open): la validación real vive en `dispatchAction`.
-- Memoria de agentes: persistente en Firestore
-  (`firestore_session_service.py`); diagnóstico en `/api/public/healthz`.
+- `engine-src/engine3d.js` → esbuild → `assets/engine3d.js` (app, ESM,
+  **carga diferida**: sin producto 3D three.js nunca se descarga) y
+  `theme/kimos-engine3d.js` (IIFE `KimosEngine3D` para el theme).
+- API `createViewer(canvas)`: `setModel/setParts/setFinishes/setState
+  ({colors,finishes,hidden})`, `materialNames()`, `snapshot()`, `exportGLB`,
+  `exportUSDZ`, `startAR`, `startLiveAR`, `dispose`. Claves de recarga
+  separadas (geometría/partes/acabados/estado): tocar un color NO re-descarga
+  el GLB.
+- **USDZ**: sin escalas negativas (el mirror se hornea en vértices); la
+  orientación de caras se MIDE contra las normales; la proyección triplanar se
+  **hornea a UV** (sin esto la textura se pierde en iPhone). **Scene Viewer**:
+  GLB parcheado por el backend (`/ar/{ref}.glb?m=Material:hex,…`,
+  `glb_materials.py`) usando `model3d.arUrl`; el href se recalcula en
+  pointerdown para llevar la configuración del momento. **QR** de escritorio a
+  móvil (`qrMatrix` propio). **8th Wall** opcional (`KIMOS_XR8_URL`; binario
+  bajo licencia revocable de Niantic, exige atribución). `realSizeCm` es
+  requisito duro para cualquier AR.
 
-## 6. Decisiones de ProductLab (nuevas)
+## 7. Theme (sin tocar liquid)
+
+`theme/custom.js` (el theme ya lo carga) + `KIMOS_3D_URL` (definition) +
+`KIMOS_FULL`: `true` = ficha completa KIMOS (`kimos-configurador.js`);
+`false` = solo botón "Ver en 3D" (`kimos3d.js`). El precio y el carro son
+SIEMPRE del theme: la ficha escribe en los `.prod-options` nativos y pulsa el
+botón real. Gotchas heredados: Jumpseller minifica/renombra assets (custom.js
+deduce nombres), cache-busting con `?kv=` propio, velo anti-parpadeo con
+auto-retirada, `diagnostico.js` para revisar la cadena completa. El kit v5
+suma: dependsOn (con forzado de defaults en selects nativos), style por
+producto, secciones imagen, tamaños auto y qty.
+
+## 8. Agentes
+
+Todo lo heredado sigue: tools con inputSchema completos ([APP_CAPS]),
+snapshot con `builderRef` (contrato del builder con `sectionShape`,
+`blockSchema` —ahora completo, incluye `description`—, `example`, `heights`
+con `auto`, `extraSections: ['imagen']`), COMPOSE_HERO de campos planos,
+validación estricta + anti-borrado + errores didácticos que listan valores
+válidos, alias de payload y de pasos en español, payload como string JSON, y
+**sincronía agente↔editor abierto** (`agentEdit` + `decidirRecarga`: recarga
+sola o pregunta con banner). SET_PRODUCTO_STEPS acepta además `qty`/`cantidad`
+y `dependsOn {step, values}` por labels; SET_STOREFRONT acepta `style` y
+secciones `imagen`.
+
+## 9. Decisiones ProductLab 2.0 (nuevas)
 
 | Decisión | Motivo |
 |---|---|
-| `neutral` explícito (no inferido de `components: []`) | Un componente eliminado no puede convertir una opción con precio en gratis. |
-| Variantes = cartesiano completo aun con `dependsOn` | Jumpseller exige un valor por opción en cada variante; el theme fuerza el default del paso oculto. Default neutro ⇒ el precio oculto es $0. |
-| `qty` a nivel de valor (no de componente) | Permite "2×8" y "2×16" con el mismo pool de alternativas; el stock se exige por cantidad. |
-| Secciones `imagen` con alto natural | Las alturas fijas (s/m/l/xl) recortaban fotos de descripciones apiladas; `auto` también en bloques photo/gallery y en heros. |
-| Visor 3D como app separada embebida (iframe) | El host de apps solo expone React (no three.js); un bundle con three rompería la convención "fuente = dist legible". El visor ya existe (repo personalizador) y se integra por URL + postMessage. |
-| `model3d.arUrl` | Reutiliza el gateway AR existente del backend (`/ar/{ref}.glb` + `glb_materials.py`). |
-| JSON `productos` + fallback `equipos` en el theme kit | Migración suave desde instalaciones hubpro. |
-| Parche backend: persistir `permissions` en installs de registry | Sin él, las apps oficiales con `public.read`/`data.read:*` recibían 403 del gateway (por eso hubpro era sideload-only). |
+| Base = gestion-productos (no computadores) | Es superset verificado de computadores v3.6.1 y contiene el visor 3D + AR + genericidad total. |
+| `qty` a nivel de valor | "2×8" y "2×16" con el mismo pool; stock exigido por cantidad. |
+| dependsOn con variantes cartesianas completas | Jumpseller exige un valor por opción por variante; el theme fuerza el default oculto (que debe ser sin costo — la app avisa). |
+| Valores sin costo implícitos (semántica GP, sin flag) | Diseño heredado deliberado; el borrado de componentes en uso está bloqueado, así que no hay riesgo de "gratis por accidente". |
+| Secciones `imagen` + tamaños `auto` | Las alturas fijas recortaban descripciones hechas de fotos apiladas. |
+| `style` por producto además del acento global (⚙️) | El acento de ⚙️ Configurar es de la APP; `style` personaliza el configurador de CADA producto en la tienda. |
+| Parche backend: `permissions` + `assets` en installs de registry | Sin ellos, una app oficial no podía usar el gateway público ni servir `engine3d.js`. |
+| JSON v2 con fallback v1 en el theme | Migración suave de instalaciones gestion-productos/hubpro. |
 
-## 7. Limitaciones conocidas y roadmap corto
+## 10. Deuda conocida y roadmap corto
 
-- **Stock por variante en Jumpseller**: las variantes se generan sin stock; la
-  elegibilidad se controla en la app (pendiente heredado #4).
-- **Detalle de la alternativa interna en el pedido**: evaluar *order notes*
-  (pendiente heredado #6).
-- Días hábiles L-V sin feriados; moneda CLP en la app (el theme kit ya
-  parametriza locale/prefijo).
-- Máx 400 variantes por producto (límite real del cartesiano).
-- `saveData(scope:'team')` no soportado por la plataforma (no se usa).
-- El visor 3D exige CORS abierto en GLB y texturas.
+- Stock por variante en Jumpseller y detalle de la alternativa interna en el
+  pedido (pendientes heredados #4/#6 de computadores).
+- `opacity`/`plySpacing` de acabados y `roughness` por parte: sin UI (solo vía
+  SET_MODEL3D).
+- Días hábiles L-V sin feriados.
+- Tests de theme con Chromium requieren copiar assets a `theme/test/` (ver su
+  `.gitignore`); `verify.mjs`/`build-pack2.mjs` de los packs referencian rutas
+  del repo original.
+- Multi-tienda por tenant = una instancia por tienda; multi-integración de
+  credenciales es evolución del backend.
+- Integraciones futuras (Shopify/WooCommerce): `docs/PLATAFORMAS.md`.
 
-## 8. Cómo publicar una nueva versión
+## 11. Cómo publicar una nueva versión
 
-1. Editar `apps/productlab/dist/index.js` (la fuente ES el dist, ESM legible,
-   sin build; React del host vía `globalThis.React`, sin JSX).
-2. `node apps/productlab/test/test-app.mjs` (siempre; ha cazado todos los bugs).
-3. Bump de `version` en `apps/productlab/manifest.json` **y** en el
-   `manifest.json` raíz (deben ir en sync; el backend instala desde el raíz).
-4. Merge a `main` → Tienda KIMOS → Actualizar (`?force=1` salta la caché de
-   5 min). El bundle se sirve con `?v=<versión>` (immutable correcto).
-5. Si cambió el contrato del JSON público: actualizar también
-   `theme/assets/configurador.js` y el visor (repo personalizador), y probar
-   con `theme/test/` (harness local sin producción).
+1. Editar `dist/index.js` (fuente = dist, ESM legible, `globalThis.React`,
+   sin JSX). Motor 3D: editar `engine-src/` y `npm run build:engine` (+
+   `build:engine:theme` para el theme).
+2. `node test/test-app.mjs` — SIEMPRE (ha cazado todos los bugs históricos).
+3. Bump de `version` en ambos manifests (app y raíz, en sync) → merge a
+   `main` → Tienda → Actualizar. Si cambió el contrato público: actualizar
+   `theme/` y probar con su harness.

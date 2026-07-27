@@ -1,115 +1,90 @@
-# ProductLab — Visualizador 3D y AR
+# ProductLab — Visor 3D y AR (v2.0.0)
 
-El visor 3D de ProductLab es la evolución del **Personalizador 3D** (repo
-`personalizador`, ahora "ProductLab Visualizador"): una app web Vite + React
-+ three.js (react-three-fiber) que renderiza el producto con partes y
-texturas personalizables en tiempo real, embebible por iframe.
+El 3D de ProductLab tiene **dos anfitriones con un mismo núcleo** y una cadena
+AR completa, heredados de la app gestion-productos (repo personalizador).
 
 ---
 
-## 1. Arquitectura
+## 1. Piezas
 
-```
-ProductLab (app KIMOS)                    ProductLab Visualizador (repo personalizador)
-  producto.model3d ──publica──► JSON ──►  ?def=<url definición>&producto=<sku>
-  card "Visualizador 3D"                  lee model3d.{modelUrl, config} y renderiza
-  sección builder "visor3d"  ──iframe──►  postMessage: ready / select / set
-Backend kimos-enterprice
-  GET /api/public/app/{instanceId}/ar/{sku}.glb?m=Mat:hex  (AR: GLB parcheado al vuelo)
-```
+| Pieza | Qué es |
+|---|---|
+| `engine-src/engine3d.js` (+ `wood.js`, `qr.js`) | Núcleo del motor: three.js **vanilla** (sin React) — así el MISMO código corre dentro del React del host de KIMOS y en el theme sin framework. |
+| `assets/engine3d.js` | Build ESM para la APP (`npm run build:engine`). **Carga diferida**: `import(shell.assetUrl('engine3d.js'))` solo cuando un producto tiene 3D. |
+| `theme/kimos-engine3d.js` | Build IIFE (`KimosEngine3D`) para el theme (`npm run build:engine:theme`). |
+| Repo `personalizador` (main) | **ProductLab Visualizador** standalone (Vite + R3F): visor independiente/demo con modo dinámico `?def=…&producto=…` y API postMessage. Opcional — el visor integrado de app y theme es engine3d. |
 
-- La app guarda `model3d` por producto y lo publica en el JSON público con
-  `embedUrl` calculado (`viewerUrl?def=…&producto=…`).
-- El theme kit embebe `embedUrl` donde el builder tenga la sección `visor3d`.
-- La app misma muestra el visor en vivo (card Visualizador 3D y sección del
-  builder) para gestionar cómo se ve sin salir de ProductLab.
+## 2. Configuración por producto (`model3d`)
 
-## 2. Contrato `model3d.config`
+Se edita en la pestaña **Visor 3D** del producto (o con `SET_MODEL3D` /
+`BUILD_3D_STEPS`):
 
 ```jsonc
 {
-  "parts": [{
-    "id": "superficie",            // id lógico de la parte
-    "label": "Superficie",         // etiqueta visible en el panel del visor
-    "materials": ["Pino", "M1"],   // nombres de MATERIAL dentro del GLB que controla
-    "defaultColor": "#c8a165",     // color si no hay finishes
-    "defaultFinish": "roble",      // acabado inicial (si hay finishes)
-    "grainVertical": false,        // la textura corre vertical (piezas de pie)
-    "grainAngle": 0                 // inclinación en radianes (piezas inclinadas)
-  }],
-  "finishes": [{                   // acabados: textura + tinte + rugosidad
-    "id": "roble", "label": "Roble",
-    "color": "#ffffff",            // tinte multiplicado (blanco = textura tal cual)
-    "texture": "https://…/roble.webp",  // proyección triplanar (ignora UVs del CAD)
-    "roughness": 0.7,
-    "textureScale": 0.09,          // texels por unidad: menor = textura más grande
-    "grain": 0.3,                  // cuánto modula la textura el brillo
-    "plywood": false,              // capas de terciado en los cantos
-    "plySpacing": 0.0018
-  }],
-  "palette": ["#f4f4f5", "#0a0a0a"]   // paleta libre para partes SIN finishes
+  "enabled": true, "publish": true,          // publish: viaja al JSON público
+  "url": "https://…/mesa.glb",               // GLB (meshopt); subida hasta 60 MB
+  "rotation": [-1.5708, 0, 3.1416], "mirror": true,
+  "realSizeCm": 120,                          // lado mayor real; 0 = SIN AR
+  "arUrl": "…/mesa-ar.glb",                   // GLB a escala real (se genera desde el visor)
+  "parts": [{ "id": "superficie", "label": "Superficie",
+              "materials": ["Pino"],          // nombres EXACTOS de material del GLB
+              "defaultColor": "#c8a165", "defaultFinish": "natural",
+              "grainVertical": false, "grainAngle": 0, "grainAlongMaterials": [] }],
+  "finishes": [{ "id": "natural", "label": "Natural", "color": "#ffffff",
+                 "texture": "https://…/wood.webp", "roughness": 0.7,
+                 "textureScale": 0.09, "grain": 0.3, "triplanar": true }]
 }
 ```
 
-Los nombres de `materials` se obtienen del GLB (los asigna el pipeline de
-conversión — ver README del repo personalizador). Técnica heredada: proyección
-**triplanar** de la textura en espacio del objeto (shader inyectado en
-MeshStandardMaterial), la luminancia modula la rugosidad (la textura se lee en
-los reflejos incluso con tintes oscuros), soporte de capas de terciado en
-cantos.
+**Binding pasos ↔ 3D**: cada VALOR de un paso lleva efectos
+`model3d: [{partId, type: 'color'|'finish'|'hide', color?, finishId?}]` — la
+selección del cliente repinta el modelo en vivo (`build3dState` acumula
+colors/finishes/hidden → `viewer.setState`). El botón **⚡ Generar pasos desde
+el modelo 3D** (o `BUILD_3D_STEPS`, con `append` para packs multi-unidad) crea
+un paso por parte y un valor por acabado con los efectos ya vinculados.
 
-## 3. Modos del visor
+API del motor: `createViewer(canvas)` → `setModel / setParts / setFinishes /
+setState / materialNames / frame / snapshot / arSupported / startAR /
+startLiveAR / exportUSDZ / exportGLB / dispose`. Claves de recarga separadas:
+cambiar un color NUNCA re-descarga el GLB.
 
-| URL | Modo |
-|---|---|
-| `viewerUrl/` | Demo: catálogo local del repo (productos de muestra) |
-| `viewerUrl/?def=<url>&producto=<sku>` | **Dinámico**: carga model3d del JSON público |
-| `…&ui=min` | Solo el visor 3D (sin panel) — para embeber pequeño |
+## 3. Cadena AR (conocimiento duro ganado a pulso)
 
-## 4. API postMessage (embebido)
+Solo se ofrece AR si `realSizeCm > 0` (colocar un mueble a escala inventada
+engaña al cliente).
 
-Del visor al host:
-- `{ source: 'productlab-viewer', type: 'ready', producto }` — modelo cargado.
-- `{ source: 'productlab-viewer', type: 'select', partId, finishId?, color? }`
-  — el usuario cambió un acabado/color.
+1. **Android — Scene Viewer**: `intent://arvr.google.com/scene-viewer/…` con
+   `file=` apuntando al gateway del backend
+   `GET /api/public/app/{instanceId}/ar/{ref}.glb?m=Material:hex,Otro:hide` —
+   el GLB (`model3d.arUrl`, allowlist `/api/public/files/…`, máx 40 MB) se
+   **parchea al vuelo** con la configuración elegida (`glb_materials.py`). El
+   href se recalcula en `pointerdown` para llevar la configuración del momento.
+2. **iPhone — AR Quick Look**: `.usdz` generado **en el navegador** con
+   `exportUSDZ({realSizeCm})`. Aprendizajes horneados en el código: USDZ no
+   admite escalas negativas (el `mirror` se hornea en los vértices), la
+   orientación de caras se mide contra las normales (algunos GLB vienen
+   invertidos), y la proyección **triplanar se hornea a UV** (≤1024px) — sin
+   eso la madera salía plástica. Si el cliente cambia una opción, el blob se
+   revoca y se regenera.
+3. **Escritorio — puente QR**: QR propio (`qrMatrix`, margen quieto de 4
+   módulos) hacia esta misma ficha con `?kimos_ar=1`.
+4. **AR en vivo (opcional) — 8th Wall Engine**: cámara en la propia página con
+   el producto EXACTO del configurador (mismo objeto/materiales). Se activa
+   con `window.KIMOS_XR8_URL`; el binario (~2,1 MB gzip) solo se descarga al
+   pulsar, puede autoalojarse, y su licencia (Niantic Spatial) es **revocable
+   y exige atribución** ("AR: 8th Wall Engine © Niantic Spatial"). Si falla,
+   cae solo a Scene Viewer / Quick Look.
 
-Del host al visor:
-- `{ source: 'productlab', type: 'set', partId, finishId?, color? }` — aplicar
-  selección desde fuera (p. ej. sincronizar con el paso `bindStepId` del
-  configurador: el theme puede mapear el valor elegido del paso a un
-  `finishId` del mismo nombre/id).
+## 4. Visor standalone (repo personalizador, opcional)
 
-## 5. AR (Android Scene Viewer / Quick Look vía GLB)
+El visor Vite/R3F acepta `?def=<URL del definition>&producto=<sku|productId>`
+y `?ui=min`, lee `model3d` del JSON público (`url`, `parts`, `finishes`) y
+expone postMessage (`ready`/`select` salientes, `set` entrante). Útil como
+página independiente o embed externo; requiere CORS abierto en GLB y texturas.
 
-El backend sirve el modelo con colores aplicados **sin generar un GLB por
-combinación**:
+## 5. Packs
 
-```
-GET /api/public/app/{instanceId}/ar/{sku}.glb?m=Pino:c8a165,Travesano:hide
-```
-
-- Requiere `public.read` + publicación activa; el GLB base sale de
-  `producto.model3d.arUrl`, que debe ser una ruta **`/api/public/files/…`**
-  del File Storage de KIMOS (allowlist del backend; máx 40 MB).
-- `m` = pares `Material:hex` (o `hide` para ocultar), máx 40; parchea
-  `baseColorFactor` en el chunk JSON del GLB (`glb_materials.py`).
-- El theme kit muestra el link "Ver en tu espacio (AR)" cuando `arUrl` existe.
-
-## 6. Pipeline de modelos (herencia)
-
-El repo personalizador conserva el pipeline completo:
-OBJ (CLO/Fusion) → `obj2gltf` + `gltf-transform` (weld → simplify → meshopt +
-WebP 1024px); STEP (CAD) → MayoConv + asignación de materiales por nombre de
-nodo + Blender headless opcional (bevel). Resultado típico: catálogo completo
-de 2,6 MB vs 446 MB de OBJ originales. Los materiales del GLB son los ids que
-usa `config.parts[].materials`.
-
-## 7. Requisitos de despliegue
-
-- Visor: hosting estático (build de Vite del repo personalizador). Puede vivir
-  en Firebase Hosting del tenant o cualquier CDN.
-- **CORS**: el GLB (`modelUrl`) y las texturas (`finishes[].texture`) deben
-  servirse con CORS abierto (el visor puede estar en otro origen). El endpoint
-  `/definition` ya responde CORS `*`.
-- Rendimiento móvil heredado: `frameloop="demand"`, dpr ≤ 1.75, meshopt, sin
-  shadow maps.
+`packs/mesa-hanoi/`: ejemplo completo real — `model3d.json` (payload de
+`SET_MODEL3D`), `pasos.json` (payload de `SET_PRODUCTO_STEPS` con efectos),
+`build-pack2.mjs` (genera el GLB de 2 unidades a partir del de 1) y
+`verify.mjs`. Patrón recomendado para empaquetar cualquier producto 3D.

@@ -1,0 +1,89 @@
+/* Kimos 3D para Jumpseller — estilos del visor en la ficha de producto.
+   Neutros a propósito: heredan tipografía y color del theme, y no dependen
+   de ninguna variable suya. Todo va bajo .kimos3d para no filtrar nada. */
+
+.kimos3d {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+/* Botón para abrir el visor (el motor 3D solo baja al pulsarlo). */
+.kimos3d__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 9px 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: opacity .15s ease;
+}
+.kimos3d__open:hover { opacity: .7; }
+.kimos3d.is-open .kimos3d__open { display: none; }
+.kimos3d__icon { font-size: 11px; }
+
+/* Escenario del visor. La altura sigue el ancho para que no salte el layout. */
+.kimos3d__stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #f5f5f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+@supports not (aspect-ratio: 1 / 1) {
+  .kimos3d__stage { height: 420px; }
+}
+
+.kimos3d__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Imprescindible: deja que el visor capture el arrastre en móvil sin que
+     la página haga scroll encima. */
+  touch-action: none;
+}
+
+.kimos3d__msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  font-size: 13px;
+  opacity: .65;
+  pointer-events: none;
+}
+.kimos3d__msg[hidden] { display: none; }
+
+.kimos3d__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .9);
+  color: #111;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.kimos3d__close:hover { background: #fff; }
+
+@media (prefers-color-scheme: dark) {
+  .kimos3d__stage { background: #1c1c1c; }
+  .kimos3d__close { background: rgba(30, 30, 30, .9); color: #eee; }
+  .kimos3d__close:hover { background: #333; }
+}

@@ -167,20 +167,44 @@
     {
       "id": "productlab",
       "name": "ProductLab",
-      "description": "Laboratorio de productos personalizables: componentes con costos de proveedor, stock y compatibilidades; reglas de margen; pasos de configuración con dependencias, cantidades y valores neutros; previsualizador en vivo; builder de descripción (heros y secciones de imagen de alto adaptable); visualizador 3D embebible con AR; y publicación del configurador para el ecommerce (Jumpseller hoy; Shopify/WooCommerce en el roadmap). Aplica precio, opciones y variantes por combinación vía la app Productos.",
+      "description": "Laboratorio de productos personalizables para cualquier rubro: componentes e insumos (telas, materias primas, piezas, mano de obra o procesos externalizados) con costo de proveedor y verificación integrada, stock, compatibilidades, márgenes parametrizables (sobre costo o sobre venta), impuestos, monedas y redondeos configurables, valores genéricos con alternativas de varios proveedores (siempre se usa la más económica disponible), cantidades por valor (2×8), pasos dependientes, valores sin costo y recargos, modos de precio auto/fijo/tienda, configurador paso a paso con previsualizador en vivo, ficha visual con builder de descripción (heros, secciones de imagen de alto adaptable), visor 3D opcional con AR (el modelo se personaliza en vivo por paso), estilo del configurador por producto, y aplicación a la tienda vía la app Productos (precio + opciones + variantes por combinación). Publica además el JSON que alimenta el configurador del theme. Evolución de las apps gestion-productos (personalizador) y computadores.",
       "icon": "🧪",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
       "multiInstance": true,
+      "assets": [
+        "engine3d.js"
+      ],
       "permissions": [
         "instance.read",
         "instance.write",
         "agent.control",
         "public.read",
         "data.read:products"
-      ]
+      ],
+      "configSchema": {
+        "title": "Preferencias de ProductLab",
+        "fields": [
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca de la empresa; se usa en chips, énfasis y estados activos."
+          },
+          {
+            "key": "denseTables",
+            "label": "Tablas compactas",
+            "type": "boolean",
+            "help": "Más filas visibles por pantalla en Componentes y Productos."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "accent": "#19ACB1",
+        "denseTables": false
+      }
     },
     {
       "id": "kanban",

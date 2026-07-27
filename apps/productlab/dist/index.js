@@ -1,35 +1,42 @@
 /**
- * ProductLab — laboratorio de productos personalizables para la tienda.
- * Gestión de componentes (costos de proveedor, stock, compatibilidades),
- * reglas de margen, productos con pasos de configuración (con dependencias,
- * cantidades y valores genéricos), ficha de tienda (builder de descripción),
- * previsualizador del configurador, visualizador 3D y publicación hacia el
- * ecommerce.
+ * ProductLab — laboratorio de productos personalizables: costos reales,
+ * componentes/insumos, configuración paso a paso, márgenes, ficha visual,
+ * visor 3D con AR y publicación hacia el e-commerce.
  *
- * Herencia: evolución generalizada de "Computadores HubPro" (repo computadores,
- * v3.6.1) + el visualizador 3D del repo personalizador. Sin dominio fijo:
- * sirve para cualquier producto personalizable (integrado hoy con Jumpseller;
- * Shopify/WooCommerce en el roadmap — ver docs/PLATAFORMAS.md).
+ * HERENCIA (continuidad del proyecto): base = "Gestión Avanzada de Productos"
+ * v1.13.2 (repo personalizador, rama claude/generic-product-management-3d-…),
+ * que a su vez generalizó a "Computadores HubPro" v3.6.1 (repo computadores)
+ * conservando toda su potencia. ProductLab suma: pasos DEPENDIENTES
+ * (dependsOn), CANTIDAD por valor (qty), secciones de IMAGEN de alto
+ * adaptable y tamaños "auto", ESTILO del configurador por producto y un
+ * PREVISUALIZADOR en vivo del paso a paso. Docs: apps/productlab/docs/.
+ *
+ * GENÉRICA POR RUBRO: un "componente" es cualquier cosa que entra al costo —
+ * una tela, una materia prima, un herraje, una pieza, o un PROVEEDOR EXTERNO
+ * que externaliza manufactura o un proceso (corte, estampado, ensamblaje).
+ * Los tipos de componente se eligen por rubro (presets) o se definen a mano,
+ * y moneda, impuesto, redondeo y locale son parámetros — no hay nada cableado
+ * a un país ni a una industria.
  *
  * Arquitectura (escribe A TRAVÉS de la app oficial `products`, no la duplica):
  *  - Los COMPONENTES, PRODUCTOS y reglas viven como items de esta instancia.
- *  - Cada PRODUCTO referencia (productRef) un item de producto de una instancia
+ *  - Cada PRODUCTO referencia (storeRef) un item de producto de una instancia
  *    de la app `products`. Al "aplicar a la tienda", esta app genera desde los
- *    pasos: `price` + `options[]` (una opción por paso, esquema v2.1 de
- *    products: {name, optionType, sourceOptionId, values}) + `variants[]`
- *    (producto cartesiano con PRECIO POR COMBINACIÓN y sourceVariantId
- *    preservado), los escribe en el item del producto
- *    (PUT /api/app-instances/{pInst}/items/{itemId}) y dispara su sync-push —
- *    el backend de KIMOS empuja producto, opciones y variantes a Jumpseller
- *    con los endpoints dedicados y persiste los ids.
+ *    grupos de componentes: `price` + `options[]` (una opción por paso, según
+ *    el esquema v2.1 de products: {name, optionType, sourceOptionId, values})
+ *    + `variants[]` (producto cartesiano con PRECIO POR COMBINACIÓN y
+ *    sourceVariantId preservado), los escribe en el item del producto
+ *    (PUT /api/app-instances/{pInst}/items/{itemId}) y dispara su
+ *    sync-push — el backend de KIMOS empuja producto, opciones y variantes a
+ *    Jumpseller con los endpoints dedicados y persiste los ids.
  *  - El catálogo se lee vía shell.data (data.read:products); la escritura usa
  *    shell.authFetch con el RBAC del usuario (mismos endpoints que usa la UI
- *    de products). El push al ecommerce SOLO existe para instancias del
+ *    de products). El push a Jumpseller SOLO existe para instancias del
  *    template products, por eso se escribe allí y no aquí.
  *  - El configurador del theme se alimenta del JSON publicado en
  *    GET /api/public/app/{instanceId}/definition (permiso public.read):
- *    imágenes, specs, dependencias, compatibilidades y entrega, que el
- *    ecommerce no modela.
+ *    imágenes, specs, dependencias, compatibilidades y entrega, que
+ *    Jumpseller no modela.
  */
 export default function mount(shell) {
   const React = globalThis.React;
@@ -38,6 +45,9 @@ export default function mount(shell) {
   }
   const h = React.createElement;
   const { useState, useEffect } = React;
+  // useRef puede faltar en hosts/mocks muy reducidos: sin él el visor 3D no se
+  // monta, pero el resto de la app funciona igual.
+  const useRef = React.useRef || ((v) => ({ current: v }));
 
   const instanceId = shell.app && shell.app.instanceId;
 
@@ -59,8 +69,19 @@ export default function mount(shell) {
   const nowIso = () => new Date().toISOString();
   const newId = (p) => p + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
   const norm = (v) => s(v).trim().toLowerCase();
-  const fmtCLP = (v) => '$' + Math.round(num(v)).toLocaleString('es-CL');
-  const fmtDelta = (v) => (v < 0 ? '− ' : '+ ') + fmtCLP(Math.abs(v));
+  // Dinero: símbolo, locale y decimales salen de las reglas (rules() está
+  // declarada más abajo — function declaration, se hoistea).
+  function fmtMoney(v) {
+    const r = rules();
+    const d = Math.max(0, Math.min(4, num(r.currencyDecimals, 0)));
+    const n = num(v);
+    let body;
+    try {
+      body = (d ? n : Math.round(n)).toLocaleString(r.locale, { minimumFractionDigits: d, maximumFractionDigits: d });
+    } catch (e) { body = String(d ? n.toFixed(d) : Math.round(n)); }
+    return r.currencySymbol + body;
+  }
+  const fmtDelta = (v) => (v < 0 ? '− ' : '+ ') + fmtMoney(Math.abs(v));
   const parseList = (v) => s(v).split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
   // Acepta array (guardado) o string (mientras el usuario escribe en el input).
   const joinList = (a) => (Array.isArray(a) ? a.join(', ') : s(a));
@@ -73,13 +94,13 @@ export default function mount(shell) {
   }
   function fmtDate(iso) {
     if (!iso) return '—';
-    try { return new Date(iso).toLocaleDateString('es-CL'); } catch (e) { return s(iso); }
+    try { return new Date(iso).toLocaleDateString(rules().locale); } catch (e) { return s(iso); }
   }
   function fmtDateTime(iso) {
     if (!iso) return '—';
     try {
-      const d = new Date(iso);
-      return d.toLocaleDateString('es-CL') + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+      const d = new Date(iso), lo = rules().locale;
+      return d.toLocaleDateString(lo) + ' ' + d.toLocaleTimeString(lo, { hour: '2-digit', minute: '2-digit' });
     } catch (e) { return s(iso); }
   }
   function daysSince(iso) {
@@ -93,19 +114,71 @@ export default function mount(shell) {
     }
   }
 
-  // Tipos genéricos de partida: se renombran, agregan o eliminan libremente
-  // en la pestaña Precios (cada catálogo define su propio dominio).
-  const DEFAULT_TYPES = [
-    { id: 'base', label: 'Base' },
-    { id: 'material', label: 'Material' },
-    { id: 'textura', label: 'Textura / Acabado' },
-    { id: 'color', label: 'Color' },
-    { id: 'tamano', label: 'Tamaño' },
-    { id: 'capacidad', label: 'Capacidad' },
-    { id: 'accesorio', label: 'Accesorio' },
-    { id: 'servicio', label: 'Servicio' },
-    { id: 'other', label: 'Otro' },
+  // Tipos de componente por RUBRO. Son solo puntos de partida: la pestaña
+  // Precios permite editarlos, borrarlos y crear los propios (cada tipo puede
+  // llevar su margen %). Un "componente" puede ser un material, una pieza, un
+  // insumo, mano de obra o un proceso externalizado a un proveedor.
+  const TYPE_PRESETS = [
+    {
+      id: 'generico', label: 'Genérico (cualquier rubro)',
+      types: [
+        { id: 'material', label: 'Material / Materia prima' },
+        { id: 'pieza', label: 'Pieza / Insumo' },
+        { id: 'manoobra', label: 'Mano de obra' },
+        { id: 'externo', label: 'Proceso externalizado' },
+        { id: 'empaque', label: 'Empaque' },
+        { id: 'logistica', label: 'Logística' },
+        { id: 'other', label: 'Otro' },
+      ],
+    },
+    {
+      id: 'confeccion', label: 'Confección / Textil',
+      types: [
+        { id: 'tela', label: 'Tela' },
+        { id: 'avios', label: 'Avíos (botones, cierres, elásticos)' },
+        { id: 'hilo', label: 'Hilo' },
+        { id: 'estampado', label: 'Estampado / Bordado' },
+        { id: 'corte', label: 'Corte' },
+        { id: 'confeccion', label: 'Confección (taller externo)' },
+        { id: 'etiquetas', label: 'Etiquetas' },
+        { id: 'empaque', label: 'Empaque' },
+        { id: 'logistica', label: 'Logística' },
+        { id: 'other', label: 'Otro' },
+      ],
+    },
+    {
+      id: 'mobiliario', label: 'Mueblería / Carpintería',
+      types: [
+        { id: 'tablero', label: 'Tablero / Madera' },
+        { id: 'herrajes', label: 'Herrajes' },
+        { id: 'tapiz', label: 'Tapiz / Tela' },
+        { id: 'espuma', label: 'Espuma / Relleno' },
+        { id: 'acabado', label: 'Acabado / Pintura' },
+        { id: 'cnc', label: 'Corte CNC (externo)' },
+        { id: 'ensamblaje', label: 'Ensamblaje' },
+        { id: 'empaque', label: 'Empaque' },
+        { id: 'logistica', label: 'Logística' },
+        { id: 'other', label: 'Otro' },
+      ],
+    },
+    {
+      id: 'computacion', label: 'Computación / Electrónica',
+      types: [
+        { id: 'cpu', label: 'Procesador' },
+        { id: 'mobo', label: 'Placa madre' },
+        { id: 'ram', label: 'Memoria RAM' },
+        { id: 'gpu', label: 'Tarjeta gráfica' },
+        { id: 'storage', label: 'Almacenamiento' },
+        { id: 'psu', label: 'Fuente de poder' },
+        { id: 'case', label: 'Gabinete' },
+        { id: 'cooler', label: 'Refrigeración' },
+        { id: 'os', label: 'Sistema operativo' },
+        { id: 'other', label: 'Otro' },
+      ],
+    },
   ];
+  const presetById = (id) => TYPE_PRESETS.find((p) => p.id === id) || TYPE_PRESETS[0];
+  const DEFAULT_TYPES = TYPE_PRESETS[0].types;
 
   function defaultDefinition() {
     return {
@@ -113,22 +186,48 @@ export default function mount(shell) {
       kind: 'definition',
       types: DEFAULT_TYPES,
       rules: {
-        ivaPct: 19,
-        usdRate: 950,
+        // ── Moneda y formato (sin nada cableado a un país) ──
+        currency: 'CLP',          // moneda base en que se vende y se publica
+        currencySymbol: '$',
+        currencyDecimals: 0,      // 0 para CLP/JPY; 2 para USD/EUR/MXN…
+        locale: 'es-CL',          // formato de números y fechas
+        // Tipos de cambio de monedas de COSTO → moneda base. El costo de un
+        // componente puede venir en cualquiera de estas (proveedor extranjero).
+        fx: { USD: 950 },
+        // ── Impuesto de venta (IVA / VAT / IGV / Sales tax) ──
+        salesTaxLabel: 'IVA',
+        salesTaxPct: 19,
+        // ── Márgenes ──
         marginBasis: 'cost',      // 'cost': venta = costo×(1+m) | 'sale': venta = costo÷(1−m)
         marginDefaultPct: 25,     // fallback para tipos sin margen propio
         marginBasePct: 25,        // SOLO para costos adicionales manuales del producto
         marginByType: {},
-        roundMode: 'end990',      // end990 | up1000 | none
-        deltaRoundTo: 100,        // redondeo de recargos por valor
-        assemblyDays: 3,          // días de preparación/producción, se suman a la entrega
+        // ── Redondeo del precio final ──
+        // none | nearest (al múltiplo) | up (hacia arriba) | ending (termina en)
+        roundMode: 'none',
+        roundTo: 1000,            // tamaño del bloque para nearest/up/ending
+        roundEnding: 990,         // terminación para roundMode 'ending'
+        deltaRoundTo: 100,        // redondeo de los recargos por valor
+        // ── Plazos ──
+        leadTimeDays: 3,          // días propios de preparación/producción
         staleDays: 30,            // días sin verificar proveedor => alerta
       },
+      // Identidad visible (cada empresa pone la suya).
+      brandName: '',
+      // Nombre corto de la tienda que viaja en el JSON público.
+      storeName: '',
       // URL base de la tienda (para armar el link del producto: base+permalink)
       storeBaseUrl: '',
+      // Custom field de Jumpseller que le dice al theme que este producto usa
+      // la vista de configurador. Parametrizable por si el theme usa otro.
+      storeCustomField: { name: 'diseno', value: 'personalizado' },
       // Bloque leído por el gateway público (theme de la tienda):
       public: { enabled: false, channels: [], data: null },
     };
+  }
+  // Marca mostrada en la barra superior (configurable por empresa).
+  function brandName() {
+    return s((model.def || {}).brandName).trim().toUpperCase() || 'PRODUCTLAB';
   }
 
   // ── Estado del closure ────────────────────────────────────────────────────
@@ -139,12 +238,32 @@ export default function mount(shell) {
     productos: [],
     def: null,
     defExists: false,
-    storeCatalog: [],          // catálogo leído de la app products (picker), con __instanceId
-    storeCatalogLoaded: false,
-    storeCatalogError: null,
+    catalog: [],          // catálogo leído de la app products (picker), con __instanceId
+    catalogLoaded: false,
+    catalogError: null,
   };
   const listeners = new Set();
   function setModel(patch) { model = Object.assign({}, model, patch); listeners.forEach((l) => l(model)); }
+
+  // Última acción del agente: qué sección del editor tocó. El agente escribe
+  // en el modelo, no en el formulario abierto, así que el editor necesita
+  // saber que algo cambió por debajo — y adónde llevar al usuario.
+  const agentEdit = { section: null, at: 0 };
+
+  /**
+   * ¿Qué hacer con un editor abierto cuando el producto cambió por debajo?
+   *   'nada'      — no cambió, o el cambio ya está reflejado.
+   *   'recargar'  — cambió y aquí no hay edición sin guardar: se recarga solo.
+   *   'preguntar' — cambió Y hay edición sin guardar: lo decide el usuario,
+   *                 porque las dos salidas pierden algo.
+   * Está fuera del componente para poder probarla: el render de la app no
+   * ejecuta los componentes anidados en el harness de test.
+   */
+  function decidirRecarga(local, vivo, baseJson) {
+    if (!vivo || !vivo.updatedAt || !local || !local.updatedAt) return 'nada';
+    if (vivo.updatedAt <= local.updatedAt) return 'nada';
+    return JSON.stringify(local) === baseJson ? 'recargar' : 'preguntar';
+  }
 
   async function load() {
     if (!instanceId) { setModel({ loaded: true }); return; }
@@ -180,20 +299,50 @@ export default function mount(shell) {
   }
 
   // ── Reglas de precio ──────────────────────────────────────────────────────
+  const ROUND_MODES = ['none', 'nearest', 'up', 'ending'];
   function rules() {
     const r = (model.def && model.def.rules) || {};
+    // fx: mapa MONEDA→tipo de cambio hacia la moneda base. Se acepta el
+    // usdRate antiguo como atajo para no perder configuraciones simples.
+    const fx = Object.assign({}, r.fx && typeof r.fx === 'object' ? r.fx : null);
+    if (r.usdRate != null && fx.USD == null) fx.USD = num(r.usdRate, 0);
     return {
-      ivaPct: num(r.ivaPct, 19),
-      usdRate: num(r.usdRate, 950),
+      currency: s(r.currency).trim().toUpperCase() || 'CLP',
+      currencySymbol: r.currencySymbol != null && r.currencySymbol !== '' ? s(r.currencySymbol) : '$',
+      currencyDecimals: Math.max(0, Math.min(4, num(r.currencyDecimals, 0))),
+      locale: s(r.locale).trim() || 'es-CL',
+      fx,
+      salesTaxLabel: s(r.salesTaxLabel).trim() || 'IVA',
+      // salesTaxPct sustituye al ivaPct histórico.
+      salesTaxPct: numOr(r.salesTaxPct, numOr(r.ivaPct, 19)),
       marginBasis: r.marginBasis === 'sale' ? 'sale' : 'cost',
       marginDefaultPct: num(r.marginDefaultPct, 25),
       marginBasePct: num(r.marginBasePct, num(r.marginDefaultPct, 25)),
       marginByType: r.marginByType || {},
-      roundMode: r.roundMode || 'end990',
+      roundMode: ROUND_MODES.indexOf(r.roundMode) !== -1 ? r.roundMode
+        : (r.roundMode === 'end990' ? 'ending' : r.roundMode === 'up1000' ? 'up' : 'none'),
+      roundTo: Math.max(1, num(r.roundTo, 1000)),
+      roundEnding: Math.max(0, num(r.roundEnding, 990)),
       deltaRoundTo: Math.max(1, num(r.deltaRoundTo, 100)),
-      assemblyDays: num(r.assemblyDays, 3),
+      leadTimeDays: numOr(r.leadTimeDays, numOr(r.assemblyDays, 3)),
       staleDays: Math.max(1, num(r.staleDays, 30)),
     };
+  }
+  // Custom field que marca el producto como "configurable" para el theme.
+  // Parametrizable: otro theme puede usar otro nombre/valor. Vacío = no se envía.
+  function storeCustomFields() {
+    const cf = (model.def && model.def.storeCustomField) || { name: 'diseno', value: 'personalizado' };
+    const name = s(cf.name).trim();
+    if (!name) return {};
+    const out = {};
+    out[name] = s(cf.value).trim();
+    return out;
+  }
+  // Monedas seleccionables para el COSTO de un componente: la base + las que
+  // tengan tipo de cambio definido.
+  function costCurrencies() {
+    const r = rules();
+    return [r.currency].concat(Object.keys(r.fx).filter((k) => k && k !== r.currency && num(r.fx[k]) > 0));
   }
   function types() {
     const t = model.def && model.def.types;
@@ -201,7 +350,21 @@ export default function mount(shell) {
   }
   const typeLabel = (id) => { const t = types().find((x) => x.id === id); return t ? t.label : s(id); };
 
-  const costCLP = (cost, currency) => (currency === 'USD' ? num(cost) * rules().usdRate : num(cost));
+  // Normaliza una moneda de costo: la base o cualquiera con tipo de cambio
+  // declarado; lo desconocido cae a la base (nunca se inventa un cambio).
+  function normCurrency(v) {
+    const c = s(v).trim().toUpperCase();
+    return c && costCurrencies().indexOf(c) !== -1 ? c : rules().currency;
+  }
+  // Costo llevado a la moneda base. Si la moneda del componente no es la base
+  // y tiene tipo de cambio, se convierte; si no, se toma tal cual.
+  function costBase(cost, currency) {
+    const r = rules();
+    const c = s(currency).trim().toUpperCase();
+    if (!c || c === r.currency) return num(cost);
+    const rate = num(r.fx[c], 0);
+    return rate > 0 ? num(cost) * rate : num(cost);
+  }
   function marginFor(typeId) {
     const r = rules();
     const m = r.marginByType[typeId];
@@ -210,28 +373,39 @@ export default function mount(shell) {
   // Aplica el margen según la base configurada en las reglas:
   //  - 'cost' (sobre costo / markup):  venta = costo × (1 + m%)
   //  - 'sale' (sobre venta):           venta = costo ÷ (1 − m%)  [m% tope 95]
-  function marginApplied(costClp, pct) {
+  function marginApplied(baseCost, pct) {
     const p = num(pct) / 100;
-    if (rules().marginBasis === 'sale') return costClp / (1 - Math.min(Math.max(p, 0), 0.95));
-    return costClp * (1 + p);
+    if (rules().marginBasis === 'sale') return baseCost / (1 - Math.min(Math.max(p, 0), 0.95));
+    return baseCost * (1 + p);
   }
-  // Costo neto en CLP de un componente: costo de proveedor (convertido si es
-  // USD) + impuesto adicional % (aduana/importación en dropshipping).
+  // Costo neto en moneda base: costo de proveedor (convertido si viene en otra
+  // moneda) + impuesto adicional % (aduana/importación, servicio externo…).
   function componentNetCost(c) {
-    return costCLP(c.cost, c.currency) * (1 + Math.max(0, num(c.taxPct)) / 100);
+    return costBase(c.cost, c.currency) * (1 + Math.max(0, num(c.taxPct)) / 100);
   }
-  // Precio bruto de venta de un componente (sin redondear): margen del tipo + IVA.
+  // Precio bruto de venta de un componente (sin redondear): margen del tipo +
+  // impuesto de venta.
   function componentGross(c) {
-    return marginApplied(componentNetCost(c), marginFor(c.type)) * (1 + rules().ivaPct / 100);
+    return marginApplied(componentNetCost(c), marginFor(c.type)) * (1 + rules().salesTaxPct / 100);
   }
   const roundStep = (x, step) => Math.round(x / step) * step;
   function componentSale(c) { return roundStep(componentGross(c), rules().deltaRoundTo); }
+  // Redondeo del precio final, parametrizable:
+  //  none    → sin redondeo (solo entero)
+  //  nearest → al múltiplo más cercano de roundTo
+  //  up      → hacia arriba al múltiplo de roundTo
+  //  ending  → el menor precio terminado en roundEnding que sea >= x
+  //            (ej. roundTo 1000 + roundEnding 990 = precios .990)
   function roundFinal(x) {
-    const mode = rules().roundMode;
-    if (mode === 'up1000') return Math.ceil(x / 1000) * 1000;
-    if (mode === 'none') return Math.round(x);
-    // end990: menor precio terminado en 990 que sea >= x
-    return Math.max(990, Math.ceil((x - 990) / 1000) * 1000 + 990);
+    const r = rules();
+    const to = Math.max(1, r.roundTo);
+    if (r.roundMode === 'nearest') return Math.round(x / to) * to;
+    if (r.roundMode === 'up') return Math.ceil(x / to) * to;
+    if (r.roundMode === 'ending') {
+      const e = Math.min(Math.max(0, r.roundEnding), to - 1);
+      return Math.max(e, Math.ceil((x - e) / to) * to + e);
+    }
+    return Math.round(x);
   }
 
   const compById = (id) => model.components.find((c) => c.id === id) || null;
@@ -239,58 +413,63 @@ export default function mount(shell) {
   function compAvailable(c) { return !!c && c.active !== false && (c.stock == null || num(c.stock) > 0); }
 
   // ── Valores genéricos con pool de alternativas ────────────────────────────
-  // Cada paso tiene VALORES genéricos que ve el cliente ("Cubierta roble", sin
+  // Cada paso tiene VALORES genéricos que ve el cliente ("Roble natural", sin
   // marca) y cada valor un pool de componentes ALTERNATIVOS de distintos
   // proveedores/marcas que se COMPLEMENTAN: al calcular, siempre se usa la
   // alternativa más económica DISPONIBLE (activa y con stock) — mejor precio
   // y disponibilidad continua. Sus specs/imagen alimentan el detalle público.
   function groupValues(g) { return Array.isArray(g.values) ? g.values : []; }
-  // Cantidad del valor: cuántas unidades del componente elegido incluye
-  // (ej: "16GB (2×8)" con qty 2 usa dos módulos de 8GB → precio y stock ×2).
-  function valueQty(v) { return Math.max(1, Math.round(num(v && v.qty, 1)) || 1); }
-  // Valor NEUTRO (explícito): opción válida de $0 sin componentes ("Sin
-  // accesorio", "No, gracias"). Clave para pasos dependientes: cuando el paso
-  // está oculto, la tienda usa su default — que idealmente es un neutro.
-  // Debe marcarse EXPLÍCITAMENTE (neutral: true): un valor que quedó sin
-  // componentes por accidente (ej. componente eliminado) sigue tratándose
-  // como no disponible, nunca como gratis.
-  function valueIsNeutral(v) { return !!v && v.neutral === true && !((v.componentIds || []).length); }
   function valueAlts(v) { return (v.componentIds || []).map(compById).filter(Boolean); }
+  // CANTIDAD del valor (ProductLab): cuántas unidades del componente elegido
+  // incluye (ej. "16GB (2×8)" con qty 2 usa dos módulos → precio ×2 y stock
+  // exigido ×2). Permite ofrecer 2×8 y 2×16 en un mismo paso reutilizando el
+  // mismo pool de alternativas. Default 1.
+  function valueQty(v) { return Math.max(1, Math.round(num(v && v.qty, 1)) || 1); }
   // Disponible para una cantidad: activo y con stock suficiente (null = sin control).
   function compAvailableQty(c, qty) { return !!c && c.active !== false && (c.stock == null || num(c.stock) >= Math.max(1, qty)); }
+  // Un valor SIN componentes asignados es una opción que NO agrega costo:
+  // elegir un acabado, un color o una terminación que vale lo mismo. Siempre
+  // está disponible y suma 0 (más su recargo si lo declara). Es un caso
+  // distinto —y legítimo— del valor que SÍ declara alternativas pero las
+  // tiene todas inactivas o sin stock, que sigue quedando fuera de la tienda.
+  function valueIsFree(v) { return !((v.componentIds || []).length); }
   function valueChosen(v) {
-    if (valueIsNeutral(v)) return null;
     const q = valueQty(v);
     const avail = valueAlts(v).filter((c) => compAvailableQty(c, q));
     if (!avail.length) return null;
     return avail.reduce((best, c) => (componentGross(c) < componentGross(best) ? c : best), avail[0]);
   }
+  // Recargo manual del valor: precio de venta que se suma directamente, sin
+  // necesidad de modelar un componente. Es la vía simple para "precios por
+  // paso" cuando el costo no se lleva en detalle.
   function valueGross(v) {
-    if (valueIsNeutral(v)) return 0;
+    const manual = num(v && v.priceDelta, 0);
+    if (valueIsFree(v)) return manual;
     const c = valueChosen(v);
-    return c ? componentGross(c) * valueQty(v) : null;
+    return c ? componentGross(c) * valueQty(v) + manual : null;
   }
   function valueSale(v) { const g = valueGross(v); return g == null ? null : roundStep(g, rules().deltaRoundTo); }
-  function valueAvailable(v) { return valueIsNeutral(v) || valueChosen(v) != null; }
+  function valueAvailable(v) { return valueIsFree(v) || valueChosen(v) != null; }
   function groupDefaultValue(g) {
     const vals = groupValues(g).filter(valueAvailable);
     return vals.find((v) => v.id === g.defaultValueId) || vals[0] || null;
   }
 
-  // ── Dependencias entre pasos ──────────────────────────────────────────────
+  // ── Dependencias entre pasos (ProductLab) ─────────────────────────────────
   // Un paso puede depender de un paso ANTERIOR: solo se muestra en la tienda
   // si la selección de ese paso está en dependsOn.valueIds (ej: "Tarjeta de
-  // video" solo si la placa elegida la admite). Oculto = se fuerza su valor
-  // por defecto, por eso conviene que el default de un paso dependiente sea
-  // NEUTRO ($0, sin componentes). Las variantes siguen siendo el producto
-  // cartesiano completo: las combinaciones "imposibles" existen en la tienda
-  // pero el cliente nunca puede seleccionarlas.
+  // video" solo con la placa que la admite). Oculto = el configurador fuerza
+  // su valor por defecto — conviene que ese default sea un valor SIN costo
+  // (componentIds: [] y sin recargo), para no cobrar lo que no se ve. Las
+  // variantes siguen siendo el producto cartesiano completo (Jumpseller exige
+  // un valor por opción en cada variante): las combinaciones imposibles
+  // existen pero el cliente nunca puede seleccionarlas.
   function groupDependsOn(g) {
     const d = g && g.dependsOn;
     return d && d.stepId && Array.isArray(d.valueIds) && d.valueIds.length ? d : null;
   }
-  // Sanea dependencias: solo pueden apuntar a un paso ANTERIOR (sin ciclos) y
-  // a valores que existan; lo inválido se descarta en silencio al guardar.
+  // Sanea dependencias al guardar: solo un paso ANTERIOR (sin ciclos) y solo
+  // valores existentes; lo inválido se descarta en silencio.
   function normalizeDependsOn(groups) {
     return groups.map((g, i) => {
       const d = groupDependsOn(g);
@@ -318,17 +497,55 @@ export default function mount(shell) {
 
   // ── Base del producto: componentes base reales + costos adicionales ────────
   // Los componentes base usan el margen de SU tipo; los costos adicionales
-  // manuales (producción, embalaje, otros) usan rules.marginBasePct.
+  // manuales (confección, montaje, embalaje) usan rules.marginBasePct.
   function baseBreakdown(eq) {
     const r = rules();
     const comps = (eq.baseComponentIds || []).map(compById).filter(Boolean);
     const extras = (Array.isArray(eq.extraCosts) ? eq.extraCosts : []).filter((x) => x && num(x.cost) > 0);
     let gross = 0;
     comps.forEach((c) => { gross += componentGross(c); });
-    extras.forEach((x) => { gross += marginApplied(costCLP(x.cost, x.currency), r.marginBasePct) * (1 + r.ivaPct / 100); });
+    extras.forEach((x) => { gross += marginApplied(costBase(x.cost, x.currency), r.marginBasePct) * (1 + r.salesTaxPct / 100); });
     return { comps, extras, gross };
   }
+  // ── Modo de precio ────────────────────────────────────────────────────────
+  // Calcular desde costos es UNA forma de fijar el precio, no la única. Hay
+  // productos (packs, precio de lista, promociones) donde el precio se decide
+  // y el detalle de costos es opcional o vive en otro lado:
+  //   auto  → desde los costos y las reglas de margen (comportamiento clásico)
+  //   fixed → precio escrito a mano, exacto (no se redondea)
+  //   store → el precio que ya tiene el producto en la app Productos/Jumpseller
+  // En fixed y store el precio corresponde a la configuración POR DEFECTO; si
+  // algún valor tiene recargo, se suma la DIFERENCIA contra el valor por
+  // defecto de su paso (sin recargos, todas las combinaciones valen igual).
+  const PRICE_MODES = ['auto', 'fixed', 'store'];
+  const priceModeOf = (eq) => (PRICE_MODES.indexOf(eq && eq.priceMode) !== -1 ? eq.priceMode : 'auto');
+  const isFixedPrice = (eq) => priceModeOf(eq) !== 'auto';
+  // Precio del producto enlazado en la app Productos (lo que ya cobra la
+  // tienda). Si el catálogo aún no cargó, usa la última copia conocida.
+  function storeCatalogPrice(eq) {
+    const it = productItemFor(eq);
+    const live = it && it.price != null ? num(it.price) : null;
+    if (live != null && live > 0) return live;
+    // Sin precio vivo (el catálogo aún no cargó, o el enlace no resuelve) NO
+    // se cae a 0: eso convertía un dato que todavía no llegó en un precio
+    // real, que luego se persistía al guardar. Manda el último precio
+    // conocido del producto, y solo si tampoco hay, el fijo.
+    const fijo = num(eq && eq.fixedPrice, 0);
+    if (fijo > 0) return fijo;
+    return num(eq && eq.price, 0);
+  }
+  function basePriceOf(eq) {
+    return priceModeOf(eq) === 'store' ? Math.round(storeCatalogPrice(eq)) : Math.round(num(eq && eq.fixedPrice, 0));
+  }
+  // Recargo de un valor respecto al valor por defecto de su paso.
+  function valueExtra(eq, g, v) {
+    const vg = valueGross(v) || 0;
+    if (!isFixedPrice(eq)) return vg;
+    const dv = groupDefaultValue(g);
+    return vg - (dv ? (valueGross(dv) || 0) : 0);
+  }
   function productoComputedPrice(eq) {
+    if (isFixedPrice(eq)) return basePriceOf(eq); // el default vale exactamente lo fijado
     let gross = baseBreakdown(eq).gross;
     (eq.groups || []).forEach((g) => {
       const dv = groupDefaultValue(g);
@@ -337,7 +554,9 @@ export default function mount(shell) {
     });
     return roundFinal(gross);
   }
-  function deltaFor(g, v) {
+  function deltaFor(g, v, eq) {
+    // Con precio fijo no hay recargos que mostrar en la tienda.
+    if (isFixedPrice(eq)) return 0;
     const dv = groupDefaultValue(g);
     if (!dv || dv.id === v.id) return 0;
     const a = valueSale(v);
@@ -364,11 +583,11 @@ export default function mount(shell) {
       const c = dv && valueChosen(dv);
       if (c) acc = sum ? acc + num(c.deliveryDays, 0) : Math.max(acc, num(c.deliveryDays, 0));
     });
-    return acc + numOr(eq.deliveryExtraDays, r.assemblyDays);
+    return acc + numOr(eq.deliveryExtraDays, r.leadTimeDays);
   }
 
   // ── Compatibilidades ──────────────────────────────────────────────────────
-  // Cada componente declara: tags (lo que aporta, ej. "textura:roble, 220v"),
+  // Cada componente declara: tags (lo que aporta, ej. "material:roble"),
   // requires (lo que necesita de OTROS componentes) y excludes (tags con los
   // que no puede convivir). Un set es válido si todo require se satisface y
   // ningún exclude aparece en los demás.
@@ -399,27 +618,28 @@ export default function mount(shell) {
       const vals = groupValues(g);
       if (!vals.length) { warns.push('El paso "' + label + '" no tiene valores definidos.'); return; }
       vals.forEach((v) => {
-        // Los valores NEUTROS explícitos ($0, sin componentes) son válidos.
-        if (valueIsNeutral(v)) return;
-        if (!valueAlts(v).length) warns.push('El valor "' + (v.label || '(sin nombre)') + '" de "' + label + '" no tiene componentes: asígnale alternativas o márcalo como valor neutro ($0). Mientras tanto se excluirá de la tienda.');
-        else if (!valueAvailable(v)) warns.push('El valor "' + v.label + '" de "' + label + '" quedó sin alternativas disponibles (inactivas o con stock menor a su cantidad ×' + valueQty(v) + '): se excluirá de la tienda.');
+        // Sin componentes = opción que no agrega costo (perfectamente válida).
+        // Solo se avisa cuando SÍ hay alternativas pero ninguna utilizable.
+        if (valueAlts(v).length && !valueAvailable(v)) warns.push('El valor "' + v.label + '" de "' + label + '" quedó sin alternativas disponibles (inactivas o con stock menor a su cantidad ×' + valueQty(v) + '): se excluirá de la tienda.');
       });
       const dv = groupDefaultValue(g);
       if (dv) { const c = valueChosen(dv); if (c) chosenSet.push(c); }
       else warns.push('El paso "' + label + '" no tiene ningún valor disponible.');
-      // Avisos de dependencias: cuando el paso está oculto la tienda cobra su
-      // valor por defecto igual — si ese default tiene precio, se recarga sin
-      // que el cliente lo vea. Recomendar un default neutro.
+      // Pasos dependientes: cuando el paso queda oculto, la tienda cobra su
+      // default igual — si ese default tiene precio, se recarga sin verse.
       const dep = groupDependsOn(g);
       if (dep) {
         const target = (eq.groups || []).find((x) => x.id === dep.stepId);
-        if (!target) warns.push('El paso dependiente "' + label + '" apunta a un paso que ya no existe (se ignorará la dependencia al guardar).');
+        if (!target) warns.push('El paso dependiente "' + label + '" apunta a un paso que ya no existe (la dependencia se descartará al guardar).');
         else {
           const dvg = dv ? valueGross(dv) : null;
-          if (dvg != null && dvg > 0) warns.push('El paso dependiente "' + label + '" tiene un default con precio: cuando quede oculto en la tienda igual se cobrará. Usa como default un valor neutro ($0, sin componentes), ej. "Sin ' + label.toLowerCase() + '".');
+          if (dvg != null && dvg > 0) warns.push('El paso dependiente "' + label + '" tiene un default con precio: cuando quede oculto en la tienda igual se cobrará. Usa como default un valor sin costo (sin componentes ni recargo), ej. "Sin ' + label.toLowerCase() + '".');
         }
       }
     });
+    // Aviso heredado de computadores (mantenimiento pesado sobre 150 variantes).
+    const n = comboCount(eq);
+    if (n > WARN_COMBOS && n <= MAX_COMBOS) warns.push('El producto genera ' + n + ' variantes (aviso sobre ' + WARN_COMBOS + '): la sincronización con la tienda se vuelve pesada. Considera reducir alternativas por paso o dividir el producto.');
     return warns.concat(checkSet(chosenSet));
   }
 
@@ -433,7 +653,7 @@ export default function mount(shell) {
       brand: s(draft.brand).trim(),
       specs: s(draft.specs).trim(),
       imageUrl: s(draft.imageUrl).trim(),
-      currency: draft.currency === 'USD' ? 'USD' : 'CLP',
+      currency: normCurrency(draft.currency),
       cost: num(draft.cost, 0),
       // Impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin impuesto.
       taxPct: Math.max(0, num(draft.taxPct, 0)),
@@ -443,8 +663,8 @@ export default function mount(shell) {
       deliveryDays: num(draft.deliveryDays, 0),
       // stock: número = unidades disponibles (0 = no elegible); null = sin control
       stock: draft.stock === '' || draft.stock == null ? null : Math.max(0, num(draft.stock, 0)),
-      // productRef: presente si el componente ES un producto de la tienda
-      productRef: draft.productRef && draft.productRef.itemId ? draft.productRef : null,
+      // storeRef: presente si el componente ES un producto de la tienda
+      storeRef: draft.storeRef && draft.storeRef.itemId ? draft.storeRef : null,
       tags: Array.isArray(draft.tags) ? draft.tags : parseList(draft.tags),
       requires: Array.isArray(draft.requires) ? draft.requires : parseList(draft.requires),
       excludes: Array.isArray(draft.excludes) ? draft.excludes : parseList(draft.excludes),
@@ -484,16 +704,16 @@ export default function mount(shell) {
   }
 
   // ── CRUD de productos ───────────────────────────────────────────────────────
-  // productRef enlaza al item de producto de la app `products`:
+  // storeRef enlaza al item de producto de la app `products`:
   //   { instanceId, itemId, sourceId (id Jumpseller o null), sku, name, imageUrl }
-  function productRefOf(eq) {
-    const r = eq && eq.productRef;
+  function storeRefOf(eq) {
+    const r = eq && eq.storeRef;
     return r && r.instanceId && r.itemId ? r : null;
   }
   // Item de producto VIVO desde el catálogo de la app products (si está cargado).
   function productItemFor(eq) {
-    const ref = productRefOf(eq);
-    return ref ? model.storeCatalog.find((p) => p && p.id === ref.itemId) || null : null;
+    const ref = storeRefOf(eq);
+    return ref ? model.catalog.find((p) => p && p.id === ref.itemId) || null : null;
   }
   // Imagen del producto: SIEMPRE la actual del producto en la tienda (la copia
   // local puede quedar obsoleta si cambian la foto en Jumpseller/products).
@@ -507,17 +727,6 @@ export default function mount(shell) {
     if (base && p && p.permalink) return base + '/' + s(p.permalink).replace(/^\/+/, '');
     return '';
   }
-  // URL de embebido del visualizador 3D: el visor (repo personalizador →
-  // "ProductLab Visualizador") recibe el JSON público (?def=) y el producto
-  // (?producto= sku o id) y arma la escena con model3d.{modelUrl,config}.
-  function viewerEmbedUrl(eq) {
-    const m = (eq && eq.model3d) || {};
-    const base = s(m.viewerUrl).trim();
-    if (!base) return '';
-    const sep = base.indexOf('?') !== -1 ? '&' : '?';
-    const ref = s(eq.sku).trim() || eq.id || '';
-    return base + sep + 'def=' + encodeURIComponent(publicUrl) + '&producto=' + encodeURIComponent(ref);
-  }
   // Todas las fotos de la galería del producto enlazado (pull de products);
   // fallback a la principal si el backend aún no expone images[].
   function productImagesFor(eq) {
@@ -525,6 +734,26 @@ export default function mount(shell) {
     if (!p) return [];
     if (Array.isArray(p.images) && p.images.length) return p.images.filter(Boolean).map((u) => String(u));
     return p.imageUrl ? [String(p.imageUrl)] : [];
+  }
+  // Descripción del producto EN LA TIENDA (pull de products). No se copia a la
+  // app: se lee viva, así editarla en Jumpseller no obliga a tocar nada aquí.
+  function productDescriptionFor(eq) {
+    const p = productItemFor(eq);
+    return s((p && (p.description || p.body)) || '');
+  }
+  // Las descripciones de la tienda vienen en HTML. Para previsualizar y para
+  // recortar a N caracteres se pasa a texto plano: cortar el HTML a pelo
+  // dejaría etiquetas abiertas.
+  function descriptionText(html, max) {
+    let t = s(html)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+      .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    if (max > 0 && t.length > max) t = t.slice(0, max).replace(/\s+\S*$/, '') + '…';
+    return t;
   }
   // Biblioteca de imágenes del PRODUCTO: las subidas a su galería + toda
   // imagen usada en él (fondos de hero del builder, fotos de valores,
@@ -591,7 +820,7 @@ export default function mount(shell) {
     if (!Array.isArray(eq.extraCosts)) {
       eq.extraCosts = [];
       if (eq.base && num(eq.base.cost) > 0) {
-        eq.extraCosts.push({ id: newId('ec'), label: 'Costo base (migrado)', cost: num(eq.base.cost), currency: eq.base.currency === 'USD' ? 'USD' : 'CLP' });
+        eq.extraCosts.push({ id: newId('ec'), label: 'Costo base (migrado)', cost: num(eq.base.cost), currency: normCurrency(eq.base.currency) });
       }
     }
     delete eq.base;
@@ -636,6 +865,7 @@ export default function mount(shell) {
     { id: 'icons', label: 'Iconos destacados', chip: 'ICONOS' },
     { id: 'specs', label: 'Especificaciones (resumen)', chip: 'SPECS' },
     { id: 'gallery', label: 'Foto de la galería', chip: 'GAL' },
+    { id: 'description', label: 'Descripción del producto', chip: 'DESC' },
     { id: 'html', label: 'HTML libre', chip: 'HTML' },
   ];
   function normalizeHeroBlock(b) {
@@ -680,6 +910,12 @@ export default function mount(shell) {
       // 'auto' = alto natural de la foto de la galería
       size: ['s', 'l', 'xl', 'auto'].indexOf(b.size) !== -1 ? b.size : 'm',
     });
+    // Descripción: el texto que ya tiene el producto en la tienda. No se copia
+    // aquí (seguiría al día sola), solo se decide dónde y cómo mostrarla.
+    if (b.type === 'description') return Object.assign(base, {
+      size: ['xl', 'l', 's'].indexOf(b.size) !== -1 ? b.size : 'm',
+      max: Math.max(0, num(b.max, 0)),
+    });
     if (b.type === 'html') return Object.assign(base, { html: s(b.html) });
     return null;
   }
@@ -703,6 +939,26 @@ export default function mount(shell) {
     };
   }
 
+  // Hero de arranque. Un producto recién creado no tiene ninguna sección hero,
+  // así que la pestaña Explorar de la tienda sale vacía y la ficha se ve a
+  // medias justo cuando el producto acaba de quedar listo. Se siembra uno
+  // usable —nombre, descripción real de la tienda, foto y botón Configurar—
+  // que el usuario edita o borra; con `heroSeeded` esto ocurre UNA sola vez,
+  // de modo que borrarlos todos a propósito no lo hace reaparecer.
+  function starterHero() {
+    return normalizePageSection({
+      kind: 'hero', pattern: 'columnas', height: 'l', overlay: true,
+      slots: {
+        left: [
+          { type: 'title', align: 'left' },
+          { type: 'description', align: 'left', size: 'm', max: 320 },
+          { type: 'cta', align: 'left', label: 'Configurar', action: 'configurar' },
+        ],
+        right: [{ type: 'photo', size: 'l', anim: 'float' }],
+      },
+    });
+  }
+
   // Sección del builder de descripción: hero (patrón + bloques), la tabla de
   // especificaciones o la nota — reordenables; specs/nota se ocultan con show.
   function normalizePageSection(x) {
@@ -710,9 +966,9 @@ export default function mount(shell) {
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
       return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false };
     }
-    // Sección IMAGEN: solo una foto, a lo ancho, cuyo ALTO se adapta a la
-    // imagen (sin recortes) — ideal para descripciones hechas de muchas fotos
-    // apiladas con alturas distintas. Repetible, como los heros.
+    // Sección IMAGEN (ProductLab): solo una foto, a lo ancho, cuyo ALTO se
+    // adapta a la imagen (sin recortes) — ideal para descripciones hechas de
+    // muchas fotos apiladas con alturas distintas. Repetible, como los heros.
     if (x.kind === 'imagen') {
       return {
         id: x.id || newId('ps'),
@@ -723,16 +979,134 @@ export default function mount(shell) {
         link: s(x.link).trim(),
       };
     }
-    // Sección VISOR 3D: embebe el visualizador 3D del producto (model3d) en la
-    // página, en la posición elegida. Única por ficha.
-    if (x.kind === 'visor3d') {
-      return { id: x.id || newId('ps'), kind: 'visor3d', height: Math.max(240, Math.min(900, num(x.height, 480))) };
-    }
     const hx = normalizeHero(x);
     return hx ? Object.assign({ kind: 'hero' }, hx) : null;
   }
 
+  // ── Visor 3D (OPCIONAL) ───────────────────────────────────────────────────
+  // Un producto puede declarar un modelo 3D para previsualizar la
+  // configuración en vivo. Es opcional de punta a punta: sin `model3d.url` la
+  // app se comporta exactamente igual que sin 3D, no aparece ninguna UI extra
+  // y el motor (three.js, ~155 KB gzip) NUNCA se descarga.
+  //
+  //   model3d = {
+  //     enabled, url, rotation:[x,y,z], mirror, publish,
+  //     parts:    [{ id, label, materials:[nombres del GLB], defaultColor,
+  //                  defaultFinish, roughness, grainVertical, grainAngle }],
+  //     finishes: [{ id, label, color, texture, roughness, textureScale,
+  //                  grain, opacity, triplanar, plySpacing }],
+  //   }
+  //
+  // y cada VALOR de un paso puede llevar efectos sobre el modelo:
+  //   value.model3d = [{ partId, type: 'color'|'finish'|'hide', color, finishId }]
+  const EFFECT_TYPES = ['color', 'finish', 'hide'];
+  // Como parseList() pero SIN pasar a minúsculas: los nombres de material del
+  // GLB distinguen mayúsculas y deben conservarse tal cual.
+  const toList = (v) => (Array.isArray(v) ? v : s(v).split(',')).map((x) => s(x).trim()).filter(Boolean);
+
+  function normalizeEffects(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map((e) => {
+      if (!e || typeof e !== 'object') return null;
+      const partId = s(e.partId).trim();
+      if (!partId) return null;
+      const type = EFFECT_TYPES.indexOf(e.type) !== -1 ? e.type : 'color';
+      const out = { partId, type };
+      if (type === 'color') out.color = s(e.color).trim();
+      if (type === 'finish') out.finishId = s(e.finishId).trim();
+      return out;
+    }).filter(Boolean);
+  }
+
+  function normalizeModel3d(m) {
+    if (!m || typeof m !== 'object') return null;
+    const url = s(m.url).trim();
+    const parts = (Array.isArray(m.parts) ? m.parts : []).map((p) => ({
+      id: s(p.id).trim() || newId('part'),
+      label: s(p.label).trim(),
+      materials: toList(p.materials),
+      defaultColor: s(p.defaultColor).trim(),
+      defaultFinish: s(p.defaultFinish).trim(),
+      roughness: p.roughness == null || p.roughness === '' ? null : num(p.roughness, 0.85),
+      grainVertical: p.grainVertical === true,
+      grainAngle: num(p.grainAngle, 0),
+      // Materiales de esta parte cuya veta corre A LO LARGO (anulan vertical
+      // y ángulo): ej. el travesaño de una mesa frente a sus patas.
+      grainAlongMaterials: toList(p.grainAlongMaterials),
+    })).filter((p) => p.materials.length);
+    const finishes = (Array.isArray(m.finishes) ? m.finishes : []).map((f) => ({
+      id: s(f.id).trim() || newId('fin'),
+      label: s(f.label).trim(),
+      color: s(f.color).trim(),
+      texture: s(f.texture).trim(),
+      roughness: num(f.roughness, 0.8),
+      textureScale: num(f.textureScale, 1),
+      grain: num(f.grain, 0),
+      opacity: f.opacity == null || f.opacity === '' ? 1 : num(f.opacity, 1),
+      triplanar: f.triplanar !== false,
+      plySpacing: f.plySpacing == null || f.plySpacing === '' ? null : num(f.plySpacing, 0),
+    })).filter((f) => f.label || f.texture || f.color);
+    // Sin modelo ni partes no hay nada que guardar: se deja limpio.
+    if (!url && !parts.length) return null;
+    return {
+      enabled: m.enabled !== false,
+      url,
+      rotation: Array.isArray(m.rotation) && m.rotation.length === 3 ? m.rotation.map((x) => num(x, 0)) : [0, 0, 0],
+      mirror: m.mirror === true,
+      publish: m.publish === true,
+      // Medida real del lado más largo, en cm. El visor normaliza el modelo a
+      // un tamaño arbitrario para encuadrarlo, así que sin este dato la
+      // realidad aumentada no sabría a qué escala apoyarlo en el suelo. 0 =
+      // sin declarar → no se ofrece AR.
+      realSizeCm: Math.max(0, num(m.realSizeCm, 0)),
+      // .glb a escala real para Google Scene Viewer (Android). Lo genera y
+      // sube la app desde el visor: Scene Viewer lo abre el SISTEMA con un
+      // intent, así que necesita una URL pública — un blob del navegador no
+      // le sirve.
+      arUrl: s(m.arUrl).trim(),
+      parts,
+      finishes,
+    };
+  }
+
+  // Modelo utilizable (existe, activo y con archivo) o null.
+  function model3dOf(eq) {
+    const m = eq && eq.model3d;
+    return m && m.enabled !== false && s(m.url).trim() ? m : null;
+  }
+  const has3d = (eq) => model3dOf(eq) != null;
+
+  // Estado del visor para una SELECCIÓN de valores ({grupoId: valorId}).
+  // Sin selección, usa el valor por defecto de cada paso — o sea, el producto
+  // tal como se ve "de fábrica".
+  function build3dState(eq, selection) {
+    const st = { colors: {}, finishes: {}, hidden: {} };
+    if (!model3dOf(eq)) return st;
+    (eq.groups || []).forEach((g) => {
+      const sel = selection && selection[g.id];
+      const v = groupValues(g).find((x) => x.id === sel) || groupDefaultValue(g);
+      if (!v) return;
+      (v.model3d || []).forEach((e) => {
+        if (e.type === 'color') st.colors[e.partId] = e.color;
+        else if (e.type === 'finish') st.finishes[e.partId] = e.finishId;
+        else if (e.type === 'hide') st.hidden[e.partId] = true;
+      });
+    });
+    return st;
+  }
+
   async function saveProducto(draft) {
+    // Un producto NUEVO no puede nacer en $0. El modo por defecto ("calculado
+    // desde los costos") da 0 mientras no haya componentes cargados, y ese 0
+    // se guardaba y se mostraba en la lista como si fuera un precio de verdad.
+    // Si el producto ya está enlazado a uno de la tienda que sí tiene precio,
+    // se arranca en modo "precio de la tienda": hereda el que ya cobra.
+    const modoInicial = (function () {
+      if (draft.priceMode) return priceModeOf(draft);
+      if (model.productos.some((e) => e.id === draft.id)) return 'auto';
+      const p = productItemFor(draft);
+      return p && num(p.price) > 0 ? 'store' : 'auto';
+    })();
     const item = Object.assign({}, normalizeProductoShape(draft), {
       id: draft.id || newId('eq'),
       kind: 'producto',
@@ -740,31 +1114,37 @@ export default function mount(shell) {
       sku: s(draft.sku).trim(),
       storeUrl: s(draft.storeUrl).trim(),
       deliveryMode: draft.deliveryMode === 'sum' ? 'sum' : 'max',
+      // Modo de precio: auto (desde costos) | fixed (a mano) | store (el que
+      // ya tiene el producto en la app Productos/Jumpseller).
+      priceMode: modoInicial,
+      fixedPrice: Math.max(0, num(draft.fixedPrice, 0)),
       status: draft.status || 'active',
       createdAt: draft.createdAt || nowIso(),
       updatedAt: nowIso(),
     });
     item.baseComponentIds = (item.baseComponentIds || []).filter((id) => compById(id));
     item.extraCosts = (item.extraCosts || [])
-      .map((x) => ({ id: x.id || newId('ec'), label: s(x.label).trim() || 'Costo adicional', cost: num(x.cost, 0), currency: x.currency === 'USD' ? 'USD' : 'CLP' }))
+      .map((x) => ({ id: x.id || newId('ec'), label: s(x.label).trim() || 'Costo adicional', cost: num(x.cost, 0), currency: normCurrency(x.currency) }))
       .filter((x) => x.cost > 0);
     item.groups = (item.groups || []).map((g) => {
       const values = groupValues(g)
-        .map((v) => {
-          const componentIds = (v.componentIds || []).filter((id) => compById(id));
-          return {
-            id: v.id || newId('val'),
-            label: s(v.label).trim(),
-            imageUrl: s(v.imageUrl).trim(),
-            // Color del "puntito" (swatch) en la tienda para pasos de color.
-            swatchColor: s(v.swatchColor).trim(),
-            // Cantidad de unidades del componente elegido (ej. 2 para "2×8GB").
-            qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
-            // Neutro explícito: solo válido si el valor NO tiene componentes.
-            neutral: v.neutral === true && !componentIds.length,
-            componentIds,
-          };
-        })
+        .map((v) => ({
+          id: v.id || newId('val'),
+          label: s(v.label).trim(),
+          imageUrl: s(v.imageUrl).trim(),
+          // Color del "puntito" (swatch) en la tienda para pasos de color.
+          swatchColor: s(v.swatchColor).trim(),
+          componentIds: (v.componentIds || []).filter((id) => compById(id)),
+          // Cantidad de unidades del componente elegido (ej. 2 para "2×8GB");
+          // multiplica el precio y exige stock suficiente.
+          qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
+          // Recargo manual de venta: permite "precios por paso" sin modelar
+          // el costo en detalle. Se suma tal cual al precio.
+          priceDelta: num(v.priceDelta, 0),
+          // Efectos sobre el visor 3D al elegir este valor (opcional: si el
+          // producto no tiene modelo, queda vacío y no molesta).
+          model3d: normalizeEffects(v.model3d),
+        }))
         .filter((v) => v.label);
       return {
         id: g.id || newId('grp'),
@@ -780,9 +1160,38 @@ export default function mount(shell) {
       };
     });
     item.groups = normalizeDependsOn(item.groups);
+    // Visor 3D: opcional. null = este producto simplemente no tiene 3D.
+    item.model3d = normalizeModel3d(draft.model3d);
+    // Efectos que apunten a partes ya inexistentes se podan solos.
+    if (item.model3d) {
+      const partIds = item.model3d.parts.map((p) => p.id);
+      item.groups.forEach((g) => g.values.forEach((v) => {
+        v.model3d = (v.model3d || []).filter((e) => partIds.indexOf(e.partId) !== -1);
+      }));
+    } else {
+      item.groups.forEach((g) => g.values.forEach((v) => { v.model3d = []; }));
+    }
     // Ficha de tienda (pestañas Explorar/Especificaciones del theme):
     const sf = draft.storefront || {};
     const hero = sf.hero || {};
+    // Secciones de la ficha, con el hero de arranque si aún no hay ninguno.
+    const sfSections = (function () {
+      const seen = {};
+      const out = (Array.isArray(sf.pageSections) ? sf.pageSections : [])
+        .map(normalizePageSection).filter(Boolean)
+        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
+      // Solo la primera vez, y solo si tampoco hay hero clásico con contenido:
+      // si el usuario ya escribió titular ahí, sembrar otro sería duplicar.
+      const heroClasico = s(hero.headline).trim() || s(hero.bgImageUrl).trim();
+      if (sf.heroSeeded !== true && !heroClasico && !out.some((x) => x.kind === 'hero')) {
+        const st = starterHero();
+        if (st) out.unshift(st);
+      }
+      if (!seen.specs) out.push({ id: newId('ps'), kind: 'specs', show: true });
+      if (!seen.fotos) out.push({ id: newId('ps'), kind: 'fotos', show: true });
+      if (!seen.note) out.push({ id: newId('ps'), kind: 'note', show: true });
+      return out;
+    })();
     item.storefront = {
       hero: {
         bgImageUrl: s(hero.bgImageUrl).trim(),
@@ -816,19 +1225,13 @@ export default function mount(shell) {
       photosNote: s(sf.photosNote).trim(),
       // Builder de descripción del producto: secciones ordenadas (heros +
       // especificaciones + nota). Specs y nota existen exactamente una vez.
-      pageSections: (function () {
-        const seen = {};
-        // hero e imagen son repetibles; specs/fotos/note/visor3d existen una vez.
-        const out = (Array.isArray(sf.pageSections) ? sf.pageSections : [])
-          .map(normalizePageSection).filter(Boolean)
-          .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
-        if (!seen.specs) out.push({ id: newId('ps'), kind: 'specs', show: true });
-        if (!seen.fotos) out.push({ id: newId('ps'), kind: 'fotos', show: true });
-        if (!seen.note) out.push({ id: newId('ps'), kind: 'note', show: true });
-        return out;
-      })(),
-      // Estilo del configurador y de la página en la tienda (vacío = colores y
-      // tipografías del theme del sitio). El previsualizador de Pasos lo refleja.
+      pageSections: sfSections,
+      // Marca de que el hero de arranque ya se sembró: no vuelve a aparecer
+      // aunque después se borren todas las secciones hero.
+      heroSeeded: sf.heroSeeded === true || sfSections.some((x) => x.kind === 'hero'),
+      // Estilo del configurador y la página en la tienda por producto
+      // (ProductLab; vacío = colores y tipografías del theme del sitio). El
+      // previsualizador de la pestaña Pasos lo refleja en vivo.
       style: (function () {
         const st = sf.style || {};
         return {
@@ -871,17 +1274,6 @@ export default function mount(shell) {
         })).filter((it) => it.title || it.text),
       })).filter((sec) => sec.title || sec.text || sec.items.length),
     };
-    // Visualizador 3D del producto (herencia del personalizador): visor web
-    // embebible + modelo GLB + configuración de partes/texturas + AR opcional.
-    const v3 = draft.model3d || {};
-    item.model3d = {
-      enabled: v3.enabled === true,
-      viewerUrl: s(v3.viewerUrl).trim(),      // URL del visualizador desplegado
-      modelUrl: s(v3.modelUrl).trim(),        // GLB del producto
-      arUrl: s(v3.arUrl).trim(),              // GLB para AR vía /api/public/app/{id}/ar/… (ruta /api/public/files/…)
-      bindStepId: s(v3.bindStepId).trim(),    // paso cuya selección elige textura/acabado en el visor
-      config: v3.config && typeof v3.config === 'object' && !Array.isArray(v3.config) ? v3.config : null,
-    };
     // Galería del producto: unión de la biblioteca manual + imágenes en uso.
     item.galleryImages = collectProductoImages(item);
     item.price = productoComputedPrice(item);
@@ -891,7 +1283,7 @@ export default function mount(shell) {
     try {
       if (isNew) await shell.items.create(item); else await shell.items.update(item.id, item);
       scheduleRepublish();
-      return { success: true, message: 'Producto "' + item.name + '" guardado en ' + fmtCLP(item.price) + '.', item };
+      return { success: true, message: 'Producto "' + item.name + '" guardado en ' + fmtMoney(item.price) + '.', item };
     } catch (e) {
       shell.notify({ level: 'error', text: 'No se pudo guardar el producto: ' + ((e && e.message) || 'error desconocido') });
       await load();
@@ -943,10 +1335,14 @@ export default function mount(shell) {
     .filter((o) => o.values.length > 0);
   }
   function buildStoreVariants(eq, existing) {
-    const baseGross = baseBreakdown(eq).gross;
+    const fixed = isFixedPrice(eq);
+    // Con precio fijo/de tienda se parte del precio decidido; con auto, del
+    // costo. En ambos casos cada paso suma lo que corresponda (nada, si los
+    // valores no tienen recargo → todas las combinaciones al mismo precio).
+    const baseGross = fixed ? basePriceOf(eq) : baseBreakdown(eq).gross;
     const groups = (eq.groups || [])
-      .map((g) => ({ label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
-      .filter((g) => g.vals.length > 0);
+      .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
+      .filter((x) => x.vals.length > 0);
     if (!groups.length) return [];
     const sig = (opts) => JSON.stringify(Object.keys(opts || {}).sort().map((k) => [norm(k), norm(opts[k])]));
     const exBySig = new Map();
@@ -954,24 +1350,25 @@ export default function mount(shell) {
     // Producto cartesiano de valores; el costo de cada valor es SIEMPRE el de
     // su alternativa más económica disponible en este momento.
     let combos = [{ opts: {}, gross: baseGross }];
-    groups.forEach((g) => {
+    groups.forEach((x) => {
       const next = [];
-      combos.forEach((c) => g.vals.forEach((v) => {
+      combos.forEach((c) => x.vals.forEach((v) => {
         const opts = Object.assign({}, c.opts);
-        opts[g.label] = v.label;
-        next.push({ opts, gross: c.gross + valueGross(v) });
+        opts[x.label] = v.label;
+        next.push({ opts, gross: c.gross + valueExtra(eq, x.g, v) });
       }));
       combos = next;
     });
     return combos.map((c) => {
       const ex = exBySig.get(sig(c.opts));
-      const v = { options: c.opts, price: roundFinal(c.gross) };
+      // El precio fijo no se redondea: vale exactamente lo que se definió.
+      const v = { options: c.opts, price: fixed ? Math.round(c.gross) : roundFinal(c.gross) };
       if (ex && ex.sourceVariantId) v.sourceVariantId = ex.sourceVariantId;
       return v;
     });
   }
   async function applyToStore(eq) {
-    const ref = productRefOf(eq);
+    const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
     if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
     // Sin pasos = producto SIMPLE (dropshipping): precio directo, sin opciones
@@ -987,17 +1384,49 @@ export default function mount(shell) {
     if (!existing && shell.data && shell.data.listItems) {
       return { success: false, error: 'No se pudo leer el producto enlazado desde la app Productos (¿instancia visible? ¿item eliminado?). Revisa el enlace del producto y reintenta.' };
     }
+    // Modo "store": el precio de referencia es el del item recién leído, no la
+    // copia en memoria del catálogo (que puede venir de una carga anterior).
+    if (priceModeOf(eq) === 'store' && existing && num(existing.price) > 0) {
+      eq = Object.assign({}, eq, { fixedPrice: num(existing.price) });
+    }
     const options = buildStoreOptions(eq, existing);
     const variants = buildStoreVariants(eq, existing);
     const price = productoComputedPrice(eq);
+    // GUARDIA DE PRECIO CERO. Un 0 aquí nunca significa "producto gratis":
+    // significa que falta un dato. Y como esto escribe en la tienda VIVA,
+    // publicarlo deja el producto a $0 a la venta. Se para antes del PUT y se
+    // dice cuál de los tres modos no tiene de dónde sacar el precio.
+    if (!(num(price) > 0)) {
+      const modo = priceModeOf(eq);
+      const porQue = modo === 'auto'
+        ? 'Está en precio automático y no hay costos de los que calcularlo: ni componentes base, ni costos adicionales, ni componentes en los valores por defecto de los pasos. '
+          + 'Los pasos generados desde el modelo 3D no llevan costo por sí solos. Añade costos, o cambia el modo a precio fijo o precio de la tienda.'
+        : modo === 'store'
+          ? 'Está en "precio de la tienda", pero el producto enlazado no tiene precio útil ('
+            + (existing ? 'llegó con precio ' + num(existing.price) : 'no se pudo leer el item') + '). Ponle precio en la app Productos, o cambia a precio fijo.'
+          : 'Está en precio fijo pero no hay precio escrito. Escríbelo en el producto.';
+      return { success: false, error: 'No se aplicó nada: el precio calculado es ' + fmtMoney(price)
+        + ' y publicarlo dejaría "' + eq.name + '" a $0 en la tienda. ' + porQue };
+    }
+    // Lo mismo por combinación: un recargo negativo puede hundir una variante
+    // aunque el precio por defecto esté bien.
+    const cero = variants.filter((v) => !(num(v.price) > 0));
+    if (cero.length) {
+      const ej = Object.keys(cero[0].options || {}).map((k) => k + ': ' + cero[0].options[k]).join(', ');
+      return { success: false, error: 'No se aplicó nada: ' + cero.length + ' de ' + variants.length
+        + ' variante(s) quedarían a ' + fmtMoney(0) + ' o menos (por ejemplo « ' + ej + ' »). '
+        + 'Revisa los recargos de los valores: alguno resta más de lo que vale la configuración por defecto.' };
+    }
     try {
       // 1) Persistir en el item del producto (merge; auto-push de campos base).
       const putRes = await shell.authFetch(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        // customFields: el backend (parcheado) asegura el custom field en
+        // customFields: parametrizable — es la marca que le dice al theme que
+        // este producto usa la vista de configurador (default diseno=personalizado).
+        // El backend asegura el custom field en
         // Jumpseller tras el push — activa la vista personalizada del theme
         // sin pasos manuales.
-        body: JSON.stringify({ price, options, variants, customFields: { diseno: 'personalizado' }, syncStatus: 'pending' }),
+        body: JSON.stringify({ price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' }),
       });
       if (!putRes.ok) {
         const d = await putRes.json().catch(() => ({}));
@@ -1023,7 +1452,7 @@ export default function mount(shell) {
         // Refrescar la copia local de nombre/sku/imagen desde la tienda (la
         // foto del producto puede haber cambiado desde el enlace inicial).
         imageUrl: (existing && existing.imageUrl) || eq.imageUrl,
-        productRef: existing ? Object.assign({}, ref, {
+        storeRef: existing ? Object.assign({}, ref, {
           name: existing.name || ref.name,
           sku: existing.sku || ref.sku,
           imageUrl: existing.imageUrl || ref.imageUrl,
@@ -1035,7 +1464,7 @@ export default function mount(shell) {
       scheduleRepublish();
       if (errs.length) return { success: false, status, error: 'Sincronizado con errores: ' + errs.join(' · ') };
       const cfNote = cfWarns.length ? ' (aviso: ' + cfWarns.join(' · ') + ' — puedes ponerlo a mano en el admin)' : '';
-      return { success: true, status, message: '"' + eq.name + '" aplicado: ' + fmtCLP(price) + (variants.length ? ', ' + options.length + ' opciones, ' + variants.length + ' variantes.' : ' — producto simple sin variantes (compra directa).') + cfNote };
+      return { success: true, status, message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + (variants.length ? ', ' + options.length + ' opciones, ' + variants.length + ' variantes.' : ' — producto simple sin variantes (compra directa).') + cfNote };
     } catch (e) { return { success: false, error: (e && e.message) || 'Error de red.' }; }
   }
 
@@ -1051,7 +1480,7 @@ export default function mount(shell) {
     for (const ch of changes) {
       // Enlazado: applyToStore persiste el precio local Y empuja opciones/
       // variantes recalculadas a la tienda. Sin enlace: solo guardar local.
-      const r = productRefOf(ch.eq) ? await applyToStore(ch.eq) : await saveProducto(ch.eq);
+      const r = storeRefOf(ch.eq) ? await applyToStore(ch.eq) : await saveProducto(ch.eq);
       results.push({ name: ch.eq.name, from: ch.oldPrice, to: ch.nextPrice, success: r.success, error: r.error });
     }
     if (model.def && model.def.public && model.def.public.enabled) await publish(true); // re-publicar configurador
@@ -1059,8 +1488,8 @@ export default function mount(shell) {
   }
 
   // ── Catálogo de la app products (picker de enlace) ────────────────────────
-  async function loadStoreCatalog() {
-    if (!shell.data || !shell.data.listInstances) { setModel({ storeCatalog: [], storeCatalogLoaded: true }); return; }
+  async function loadCatalog() {
+    if (!shell.data || !shell.data.listInstances) { setModel({ catalog: [], catalogLoaded: true }); return; }
     try {
       const instances = await shell.data.listInstances('products');
       const all = [];
@@ -1072,52 +1501,60 @@ export default function mount(shell) {
           });
         } catch (e) { /* instancia sin acceso */ }
       }
-      setModel({ storeCatalog: all, storeCatalogLoaded: true, storeCatalogError: null });
-    } catch (e) { setModel({ storeCatalog: [], storeCatalogLoaded: true, storeCatalogError: (e && e.message) || 'Sin acceso a la app Productos.' }); }
+      setModel({ catalog: all, catalogLoaded: true, catalogError: null });
+    } catch (e) { setModel({ catalog: [], catalogLoaded: true, catalogError: (e && e.message) || 'Sin acceso a la app Productos.' }); }
   }
 
   // ── Publicación (JSON del configurador para el theme) ─────────────────────
   function buildPublicData() {
     const r = rules();
-    // version 2 = contrato ProductLab: clave `productos` (el theme kit acepta
-    // también `equipos` por compatibilidad con la app de computadores),
-    // dependsOn/qty en los pasos, storefront.style y model3d por producto.
     return {
+      // version 2 = contrato ProductLab: + dependsOn/qty en los pasos y
+      // storefront.style; el theme acepta version 1 sin cambios (degradación).
       version: 2,
       updatedAt: nowIso(),
-      currency: 'CLP',
-      store: 'productlab',
+      currency: rules().currency,
+      store: s((model.def || {}).storeName).trim() || s(instanceId),
       productos: model.productos.filter((eq) => eq.status !== 'inactive').map((eq) => {
-        const ref = productRefOf(eq);
+        const ref = storeRefOf(eq);
         const legacy = legacyLink(eq);
+        // El 3D viaja al theme SOLO si el producto lo tiene activo y marcado
+        // para publicar: es opcional en la app y opcional en la tienda.
+        const m3 = model3dOf(eq);
+        const pubModel3d = m3 && m3.publish === true ? m3 : null;
         return {
           sku: eq.sku || '',
           productId: (ref && ref.sourceId) || (legacy && legacy.sourceId) || null,
           name: eq.name,
           basePrice: productoComputedPrice(eq),
           deliveryDays: productoDelivery(eq),
-          assemblyDays: numOr(eq.deliveryExtraDays, r.assemblyDays),
+          // leadTimeDays es el nombre genérico; assemblyDays se mantiene como
+          // alias para themes que ya consumían el contrato anterior.
+          leadTimeDays: numOr(eq.deliveryExtraDays, r.leadTimeDays),
+          assemblyDays: numOr(eq.deliveryExtraDays, r.leadTimeDays),
           deliveryMode: deliveryModeOf(eq),
           baseDeliveryDays: productoBaseDelivery(eq),
           imageUrl: productoImage(eq),
-          // Ficha de tienda: builder de secciones + specs + estilo (style)
+          // Galería completa y descripción del producto en la tienda: sin
+          // esto el theme solo puede mostrar la foto principal y no hay texto
+          // que incrustar en la ficha.
+          images: productImagesFor(eq),
+          description: productDescriptionFor(eq),
+          // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones
           storefront: eq.storefront || null,
-          // Visualizador 3D (solo si está habilitado): el theme puede embeber
-          // embedUrl en la sección visor3d y ofrecer AR con arUrl vía
-          // GET /api/public/app/{instanceId}/ar/{sku}.glb?m=Material:hex,…
-          model3d: (function () {
-            const m = eq.model3d || {};
-            if (m.enabled !== true) return null;
-            return {
-              enabled: true,
-              viewerUrl: m.viewerUrl || '',
-              modelUrl: m.modelUrl || '',
-              arUrl: m.arUrl || '',
-              bindStepId: m.bindStepId || '',
-              config: m.config || null,
-              embedUrl: viewerEmbedUrl(eq),
-            };
-          })(),
+          // Contrato 3D para el theme: el mismo que consume el motor
+          // (assets/engine3d.js), así la tienda reutiliza el núcleo tal cual.
+          model3d: pubModel3d ? {
+            url: pubModel3d.url,
+            rotation: pubModel3d.rotation,
+            mirror: pubModel3d.mirror === true,
+            // Sin medida real la tienda no ofrece "Ver en tu espacio": es
+            // preferible no ofrecerlo a colocarlo a una escala inventada.
+            realSizeCm: num(pubModel3d.realSizeCm, 0),
+            arUrl: s(pubModel3d.arUrl).trim(),
+            parts: pubModel3d.parts,
+            finishes: pubModel3d.finishes,
+          } : null,
           groups: (eq.groups || []).map((g) => {
             const dv = groupDefaultValue(g);
             return {
@@ -1127,10 +1564,10 @@ export default function mount(shell) {
               affectsPhoto: g.photoStep === true,
               // Dependencia: el theme oculta este paso salvo que el paso
               // dependsOn.groupId tenga seleccionado uno de dependsOn.valueIds
-              // (oculto = usa su valor por defecto).
+              // (oculto = fuerza su valor por defecto en los selects nativos).
               dependsOn: (function () {
-                const d = groupDependsOn(g);
-                return d ? { groupId: d.stepId, valueIds: d.valueIds.slice() } : null;
+                const dep = groupDependsOn(g);
+                return dep ? { groupId: dep.stepId, valueIds: dep.valueIds.slice() } : null;
               })(),
               // Valores genéricos: nombre SIN marca; el detalle (specs, imagen,
               // entrega, compatibilidades) sale de la alternativa elegida
@@ -1140,19 +1577,20 @@ export default function mount(shell) {
                 return {
                   id: v.id,
                   name: v.label,
-                  // qty informativa (el nombre ya debería decirlo: "2×8GB");
-                  // neutral = valor de $0 sin componentes ("Sin accesorio").
+                  // Cantidad informativa (el nombre ya debería decirlo: "2×8GB").
                   qty: valueQty(v),
-                  neutral: valueIsNeutral(v),
                   desc: alt ? alt.specs || '' : '',
                   swatchColor: v.swatchColor || '',
                   imageUrl: v.imageUrl || (alt ? alt.imageUrl || '' : ''),
-                  delta: deltaFor(g, v),
+                  delta: deltaFor(g, v, eq),
                   deliveryDays: alt ? num(alt.deliveryDays, 0) : 0,
                   tags: alt ? alt.tags || [] : [],
                   requires: alt ? alt.requires || [] : [],
                   excludes: alt ? alt.excludes || [] : [],
                   isDefault: !!(dv && dv.id === v.id),
+                  // Efectos 3D del valor: solo viajan si el producto publica
+                  // su modelo (si no, el theme no tendría qué hacer con ellos).
+                  model3d: pubModel3d ? (v.model3d || []) : undefined,
                 };
               }),
             };
@@ -1185,9 +1623,9 @@ export default function mount(shell) {
   // Payload exacto que se escribe en el item de la app products al aplicar
   // (inspección/depuración desde la pestaña Publicación).
   function storePlan(eq) {
-    const ref = productRefOf(eq);
+    const ref = storeRefOf(eq);
     return {
-      productRef: ref || null,
+      storeRef: ref || null,
       price: productoComputedPrice(eq),
       options: buildStoreOptions(eq, null),
       variants: buildStoreVariants(eq, null),
@@ -1213,20 +1651,125 @@ export default function mount(shell) {
       || model.productos.find((e) => norm(e.name).indexOf(norm(key)) !== -1)
       || null;
   }
+  // Construye los pasos desde el payload del agente. Tolera los alias que
+  // suelen mandar los modelos (values/valores/opciones, label/nombre…) y —lo
+  // importante— RECHAZA con detalle un paso que quede sin valores en vez de
+  // guardarlo vacío en silencio, que es la falla que deja "pasos sin valores"
+  // en la pantalla sin que nadie se entere.
+  function buildGroupsFromSteps(eq, steps) {
+    const warns = [];
+    const pick = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== '') return o[k]; return undefined; };
+    const pickArr = (o, keys) => { for (const k of keys) if (o && Array.isArray(o[k])) return o[k]; return undefined; };
+    const exByLabel = new Map();
+    (eq.groups || []).forEach((g) => exByLabel.set(norm(g.label || typeLabel(g.typeId)), g));
+    const m3 = eq.model3d || null;
+
+    const groups = steps.map((st) => {
+      const label = s(pick(st, ['label', 'nombre', 'titulo', 'name', 'paso'])).trim();
+      const ex = exByLabel.get(norm(label));
+      const exVals = new Map();
+      if (ex) groupValues(ex).forEach((v) => exVals.set(norm(v.label), v));
+      const rawVals = pickArr(st, ['values', 'valores', 'options', 'opciones', 'items']) || [];
+      const values = rawVals.map((v) => {
+        if (v == null) return null;
+        // Un valor puede venir como string suelto ("Natural").
+        const vo = typeof v === 'object' ? v : { label: v };
+        const vLabel = s(pick(vo, ['label', 'nombre', 'etiqueta', 'name', 'valor'])).trim();
+        const comps = (pickArr(vo, ['components', 'componentes', 'componentIds', 'alternativas']) || []).map((refC) => {
+          const c = findComponent(refC);
+          if (!c) warns.push('componente no encontrado: "' + s(refC) + '"');
+          return c;
+        }).filter(Boolean);
+        const exv = exVals.get(norm(vLabel));
+        const fx = pickArr(vo, ['model3d', 'efectos3d', 'efectos', 'fx3d']);
+        return {
+          id: (exv && exv.id) || newId('val'),
+          label: vLabel,
+          imageUrl: s(pick(vo, ['imageUrl', 'imagen', 'foto'])).trim(),
+          swatchColor: s(pick(vo, ['swatchColor', 'color'])).trim(),
+          qty: Math.max(1, Math.round(num(pick(vo, ['qty', 'cantidad']), exv ? num(exv.qty, 1) : 1)) || 1),
+          priceDelta: num(pick(vo, ['priceDelta', 'recargo', 'extra']), exv ? num(exv.priceDelta, 0) : 0),
+          componentIds: comps.map((c) => c.id),
+          // Efectos 3D: si no se envían, se conservan los que ya tenía el
+          // valor (editar los pasos no debe borrar el vínculo con el 3D).
+          model3d: fx != null ? fx : (exv ? exv.model3d : []),
+        };
+      }).filter((v) => v && v.label);
+      const stType = s(pick(st, ['type', 'tipo']));
+      const typeId = types().some((t) => t.id === stType) ? stType : (ex ? ex.typeId : 'other');
+      const defRef = s(pick(st, ['default', 'porDefecto', 'defecto']));
+      const defVal = values.find((v) => norm(v.label) === norm(defRef)) || values[0] || null;
+      return {
+        id: (ex && ex.id) || newId('grp'),
+        typeId,
+        label,
+        photoStep: st.photoStep === true,
+        values,
+        defaultValueId: defVal ? defVal.id : null,
+      };
+    });
+
+    // dependsOn por label ({step|paso, values|valores: [labels]}) → {stepId,
+    // valueIds}. Solo puede apuntar a un paso ANTERIOR (sin ciclos).
+    steps.forEach((st, i) => {
+      const depRaw = st && (st.dependsOn || st.dependeDe || st.depende);
+      const dep = typeof depRaw === 'string' ? (function () { try { return JSON.parse(depRaw); } catch (e) { return null; } })() : depRaw;
+      if (!dep) return;
+      const depStep = s(pick(dep, ['step', 'paso', 'de'])).trim();
+      if (!depStep) return;
+      const target = groups.slice(0, i).find((g) => norm(g.label) === norm(depStep))
+        || groups.slice(0, i).find((g) => norm(g.label).indexOf(norm(depStep)) !== -1);
+      if (!target) { warns.push('dependsOn de "' + groups[i].label + '": paso ANTERIOR no encontrado: "' + depStep + '" (dependencia ignorada)'); return; }
+      const wanted = (pickArr(dep, ['values', 'valores']) || []).map((x) => norm(s(x)));
+      const valueIds = groupValues(target)
+        .filter((v) => !wanted.length || wanted.indexOf(norm(v.label)) !== -1)
+        .map((v) => v.id);
+      if (!valueIds.length) { warns.push('dependsOn de "' + groups[i].label + '": ningún valor de "' + target.label + '" coincide (dependencia ignorada)'); return; }
+      groups[i].dependsOn = { stepId: target.id, valueIds };
+    });
+
+    const sinLabel = groups.filter((g) => !g.label).length;
+    if (sinLabel) return { error: 'Hay ' + sinLabel + ' paso(s) sin nombre. Cada paso necesita "label". Ejemplo: {"label":"Acabado","values":[{"label":"Natural"}]}.' };
+    const vacios = groups.filter((g) => !g.values.length).map((g) => g.label);
+    if (vacios.length) {
+      const ejemploFx = m3 && (m3.finishes || []).length && (m3.parts || []).length
+        ? ', "model3d":[{"partId":"' + m3.parts[0].id + '","type":"finish","finishId":"' + m3.finishes[0].id + '"}]'
+        : '';
+      return { error: 'NADA se guardó: ' + vacios.length + ' paso(s) llegaron SIN valores (' + vacios.map((x) => '"' + x + '"').join(', ')
+        + '). Un paso sin valores no sirve de nada, así que se rechaza entero en vez de dejarlo vacío. '
+        + 'Los valores van en "values", como lista de objetos con "label". '
+        + 'Ejemplo de un paso completo: {"label":"' + (vacios[0] || 'Acabado') + '","default":"Natural","values":['
+        + '{"label":"Natural"' + ejemploFx + '},{"label":"Carbonizado"}]}. '
+        + 'Los "components" son OPCIONALES: un valor sin componentes es una opción que no agrega costo. '
+        + (m3 ? 'Este producto tiene visor 3D: para vincular cada valor usa "model3d" (partes: '
+            + (m3.parts || []).map((x) => x.id).join(', ') + ' · acabados: ' + ((m3.finishes || []).map((x) => x.id).join(', ') || 'ninguno')
+            + '), o deja que BUILD_3D_STEPS genere los pasos solo.' : '') };
+    }
+    return { groups, warns };
+  }
+  function stepsMessage(item, warns) {
+    const detalle = (item.groups || []).map((g) => '"' + g.label + '" (' + groupValues(g).length + ')').join(', ');
+    const modo = priceModeOf(item);
+    return 'Pasos de "' + item.name + '" actualizados: ' + (item.groups || []).length + ' paso(s) → ' + detalle
+      + ' · ' + comboCount(item) + ' combinación(es) · precio '
+      + (modo === 'auto' ? 'calculado ' : modo === 'store' ? 'del catálogo ' : 'fijo ') + fmtMoney(item.price) + '.'
+      + ((warns && warns.length) ? ' Avisos: ' + warns.slice(0, 5).join(' · ') : '');
+  }
+
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'Laboratorio de productos personalizables de la tienda: componentes (costos de proveedor, stock, compatibilidades), reglas de margen, productos con sus pasos de configuración, la ficha de tienda (builder de descripción, especificaciones, nota, pestañas), el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'Gestiona los productos personalizables de la tienda, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
-            name: { type: 'string' }, type: { type: 'string', description: 'id de un tipo de componente definido en Precios (ver snapshot.types); default other' },
+            name: { type: 'string' }, type: { type: 'string', description: 'id de un tipo definido en la app (ver snapshot.types); los tipos los define cada empresa según su rubro' },
             cost: { type: 'number' }, currency: { type: 'string', description: 'CLP|USD' },
             taxPct: { type: 'number', description: 'impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin' },
             supplierName: { type: 'string' }, supplierUrl: { type: 'string' },
             specs: { type: 'string' }, imageUrl: { type: 'string' }, deliveryDays: { type: 'number' },
             stock: { type: 'number', description: 'unidades; 0 = no elegible; omitir = sin control' },
-            tags: { type: 'string', description: 'coma-separado, ej: textura:roble, montaje:pared' },
+            tags: { type: 'string', description: 'lo que APORTA este componente, coma-separado, ej: material:roble, uso:exterior' },
             requires: { type: 'string' }, excludes: { type: 'string' },
           }, required: ['name'] } },
         { name: 'SET_COMPONENT_COST', description: 'Actualiza el costo de proveedor de un componente y lo marca verificado hoy.',
@@ -1245,25 +1788,17 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             name: { type: 'string' }, sku: { type: 'string' },
             status: { type: 'string', description: 'active|inactive' },
-            deliveryExtraDays: { type: 'number', description: 'días de preparación/producción; null = regla global' },
+            deliveryExtraDays: { type: 'number', description: 'días propios de preparación/producción; null = regla global' },
             deliveryMode: { type: 'string', description: 'max = en paralelo (manda el más lento) | sum = en serie, los días de entrega se SUMAN (dropshipping)' },
             storeUrl: { type: 'string', description: 'URL manual del producto (vacío = automática: URL base + permalink)' },
+            priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
+            fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, components: [nombre o id, …]}]}. qty = cantidad del componente en ese valor (ej. 2 para "2×8GB"); un valor con components:[] y neutral:true es NEUTRO ($0, ej. "Sin accesorio" — el flag es obligatorio, sin él un valor sin componentes queda no disponible). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]} — paso condicional que la tienda oculta si no se cumple (oculto usa su default; hazlo neutro). Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple (oculto usa su default — hazlo sin costo). Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
           }, required: ['producto', 'steps'] } },
-        { name: 'SET_MODEL3D', description: 'Configura el visualizador 3D del producto (herencia del personalizador): visor web embebible + modelo GLB + configuración de partes/texturas + AR. Solo se reemplazan los campos enviados. Para mostrarlo en la página, agrega una sección {"kind":"visor3d"} con SET_STOREFRONT.pageSections.',
-          inputSchema: { type: 'object', properties: {
-            producto: { type: 'string', description: 'id o nombre' },
-            enabled: { type: 'boolean' },
-            viewerUrl: { type: 'string', description: 'URL del visualizador desplegado (recibe ?def=…&producto=…)' },
-            modelUrl: { type: 'string', description: 'URL del modelo GLB' },
-            arUrl: { type: 'string', description: 'GLB para AR: ruta /api/public/files/… de KIMOS (opcional)' },
-            bindStep: { type: 'string', description: 'label del paso cuya selección elige la textura/acabado en el visor (opcional)' },
-            config: { type: 'object', description: 'configuración del visor: {parts:[{id,label,materials[]}], finishes:[{id,label,color,texture,roughness,textureScale,grain}]} (o string JSON)' },
-          }, required: ['producto'] } },
         { name: 'COMPOSE_HERO', description: 'ARMA o reemplaza un hero del producto SIN construir estructura anidada: entregas los contenidos como campos simples y la app compone los bloques y contenedores correctamente. PREFIERE esta tool sobre SET_STOREFRONT.pageSections para crear o editar heros.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
@@ -1282,7 +1817,7 @@ export default function mount(shell) {
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
             heroIndex: { type: 'number', description: 'cuál hero reemplazar (1 = primero, default); si no hay heros se agrega al inicio' },
           }, required: ['producto'] } },
-        { name: 'SET_STOREFRONT', description: 'Edita la ficha de tienda de un producto: pageSections (builder de descripción: secciones hero/imagen/visor3d/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador). El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de cada tipo de sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
+        { name: 'SET_STOREFRONT', description: 'Edita la ficha de tienda de un producto: pageSections (builder de descripción: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string' },
             pageSections: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de secciones según builderRef.sectionShape; bloques en slots:{contenedor:[…]} según builderRef.blockSchema' },
@@ -1301,12 +1836,35 @@ export default function mount(shell) {
           } } },
         { name: 'PUBLISH_CONFIG', description: 'Publica (enabled=true) o despublica (enabled=false) el JSON del configurador que consume el theme.',
           inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } } } },
-        { name: 'IMPORT_IMAGE', description: 'Importa una imagen al área pública de la app y devuelve su URL, para usarla luego en SET_STOREFRONT (fondo de hero) o como foto de un valor. Acepta: el path de un adjunto del chat en el File Storage del equipo de trabajo (aparece como "[Adjunto … — path: …]" en el mensaje), una ruta /api/… de KIMOS, o una URL http(s) accesible. Solo imágenes, máx 8 MB.',
+        { name: 'IMPORT_IMAGE', description: 'Importa una imagen al área pública de la app y devuelve su URL, para usarla luego en SET_STOREFRONT (fondo de hero) o como foto de un valor. Acepta: el path de un adjunto del chat en el File Storage del equipo (aparece como "[Adjunto … — path: …]" en el mensaje), una ruta /api/… de KIMOS, o una URL http(s) accesible. Solo imágenes, máx 8 MB.',
           inputSchema: { type: 'object', properties: {
-            url: { type: 'string', description: 'path del storage del equipo de trabajo (ej: chat/foto.png), ruta /api/… o URL http(s)' },
+            url: { type: 'string', description: 'path del storage del equipo (ej: chat/foto.png), ruta /api/… o URL http(s)' },
             name: { type: 'string', description: 'nombre de archivo destino (opcional)' },
             producto: { type: 'string', description: 'opcional: id o nombre de un producto — la imagen queda además en su galería (productos[].galleryImages) para reutilizarla' },
           }, required: ['url'] } },
+        { name: 'SET_MODEL3D', description: 'Configura el visor 3D de un producto (OPCIONAL: un producto sin modelo funciona igual). Define el archivo .glb, las PARTES (cada una agrupa nombres de material del GLB) y, si hace falta, los ACABADOS con textura. Para vincular un paso al 3D usa SET_PRODUCTO_STEPS con el campo model3d de cada valor: [{partId, type:"color"|"finish"|"hide", color, finishId}]. Envía enabled:false para desactivarlo sin borrarlo, o remove:true para quitarlo del todo. El estado actual está en productos[].model3d.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+            url: { type: 'string', description: 'URL del .glb (usa IMPORT_IMAGE o la subida de la app para obtenerla)' },
+            enabled: { type: 'boolean', description: 'activar/desactivar el visor sin perder la configuración' },
+            publish: { type: 'boolean', description: 'incluir el 3D en el JSON público que consume el theme de la tienda' },
+            rotation: { type: 'array', items: { type: 'number' }, description: '[x,y,z] en radianes; corrige modelos CAD Z-up' },
+            mirror: { type: 'boolean' },
+            realSizeCm: { type: 'number', description: 'medida REAL del lado más largo del producto, en cm. Habilita "Ver en tu espacio" (realidad aumentada con la cámara) en la tienda: sin este dato el modelo se apoyaría en el suelo a una escala inventada, así que el botón no se ofrece. 0 = sin AR.' },
+            parts: { type: 'array', items: { type: 'object' }, description: '[{id?, label, materials:[nombres exactos del GLB], defaultColor?, defaultFinish?, roughness?, grainVertical?, grainAngle?, grainAlongMaterials?:[materiales cuya veta corre a lo largo, anulan vertical]}]' },
+            finishes: { type: 'array', items: { type: 'object' }, description: '[{id?, label, color, texture?, roughness?, textureScale?, grain?, triplanar?}]' },
+            remove: { type: 'boolean', description: 'quita por completo el 3D del producto' },
+          }, required: ['producto'] } },
+        { name: 'BUILD_3D_STEPS', description: 'Genera SOLO los pasos del configurador a partir del modelo 3D: crea un paso por cada PARTE del modelo, con un valor por cada ACABADO, ya vinculados al 3D. Es la forma más rápida y segura de dejar un producto con visor listo para configurar, sin escribir los efectos a mano. Los valores quedan sin componentes (no agregan costo); si el producto usa priceMode "auto" y quieres cobrar por alguno, edítalo luego con SET_PRODUCTO_STEPS.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+            parts: { type: 'array', items: { type: 'string' }, description: 'ids de las partes a convertir en pasos (por defecto, todas). Ver productos[].model3d.parts' },
+            mode: { type: 'string', description: '"finish" (por defecto) usa los acabados del modelo; "color" usa la lista `colors`' },
+            colors: { type: 'array', items: { type: 'object' }, description: 'para mode "color": [{label, color}]' },
+            prefix: { type: 'string', description: 'texto antes del nombre de cada paso' },
+            suffix: { type: 'string', description: 'texto después del nombre de cada paso (ej: " Hanoi 1")' },
+            append: { type: 'boolean', description: 'true = conserva los pasos actuales y agrega los nuevos (útil en packs de varias unidades); por defecto reemplaza' },
+          }, required: ['producto'] } },
       ],
       getSnapshot: () => ({
         rules: rules(),
@@ -1320,7 +1878,13 @@ export default function mount(shell) {
         })),
         productos: model.productos.map((eq) => ({
           id: eq.id, name: eq.name, sku: eq.sku, price: eq.price, computedPrice: productoComputedPrice(eq),
-          linked: !!productRefOf(eq), variantCombos: comboCount(eq), deliveryDays: productoDelivery(eq),
+          // Cómo se fija el precio y con qué datos cuenta la tienda: `storePrice`
+          // es lo que hoy cobra el producto enlazado y `storeCost` el costo por
+          // unidad que trae Jumpseller — sirven para alinear sin modelar costos.
+          priceMode: priceModeOf(eq), fixedPrice: num(eq.fixedPrice, 0),
+          storePrice: (function () { const it = productItemFor(eq); return it && it.price != null ? num(it.price) : null; })(),
+          storeCost: (function () { const it = productItemFor(eq); return it && it.costPerItem != null ? num(it.costPerItem) : null; })(),
+          linked: !!storeRefOf(eq), variantCombos: comboCount(eq), deliveryDays: productoDelivery(eq),
           deliveryMode: deliveryModeOf(eq),
           storeUrl: productoStoreUrl(eq) || null,
           productImages: productImagesFor(eq),
@@ -1329,7 +1893,7 @@ export default function mount(shell) {
           // Pasos de configuración (editable con SET_PRODUCTO_STEPS)
           steps: (eq.groups || []).map((g) => ({
             label: g.label || typeLabel(g.typeId), type: g.typeId, photoStep: g.photoStep === true,
-            // dependsOn en formato de SET_PRODUCTO_STEPS (labels, no ids)
+            // dependsOn en el formato de SET_PRODUCTO_STEPS (labels, no ids)
             dependsOn: (function () {
               const dep = groupDependsOn(g);
               if (!dep) return null;
@@ -1341,21 +1905,22 @@ export default function mount(shell) {
               };
             })(),
             values: groupValues(g).map((v) => ({
-              label: v.label, isDefault: g.defaultValueId === v.id, available: valueAvailable(v),
-              qty: valueQty(v), neutral: valueIsNeutral(v),
-              delta: deltaFor(g, v), alternatives: valueAlts(v).map((c) => c.name),
+              label: v.label, isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
+              delta: deltaFor(g, v, eq), alternatives: valueAlts(v).map((c) => c.name), priceDelta: num(v.priceDelta, 0),
+              // Efectos sobre el visor 3D (vacío si el producto no tiene modelo)
+              model3d: v.model3d || [],
             })),
           })),
-          // Visualizador 3D (editable con SET_MODEL3D)
-          model3d: (function () {
-            const m = eq.model3d || {};
-            const bindG = (eq.groups || []).find((x) => x.id === m.bindStepId);
-            return {
-              enabled: m.enabled === true, viewerUrl: m.viewerUrl || '', modelUrl: m.modelUrl || '',
-              arUrl: m.arUrl || '', bindStep: bindG ? (bindG.label || typeLabel(bindG.typeId)) : '',
-              hasConfig: !!m.config, embedUrl: viewerEmbedUrl(eq) || '',
-            };
-          })(),
+          // Visor 3D: null si este producto no tiene modelo (es opcional).
+          model3d: eq.model3d ? {
+            enabled: eq.model3d.enabled !== false,
+            url: eq.model3d.url,
+            publish: eq.model3d.publish === true,
+            realSizeCm: num(eq.model3d.realSizeCm, 0),
+            arUrl: s(eq.model3d.arUrl || ''),
+            parts: (eq.model3d.parts || []).map((p) => ({ id: p.id, label: p.label, materials: p.materials, defaultColor: p.defaultColor, defaultFinish: p.defaultFinish, grainVertical: p.grainVertical, grainAngle: p.grainAngle, grainAlongMaterials: p.grainAlongMaterials })),
+            finishes: (eq.model3d.finishes || []).map((f) => ({ id: f.id, label: f.label, color: f.color, texture: f.texture })),
+          } : null,
           // Ficha de tienda (editable con SET_STOREFRONT)
           storefront: {
             pageSections: (eq.storefront && eq.storefront.pageSections) || [],
@@ -1374,12 +1939,12 @@ export default function mount(shell) {
           patterns: HERO_PATTERNS.map((p) => ({ id: p.id, containers: patternCells(p) })),
           blockTypes: HERO_BLOCK_TYPES.map((t) => t.id),
           heights: ['s', 'm', 'l', 'xl', 'auto'],
+          extraSections: ['imagen'],
           fixedSections: ['specs', 'fotos', 'note'],
-          extraSections: ['imagen', 'visor3d'],
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto, el ALTO se adapta a la imagen): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección visor3d (única; embebe el visualizador 3D si model3d está habilitado): {"kind":"visor3d","height":480}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -1389,13 +1954,14 @@ export default function mount(shell) {
             icons: '{"type":"icons","items":[{"icon":"⚡ (emoji o carácter)","title":"…","text":"…"},…],"align":"left|center|right"}',
             specs: '{"type":"specs","count":4,"align":"left|center|right"} — resumen de las primeras N filas de la tabla de especificaciones (1-12)',
             gallery: '{"type":"gallery","index":1,"size":"s|m|l|xl|auto","align":"left|center|right"} — foto Nº index de la galería del producto (auto = alto natural)',
+            description: '{"type":"description","size":"xl|l|m|s","max":0,"align":"left|center|right"} — la descripción que el producto ya tiene en la tienda, en vivo; max = recorte a N caracteres (0 = completa)',
             html: '{"type":"html","html":"<div>…</div>","align":"left|center|right"} — HTML libre',
           },
           example: {
             kind: 'hero', pattern: 'clasico', height: 'l', bgColor: '#1D1D1B',
             slots: {
               top: [{ type: 'title' }, { type: 'text', text: 'Potencia creadora, silencio total', size: 'xl' }],
-              left: [{ type: 'items', items: [{ title: 'Textura a elección', text: 'Roble, nogal o carbonizado' }, { title: 'Hecho a medida', text: 'Producción local certificada' }] }],
+              left: [{ type: 'items', items: [{ title: 'Materiales premium', text: 'Seleccionados uno a uno' }, { title: 'Hecho a medida', text: 'Configúralo a tu gusto' }] }],
               center: [{ type: 'photo', size: 'l', anim: 'float' }],
               right: [{ type: 'cta', label: 'Configurar el tuyo' }],
               bottom: [{ type: 'specs', count: 4 }],
@@ -1405,6 +1971,14 @@ export default function mount(shell) {
       }),
       dispatchAction: async (action) => {
         const type = action && action.type;
+        // Qué sección del editor toca cada tool. Sirve para llevar al usuario
+        // justo a lo que el agente acaba de cambiar en vez de dejarlo
+        // buscándolo (y para saber que hay que recargar el formulario).
+        const SECCION_DE = {
+          SET_MODEL3D: 'modelo3d', BUILD_3D_STEPS: 'pasos', SET_PRODUCTO_STEPS: 'pasos',
+          SET_STOREFRONT: 'ficha', COMPOSE_HERO: 'ficha',
+          UPSERT_PRODUCTO: 'general', LINK_PRODUCT: 'general', APPLY_PRODUCTO: 'general',
+        };
         // Los agentes a veces envían objetos anidados como string JSON.
         const parseJson = (v) => { if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch (e) { return undefined; } };
         const rawPayload = (action && action.payload) || {};
@@ -1417,7 +1991,7 @@ export default function mount(shell) {
           for (const k of keys) { const v = obj && obj[k]; if (v != null && s(v).trim() !== '') return v; }
           return '';
         };
-        const payloadProductoRef = (extra) => refIn(p, ['producto', 'productoId', 'productoName', 'producto_id', 'producto_name'].concat(extra || []));
+        const productoRefIn = (extra) => refIn(p, ['producto', 'productoId', 'productoName', 'producto_id', 'producto_name'].concat(extra || []));
         const compRefOf = (obj) => refIn(obj, ['component', 'componentId', 'componentName', 'component_id', 'id', 'name', 'nombre']);
         const eqNotFound = (ref) => ({
           success: false,
@@ -1425,6 +1999,10 @@ export default function mount(shell) {
             + ' Productos existentes: ' + (model.productos.map((e) => '"' + e.name + '"').join(', ') || '(ninguno)')
             + '. Reintenta con payload {"producto": "<nombre, sku o id>", …}.',
         });
+        // Pista para un editor que esté abierto: a qué sección lleva esta
+        // acción. Si la acción falla no pasa nada, porque el editor solo
+        // reacciona cuando el producto cambia de verdad (`updatedAt`).
+        if (SECCION_DE[type]) { agentEdit.section = SECCION_DE[type]; agentEdit.at = Date.now(); }
         try {
           if (type === 'UPSERT_COMPONENT') {
             const existing = findComponent(p.name);
@@ -1439,7 +2017,7 @@ export default function mount(shell) {
             if (!c) return { success: false, error: 'Componente no encontrado: "' + s(cRef) + '". Usa el campo "component" con el id o nombre exacto (ver components[] del snapshot).' };
             const cost = num(p.cost, NaN);
             if (!Number.isFinite(cost) || cost < 0) return { success: false, error: 'Costo inválido.' };
-            const r = await saveComponent(Object.assign({}, c, { cost, currency: p.currency === 'USD' ? 'USD' : c.currency, verifiedAt: nowIso() }));
+            const r = await saveComponent(Object.assign({}, c, { cost, currency: p.currency ? normCurrency(p.currency) : c.currency, verifiedAt: nowIso() }));
             if (!r.success) return { success: false, error: r.error };
             const pend = recalcPreview().length;
             return { success: true, message: 'Costo de "' + c.name + '" actualizado. ' + (pend ? pend + ' producto(s) requieren recálculo (usa RECALC_PRICES).' : 'Ningún producto cambia de precio.') };
@@ -1466,14 +2044,14 @@ export default function mount(shell) {
               const fails = res.filter((x) => !x.success);
               return {
                 success: fails.length === 0,
-                message: res.length ? res.map((x) => x.name + ': ' + fmtCLP(x.from) + ' → ' + fmtCLP(x.to) + (x.success ? '' : ' (ERROR: ' + s(x.error) + ')')).join(' · ') : 'Sin cambios de precio.',
+                message: res.length ? res.map((x) => x.name + ': ' + fmtMoney(x.from) + ' → ' + fmtMoney(x.to) + (x.success ? '' : ' (ERROR: ' + s(x.error) + ')')).join(' · ') : 'Sin cambios de precio.',
               };
             }
             const prev = recalcPreview();
-            return { success: true, message: prev.length ? 'Cambios pendientes: ' + prev.map((x) => x.eq.name + ' ' + fmtCLP(x.oldPrice) + ' → ' + fmtCLP(x.nextPrice)).join(' · ') : 'Sin cambios de precio.' };
+            return { success: true, message: prev.length ? 'Cambios pendientes: ' + prev.map((x) => x.eq.name + ' ' + fmtMoney(x.oldPrice) + ' → ' + fmtMoney(x.nextPrice)).join(' · ') : 'Sin cambios de precio.' };
           }
           if (type === 'APPLY_PRODUCTO') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
             const r = await applyToStore(eq);
@@ -1490,76 +2068,88 @@ export default function mount(shell) {
             if (p.deliveryExtraDays !== undefined) draft.deliveryExtraDays = p.deliveryExtraDays === null || p.deliveryExtraDays === '' ? null : num(p.deliveryExtraDays);
             if (p.deliveryMode === 'sum' || p.deliveryMode === 'max') draft.deliveryMode = p.deliveryMode;
             if (p.storeUrl != null) draft.storeUrl = s(p.storeUrl);
+            if (p.priceMode != null) {
+              const pm = s(p.priceMode).trim();
+              if (PRICE_MODES.indexOf(pm) === -1) return { success: false, error: 'priceMode inválido: "' + pm + '". Válidos: auto (desde costos), fixed (a mano), store (el precio del catálogo).' };
+              draft.priceMode = pm;
+            }
+            if (p.fixedPrice != null && p.fixedPrice !== '') {
+              draft.fixedPrice = Math.max(0, num(p.fixedPrice, 0));
+              // Escribir un precio a mano implica querer usarlo.
+              if (p.priceMode == null && priceModeOf(draft) === 'auto') draft.priceMode = 'fixed';
+            }
             const r = await saveProducto(draft);
-            return r.success
-              ? { success: true, message: (existing ? 'Producto actualizado: ' : 'Producto creado: ') + r.item.name + '. Define pasos con SET_PRODUCTO_STEPS y la ficha con SET_STOREFRONT.' }
-              : { success: false, error: r.error };
+            if (!r.success) return { success: false, error: r.error };
+            const modo = priceModeOf(r.item);
+            return { success: true, message: (existing ? 'Producto actualizado: ' : 'Producto creado: ') + r.item.name
+              + ' · precio ' + (modo === 'auto' ? 'calculado desde costos' : modo === 'store' ? 'tomado del catálogo' : 'fijo') + ': ' + fmtMoney(r.item.price)
+              + '. Define pasos con SET_PRODUCTO_STEPS (o BUILD_3D_STEPS si tiene visor 3D) y la ficha con SET_STOREFRONT.' };
           }
           if (type === 'SET_PRODUCTO_STEPS') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
             const steps = parseJson(p.steps);
-            if (!Array.isArray(steps)) return { success: false, error: 'steps debe ser un array JSON de pasos.' };
-            const stepWarns = [];
-            const exByLabel = new Map();
-            (eq.groups || []).forEach((g) => exByLabel.set(norm(g.label || typeLabel(g.typeId)), g));
-            const groups = steps.map((st) => {
-              const label = s(st && st.label).trim();
-              const ex = exByLabel.get(norm(label));
-              const exVals = new Map();
-              if (ex) groupValues(ex).forEach((v) => exVals.set(norm(v.label), v));
-              const values = (Array.isArray(st.values) ? st.values : []).map((v) => {
-                const comps = (Array.isArray(v.components) ? v.components : []).map((refC) => {
-                  const c = findComponent(refC);
-                  if (!c) stepWarns.push('componente no encontrado: "' + s(refC) + '"');
-                  return c;
-                }).filter(Boolean);
-                const exv = exVals.get(norm(s(v.label)));
-                return {
-                  id: (exv && exv.id) || newId('val'),
-                  label: s(v.label).trim(),
-                  imageUrl: s(v.imageUrl).trim(),
-                  swatchColor: s(v.swatchColor).trim(),
-                  qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
-                  neutral: v.neutral === true,
-                  componentIds: comps.map((c) => c.id),
-                };
-              }).filter((v) => v.label);
-              const typeId = types().some((t) => t.id === st.type) ? st.type : (ex ? ex.typeId : 'other');
-              const defVal = values.find((v) => norm(v.label) === norm(s(st.default))) || values[0] || null;
+            if (!Array.isArray(steps)) return { success: false, error: 'steps debe ser un array JSON de pasos. Forma: [{"label":"Acabado","values":[{"label":"Natural"}]}].' };
+            const built = buildGroupsFromSteps(eq, steps);
+            if (built.error) return { success: false, error: built.error };
+            const r = await saveProducto(Object.assign({}, eq, { groups: built.groups }));
+            if (!r.success) return { success: false, error: r.error };
+            return { success: true, message: stepsMessage(r.item, built.warns) };
+          }
+          if (type === 'BUILD_3D_STEPS') {
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            const m = eq.model3d;
+            if (!m || !(m.parts || []).length) {
+              return { success: false, error: 'El producto "' + eq.name + '" no tiene partes 3D. Usa SET_MODEL3D primero (url del .glb + parts[]).' };
+            }
+            const colors = (Array.isArray(p.colors) ? p.colors : []).filter((c) => c && s(c.label).trim());
+            const useColors = p.mode === 'color' || (!((m.finishes || []).length) && colors.length > 0);
+            if (!useColors && !(m.finishes || []).length) {
+              return { success: false, error: 'El modelo de "' + eq.name + '" no tiene acabados definidos. Añádelos con SET_MODEL3D (finishes), o llama esta tool con mode:"color" y colors:[{"label":"Blanco","color":"#ffffff"}].' };
+            }
+            const partIds = (Array.isArray(p.parts) && p.parts.length ? p.parts : m.parts.map((x) => x.id)).map((x) => s(x).trim());
+            const prefix = s(p.prefix), suffix = s(p.suffix);
+            const missing = partIds.filter((pid) => !m.parts.some((x) => x.id === pid));
+            if (missing.length) {
+              return { success: false, error: 'Partes inexistentes: ' + missing.join(', ') + '. Partes del modelo: ' + m.parts.map((x) => x.id + ' ("' + (x.label || x.id) + '")').join(', ') + '.' };
+            }
+            const gen = partIds.map((pid) => {
+              const part = m.parts.find((x) => x.id === pid);
+              const values = useColors
+                ? colors.map((c) => ({ label: s(c.label).trim(), swatchColor: s(c.color).trim(), components: [],
+                    model3d: [{ partId: part.id, type: 'color', color: s(c.color).trim() }] }))
+                : (m.finishes || []).map((f) => ({ label: f.label || f.id, swatchColor: f.color || '', components: [],
+                    model3d: [{ partId: part.id, type: 'finish', finishId: f.id }] }));
+              const defFin = !useColors && part.defaultFinish
+                ? (m.finishes || []).find((f) => f.id === part.defaultFinish) : null;
               return {
-                id: (ex && ex.id) || newId('grp'),
-                typeId,
-                label,
-                photoStep: st.photoStep === true,
+                label: (prefix + (part.label || part.id) + suffix).trim(),
+                default: defFin ? (defFin.label || defFin.id) : (values[0] && values[0].label),
                 values,
-                defaultValueId: defVal ? defVal.id : null,
               };
             });
-            // Resolver dependsOn por label: {step: <label anterior>, values: [labels]}
-            // → {stepId, valueIds}. Solo puede apuntar a un paso ANTERIOR.
-            steps.forEach((st, i) => {
-              const dep = parseJson(st && st.dependsOn);
-              if (!dep || !s(dep.step).trim()) return;
-              const target = groups.slice(0, i).find((g) => norm(g.label) === norm(dep.step))
-                || groups.slice(0, i).find((g) => norm(g.label).indexOf(norm(dep.step)) !== -1);
-              if (!target) { stepWarns.push('dependsOn de "' + groups[i].label + '": paso ANTERIOR no encontrado: "' + s(dep.step) + '" (dependencia ignorada)'); return; }
-              const wanted = Array.isArray(dep.values) ? dep.values.map((x) => norm(s(x))) : [];
-              const valueIds = groupValues(target)
-                .filter((v) => !wanted.length || wanted.indexOf(norm(v.label)) !== -1)
-                .map((v) => v.id);
-              if (!valueIds.length) { stepWarns.push('dependsOn de "' + groups[i].label + '": ningún valor de "' + target.label + '" coincide con ' + JSON.stringify(dep.values) + ' (dependencia ignorada)'); return; }
-              groups[i].dependsOn = { stepId: target.id, valueIds };
-            });
-            const r = await saveProducto(Object.assign({}, eq, { groups }));
+            // append: conserva los pasos actuales y agrega los nuevos (para
+            // packs de varias unidades, generando una tanda por unidad).
+            const prev = p.append === true
+              ? (eq.groups || []).map((g) => ({ label: g.label || typeLabel(g.typeId), type: g.typeId,
+                  photoStep: g.photoStep === true,
+                  default: (groupDefaultValue(g) || {}).label,
+                  values: groupValues(g).map((v) => ({ label: v.label, imageUrl: v.imageUrl, swatchColor: v.swatchColor,
+                    priceDelta: v.priceDelta, components: (v.componentIds || []), model3d: v.model3d })) }))
+              : [];
+            const built = buildGroupsFromSteps(eq, prev.concat(gen));
+            if (built.error) return { success: false, error: built.error };
+            const r = await saveProducto(Object.assign({}, eq, { groups: built.groups }));
             if (!r.success) return { success: false, error: r.error };
-            const depCount = (r.item.groups || []).filter((g) => groupDependsOn(g)).length;
-            const warnTxt = stepWarns.length ? ' Avisos: ' + stepWarns.slice(0, 5).join(' · ') : '';
-            return { success: true, message: 'Pasos de "' + r.item.name + '" actualizados: ' + groups.length + ' paso(s)' + (depCount ? ' (' + depCount + ' dependiente(s))' : '') + ', ' + comboCount(r.item) + ' combinación(es), precio base ' + fmtCLP(r.item.price) + '.' + warnTxt };
+            return { success: true, message: 'Pasos generados desde el modelo 3D de "' + r.item.name + '": '
+              + gen.map((x) => '"' + x.label + '" (' + x.values.length + ' opciones)').join(', ')
+              + '. ' + stepsMessage(r.item, built.warns) };
           }
           if (type === 'COMPOSE_HERO') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
             const pat = heroPattern(p.pattern);
@@ -1629,39 +2219,8 @@ export default function mount(shell) {
             }).join(' — ');
             return { success: true, message: 'Hero de "' + r.item.name + '" compuesto y guardado (' + feats.length + ' características). ' + det + '. Republicado automáticamente.' };
           }
-          if (type === 'SET_MODEL3D') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
-            const eq = findProducto(eqRef);
-            if (!eq) return eqNotFound(eqRef);
-            const m = Object.assign({}, eq.model3d || {});
-            if (p.enabled !== undefined) m.enabled = p.enabled === true;
-            if (p.viewerUrl !== undefined) m.viewerUrl = s(p.viewerUrl).trim();
-            if (p.modelUrl !== undefined) m.modelUrl = s(p.modelUrl).trim();
-            if (p.arUrl !== undefined) m.arUrl = s(p.arUrl).trim();
-            if (p.bindStep !== undefined) {
-              const key = norm(s(p.bindStep));
-              const g = key
-                ? (eq.groups || []).find((x) => norm(x.label || typeLabel(x.typeId)) === key)
-                  || (eq.groups || []).find((x) => norm(x.label || typeLabel(x.typeId)).indexOf(key) !== -1)
-                : null;
-              if (key && !g) return { success: false, error: 'bindStep: paso no encontrado: "' + s(p.bindStep) + '". Pasos del producto: ' + ((eq.groups || []).map((x) => '"' + (x.label || typeLabel(x.typeId)) + '"').join(', ') || '(ninguno)') + '.' };
-              m.bindStepId = g ? g.id : '';
-            }
-            if (p.config !== undefined) {
-              const cfg = parseJson(p.config);
-              if (cfg !== null && (typeof cfg !== 'object' || Array.isArray(cfg))) {
-                return { success: false, error: 'config debe ser un objeto JSON {parts:[{id,label,materials[]}], finishes:[{id,label,color,texture,roughness,textureScale,grain}]} o null para borrarla.' };
-              }
-              m.config = cfg;
-            }
-            const r = await saveProducto(Object.assign({}, eq, { model3d: m }));
-            if (!r.success) return { success: false, error: r.error };
-            const mm = r.item.model3d || {};
-            const emb = viewerEmbedUrl(r.item);
-            return { success: true, message: 'Visualizador 3D de "' + r.item.name + '": ' + (mm.enabled ? 'habilitado' : 'deshabilitado') + (mm.viewerUrl ? ' · visor: ' + mm.viewerUrl : '') + (mm.modelUrl ? ' · modelo: ' + mm.modelUrl : '') + (mm.config ? ' · con configuración de partes/texturas' : '') + '.' + (mm.enabled ? (emb ? ' Embed: ' + emb + '.' : '') + ' Para mostrarlo en la página agrega la sección {"kind":"visor3d"} con SET_STOREFRONT.pageSections.' : '') };
-          }
           if (type === 'SET_STOREFRONT') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
             const sf = Object.assign({}, eq.storefront || {});
@@ -1676,13 +2235,13 @@ export default function mount(shell) {
               let sentBlocks = 0;
               v.forEach((sec, i) => {
                 if (!sec || typeof sec !== 'object') { issues.push('sección ' + (i + 1) + ': no es un objeto'); return; }
-                if (sec.kind === 'specs' || sec.kind === 'note' || sec.kind === 'fotos' || sec.kind === 'visor3d') return;
+                if (sec.kind === 'specs' || sec.kind === 'note' || sec.kind === 'fotos') return;
                 if (sec.kind === 'imagen') {
                   if (!s(sec.imageUrl).trim()) issues.push('sección ' + (i + 1) + ' (imagen): falta imageUrl (usa IMPORT_IMAGE para subir una imagen y obtener su URL)');
                   return;
                 }
                 const tag = 'sección ' + (i + 1);
-                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, visor3d, specs, fotos, note)');
+                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, specs, fotos, note)');
                 ['blocks', 'content', 'children', 'elements', 'bloques', 'body', 'sections'].forEach((wk) => {
                   if (sec[wk] !== undefined) issues.push(tag + ': la clave "' + wk + '" no existe — los bloques van en "slots": {contenedor: [bloques]}');
                 });
@@ -1716,7 +2275,7 @@ export default function mount(shell) {
               const existingBlocks = countHeroBlocks((eq.storefront || {}).pageSections);
               const heroCount = v.filter((x) => x && typeof x === 'object' && (x.kind === 'hero' || (x.kind === undefined && (x.slots !== undefined || x.pattern !== undefined)))).length;
               if (heroCount > 0 && sentBlocks === 0 && p.allowEmpty !== true) {
-                return { success: false, error: 'pageSections NO guardado: los heros llegaron SIN ningún bloque válido' + (existingBlocks > 0 ? ' (y la ficha actual tiene ' + existingBlocks + ' bloques que se perderían)' : '') + '. Los bloques van DENTRO de "slots", por contenedor del patrón. Ejemplo mínimo: {"kind":"hero","pattern":"clasico","slots":{"top":[{"type":"title"}],"left":[{"type":"items","items":[{"title":"Textura roble","text":"Terminación natural"}]}],"center":[{"type":"photo","size":"l"}]}}. El contrato completo está en snapshot.builderRef (sectionShape/blockSchema/example) y el estado actual en productos[].storefront.pageSections. Si de verdad quieres heros vacíos, envía allowEmpty:true.' };
+                return { success: false, error: 'pageSections NO guardado: los heros llegaron SIN ningún bloque válido' + (existingBlocks > 0 ? ' (y la ficha actual tiene ' + existingBlocks + ' bloques que se perderían)' : '') + '. Los bloques van DENTRO de "slots", por contenedor del patrón. Ejemplo mínimo: {"kind":"hero","pattern":"clasico","slots":{"top":[{"type":"title"}],"left":[{"type":"items","items":[{"title":"Materiales premium","text":"A tu medida"}]}],"center":[{"type":"photo","size":"l"}]}}. El contrato completo está en snapshot.builderRef (sectionShape/blockSchema/example) y el estado actual en productos[].storefront.pageSections. Si de verdad quieres heros vacíos, envía allowEmpty:true.' };
               }
               sf.pageSections = v;
             }
@@ -1749,19 +2308,19 @@ export default function mount(shell) {
             return { success: true, message: 'Ficha de "' + r.item.name + '" guardada: ' + (out.pageSections || []).length + ' secciones (' + heros.length + ' hero(s)), ' + (out.specs || []).length + ' filas de specs' + (out.photosNote ? ', con nota' : '') + '. Normalizada y republicada automáticamente.' + (heroDetail ? ' Detalle: ' + heroDetail + '.' : '') };
           }
           if (type === 'LINK_PRODUCT') {
-            const eqRef = payloadProductoRef(['id', 'name', 'nombre', 'sku']);
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
             const key = s(p.product).trim();
-            const prod = model.storeCatalog.find((x) => x.id === key)
-              || model.storeCatalog.find((x) => (x.sourceLinks || []).some((l) => l && l.integration === 'jumpseller' && String(l.sourceId) === key))
-              || model.storeCatalog.find((x) => norm(x.sku) === norm(key))
-              || model.storeCatalog.find((x) => norm(x.name) === norm(key))
-              || model.storeCatalog.find((x) => norm(x.name).indexOf(norm(key)) !== -1);
+            const prod = model.catalog.find((x) => x.id === key)
+              || model.catalog.find((x) => (x.sourceLinks || []).some((l) => l && l.integration === 'jumpseller' && String(l.sourceId) === key))
+              || model.catalog.find((x) => norm(x.sku) === norm(key))
+              || model.catalog.find((x) => norm(x.name) === norm(key))
+              || model.catalog.find((x) => norm(x.name).indexOf(norm(key)) !== -1);
             if (!prod) return { success: false, error: 'Producto no encontrado en el catálogo de la app Productos: ' + key };
             const js = (prod.sourceLinks || []).find((l) => l && l.integration === 'jumpseller');
             const r = await saveProducto(Object.assign({}, eq, {
-              productRef: { instanceId: prod.__instanceId, itemId: prod.id, sourceId: js ? js.sourceId : null, sku: prod.sku || '', name: prod.name || '', imageUrl: prod.imageUrl || '' },
+              storeRef: { instanceId: prod.__instanceId, itemId: prod.id, sourceId: js ? js.sourceId : null, sku: prod.sku || '', name: prod.name || '', imageUrl: prod.imageUrl || '' },
               sku: eq.sku || prod.sku || '',
               sourceLinks: [],
             }));
@@ -1791,8 +2350,8 @@ export default function mount(shell) {
           if (type === 'IMPORT_IMAGE') {
             if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
             let srcUrl = s(p.url).trim();
-            if (!srcUrl) return { success: false, error: 'Indica url: path del storage del equipo de trabajo, ruta /api/… o URL http(s).' };
-            // path relativo del File Storage del equipo de trabajo → endpoint de descarga
+            if (!srcUrl) return { success: false, error: 'Indica url: path del storage del equipo, ruta /api/… o URL http(s).' };
+            // path relativo del File Storage del equipo → endpoint de descarga
             if (srcUrl.indexOf('/') === 0) srcUrl = API + srcUrl;
             else if (!/^https?:\/\//i.test(srcUrl)) {
               const teamId = shell.app && shell.app.teamId;
@@ -1813,7 +2372,7 @@ export default function mount(shell) {
               const file = new File([blob], rawName, { type: blob.type || 'image/png' });
               const url = await uploadImage(file);
               let galNote = '';
-              const galRef = payloadProductoRef();
+              const galRef = productoRefIn();
               if (s(galRef).trim() !== '') {
                 const eqG = findProducto(galRef);
                 if (eqG) {
@@ -1835,7 +2394,42 @@ export default function mount(shell) {
               ? { success: true, message: on ? 'Configurador publicado (' + buildPublicData().productos.length + ' productos).' : 'Configurador despublicado (el gateway responderá 403).' }
               : { success: false, error: r.error };
           }
-          return { success: false, error: 'Acción desconocida: ' + s(type) + '. Acciones válidas: UPSERT_COMPONENT, SET_COMPONENT_COST, SET_MARGIN, RECALC_PRICES, APPLY_PRODUCTO, UPSERT_PRODUCTO, SET_PRODUCTO_STEPS, SET_STOREFRONT, SET_MODEL3D, COMPOSE_HERO, LINK_PRODUCT, SET_STOCK, PUBLISH_CONFIG, IMPORT_IMAGE.' };
+          if (type === 'SET_MODEL3D') {
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            if (p.remove === true) {
+              const r = await saveProducto(Object.assign({}, eq, { model3d: null }));
+              return r.success
+                ? { success: true, message: 'Visor 3D quitado de "' + eq.name + '".' }
+                : { success: false, error: r.error };
+            }
+            const cur = eq.model3d || { enabled: true, url: '', rotation: [0, 0, 0], parts: [], finishes: [] };
+            const next = Object.assign({}, cur);
+            if (p.url != null) next.url = s(p.url).trim();
+            if (p.enabled != null) next.enabled = p.enabled !== false;
+            if (p.publish != null) next.publish = p.publish === true;
+            if (p.mirror != null) next.mirror = p.mirror === true;
+            if (p.realSizeCm != null) next.realSizeCm = num(p.realSizeCm, 0);
+            if (Array.isArray(p.rotation)) next.rotation = p.rotation;
+            if (Array.isArray(p.parts)) next.parts = p.parts;
+            if (Array.isArray(p.finishes)) next.finishes = p.finishes;
+            const norm3d = normalizeModel3d(next);
+            if (!norm3d) {
+              return { success: false, error: 'Nada que guardar: indica al menos `url` (el .glb) o `parts`. Ejemplo: {"producto":"' + eq.name + '","url":"https://…/modelo.glb","parts":[{"label":"Tapiz","materials":["Tela_A"],"defaultColor":"#8a5a3b"}]}. Los nombres de material deben coincidir EXACTAMENTE con los del archivo 3D.' };
+            }
+            // Avisar de partes sin material válido en vez de fallar en silencio.
+            const dropped = (Array.isArray(p.parts) ? p.parts : []).filter((x) => !toList(x && x.materials).length).length;
+            const r = await saveProducto(Object.assign({}, eq, { model3d: norm3d }));
+            if (!r.success) return { success: false, error: r.error };
+            const m = r.item.model3d;
+            return { success: true, message: 'Visor 3D de "' + eq.name + '" guardado: '
+              + (m.enabled !== false && m.url ? 'activo' : 'inactivo') + ', ' + m.parts.length + ' parte(s), '
+              + m.finishes.length + ' acabado(s)' + (m.publish ? ', publicado al theme' : '')
+              + '.' + (dropped ? ' Aviso: ' + dropped + ' parte(s) ignorada(s) por no declarar materiales.' : '')
+              + ' Vincula los pasos con SET_PRODUCTO_STEPS (campo model3d de cada valor).' };
+          }
+          return { success: false, error: 'Acción desconocida: ' + s(type) + '. Acciones válidas: UPSERT_COMPONENT, SET_COMPONENT_COST, SET_MARGIN, RECALC_PRICES, APPLY_PRODUCTO, UPSERT_PRODUCTO, SET_PRODUCTO_STEPS, SET_STOREFRONT, COMPOSE_HERO, LINK_PRODUCT, SET_STOCK, PUBLISH_CONFIG, IMPORT_IMAGE, SET_MODEL3D, BUILD_3D_STEPS.' };
         } catch (e) {
           return { success: false, error: (e && e.message) || 'Error interno.' };
         }
@@ -1846,29 +2440,122 @@ export default function mount(shell) {
   // ═════════════════════════════ UI ═════════════════════════════
 
   // ── Helpers de UI ─────────────────────────────────────────────────────────
-  const Row = ({ label, children }) => h('div', { className: 'pl-row' }, [
-    h('label', { key: 'l', className: 'pl-label' }, label),
+  const Row = ({ label, children }) => h('div', { className: 'gp-row' }, [
+    h('label', { key: 'l', className: 'gp-label' }, label),
     h(React.Fragment, { key: 'c' }, children),
   ]);
   const TextInput = (props) => {
     const p = Object.assign({}, props);
     const mono = p.mono;
     delete p.mono;
-    p.className = 'pl-input' + (mono ? ' pl-mono' : '');
+    p.className = 'gp-input' + (mono ? ' gp-mono' : '');
     return h('input', p);
   };
+  // ── Visor 3D embebido ─────────────────────────────────────────────────────
+  // El motor se carga con import() DIFERIDO desde los assets de la app: three.js
+  // solo baja la primera vez que se abre un visor. Si ningún producto tiene
+  // modelo 3D, no se descarga nunca.
+  let enginePromise = null;
+  function loadEngine() {
+    if (!enginePromise) {
+      const url = shell.assetUrl ? shell.assetUrl('engine3d.js') : './engine3d.js';
+      enginePromise = import(url);
+    }
+    return enginePromise;
+  }
+
+  function Viewer3D({ model, state, height, onMaterials, onViewer }) {
+    const canvasRef = useRef(null);
+    const viewerRef = useRef(null);
+    const [ready, setReady] = useState(0);
+    const [err, setErr] = useState(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      loadEngine().then((mod) => {
+        if (cancelled || !canvasRef.current) return;
+        viewerRef.current = mod.createViewer(canvasRef.current);
+        // Se expone hacia fuera: generar el .glb de AR necesita el visor vivo,
+        // con el modelo ya cargado y los acabados aplicados.
+        if (onViewer) onViewer(viewerRef.current);
+        setReady((n) => n + 1);
+      }).catch((e) => { if (!cancelled) setErr('No se pudo cargar el motor 3D: ' + ((e && e.message) || 'error')); });
+      return () => {
+        cancelled = true;
+        if (viewerRef.current) { viewerRef.current.dispose(); viewerRef.current = null; if (onViewer) onViewer(null); }
+      };
+    }, []);
+
+    // Serializar evita recargar por identidad de objeto (el editor recrea el
+    // draft a cada tecla). Y va en TRES claves, no en una: descargar el .glb
+    // es lo único caro, y solo hace falta cuando cambia el archivo o su
+    // orientación. Con una sola clave, tocar un color de acabado recargaba el
+    // modelo entero — la pieza desaparecía y salía "Cargando…" en cada tecla.
+    const geomKey = JSON.stringify(model
+      ? { url: model.url, rotation: model.rotation, mirror: model.mirror } : null);
+    const partsKey = JSON.stringify((model && model.parts) || null);
+    const finishKey = JSON.stringify((model && model.finishes) || null);
+    const stateKey = JSON.stringify(state || null);
+
+    useEffect(() => {
+      const v = viewerRef.current;
+      if (!v || !model || !model.url) return;
+      let cancelled = false;
+      v.setModel({ url: model.url, rotation: model.rotation, mirror: model.mirror, parts: model.parts })
+        .then(() => {
+          if (cancelled) return;
+          v.setFinishes(model.finishes || []);
+          v.setState(JSON.parse(stateKey));
+          setErr(null);
+          if (onMaterials) onMaterials(v.materialNames());
+        })
+        .catch((e) => { if (!cancelled) setErr('No se pudo cargar el modelo: ' + ((e && e.message) || 'error')); });
+      return () => { cancelled = true; };
+    }, [ready, geomKey]);
+
+    // Partes y acabados: se reaplican sobre el modelo ya cargado.
+    useEffect(() => {
+      const v = viewerRef.current;
+      if (v && v.setParts && model && model.url) v.setParts(JSON.parse(partsKey) || []);
+    }, [ready, partsKey]);
+
+    useEffect(() => {
+      const v = viewerRef.current;
+      if (v && model && model.url) { v.setFinishes(JSON.parse(finishKey) || []); }
+    }, [ready, finishKey]);
+
+    useEffect(() => {
+      const v = viewerRef.current;
+      if (v) v.setState(JSON.parse(stateKey));
+    }, [ready, stateKey]);
+
+    return h('div', { className: 'gp-viewer3d', style: { height: height || 340 } }, [
+      h('canvas', { key: 'c', ref: canvasRef, className: 'gp-viewer3d-canvas' }),
+      err ? h('div', { key: 'e', className: 'gp-viewer3d-msg' }, err)
+        : !ready ? h('div', { key: 'l', className: 'gp-viewer3d-msg' }, 'Cargando visor 3D…') : null,
+    ]);
+  }
+
   function Thumb({ url }) {
     return url
-      ? h('img', { className: 'pl-thumb', src: url, alt: '' })
-      : h('div', { className: 'pl-thumb-ph' }, '📦');
+      ? h('img', { className: 'gp-thumb', src: url, alt: '' })
+      : h('div', { className: 'gp-thumb-ph' }, '📦');
   }
   // Subida de imágenes al área compartida de KIMOS (imagenes/ es escribible por
   // cualquier usuario autenticado y se sirve públicamente vía /api/public/files).
-  async function uploadImage(file) {
+  // Subida genérica al área pública. Todo cuelga de `imagenes/` porque ese es
+  // uno de los prefijos que el gateway público sirve sin autenticación; el
+  // endpoint no restringe el tipo de archivo, así que los modelos 3D viajan
+  // por el mismo camino que las fotos (sin tocar el backend).
+  async function uploadFile(file, opts) {
+    const o = opts || {};
+    const maxMB = o.maxMB || 8;
     if (!shell.authFetch) throw new Error('authFetch no disponible en este host');
-    if (file.size > 8 * 1024 * 1024) throw new Error('máximo 8 MB');
-    const safe = (file.name || 'imagen').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'imagen';
-    const path = 'imagenes/productlab/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '-' + safe;
+    if (file.size > maxMB * 1024 * 1024) throw new Error('máximo ' + maxMB + ' MB');
+    const fallback = o.fallbackName || 'archivo';
+    const safe = s(file.name || fallback).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
+    const path = 'imagenes/productlab/' + (o.folder ? o.folder + '/' : '')
+      + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '-' + safe;
     const fd = new FormData();
     fd.append('path', path);
     fd.append('file', file);
@@ -1879,13 +2566,15 @@ export default function mount(shell) {
     }
     return API + '/api/public/files/' + path;
   }
+  const uploadImage = (file) => uploadFile(file, { maxMB: 8, fallbackName: 'imagen' });
+  const uploadModel = (file) => uploadFile(file, { maxMB: 60, fallbackName: 'modelo.glb', folder: 'modelos' });
   // Campo de color: selector nativo + hex editable; vacío = automático/default.
   function ColorField({ label, value, onChange, placeholder }) {
     const valid = /^#[0-9a-fA-F]{6}$/.test(s(value).trim());
-    const control = h('div', { className: 'pl-verify-cost' }, [
-      h('input', { key: 'c', type: 'color', value: valid ? value.trim() : '#ffffff', onChange: (e) => onChange(e.target.value), style: { width: 36, height: 32, padding: 0, border: '1px solid var(--pl-gris-claro)', background: '#fff', cursor: 'pointer' } }),
+    const control = h('div', { className: 'gp-verify-cost' }, [
+      h('input', { key: 'c', type: 'color', value: valid ? value.trim() : '#ffffff', onChange: (e) => onChange(e.target.value), style: { width: 36, height: 32, padding: 0, border: '1px solid var(--gp-gris-claro)', background: '#fff', cursor: 'pointer' } }),
       h(TextInput, { key: 't', mono: true, value: value || '', onChange: (e) => onChange(e.target.value), placeholder: placeholder || '#FFFFFF (vacío = automático)', style: { width: 200 } }),
-      value ? h('button', { key: 'x', className: 'pl-btn pl-btn-sm', title: 'Volver al automático', onClick: () => onChange('') }, '✕') : null,
+      value ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm', title: 'Volver al automático', onClick: () => onChange('') }, '✕') : null,
     ]);
     return label != null ? h(Row, { label }, control) : control;
   }
@@ -1895,21 +2584,21 @@ export default function mount(shell) {
     const [busy, setBusy] = useState(false);
     const [showGal, setShowGal] = useState(false);
     const galBtn = Array.isArray(gallery) && gallery.length
-      ? h('button', { key: 'gal', className: 'pl-btn pl-btn-sm' + (showGal ? ' pl-btn-dark' : ''), title: 'Elegir de la galería del producto (' + gallery.length + ' fotos)', onClick: () => setShowGal(!showGal) }, 'Galería…')
+      ? h('button', { key: 'gal', className: 'gp-btn gp-btn-sm' + (showGal ? ' gp-btn-dark' : ''), title: 'Elegir de la galería del producto (' + gallery.length + ' fotos)', onClick: () => setShowGal(!showGal) }, 'Galería…')
       : null;
     const galStrip = showGal && Array.isArray(gallery) && gallery.length
-      ? h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, padding: 6, border: '1px dashed var(--pl-gris-claro)', background: 'var(--pl-plata)' } },
+      ? h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, padding: 6, border: '1px dashed var(--gp-gris-claro)', background: 'var(--gp-plata)' } },
           gallery.map((u, i) => h('img', {
             key: i, src: u, alt: 'Foto ' + (i + 1),
             title: 'Foto ' + (i + 1) + ' de la galería — clic para usar',
             onClick: () => { onChange(u); setShowGal(false); },
-            style: { width: 64, height: 64, objectFit: 'cover', cursor: 'pointer', background: '#fff', border: value === u ? '2px solid var(--pl-accent)' : '1px solid var(--pl-gris-claro)' },
+            style: { width: 64, height: 64, objectFit: 'cover', cursor: 'pointer', background: '#fff', border: value === u ? '2px solid var(--gp-fucsia)' : '1px solid var(--gp-gris-claro)' },
           })))
       : null;
-    const control = h('div', { className: 'pl-verify-cost', style: { width: '100%' } }, [
+    const control = h('div', { className: 'gp-verify-cost', style: { width: '100%' } }, [
       h(Thumb, { key: 't', url: value }),
       h(TextInput, { key: 'i', mono: true, value: value || '', onChange: (e) => onChange(e.target.value), placeholder: placeholder || 'https://… o usa Subir', style: { flex: 1, minWidth: 120 } }),
-      h('label', { key: 'up', className: 'pl-btn pl-btn-sm', style: { cursor: 'pointer' } }, [
+      h('label', { key: 'up', className: 'gp-btn gp-btn-sm', style: { cursor: 'pointer' } }, [
         h('span', { key: 's' }, busy ? 'Subiendo…' : 'Subir…'),
         h('input', { key: 'f', type: 'file', accept: 'image/*', style: { display: 'none' }, disabled: busy, onChange: async (e) => {
           const f = e.target.files && e.target.files[0];
@@ -1927,86 +2616,86 @@ export default function mount(shell) {
         } }),
       ]),
       galBtn,
-      value ? h('button', { key: 'x', className: 'pl-btn pl-btn-sm', title: 'Quitar imagen', onClick: () => onChange('') }, '✕') : null,
+      value ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm', title: 'Quitar imagen', onClick: () => onChange('') }, '✕') : null,
     ]);
     const wrapped = galStrip ? h('div', { style: { width: '100%' } }, [h(React.Fragment, { key: 'c' }, control), galStrip]) : control;
     return label != null ? h(Row, { label }, wrapped) : wrapped;
   }
   function Modal({ title, onClose, children }) {
-    return h('div', { className: 'pl-overlay', onMouseDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
-      h('div', { className: 'pl-modal' }, [
-        h('div', { key: 'h', className: 'pl-modal-head' }, [
+    return h('div', { className: 'gp-overlay', onMouseDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+      h('div', { className: 'gp-modal' }, [
+        h('div', { key: 'h', className: 'gp-modal-head' }, [
           h('span', { key: 't', className: 't' }, title),
           h('button', { key: 'x', onClick: onClose, title: 'Cerrar' }, '✕'),
         ]),
-        h('div', { key: 'b', className: 'pl-modal-body' }, children),
+        h('div', { key: 'b', className: 'gp-modal-body' }, children),
       ]));
   }
   function SyncBadge({ eq }) {
-    if (!productRefOf(eq)) {
+    if (!storeRefOf(eq)) {
       return legacyLink(eq)
-        ? h('span', { className: 'pl-chip warn' }, 're-enlazar')
-        : h('span', { className: 'pl-chip gris' }, 'sin enlace');
+        ? h('span', { className: 'gp-chip warn' }, 're-enlazar')
+        : h('span', { className: 'gp-chip gris' }, 'sin enlace');
     }
     const lp = eq.lastPush;
-    if (!lp) return h('span', { className: 'pl-chip warn' }, 'sin aplicar');
-    if (lp.status === 'synced') return h('span', { className: 'pl-chip ok', title: 'Aplicado ' + fmtDateTime(lp.at) + ' · ' + num(lp.variantCount) + ' variantes' }, 'en tienda');
-    return h('span', { className: 'pl-chip err', title: (lp.errors || []).join(' · ') }, 'error de sync');
+    if (!lp) return h('span', { className: 'gp-chip warn' }, 'sin aplicar');
+    if (lp.status === 'synced') return h('span', { className: 'gp-chip ok', title: 'Aplicado ' + fmtDateTime(lp.at) + ' · ' + num(lp.variantCount) + ' variantes' }, 'en tienda');
+    return h('span', { className: 'gp-chip err', title: (lp.errors || []).join(' · ') }, 'error de sync');
   }
 
   // ── Formulario de componente ──────────────────────────────────────────────
   function ComponentForm({ initial, onDone }) {
     const [d, setD] = useState(() => Object.assign({
-      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: 'CLP', cost: 0, taxPct: 0,
-      supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, productRef: null,
+      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, taxPct: 0,
+      supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, storeRef: null,
       tags: [], requires: [], excludes: [], active: true, notes: '',
     }, initial || {}));
     const [busy, setBusy] = useState(false);
     const up = (patch) => setD(Object.assign({}, d, patch));
     const preview = componentSale(normalizeComponent(Object.assign({}, d, { id: d.id || 'x' })));
     return h('div', null, [
-      h('div', { key: 'g1', className: 'pl-grid2' }, [
-        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Cubierta roble macizo 120cm' })),
-        h(Row, { key: 't', label: 'Tipo' }, h('select', { className: 'pl-select', value: d.type, onChange: (e) => up({ type: e.target.value }) },
+      h('div', { key: 'g1', className: 'gp-grid2' }, [
+        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Tela algodón 20/1 · Tablero roble 18mm · Corte CNC' })),
+        h(Row, { key: 't', label: 'Tipo' }, h('select', { className: 'gp-select', value: d.type, onChange: (e) => up({ type: e.target.value }) },
           types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
         h(Row, { key: 'b', label: 'Marca' }, h(TextInput, { value: d.brand, onChange: (e) => up({ brand: e.target.value }) })),
         h(ImgField, { key: 'i', label: 'Imagen (se muestra en el configurador de la tienda)', value: d.imageUrl, onChange: (v) => up({ imageUrl: v }) }),
       ]),
       h(Row, { key: 'sp', label: 'Specs / descripción corta (se muestra bajo el nombre en la tienda)' },
         h(TextInput, { value: d.specs, onChange: (e) => up({ specs: e.target.value }), placeholder: 'Ej: Roble macizo · 120×60 cm · 18 mm' })),
-      d.productRef && d.productRef.itemId && h('div', { key: 'pref', className: 'pl-compline' }, [
-        h('span', { key: 'c', className: 'pl-chip acc' }, 'PRODUCTO DE LA TIENDA'),
-        h('span', { key: 'm', className: 'pl-muted' }, (d.productRef.sourceId ? 'JS #' + d.productRef.sourceId + ' · ' : '') + 'importado del catálogo; revisa que el costo sea el de PROVEEDOR (no el precio de venta).'),
+      d.storeRef && d.storeRef.itemId && h('div', { key: 'pref', className: 'gp-compline' }, [
+        h('span', { key: 'c', className: 'gp-chip fuc' }, 'PRODUCTO DE LA TIENDA'),
+        h('span', { key: 'm', className: 'gp-muted' }, (d.storeRef.sourceId ? 'JS #' + d.storeRef.sourceId + ' · ' : '') + 'importado del catálogo; revisa que el costo sea el de PROVEEDOR (no el precio de venta).'),
       ]),
-      h('div', { key: 'g2', className: 'pl-grid2' }, [
+      h('div', { key: 'g2', className: 'gp-grid2' }, [
         h(Row, { key: 'c', label: 'Costo proveedor *' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.cost, onChange: (e) => up({ cost: e.target.value }) })),
-        h(Row, { key: 'm', label: 'Moneda' }, h('select', { className: 'pl-select', value: d.currency, onChange: (e) => up({ currency: e.target.value }) },
-          [h('option', { key: 'clp', value: 'CLP' }, 'CLP'), h('option', { key: 'usd', value: 'USD' }, 'USD')])),
-        h(Row, { key: 'tx', label: 'Impuesto adicional % sobre el costo (aduana/importación; 0 = sin)' },
+        h(Row, { key: 'm', label: 'Moneda' }, h('select', { className: 'gp-select', value: d.currency, onChange: (e) => up({ currency: e.target.value }) },
+          costCurrencies().map((c) => h('option', { key: c, value: c }, c)))),
+        h(Row, { key: 'tx', label: 'Impuesto adicional % sobre el costo (aduana, importación, recargo del proveedor; 0 = sin)' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.taxPct == null ? 0 : d.taxPct, onChange: (e) => up({ taxPct: e.target.value }) })),
         h(Row, { key: 'st', label: 'Stock (vacío = sin control; 0 = no elegible)' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.stock == null ? '' : d.stock, onChange: (e) => up({ stock: e.target.value === '' ? null : e.target.value }) })),
         h(Row, { key: 'd', label: 'Días de entrega del proveedor' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryDays, onChange: (e) => up({ deliveryDays: e.target.value }) })),
       ]),
-      h('div', { key: 'g3', className: 'pl-grid2' }, [
-        h(Row, { key: 'sn', label: 'Proveedor' }, h(TextInput, { value: d.supplierName, onChange: (e) => up({ supplierName: e.target.value }), placeholder: 'Ej: PC Factory / AliExpress / Newegg' })),
+      h('div', { key: 'g3', className: 'gp-grid2' }, [
+        h(Row, { key: 'sn', label: 'Proveedor' }, h(TextInput, { value: d.supplierName, onChange: (e) => up({ supplierName: e.target.value }), placeholder: 'Ej: Textiles del Sur / Taller externo / Importador' })),
         h(Row, { key: 'su', label: 'Link del proveedor (para verificar precio)' }, h(TextInput, { mono: true, value: d.supplierUrl, onChange: (e) => up({ supplierUrl: e.target.value }), placeholder: 'https://…' })),
       ]),
-      h('div', { key: 'g4', className: 'pl-grid3' }, [
-        h(Row, { key: 'tg', label: 'Aporta (tags, coma-sep.)' }, h(TextInput, { mono: true, value: joinList(d.tags), onChange: (e) => up({ tags: e.target.value }), placeholder: 'textura:roble, montaje:pared' })),
-        h(Row, { key: 'rq', label: 'Requiere (de otros comp.)' }, h(TextInput, { mono: true, value: joinList(d.requires), onChange: (e) => up({ requires: e.target.value }), placeholder: 'estructura:metal' })),
+      h('div', { key: 'g4', className: 'gp-grid3' }, [
+        h(Row, { key: 'tg', label: 'Aporta (tags, coma-sep.)' }, h(TextInput, { mono: true, value: joinList(d.tags), onChange: (e) => up({ tags: e.target.value }), placeholder: 'material:roble, uso:exterior' })),
+        h(Row, { key: 'rq', label: 'Requiere (de otros comp.)' }, h(TextInput, { mono: true, value: joinList(d.requires), onChange: (e) => up({ requires: e.target.value }), placeholder: 'material:roble' })),
         h(Row, { key: 'ex', label: 'Incompatible con' }, h(TextInput, { mono: true, value: joinList(d.excludes), onChange: (e) => up({ excludes: e.target.value }), placeholder: 'textura:pino' })),
       ]),
-      h('label', { key: 'ac', className: 'pl-switch' }, [
+      h('label', { key: 'ac', className: 'gp-switch' }, [
         h('input', { key: 'c', type: 'checkbox', checked: d.active !== false, onChange: (e) => up({ active: e.target.checked }) }),
         h('span', { key: 's' }, 'Activo (disponible en el configurador)'),
       ]),
-      h('div', { key: 'pv', className: 'pl-muted' }, [
+      h('div', { key: 'pv', className: 'gp-muted' }, [
         'Precio de venta calculado: ',
-        h('b', { key: 'p', className: 'pl-price' }, fmtCLP(preview)),
-        ' — margen ' + marginFor(d.type) + '% + IVA ' + rules().ivaPct + '%',
+        h('b', { key: 'p', className: 'gp-price' }, fmtMoney(preview)),
+        ' — margen ' + marginFor(d.type) + '% + ' + rules().salesTaxLabel + ' ' + rules().salesTaxPct + '%',
       ]),
-      h('div', { key: 'a', className: 'pl-actions' }, [
-        h('button', { key: 'save', className: 'pl-btn pl-btn-primary', disabled: busy || !s(d.name).trim(), onClick: async () => {
+      h('div', { key: 'a', className: 'gp-actions' }, [
+        h('button', { key: 'save', className: 'gp-btn gp-btn-primary', disabled: busy || !s(d.name).trim(), onClick: async () => {
           setBusy(true);
           const wasCostChange = initial && num(initial.cost) !== num(d.cost);
           const r = await saveComponent(Object.assign({}, d, (!initial || wasCostChange) ? { verifiedAt: nowIso() } : {}));
@@ -2039,14 +2728,14 @@ export default function mount(shell) {
     const setCostDraft = (id, v) => { const o = Object.assign({}, costDrafts); o[id] = v; setCostDrafts(o); };
     if (editing != null) {
       const isEdit = !!(editing.id || editing.name);
-      return h('div', { className: 'pl-editor' }, [
-        h('div', { key: 'top', className: 'pl-editor-top' }, [
+      return h('div', { className: 'gp-editor' }, [
+        h('div', { key: 'top', className: 'gp-editor-top' }, [
           h('span', { key: 'sp', style: { flex: 1 } }),
-          h('span', { key: 't', className: 'pl-editor-title' }, editing.id ? 'Editar: ' + (editing.name || '') : 'Nuevo componente'),
-          h('button', { key: 'back', className: 'pl-btn pl-btn-sm', onClick: () => setEditing(null) }, '← Volver'),
+          h('span', { key: 't', className: 'gp-editor-title' }, editing.id ? 'Editar: ' + (editing.name || '') : 'Nuevo componente'),
+          h('button', { key: 'back', className: 'gp-btn gp-btn-sm', onClick: () => setEditing(null) }, '← Volver'),
         ]),
-        h('div', { key: 'body', className: 'pl-editor-body' },
-          h('div', { className: 'pl-card', style: { maxWidth: 900 } },
+        h('div', { key: 'body', className: 'gp-editor-body' },
+          h('div', { className: 'gp-card', style: { maxWidth: 900 } },
             h(ComponentForm, { initial: isEdit ? editing : null, onDone: () => setEditing(null) }))),
       ]);
     }
@@ -2085,37 +2774,37 @@ export default function mount(shell) {
       }
     };
     return h('div', null, [
-      h('div', { key: 'f', className: 'pl-filters' }, [
-        h('button', { key: 'new', className: 'pl-btn pl-btn-primary', onClick: () => setEditing({}) }, '+ Componente'),
-        h('button', { key: 'store', className: 'pl-btn', title: 'Importar un producto del catálogo de la tienda como componente', onClick: () => setPickingStore(true) }, '+ Desde la tienda'),
-        h('select', { key: 't', className: 'pl-select', value: filterType, onChange: (e) => setFilterType(e.target.value) },
+      h('div', { key: 'f', className: 'gp-filters' }, [
+        h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Componente'),
+        h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente', onClick: () => setPickingStore(true) }, '+ Desde la tienda'),
+        h('select', { key: 't', className: 'gp-select', value: filterType, onChange: (e) => setFilterType(e.target.value) },
           [h('option', { key: '', value: '' }, 'Todos los tipos')].concat(types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
         h(TextInput, { key: 's', value: search, onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar…' }),
-        h('label', { key: 'st', className: 'pl-switch' }, [
+        h('label', { key: 'st', className: 'gp-switch' }, [
           h('input', { key: 'c', type: 'checkbox', checked: onlyStale, onChange: (e) => setOnlyStale(e.target.checked) }),
           h('span', { key: 's' }, 'Por verificar (+' + r.staleDays + ' días, más antiguos primero)'),
         ]),
-        h('span', { key: 'n', className: 'pl-muted', style: { marginLeft: 'auto' } }, list.length + ' de ' + state.components.length),
+        h('span', { key: 'n', className: 'gp-muted', style: { marginLeft: 'auto' } }, list.length + ' de ' + state.components.length),
       ]),
       (function () {
         const count = Object.keys(selIds).filter((k) => selIds[k]).length;
         if (!count) return null;
-        return h('div', { key: 'bulk', className: 'pl-card', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderColor: 'var(--pl-accent)' } }, [
+        return h('div', { key: 'bulk', className: 'gp-card', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderColor: 'var(--gp-fucsia)' } }, [
           h('b', { key: 'n', style: { fontSize: 12 } }, count + ' seleccionado(s):'),
-          h('button', { key: 'v', className: 'pl-btn pl-btn-sm pl-btn-dark', onClick: () => bulkApply(() => ({ verifiedAt: nowIso() }), 'Verificados hoy') }, 'Verificar hoy ✓'),
-          h('button', { key: 'on', className: 'pl-btn pl-btn-sm', onClick: () => bulkApply(() => ({ active: true }), 'Activados') }, 'Activar'),
-          h('button', { key: 'off', className: 'pl-btn pl-btn-sm', onClick: () => bulkApply(() => ({ active: false }), 'Desactivados') }, 'Desactivar'),
+          h('button', { key: 'v', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => bulkApply(() => ({ verifiedAt: nowIso() }), 'Verificados hoy') }, 'Verificar hoy ✓'),
+          h('button', { key: 'on', className: 'gp-btn gp-btn-sm', onClick: () => bulkApply(() => ({ active: true }), 'Activados') }, 'Activar'),
+          h('button', { key: 'off', className: 'gp-btn gp-btn-sm', onClick: () => bulkApply(() => ({ active: false }), 'Desactivados') }, 'Desactivar'),
           h('span', { key: 'sep', style: { width: 10 } }),
           h(TextInput, { key: 'st', mono: true, type: 'number', min: 0, value: bulkStock, onChange: (e) => setBulkStock(e.target.value), placeholder: 'stock (vacío = ∞)', style: { width: 130 } }),
-          h('button', { key: 'sb', className: 'pl-btn pl-btn-sm', onClick: () => bulkApply(() => ({ stock: bulkStock === '' ? null : Math.max(0, num(bulkStock, 0)) }), 'Stock actualizado') }, 'Fijar stock'),
+          h('button', { key: 'sb', className: 'gp-btn gp-btn-sm', onClick: () => bulkApply(() => ({ stock: bulkStock === '' ? null : Math.max(0, num(bulkStock, 0)) }), 'Stock actualizado') }, 'Fijar stock'),
           h('span', { key: 'sp', className: 'grow', style: { flex: 1 } }),
-          h('button', { key: 'x', className: 'pl-btn pl-btn-sm', onClick: () => setSelIds({}) }, 'Deseleccionar'),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => setSelIds({}) }, 'Deseleccionar'),
         ]);
       })(),
       state.components.length === 0
-        ? h('div', { key: 'e', className: 'pl-card pl-muted' }, 'Aún no hay componentes. Crea el catálogo de insumos del producto (materiales, texturas, módulos, tamaños, servicios) con su costo y link de proveedor (o impórtalos desde la tienda); luego arma los productos en la pestaña Productos.')
-        : h('div', { key: 'tbl', className: 'pl-card', style: { padding: 0 } },
-            h('table', { className: 'pl-table' }, [
+        ? h('div', { key: 'e', className: 'gp-card gp-muted' }, 'Aún no hay componentes. Crea tu catálogo de insumos —telas, materias primas, piezas, mano de obra o procesos externalizados— con su costo y link de proveedor (o impórtalos desde la tienda); luego arma los productos en la pestaña Productos.')
+        : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
+            h('table', { className: 'gp-table' }, [
               h('thead', { key: 'h' }, h('tr', null, [
                 h('th', { key: 'sel' }, h('input', { type: 'checkbox',
                   checked: list.length > 0 && list.every((c) => selIds[c.id]),
@@ -2131,34 +2820,34 @@ export default function mount(shell) {
                   h('td', { key: 'n' }, [
                     h('div', { key: '1', style: { fontWeight: 600, cursor: 'pointer' }, title: 'Editar componente', onClick: () => setEditing(c) }, [
                       c.name,
-                      c.productRef && c.productRef.itemId ? h('span', { key: 'pr', className: 'pl-chip acc', style: { marginLeft: 6 } }, 'tienda') : null,
+                      c.storeRef && c.storeRef.itemId ? h('span', { key: 'pr', className: 'gp-chip fuc', style: { marginLeft: 6 } }, 'tienda') : null,
                     ]),
-                    h('div', { key: '2', className: 'pl-muted' }, [c.brand, c.specs].filter(Boolean).join(' · ')),
+                    h('div', { key: '2', className: 'gp-muted' }, [c.brand, c.specs].filter(Boolean).join(' · ')),
                   ]),
-                  h('td', { key: 't' }, h('span', { className: 'pl-chip neg' }, typeLabel(c.type))),
-                  h('td', { key: 'c', className: 'pl-price' }, fmtCLP(costCLP(c.cost, c.currency)) + (c.currency === 'USD' ? ' (US$' + num(c.cost) + ')' : '')),
-                  h('td', { key: 'v', className: 'pl-price', title: 'margen ' + marginFor(c.type) + '% (' + (r.marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') + ') + IVA' }, fmtCLP(componentSale(c))),
+                  h('td', { key: 't' }, h('span', { className: 'gp-chip neg' }, typeLabel(c.type))),
+                  h('td', { key: 'c', className: 'gp-price' }, fmtMoney(costBase(c.cost, c.currency)) + (c.currency && c.currency !== r.currency ? ' (' + c.currency + ' ' + num(c.cost) + ')' : '')),
+                  h('td', { key: 'v', className: 'gp-price', title: 'margen ' + marginFor(c.type) + '% (' + (r.marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') + ') + ' + r.salesTaxLabel }, fmtMoney(componentSale(c))),
                   h('td', { key: 'stk' }, h(TextInput, { mono: true, type: 'number', min: 0,
                     value: stockDrafts[c.id] != null ? stockDrafts[c.id] : (c.stock == null ? '' : c.stock),
                     placeholder: '∞',
                     title: 'Stock (vacío = sin control; 0 = no elegible). Se guarda al salir del campo.',
-                    style: { width: 64, borderColor: c.stock != null && num(c.stock) === 0 ? 'var(--pl-err)' : undefined },
+                    style: { width: 64, borderColor: c.stock != null && num(c.stock) === 0 ? 'var(--gp-err)' : undefined },
                     onChange: (e) => { const o = Object.assign({}, stockDrafts); o[c.id] = e.target.value; setStockDrafts(o); },
                     onBlur: () => void saveStock(c) })),
                   h('td', { key: 'p' }, c.supplierUrl
-                    ? h('a', { className: 'pl-link', href: c.supplierUrl, target: '_blank', rel: 'noopener noreferrer' }, (c.supplierName || 'ver') + ' ↗')
-                    : h('span', { className: 'pl-muted' }, c.supplierName || '—')),
-                  h('td', { key: 'vf', className: stale ? 'pl-stale' : '' }, fmtDate(c.verifiedAt) + (stale && c.verifiedAt ? ' (' + daysSince(c.verifiedAt) + 'd)' : '')),
-                  h('td', { key: 'now' }, h('div', { className: 'pl-verify-cost' }, [
+                    ? h('a', { className: 'gp-link', href: c.supplierUrl, target: '_blank', rel: 'noopener noreferrer' }, (c.supplierName || 'ver') + ' ↗')
+                    : h('span', { className: 'gp-muted' }, c.supplierName || '—')),
+                  h('td', { key: 'vf', className: stale ? 'gp-stale' : '' }, fmtDate(c.verifiedAt) + (stale && c.verifiedAt ? ' (' + daysSince(c.verifiedAt) + 'd)' : '')),
+                  h('td', { key: 'now' }, h('div', { className: 'gp-verify-cost' }, [
                     h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, placeholder: s(c.cost),
                       title: 'Nuevo costo (' + (c.currency || 'CLP') + ') — vacío = confirmar el actual',
                       value: draft == null ? '' : draft, onChange: (e) => setCostDraft(c.id, e.target.value) }),
-                    h('button', { key: 'b', className: 'pl-btn pl-btn-sm pl-btn-dark', title: 'Marcar verificado hoy', onClick: () => void verify(c) }, '✓'),
+                    h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', title: 'Marcar verificado hoy', onClick: () => void verify(c) }, '✓'),
                   ])),
                   h('td', { key: 'a', style: { whiteSpace: 'nowrap' } }, [
-                    h('button', { key: 'e', className: 'pl-btn pl-btn-sm', onClick: () => setEditing(c) }, 'Editar'),
+                    h('button', { key: 'e', className: 'gp-btn gp-btn-sm', onClick: () => setEditing(c) }, 'Editar'),
                     ' ',
-                    h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: async () => {
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: async () => {
                       if (!window.confirm('¿Eliminar "' + c.name + '"?')) return;
                       const res = await removeComponent(c.id);
                       if (!res.success) shell.notify({ level: 'error', text: res.error });
@@ -2176,10 +2865,10 @@ export default function mount(shell) {
           imageUrl: p.imageUrl || '',
           // costPerItem si la tienda lo tiene; si no, cae al precio de venta (revisar).
           cost: p.costPerItem != null ? num(p.costPerItem) : num(p.price),
-          currency: 'CLP',
+          currency: rules().currency,
           stock: typeof p.stock === 'number' ? p.stock : null,
           supplierName: 'Catálogo de la tienda',
-          productRef: { instanceId: p.__instanceId, itemId: p.id, sourceId: js ? js.sourceId : null },
+          storeRef: { instanceId: p.__instanceId, itemId: p.id, sourceId: js ? js.sourceId : null },
         });
       } }),
     ]);
@@ -2188,40 +2877,40 @@ export default function mount(shell) {
   // ── Picker de producto Jumpseller (catálogo de la app products) ───────────
   function ProductPicker({ onPick, onClose }) {
     const [q, setQ] = useState('');
-    const list = model.storeCatalog
+    const list = model.catalog
       .filter((p) => !q || norm(p.name + ' ' + p.sku).indexOf(norm(q)) !== -1)
       .slice(0, 60);
     return h(Modal, { title: 'Enlazar con producto de la tienda', onClose }, [
-      !model.storeCatalogLoaded
-        ? h('div', { key: 'l', className: 'pl-muted' }, 'Cargando catálogo desde la app Productos…')
-        : model.storeCatalog.length === 0
-          ? h('div', { key: 'e', className: 'pl-warnbox' },
-              'No se pudo leer el catálogo de la app Productos (¿permiso data.read:products aprobado? ¿instancia de Productos visible para tu equipo de trabajo?). Puedes ingresar el ID de producto Jumpseller manualmente en el formulario.')
+      !model.catalogLoaded
+        ? h('div', { key: 'l', className: 'gp-muted' }, 'Cargando catálogo desde la app Productos…')
+        : model.catalog.length === 0
+          ? h('div', { key: 'e', className: 'gp-warnbox' },
+              'No se pudo leer el catálogo de la app Productos (¿permiso data.read:products aprobado? ¿instancia de Productos visible para tu equipo?). Puedes ingresar el ID de producto Jumpseller manualmente en el formulario.')
           : null,
       h(TextInput, { key: 'q', value: q, onChange: (e) => setQ(e.target.value), placeholder: 'Buscar por nombre o SKU…', autoFocus: true }),
       h('div', { key: 'list', style: { marginTop: 10 } }, list.map((p) => {
         const link = (p.sourceLinks || []).find((x) => x && x.integration === 'jumpseller');
-        return h('div', { key: p.id, className: 'pl-compline' }, [
+        return h('div', { key: p.id, className: 'gp-compline' }, [
           h(Thumb, { key: 'i', url: p.imageUrl }),
           h('div', { key: 'n', className: 'grow' }, [
             h('div', { key: '1', style: { fontWeight: 600 } }, p.name),
-            h('div', { key: '2', className: 'pl-muted pl-mono', style: { fontSize: 10 } },
+            h('div', { key: '2', className: 'gp-muted gp-mono', style: { fontSize: 10 } },
               (p.sku ? 'SKU ' + p.sku + ' · ' : '') + (link ? 'JS #' + link.sourceId : 'sin enlace Jumpseller')),
           ]),
-          h('span', { key: 'p', className: 'pl-price' }, fmtCLP(p.price)),
-          h('button', { key: 'b', className: 'pl-btn pl-btn-sm pl-btn-primary', onClick: () => onPick(p) }, 'Enlazar'),
+          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(p.price)),
+          h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-primary', onClick: () => onPick(p) }, 'Enlazar'),
         ]);
       })),
     ]);
   }
 
-  // ── Previsualizador en vivo del configurador ──────────────────────────────
+  // ── Previsualizador en vivo del configurador (ProductLab) ─────────────────
   // Simula el paso a paso COMO LO VERÁ EL CLIENTE en la tienda: cards por
   // valor, dependencias (pasos que aparecen/desaparecen según lo elegido),
-  // cantidades, foto dinámica, precio y entrega en vivo. Refleja
-  // storefront.style (acento, radio, tipo de card, recargos). El cobro real
-  // en la tienda siempre es el de la variante Jumpseller; esta simulación usa
-  // las mismas reglas de cálculo de la app.
+  // cantidades, recargos, foto dinámica, precio y entrega en vivo. Respeta el
+  // modo de precio (auto/fijo/tienda) y refleja storefront.style. El cobro
+  // real en la tienda siempre es el de la variante Jumpseller; la simulación
+  // usa exactamente las mismas reglas de cálculo que "Aplicar a la tienda".
   function ConfigPreview({ draft }) {
     const [sel, setSel] = useState({});      // groupId → valueId elegido
     const [mob, setMob] = useState(false);
@@ -2230,6 +2919,7 @@ export default function mount(shell) {
     const radius = Math.max(0, num(st.radius, 0));
     const compact = st.cardStyle === 'compact';
     const asList = st.cardStyle === 'list';
+    const fixed = isFixedPrice(draft);
     const groups = (draft.groups || []).map((g) => ({ g, vals: groupValues(g).filter(valueAvailable) })).filter((x) => x.vals.length);
     const selMap = {};
     groups.forEach(({ g }) => {
@@ -2237,51 +2927,52 @@ export default function mount(shell) {
       selMap[g.id] = vals.some((v) => v.id === sel[g.id]) ? sel[g.id] : (groupDefaultValue(g) || {}).id;
     });
     const visibleOf = (g) => groupVisibleFor(draft, g, selMap);
-    // Precio y entrega: base + valor efectivo de cada paso (oculto = default).
-    let gross = baseBreakdown(draft).gross;
+    // Precio: mismas reglas que buildStoreVariants (oculto = default del paso).
+    let gross = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
     const sumMode = deliveryModeOf(draft) === 'sum';
     let dd = productoBaseDelivery(draft);
     groups.forEach(({ g }) => {
       const vid = visibleOf(g) ? selMap[g.id] : (groupDefaultValue(g) || {}).id;
       const v = groupValues(g).find((x) => x.id === vid);
-      const vg = v ? valueGross(v) : null;
-      if (vg != null) gross += vg;
+      if (v) gross += fixed ? valueExtra(draft, g, v) : (valueGross(v) || 0);
       const c = v && valueChosen(v);
       const n = c ? num(c.deliveryDays, 0) : 0;
       dd = sumMode ? dd + n : Math.max(dd, n);
     });
-    dd += numOr(draft.deliveryExtraDays, rules().assemblyDays);
-    const price = roundFinal(gross);
+    dd += numOr(draft.deliveryExtraDays, rules().leadTimeDays);
+    const price = fixed ? Math.round(gross) : roundFinal(gross);
     // Foto dinámica: primer paso "cambia foto" visible, con la foto del valor.
     const photoG = groups.map((x) => x.g).find((g) => g.photoStep === true && visibleOf(g));
     const photoV = photoG && groupValues(photoG).find((x) => x.id === selMap[photoG.id]);
     const photo = (photoV && photoV.imageUrl) || productoImage(draft);
     const deltaVs = (g, v) => {
       const cur = groupValues(g).find((x) => x.id === selMap[g.id]);
-      const a = valueSale(v); const b = cur ? valueSale(cur) : null;
+      if (!cur || cur.id === v.id) return 0;
+      const a = fixed ? valueExtra(draft, g, v) : (valueSale(v) == null ? null : valueSale(v));
+      const b = fixed ? valueExtra(draft, g, cur) : (valueSale(cur) == null ? null : valueSale(cur));
       return a == null || b == null ? 0 : a - b;
     };
     const cardW = compact ? 96 : 128;
-    return h('div', { className: 'pl-card' }, [
-      h('div', { key: 't', className: 'pl-card-title' }, [
-        h('span', { key: 'n', className: 'pl-num' }, 'PREVISUALIZADOR'),
+    return h('div', { className: 'gp-card' }, [
+      h('div', { key: 't', className: 'gp-card-title' }, [
+        h('span', { key: 'n', className: 'gp-num' }, 'PREVISUALIZADOR'),
         'Así verá el cliente el paso a paso',
         h('span', { key: 'sp', style: { flex: 1 } }),
-        h('div', { key: 'vm', className: 'pl-editor-tabs' }, [
-          h('button', { key: 'd', className: 'pl-etab' + (!mob ? ' on' : ''), onClick: () => setMob(false) }, 'Escritorio'),
-          h('button', { key: 'm', className: 'pl-etab' + (mob ? ' on' : ''), onClick: () => setMob(true) }, 'Móvil'),
+        h('div', { key: 'vm', className: 'gp-editor-tabs' }, [
+          h('button', { key: 'd', className: 'gp-etab' + (!mob ? ' on' : ''), onClick: () => setMob(false) }, 'Escritorio'),
+          h('button', { key: 'm', className: 'gp-etab' + (mob ? ' on' : ''), onClick: () => setMob(true) }, 'Móvil'),
         ]),
-        h('button', { key: 'rst', className: 'pl-btn pl-btn-sm', style: { marginLeft: 8 }, onClick: () => setSel({}) }, 'Restablecer'),
+        h('button', { key: 'rst', className: 'gp-btn gp-btn-sm', style: { marginLeft: 8 }, onClick: () => setSel({}) }, 'Restablecer'),
       ]),
-      h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
-        'Interactivo y en vivo: prueba selecciones, dependencias (los pasos aparecen según lo elegido), cantidades y el estilo definido en Ficha → Estilo. El precio simulado usa las mismas reglas de cálculo de la app; el cobro real en la tienda es siempre el de la variante Jumpseller.'),
-      h('div', { key: 'pv', className: 'pl-storepv', style: { overflowX: 'auto', '--pv-radius': radius + 'px' } },
-        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : 980, margin: '0 auto', border: '1px solid var(--pl-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
+      h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
+        'Interactivo y en vivo: prueba selecciones, dependencias (los pasos aparecen según lo elegido), cantidades, recargos y el estilo definido en Ficha → Estilo. El precio simulado usa las mismas reglas que "Aplicar a la tienda"; el cobro real es siempre el de la variante en el ecommerce.'),
+      h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: 'auto', '--pv-radius': radius + 'px' } },
+        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : 980, margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
-              ? h('div', { className: 'pl-muted' }, 'Sin pasos aún: agrega pasos arriba para previsualizar el configurador.')
+              ? h('div', { className: 'gp-muted' }, 'Sin pasos aún: agrega pasos arriba para previsualizar el configurador.')
               : groups.map(({ g, vals }, gi) => {
-                  if (!visibleOf(g)) return h('div', { key: g.id, className: 'pl-muted', style: { padding: '6px 0', fontSize: 11, opacity: .65 } },
+                  if (!visibleOf(g)) return h('div', { key: g.id, className: 'gp-muted', style: { padding: '6px 0', fontSize: 11, opacity: .65 } },
                     'PASO ' + String(gi + 1).padStart(2, '0') + ' · ' + (g.label || typeLabel(g.typeId)) + ' — oculto por dependencia (la tienda usa su valor por defecto)');
                   return h('div', { key: g.id, style: { marginBottom: 14 } }, [
                     h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6 } }, [
@@ -2293,14 +2984,14 @@ export default function mount(shell) {
                       const dlt = deltaVs(g, v);
                       const alt = valueChosen(v);
                       const img = v.imageUrl || (alt && alt.imageUrl) || '';
-                      const deltaTxt = st.showDeltas === 'none' || on ? '' : st.showDeltas === 'total' ? fmtCLP(roundFinal(gross + dlt)) : (dlt === 0 ? '' : fmtDelta(dlt));
+                      const deltaTxt = st.showDeltas === 'none' || on ? '' : st.showDeltas === 'total' ? fmtMoney(fixed ? Math.round(gross + dlt) : roundFinal(gross + dlt)) : (dlt === 0 ? '' : fmtDelta(dlt));
                       return h('div', {
                         key: v.id,
                         onClick: () => { const o = Object.assign({}, sel); o[g.id] = v.id; setSel(o); },
                         title: v.label,
                         style: Object.assign({
                           cursor: 'pointer',
-                          border: on ? '2px solid ' + accent : '1px solid var(--pl-gris-claro)',
+                          border: on ? '2px solid ' + accent : '1px solid var(--gp-gris-claro)',
                           background: '#fff', padding: compact ? 6 : 8,
                         }, asList ? { display: 'flex', alignItems: 'center', gap: 10 } : { width: cardW }),
                       }, [
@@ -2308,29 +2999,29 @@ export default function mount(shell) {
                           ? h('span', { key: 'sw', style: { display: 'inline-block', width: 22, height: 22, background: v.swatchColor, border: '1px solid rgba(0,0,0,.15)' } })
                           : img
                             ? h('img', { key: 'i', src: img, alt: '', style: asList ? { width: 40, height: 40, objectFit: 'cover' } : { width: '100%', height: compact ? 44 : 64, objectFit: 'cover' } })
-                            : (asList || compact ? null : h('div', { key: 'i', style: { width: '100%', height: 44, background: 'var(--pl-plata)' } })),
+                            : (asList || compact ? null : h('div', { key: 'i', style: { width: '100%', height: 44, background: 'var(--gp-plata)' } })),
                         h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label + (valueQty(v) > 1 ? ' (×' + valueQty(v) + ')' : '')),
                         deltaTxt ? h('div', { key: 'd', style: { fontSize: 10, opacity: .8, marginLeft: asList ? 'auto' : 0, whiteSpace: 'nowrap' } }, deltaTxt) : null,
                       ]);
                     })),
                   ]);
                 })),
-          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--pl-gris-claro)', background: '#fff', padding: 12, alignSelf: 'flex-start' } }, [
+          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 12, alignSelf: 'flex-start' } }, [
             photo ? h('img', { key: 'ph', src: photo, alt: '', style: { width: '100%', maxHeight: 160, objectFit: 'contain', marginBottom: 8 } }) : null,
             h('div', { key: 'nm', style: { fontWeight: 700, fontSize: 13, marginBottom: 4 } }, draft.name || 'Producto'),
-            h('div', { key: 'pr', className: 'pl-price', style: { fontSize: 20 } }, fmtCLP(price)),
-            h('div', { key: 'dd', className: 'pl-muted', style: { margin: '4px 0 8px' } }, 'Entrega estimada: ' + dd + ' día(s) hábiles'),
-            h('div', { key: 'sum', style: { fontSize: 11, borderTop: '1px dashed var(--pl-linea)', paddingTop: 6 } },
+            h('div', { key: 'pr', className: 'gp-price', style: { fontSize: 20 } }, fmtMoney(price)),
+            h('div', { key: 'dd', className: 'gp-muted', style: { margin: '4px 0 8px' } }, 'Entrega estimada: ' + dd + ' día(s) hábiles'),
+            h('div', { key: 'sum', style: { fontSize: 11, borderTop: '1px dashed var(--gp-linea)', paddingTop: 6 } },
               groups.filter(({ g }) => visibleOf(g)).map(({ g }) => {
                 const v = groupValues(g).find((x) => x.id === selMap[g.id]);
                 return h('div', { key: g.id, style: { padding: '2px 0' } }, [
-                  h('span', { key: 'l', className: 'pl-muted' }, (g.label || typeLabel(g.typeId)) + ': '),
+                  h('span', { key: 'l', className: 'gp-muted' }, (g.label || typeLabel(g.typeId)) + ': '),
                   h('b', { key: 'v' }, v ? v.label : '—'),
                 ]);
               })),
             h('div', { key: 'cta', style: { marginTop: 10 } },
               h('span', { style: { display: 'inline-block', width: '100%', textAlign: 'center', padding: '9px 12px', fontWeight: 600, fontSize: 12, color: '#fff', background: accent, cursor: 'default', boxSizing: 'border-box' } },
-                ((draft.storefront || {}).tabs || {}).comprar || 'Agregar al carro')),
+                (((draft.storefront || {}).tabs || {}).comprar) || 'Agregar al carro')),
           ]),
         ])),
     ]);
@@ -2340,7 +3031,7 @@ export default function mount(shell) {
   function ProductoForm({ initial, onDone }) {
     const [d, setD] = useState(() => Object.assign({
       name: '', sku: '', status: 'active', imageUrl: '',
-      baseComponentIds: [], extraCosts: [], groups: [], productRef: null, deliveryExtraDays: null,
+      baseComponentIds: [], extraCosts: [], groups: [], storeRef: null, deliveryExtraDays: null,
     }, initial ? normalizeProductoShape(initial) : {}));
     const [busy, setBusy] = useState(false);
     const [picking, setPicking] = useState(false);
@@ -2352,11 +3043,36 @@ export default function mount(shell) {
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
     const [galBusy, setGalBusy] = useState(false);    // subida múltiple a la galería
-    // Visualizador 3D: texto del JSON de configuración (se parsea al salir del campo)
-    const [v3Text, setV3Text] = useState(() => (initial && initial.model3d && initial.model3d.config ? JSON.stringify(initial.model3d.config, null, 2) : ''));
-    const [v3Err, setV3Err] = useState('');
+    const [mats, setMats] = useState([]);             // materiales detectados en el GLB
+    const [try3d, setTry3d] = useState({});           // probar configuración: grupo → valor
+    const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
+    const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
+    const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
+    const [conflicto, setConflicto] = useState(null); // el agente cambió esto mientras yo editaba
+    // ── Sincronía con el agente ──────────────────────────────────────────
+    // El agente guarda en el modelo; este formulario trabaja sobre una copia
+    // que se tomó al abrirlo. Sin esto el editor seguía mostrando lo viejo y,
+    // peor, al pulsar Guardar escribía esa copia encima de lo que el agente
+    // acababa de hacer. Ahora se detecta por `updatedAt` y:
+    //   · sin cambios míos → se recarga solo y salta a la sección tocada;
+    //   · con cambios míos sin guardar → no se toca nada y se pregunta, que
+    //     descartar el trabajo del usuario sin avisar sería igual de malo.
+    const baseRef = useState({ current: null })[0];
+    if (baseRef.current === null) baseRef.current = JSON.stringify(d);
+    const vivo = d.id ? model.productos.find((e) => e.id === d.id) : null;
+    const cargarVivo = (v) => {
+      const nd = normalizeProductoShape(v);
+      baseRef.current = JSON.stringify(nd);
+      setD(nd);
+      setConflicto(null);
+      if (agentEdit.section) setSec(agentEdit.section);
+    };
+    useEffect(() => {
+      const q = decidirRecarga(d, vivo, baseRef.current);
+      if (q === 'recargar') cargarVivo(vivo);
+      else if (q === 'preguntar') setConflicto(vivo);
+    });
     const up = (patch) => setD(Object.assign({}, d, patch));
-    const upV3 = (patch) => up({ model3d: Object.assign({}, d.model3d || {}, patch) });
     const upGroup = (gid, patch) => up({ groups: d.groups.map((g) => (g.id === gid ? Object.assign({}, g, patch) : g)) });
     const upExtra = (xid, patch) => up({ extraCosts: (d.extraCosts || []).map((x) => (x.id === xid ? Object.assign({}, x, patch) : x)) });
     const sf = d.storefront || {};
@@ -2380,7 +3096,7 @@ export default function mount(shell) {
       });
       upSpecs(specRows.concat(rows));
     };
-    const ref = productRefOf(d);
+    const ref = storeRefOf(d);
     const prodImgs = productImagesFor(d); // galería del producto (Jumpseller)
     // Pickers "Galería…": fotos del producto + biblioteca del producto EN VIVO
     // (lo que subas en cualquier campo aparece al tiro, sin guardar).
@@ -2393,118 +3109,167 @@ export default function mount(shell) {
     const price = productoComputedPrice(d);
     const combos = comboCount(d);
     const warns = productoWarnings(d);
-    const SECTIONS = [['general', 'General'], ['pasos', 'Pasos y componentes'], ['ficha', 'Ficha de tienda']];
-    return h('div', { className: 'pl-editor' }, [
+    const SECTIONS = [['general', 'General'], ['pasos', 'Pasos y componentes'], ['ficha', 'Ficha de tienda'], ['modelo3d', 'Visor 3D']];
+    return h('div', { className: 'gp-editor' }, [
       // ── Barra superior: volver + título + secciones ──
-      h('div', { key: 'top', className: 'pl-editor-top' }, [
-        h('div', { key: 'tabs', className: 'pl-editor-tabs' }, SECTIONS.map(([id, label]) =>
-          h('button', { key: id, className: 'pl-etab' + (sec === id ? ' on' : ''), onClick: () => setSec(id) }, label))),
+      h('div', { key: 'top', className: 'gp-editor-top' }, [
+        h('div', { key: 'tabs', className: 'gp-editor-tabs' }, SECTIONS.map(([id, label]) =>
+          h('button', { key: id, className: 'gp-etab' + (sec === id ? ' on' : ''), onClick: () => setSec(id) }, label))),
         h('span', { key: 'sp', style: { flex: 1 } }),
-        ref ? h('span', { key: 'js', className: 'pl-chip acc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'pl-chip gris' }, 'sin enlace'),
-        h('span', { key: 't', className: 'pl-editor-title' }, d.name || 'Nuevo producto'),
-        h('button', { key: 'back', className: 'pl-btn pl-btn-sm', onClick: onDone }, '← Volver'),
+        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
+        h('span', { key: 't', className: 'gp-editor-title' }, d.name || 'Nuevo producto'),
+        h('button', { key: 'back', className: 'gp-btn gp-btn-sm', onClick: onDone }, '← Volver'),
+      ]),
+      // El agente cambió este producto y aquí hay edición sin guardar: se
+      // decide a mano, porque cualquiera de las dos opciones pierde algo.
+      conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
+        h('span', { key: 't', style: { flex: 1, minWidth: 220 } },
+          '⚠ El agente cambió este producto mientras lo editabas. Si guardas ahora, tus cambios pisarán los suyos.'),
+        h('button', { key: 'r', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => cargarVivo(conflicto) }, 'Cargar lo del agente (pierdo lo mío)'),
+        h('button', { key: 'k', className: 'gp-btn gp-btn-sm', onClick: () => { baseRef.current = JSON.stringify(d); setConflicto(null); } }, 'Mantener lo mío'),
       ]),
       // ── Cuerpo: una sección a la vez, a todo el ancho ──
-      h('div', { key: 'body', className: 'pl-editor-body' }, [
+      h('div', { key: 'body', className: 'gp-editor-body' }, [
         h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
       // Enlace con el producto de la app products (que sincroniza con Jumpseller)
-      h('div', { key: 'link', className: 'pl-card', style: { background: 'var(--pl-plata)' } }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'TIENDA'), 'Producto de la tienda']),
-        legacy && h('div', { key: 'legacy', className: 'pl-warnbox' },
+      h('div', { key: 'link', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Producto de la tienda']),
+        legacy && h('div', { key: 'legacy', className: 'gp-warnbox' },
           'Enlace de la versión anterior detectado (JS #' + legacy.sourceId + '). Re-enlaza con "Enlazar producto…" para poder aplicar opciones y variantes.'),
         ref
-          ? h('div', { key: 'st', className: 'pl-compline' }, [
+          ? h('div', { key: 'st', className: 'gp-compline' }, [
               h(Thumb, { key: 'img', url: productoImage(d) }),
-              h('span', { key: 'c', className: 'pl-chip acc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'producto local'),
+              h('span', { key: 'c', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'producto local'),
               h('span', { key: 'nm', style: { fontWeight: 600 } }, (productItemFor(d) || {}).name || ref.name || ref.itemId),
-              h('span', { key: 'm', className: 'pl-muted grow' }, '"Aplicar a la tienda" escribe precio, opciones y variantes en este producto (vía app Productos → Jumpseller).'),
-              h('button', { key: 'x', className: 'pl-btn pl-btn-sm', onClick: () => up({ productRef: null }) }, 'Desenlazar'),
+              h('span', { key: 'm', className: 'gp-muted grow' }, '"Aplicar a la tienda" escribe precio, opciones y variantes en este producto (vía app Productos → Jumpseller).'),
+              h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => up({ storeRef: null }) }, 'Desenlazar'),
             ])
-          : h('div', { key: 'no', className: 'pl-compline' }, [
-              h('span', { key: 'm', className: 'pl-muted grow' }, 'Sin enlace: el producto no se aplica a la tienda todavía.'),
-              h('button', { key: 'b', className: 'pl-btn pl-btn-sm pl-btn-dark', onClick: () => setPicking(true) }, 'Enlazar producto…'),
+          : h('div', { key: 'no', className: 'gp-compline' }, [
+              h('span', { key: 'm', className: 'gp-muted grow' }, 'Sin enlace: el producto no se aplica a la tienda todavía.'),
+              h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => setPicking(true) }, 'Enlazar producto…'),
             ]),
       ]),
-      h('div', { key: 'g1', className: 'pl-grid2' }, [
-        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Mesa Nórdica 120' })),
-        h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PL-0001' })),
+      h('div', { key: 'g1', className: 'gp-grid2' }, [
+        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Camisa Clásica · Escritorio Nórdico' })),
+        h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PPRO-N1-2026' })),
         h(Row, { key: 'su', label: 'URL del producto (vacío = automática: URL base de la tienda + permalink del producto sincronizado)' },
           h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
             placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
       ]),
       // ── Base: componentes reales incluidos + costos adicionales manuales ──
-      h('div', { key: 'basecard', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'BASE'), 'Componentes base y costos adicionales']),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
-          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (producción, embalaje, otros) y usan el "margen de costos adicionales" de la pestaña Precios.'),
-        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'pl-compline' }, [
+      h('div', { key: 'basecard', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (confección, montaje, embalaje, etc.) y usan el "margen de costos adicionales" de la pestaña Precios.'),
+        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'gp-compline' }, [
           h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, c.name),
-          h('span', { key: 'ty', className: 'pl-chip neg' }, typeLabel(c.type)),
-          !compAvailable(c) && h('span', { key: 'w', className: 'pl-chip err' }, 'no disponible'),
-          h('span', { key: 'p', className: 'pl-price' }, fmtCLP(componentSale(c))),
-          h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
+          h('span', { key: 'ty', className: 'gp-chip neg' }, typeLabel(c.type)),
+          !compAvailable(c) && h('span', { key: 'w', className: 'gp-chip err' }, 'no disponible'),
+          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(componentSale(c))),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
         ]))),
-        h('div', { key: 'addbc', className: 'pl-compline', style: { borderBottom: 0, marginTop: 6 } }, [
-          h('select', { key: 'sel', className: 'pl-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
+        h('div', { key: 'addbc', className: 'gp-compline', style: { borderBottom: 0, marginTop: 6 } }, [
+          h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
             [h('option', { key: '', value: '' }, 'Elegir componente del catálogo…')].concat(
               types().map((t) => {
                 const opts = model.components.filter((c) => c.type === t.id && (d.baseComponentIds || []).indexOf(c.id) === -1);
                 return opts.length
-                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtCLP(componentSale(c)))))
+                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtMoney(componentSale(c)))))
                   : null;
               }).filter(Boolean))),
-          h('button', { key: 'add', className: 'pl-btn pl-btn-sm pl-btn-dark', disabled: !baseSel, onClick: () => {
+          h('button', { key: 'add', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !baseSel, onClick: () => {
             if (!baseSel) return;
             up({ baseComponentIds: (d.baseComponentIds || []).concat([baseSel]) });
             setBaseSel('');
           } }, '+ Componente base'),
         ]),
-        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'pl-compline' }, [
-          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Producción y embalaje)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
+        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Confección, montaje, control de calidad)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
           h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, value: x.cost, style: { width: 120 }, onChange: (e) => upExtra(x.id, { cost: e.target.value }) }),
-          h('select', { key: 'm', className: 'pl-select', style: { width: 80 }, value: x.currency || 'CLP', onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
-            [h('option', { key: '1', value: 'CLP' }, 'CLP'), h('option', { key: '2', value: 'USD' }, 'USD')]),
+          h('select', { key: 'm', className: 'gp-select', style: { width: 90 }, value: x.currency || rules().currency, onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
+            costCurrencies().map((c) => h('option', { key: c, value: c }, c))),
           h('span', { key: 'sp', className: 'grow' }),
-          h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
         ]))),
-        h('div', { key: 'bact', className: 'pl-compline', style: { borderBottom: 0, marginTop: 4 } }, [
-          h('button', { key: 'addec', className: 'pl-btn pl-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: 'CLP' }]) }) }, '+ Costo adicional'),
+        h('div', { key: 'bact', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
+          h('button', { key: 'addec', className: 'gp-btn gp-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: rules().currency }]) }) }, '+ Costo adicional'),
           h('span', { key: 'sp', className: 'grow' }),
-          h('span', { key: 'tot', className: 'pl-muted' }, 'Base bruta (margen + IVA, sin redondeo): ' + fmtCLP(baseBreakdown(d).gross)),
+          h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
         ]),
-        h(Row, { key: 'dd', label: 'Días de preparación (vacío = regla global: ' + rules().assemblyDays + ')' },
+        // ── Cómo se fija el precio ──
+        // Calcular desde costos es una opción, no una obligación: hay
+        // productos (packs, precio de lista) donde el precio se decide.
+        (function () {
+          const modo = priceModeOf(d);
+          const catItem = productItemFor(d);
+          const catPrice = catItem && catItem.price != null ? num(catItem.price) : null;
+          const catCost = catItem && catItem.costPerItem != null ? num(catItem.costPerItem) : null;
+          return h('div', { key: 'pm', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+            h(Row, { key: 'm', label: 'Cómo se fija el precio de este producto' },
+              h('select', { className: 'gp-select', value: modo, onChange: (e) => up({ priceMode: e.target.value }) }, [
+                h('option', { key: 'a', value: 'auto' }, 'Calculado desde los costos y las reglas de margen'),
+                h('option', { key: 'f', value: 'fixed' }, 'Precio fijo — lo escribo yo (no depende de los costos)'),
+                h('option', { key: 's', value: 'store' }, 'El precio que ya tiene el producto en la tienda'),
+              ])),
+            modo === 'fixed' && h(Row, { key: 'fp', label: 'Precio fijo (' + rules().currency + ')' },
+              h('div', { className: 'gp-verify-cost' }, [
+                h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, value: d.fixedPrice == null ? '' : d.fixedPrice,
+                  onChange: (e) => up({ fixedPrice: e.target.value }) }),
+                catPrice != null ? h('button', { key: 'c', className: 'gp-btn gp-btn-sm', title: 'Copiar el precio actual del producto en la tienda',
+                  onClick: () => up({ fixedPrice: catPrice }) }, 'Usar el de la tienda (' + fmtMoney(catPrice) + ')') : null,
+              ])),
+            modo === 'store' && h('div', { key: 'sp', className: 'gp-muted' },
+              catPrice != null
+                ? 'Precio actual del producto en la tienda: ' + fmtMoney(catPrice) + '. Se toma de la app Productos en cada cálculo.'
+                : 'Aún no se puede leer el precio del catálogo (¿producto enlazado y catálogo cargado?). Mientras tanto se usa el precio fijo guardado.'),
+            modo !== 'auto' && h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 6 } },
+              'Los pasos y el visor 3D siguen funcionando igual: sirven para personalizar. Todas las combinaciones valen lo mismo, salvo los valores a los que les pongas un recargo.'),
+            catCost != null && h('div', { key: 'cc', className: 'gp-muted', style: { marginTop: 6 } },
+              'Dato de la tienda: costo por unidad en Jumpseller ' + fmtMoney(catCost) + '. Puedes usarlo como referencia sin cargar el detalle de componentes.'),
+            // Aviso temprano: si el precio calculado es 0, aplicar a la tienda
+            // se va a negar. Mejor verlo aquí que al pulsar "Aplicar".
+            !(num(productoComputedPrice(d)) > 0) && h('div', { key: 'w0', className: 'gp-warnbox', style: { marginTop: 8 } },
+              '⚠ El precio calculado es ' + fmtMoney(productoComputedPrice(d)) + '. Así NO se puede aplicar a la tienda (dejaría el producto a $0 a la venta). '
+              + (modo === 'auto'
+                ? 'En precio automático hace falta al menos un costo: componentes base, costos adicionales, o componentes en los valores por defecto de los pasos. Los pasos generados desde el modelo 3D no llevan costo por sí solos.'
+                : modo === 'store'
+                  ? 'No hay precio legible en el producto de la tienda: ponle precio en la app Productos, o cambia a precio fijo.'
+                  : 'Escribe el precio fijo aquí arriba.')),
+          ]);
+        })(),
+        h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
         h(Row, { key: 'dm', label: 'Cálculo de entrega' },
-          h('select', { className: 'pl-select', value: d.deliveryMode === 'sum' ? 'sum' : 'max', onChange: (e) => up({ deliveryMode: e.target.value }) }, [
-            h('option', { key: 'max', value: 'max' }, 'En paralelo — manda el componente más lento (producción local)'),
+          h('select', { className: 'gp-select', value: d.deliveryMode === 'sum' ? 'sum' : 'max', onChange: (e) => up({ deliveryMode: e.target.value }) }, [
+            h('option', { key: 'max', value: 'max' }, 'En paralelo — manda el componente más lento (producción propia)'),
             h('option', { key: 'sum', value: 'sum' }, 'En serie — los días se SUMAN (dropshipping / logística encadenada)'),
           ])),
       ]),
       ]),
         h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
       // Pasos: valores genéricos (lo que ve el cliente) con pool de alternativas
-      h('div', { key: 'gh', className: 'pl-card-title', style: { marginTop: 6 } }, [h('span', { key: 'n', className: 'pl-num' }, 'CONFIGURADOR'), 'Pasos, valores y alternativas']),
-      h('div', { key: 'ghelp', className: 'pl-muted', style: { marginBottom: 8 } },
-        'Cada paso tiene VALORES genéricos (la etiqueta que ve el cliente, sin marca: "Cubierta roble") y cada valor un pool de componentes ALTERNATIVOS de distintos proveedores. El precio usa siempre la alternativa más económica disponible (activa y con stock), multiplicada por la cantidad del valor; sus specs e imagen alimentan el detalle en la tienda.'),
+      h('div', { key: 'gh', className: 'gp-card-title', style: { marginTop: 6 } }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Pasos, valores y alternativas']),
+      h('div', { key: 'ghelp', className: 'gp-muted', style: { marginBottom: 8 } },
+        'Cada paso tiene VALORES genéricos (la etiqueta que ve el cliente, sin marca: "Roble natural") y cada valor un pool de componentes ALTERNATIVOS de distintos proveedores. El precio usa siempre la alternativa más económica disponible (activa y con stock); sus specs e imagen alimentan el detalle en la tienda.'),
       h(React.Fragment, { key: 'groups' }, d.groups.map((g, gi) => {
         const candidates = model.components.filter((c) => c.type === g.typeId);
         const vals = groupValues(g);
         const dv = groupDefaultValue(g);
         const upValue = (vid, patch) => upGroup(g.id, { values: vals.map((v) => (v.id === vid ? Object.assign({}, v, patch) : v)) });
-        return h('div', { key: g.id, className: 'pl-group' }, [
-          h('div', { key: 'h', className: 'pl-group-head' }, [
-            h('span', { key: 's', className: 'pl-step' }, 'PASO ' + String(gi + 1).padStart(2, '0')),
-            h('select', { key: 't', className: 'pl-select', style: { width: 'auto' }, value: g.typeId, onChange: (e) => upGroup(g.id, { typeId: e.target.value, values: [], defaultValueId: null }) },
+        return h('div', { key: g.id, className: 'gp-group' }, [
+          h('div', { key: 'h', className: 'gp-group-head' }, [
+            h('span', { key: 's', className: 'gp-step' }, 'PASO ' + String(gi + 1).padStart(2, '0')),
+            h('select', { key: 't', className: 'gp-select', style: { width: 'auto' }, value: g.typeId, onChange: (e) => upGroup(g.id, { typeId: e.target.value, values: [], defaultValueId: null }) },
               types().map((t) => h('option', { key: t.id, value: t.id }, t.label))),
             h(TextInput, { key: 'l', value: g.label, onChange: (e) => upGroup(g.id, { label: e.target.value }), placeholder: 'Título del paso (opcional): ' + typeLabel(g.typeId), style: { width: 220 } }),
-            h('label', { key: 'ph', className: 'pl-switch', style: { margin: 0 }, title: 'La selección de este paso cambia la foto del producto en la tienda (usa la foto de cada valor — ideal para colores)' }, [
+            h('label', { key: 'ph', className: 'gp-switch', style: { margin: 0 }, title: 'La selección de este paso cambia la foto del producto en la tienda (usa la foto de cada valor — ideal para colores)' }, [
               h('input', { key: 'c', type: 'checkbox', checked: g.photoStep === true, onChange: (e) => upGroup(g.id, { photoStep: e.target.checked }) }),
               h('span', { key: 's' }, 'cambia foto'),
             ]),
-            // Paso dependiente: visible solo si un paso ANTERIOR tiene elegido
-            // alguno de los valores marcados (elemento condicional del paso a paso).
+            // Paso dependiente (ProductLab): visible solo si un paso ANTERIOR
+            // tiene elegido alguno de los valores marcados abajo.
             gi > 0 ? h('select', {
-              key: 'dep', className: 'pl-select', style: { width: 'auto' },
+              key: 'dep', className: 'gp-select', style: { width: 'auto' },
               title: 'Paso dependiente: en la tienda solo se muestra si el paso elegido tiene seleccionado uno de los valores marcados abajo',
               value: (groupDependsOn(g) || {}).stepId || '',
               onChange: (e) => {
@@ -2516,80 +3281,111 @@ export default function mount(shell) {
             }, [h('option', { key: '', value: '' }, 'siempre visible')].concat(
               d.groups.slice(0, gi).map((x, xi) => h('option', { key: x.id, value: x.id }, 'depende del PASO ' + String(xi + 1).padStart(2, '0') + ' · ' + (x.label || typeLabel(x.typeId)))))) : null,
             h('span', { key: 'sp', style: { flex: 1 } }),
-            gi > 0 && h('button', { key: 'up', className: 'pl-btn pl-btn-sm', title: 'Subir', onClick: () => {
+            gi > 0 && h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
               const gs = d.groups.slice(); const t = gs[gi - 1]; gs[gi - 1] = gs[gi]; gs[gi] = t; up({ groups: gs });
             } }, '↑'),
-            h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
+            h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
           ]),
-          h('div', { key: 'b', className: 'pl-group-body' }, [
+          h('div', { key: 'b', className: 'gp-group-body' }, [
             // Editor de la condición del paso dependiente
             (function () {
               const dep = groupDependsOn(g);
               if (!dep) return null;
               const target = d.groups.find((x) => x.id === dep.stepId);
               if (!target) return null;
-              return h('div', { key: 'dep', className: 'pl-warnbox', style: { background: 'var(--pl-plata)', border: '1px solid var(--pl-gris-claro)', color: 'var(--pl-negro)' } }, [
-                h('div', { key: 't', className: 'pl-label', style: { marginBottom: 4 } },
+              return h('div', { key: 'dep', className: 'gp-warnbox', style: { background: 'var(--gp-plata)', border: '1px solid var(--gp-gris-claro)', color: 'var(--gp-negro)' } }, [
+                h('div', { key: 't', className: 'gp-label', style: { marginBottom: 4 } },
                   'Visible en la tienda solo si "' + (target.label || typeLabel(target.typeId)) + '" es:'),
-                h('div', { key: 'l', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } }, groupValues(target).map((tv) => h('label', { key: tv.id, className: 'pl-switch', style: { margin: 0 } }, [
+                h('div', { key: 'l', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } }, groupValues(target).map((tv) => h('label', { key: tv.id, className: 'gp-switch', style: { margin: 0 } }, [
                   h('input', { key: 'c', type: 'checkbox', checked: dep.valueIds.indexOf(tv.id) !== -1, onChange: (e) => {
                     const ids = e.target.checked ? dep.valueIds.concat([tv.id]) : dep.valueIds.filter((x) => x !== tv.id);
                     upGroup(g.id, { dependsOn: ids.length ? { stepId: dep.stepId, valueIds: ids } : null });
                   } }),
                   h('span', { key: 's' }, tv.label || '(sin nombre)'),
                 ]))),
-                h('div', { key: 'h', className: 'pl-muted', style: { marginTop: 4 } },
-                  'Cuando el paso quede oculto, la tienda usa su valor por defecto. Hazlo NEUTRO (un valor sin componentes = $0, ej. "Sin ' + (g.label || typeLabel(g.typeId)).toLowerCase() + '") para no recargar precio a quien no lo ve.'),
+                h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 4 } },
+                  'Cuando el paso quede oculto, la tienda usa su valor por defecto. Hazlo SIN costo (un valor sin componentes ni recargo, ej. "Sin ' + (g.label || typeLabel(g.typeId)).toLowerCase() + '") para no recargar precio a quien no lo ve.'),
               ]);
             })(),
-            vals.length === 0 && h('div', { key: 'e', className: 'pl-muted' },
-              'Sin valores aún. Agrega los que verá el cliente (ej: "Roble natural", "Nogal oscuro") y márcale a cada uno sus alternativas. Un valor SIN componentes es un valor neutro de $0 (ej: "Sin accesorio").'),
+            vals.length === 0 && h('div', { key: 'e', className: 'gp-muted' },
+              'Sin valores aún. Agrega los que verá el cliente (ej: "Roble natural", "Nogal oscuro") y márcale a cada uno sus alternativas. Un valor sin componentes es una opción sin costo (cobra con "recargo" si quieres).'),
             h(React.Fragment, { key: 'vals' }, vals.map((v) => {
               const alts = valueAlts(v);
               const chosen = valueChosen(v);
-              const delta = deltaFor(g, v);
+              const delta = deltaFor(g, v, d);
               const isDef = !!(dv && dv.id === v.id);
-              return h('div', { key: v.id, style: { borderTop: '1px dashed var(--pl-linea)', padding: '8px 0' } }, [
-                h('div', { key: 'l1', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                  h('label', { key: 'def', className: 'pl-switch', style: { margin: 0 }, title: 'Valor incluido por defecto en el producto' },
-                    h('input', { type: 'radio', name: 'pl-def-' + g.id, checked: isDef, onChange: () => upGroup(g.id, { defaultValueId: v.id }) })),
+              return h('div', { key: v.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
+                h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                  h('label', { key: 'def', className: 'gp-switch', style: { margin: 0 }, title: 'Valor incluido por defecto en el producto' },
+                    h('input', { type: 'radio', name: 'gp-def-' + g.id, checked: isDef, onChange: () => upGroup(g.id, { defaultValueId: v.id }) })),
                   h(TextInput, { key: 'lbl', value: v.label, placeholder: 'Etiqueta genérica (ej: Roble natural)', style: { width: 220 }, onChange: (e) => upValue(v.id, { label: e.target.value }) }),
-                  h('span', { key: 'qx', className: 'pl-label', title: 'Cantidad' }, '×'),
+                  h('span', { key: 'qx', className: 'gp-label', title: 'Cantidad' }, '×'),
                   h(TextInput, { key: 'qty', mono: true, type: 'number', min: 1, style: { width: 52 },
-                    title: 'Cantidad: cuántas unidades del componente elegido incluye este valor (ej. 2 para ofrecer "2×8GB" en un solo paso). Multiplica precio y exige stock suficiente.',
+                    title: 'Cantidad: cuántas unidades del componente elegido incluye este valor (ej. 2 para ofrecer "2×8GB" en un solo paso). Multiplica el precio y exige stock suficiente.',
                     value: v.qty == null ? 1 : v.qty, onChange: (e) => upValue(v.id, { qty: e.target.value }) }),
-                  (v.componentIds || []).length === 0 ? h('label', { key: 'neu', className: 'pl-switch', style: { margin: 0 }, title: 'Valor neutro: opción válida de $0 sin componentes (ej. "Sin accesorio"); ideal como default de pasos dependientes' }, [
-                    h('input', { key: 'c', type: 'checkbox', checked: v.neutral === true, onChange: (e) => upValue(v.id, { neutral: e.target.checked }) }),
-                    h('span', { key: 's' }, 'neutro $0'),
-                  ]) : null,
-                  valueIsNeutral(v)
-                    ? h('span', { key: 'ch', className: 'pl-chip gris' }, 'neutro · $0')
-                    : chosen
-                    ? h('span', { key: 'ch', className: 'pl-muted' }, 'usa: ' + chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : '') + ' → ' + fmtCLP(valueSale(v)))
-                    : h('span', { key: 'ch', className: 'pl-chip err' }, alts.length ? 'sin alternativas disponibles' : 'sin componentes'),
+                  chosen
+                    ? h('span', { key: 'ch', className: 'gp-muted' }, 'usa: ' + chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : '') + ' → ' + fmtMoney(valueSale(v)))
+                    : alts.length
+                      ? h('span', { key: 'ch', className: 'gp-chip err' }, 'sin alternativas disponibles')
+                      // Sin componentes = opción válida que no agrega costo.
+                      : h('span', { key: 'ch', className: 'gp-chip gris', title: 'No usa componentes: no agrega costo. Puedes cobrar por él con el recargo de al lado.' }, 'sin costo extra'),
+                  h('span', { key: 'rl', className: 'gp-label' }, 'recargo'),
+                  h(TextInput, { key: 'rd', mono: true, type: 'number', style: { width: 100 },
+                    value: v.priceDelta == null ? '' : v.priceDelta, placeholder: '0',
+                    title: 'Recargo de venta de este valor, sin necesidad de modelar su costo',
+                    onChange: (e) => upValue(v.id, { priceDelta: e.target.value === '' ? 0 : num(e.target.value) }) }),
                   h('span', { key: 'sp', className: 'grow' }),
                   isDef
-                    ? h('span', { key: 'd', className: 'pl-chip acc' }, 'incluido')
-                    : h('span', { key: 'd', className: 'pl-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
-                  h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', title: 'Quitar valor', onClick: () => upGroup(g.id, { values: vals.filter((y) => y.id !== v.id), defaultValueId: g.defaultValueId === v.id ? null : g.defaultValueId }) }, '✕'),
+                    ? h('span', { key: 'd', className: 'gp-chip fuc' }, 'incluido')
+                    : h('span', { key: 'd', className: 'gp-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
+                  h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar valor', onClick: () => upGroup(g.id, { values: vals.filter((y) => y.id !== v.id), defaultValueId: g.defaultValueId === v.id ? null : g.defaultValueId }) }, '✕'),
                 ]),
                 h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ImgField, { value: v.imageUrl || '', gallery: productoGallery, onChange: (u) => upValue(v.id, { imageUrl: u }), placeholder: g.photoStep ? 'Foto del producto en este color' : 'Foto propia del valor (si no, usa la de la alternativa elegida)' })),
                 g.photoStep === true && h('div', { key: 'lsw', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ColorField, { label: null, value: v.swatchColor || '', onChange: (c) => upValue(v.id, { swatchColor: c }), placeholder: '#1D1D1B — color del puntito selector en la tienda' })),
+                // ── Efectos sobre el visor 3D (solo si el producto tiene modelo) ──
+                has3d(d) && h('div', { key: 'l3d', style: { paddingLeft: 26, marginTop: 4 } }, (function () {
+                  const parts = (d.model3d.parts || []);
+                  const fins = (d.model3d.finishes || []);
+                  const fx = v.model3d || [];
+                  const upFx = (next) => upValue(v.id, { model3d: next });
+                  if (!parts.length) return h('span', { className: 'gp-muted' }, 'Define las partes del modelo en la pestaña Visor 3D para poder vincular este valor.');
+                  return [
+                    h('div', { key: 'l', className: 'gp-label' }, 'Efecto en el 3D al elegir este valor'),
+                    h('div', { key: 'rows' }, fx.map((e, i) => h('div', { key: i, className: 'gp-fx-row' }, [
+                      h('select', { key: 'p', className: 'gp-select', style: { width: 'auto' }, value: e.partId,
+                        onChange: (ev) => upFx(fx.map((x, j) => (j === i ? Object.assign({}, x, { partId: ev.target.value }) : x))) },
+                        parts.map((p) => h('option', { key: p.id, value: p.id }, p.label || p.id))),
+                      h('select', { key: 't', className: 'gp-select', style: { width: 'auto' }, value: e.type,
+                        onChange: (ev) => upFx(fx.map((x, j) => (j === i ? Object.assign({}, x, { type: ev.target.value }) : x))) }, [
+                        h('option', { key: 'c', value: 'color' }, 'pintar de'),
+                        h('option', { key: 'f', value: 'finish' }, 'acabado'),
+                        h('option', { key: 'h', value: 'hide' }, 'ocultar pieza'),
+                      ]),
+                      e.type === 'color' ? h('input', { key: 'v', type: 'color', value: e.color || '#cccccc',
+                        onChange: (ev) => upFx(fx.map((x, j) => (j === i ? Object.assign({}, x, { color: ev.target.value }) : x))) }) : null,
+                      e.type === 'finish' ? h('select', { key: 'v', className: 'gp-select', style: { width: 'auto' }, value: e.finishId || '',
+                        onChange: (ev) => upFx(fx.map((x, j) => (j === i ? Object.assign({}, x, { finishId: ev.target.value }) : x))) },
+                        [h('option', { key: '', value: '' }, '— elegir —')].concat(fins.map((f) => h('option', { key: f.id, value: f.id }, f.label || f.id)))) : null,
+                      h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upFx(fx.filter((x, j) => j !== i)) }, '✕'),
+                    ]))),
+                    h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upFx(fx.concat([{ partId: parts[0].id, type: 'color', color: v.swatchColor || '#cccccc' }])) }, '+ Efecto 3D'),
+                  ];
+                })()),
                 h('div', { key: 'l2', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px', paddingLeft: 26, marginTop: 4 } },
                   candidates.length === 0
-                    ? [h('span', { key: 'none', className: 'pl-muted' }, 'No hay componentes de tipo "' + typeLabel(g.typeId) + '". Créalos en Componentes.')]
+                    ? [h('span', { key: 'none', className: 'gp-muted' }, 'No hay componentes de tipo "' + typeLabel(g.typeId) + '". Créalos en Componentes.')]
                     : candidates.map((c) => {
                         const inSet = (v.componentIds || []).indexOf(c.id) !== -1;
                         const isChosen = !!(chosen && chosen.id === c.id);
-                        return h('label', { key: c.id, className: 'pl-switch', style: { margin: 0, opacity: compAvailable(c) ? 1 : .5 } }, [
+                        return h('label', { key: c.id, className: 'gp-switch', style: { margin: 0, opacity: compAvailable(c) ? 1 : .5 } }, [
                           h('input', { key: 'c', type: 'checkbox', checked: inSet, onChange: (e) => upValue(v.id, { componentIds: e.target.checked ? (v.componentIds || []).concat([c.id]) : (v.componentIds || []).filter((x) => x !== c.id) }) }),
                           h('span', { key: 's' }, [
-                            c.name + ' (' + fmtCLP(componentSale(c)) + ')',
-                            h('span', { key: 'st', className: 'pl-chip ' + (compAvailable(c) ? (c.stock == null ? 'gris' : 'ok') : 'err'), style: { marginLeft: 5 } },
+                            c.name + ' (' + fmtMoney(componentSale(c)) + ')',
+                            h('span', { key: 'st', className: 'gp-chip ' + (compAvailable(c) ? (c.stock == null ? 'gris' : 'ok') : 'err'), style: { marginLeft: 5 } },
                               c.active === false ? 'inactivo' : c.stock == null ? 'stock ∞' : num(c.stock) > 0 ? 'stock ' + num(c.stock) : 'sin stock'),
-                            isChosen ? h('span', { key: 'b', className: 'pl-chip acc', style: { marginLeft: 4 } }, 'elegida') : null,
+                            isChosen ? h('span', { key: 'b', className: 'gp-chip fuc', style: { marginLeft: 4 } }, 'elegida') : null,
                           ]),
                         ]);
                       })),
@@ -2599,35 +3395,58 @@ export default function mount(shell) {
             candidates.length > 0 && (function () {
               const sel = quickSel[g.id] || {};
               const marked = Object.keys(sel).filter((k) => sel[k]);
-              return h('div', { key: 'quick', style: { borderTop: '1px dashed var(--pl-linea)', marginTop: 10, paddingTop: 8 } }, [
-                h('div', { key: 't', className: 'pl-label', style: { marginBottom: 5 } }, 'Creación rápida: marca componentes y crea un valor por cada uno (nombre editable después)'),
-                h('div', { key: 'list', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } }, candidates.map((c) => h('label', { key: c.id, className: 'pl-switch', style: { margin: 0 } }, [
+              return h('div', { key: 'quick', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 8 } }, [
+                h('div', { key: 't', className: 'gp-label', style: { marginBottom: 5 } }, 'Creación rápida: marca componentes y crea un valor por cada uno (nombre editable después)'),
+                h('div', { key: 'list', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } }, candidates.map((c) => h('label', { key: c.id, className: 'gp-switch', style: { margin: 0 } }, [
                   h('input', { key: 'i', type: 'checkbox', checked: !!sel[c.id], onChange: (e) => {
                     const next = Object.assign({}, sel); next[c.id] = e.target.checked;
                     const q = Object.assign({}, quickSel); q[g.id] = next; setQuickSel(q);
                   } }),
                   h('span', { key: 's' }, c.name),
                 ]))),
-                h('button', { key: 'b', className: 'pl-btn pl-btn-sm pl-btn-dark', style: { marginTop: 6 }, disabled: !marked.length, onClick: () => {
+                h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', style: { marginTop: 6 }, disabled: !marked.length, onClick: () => {
                   const nuevos = marked.map((cid) => { const c = compById(cid); return { id: newId('val'), label: c ? c.name : cid, componentIds: [cid] }; });
                   upGroup(g.id, { values: vals.concat(nuevos) });
                   const q = Object.assign({}, quickSel); q[g.id] = {}; setQuickSel(q);
                 } }, '+ Crear ' + marked.length + ' valor(es)'),
               ]);
             })(),
-            h('button', { key: 'addv', className: 'pl-btn pl-btn-sm', style: { marginTop: 8 }, onClick: () => upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: '', componentIds: [] }]) }) }, '+ Valor'),
+            h('button', { key: 'addv', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 }, onClick: () => upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: '', componentIds: [] }]) }) }, '+ Valor'),
           ]),
         ]);
       })),
-      h('button', { key: 'addg', className: 'pl-btn', onClick: () => up({ groups: d.groups.concat([{ id: newId('grp'), typeId: types()[0].id, label: '', values: [], defaultValueId: null }]) }) }, '+ Agregar paso'),
-      // Previsualizador en vivo: el paso a paso tal como lo verá el cliente.
-      h('div', { key: 'cfgpv', style: { marginTop: 14 } }, h(ConfigPreview, { draft: d })),
+      h('div', { key: 'gact', className: 'gp-compline', style: { borderBottom: 0 } }, [
+        h('button', { key: 'addg', className: 'gp-btn', onClick: () => up({ groups: d.groups.concat([{ id: newId('grp'), typeId: types()[0].id, label: '', values: [], defaultValueId: null }]) }) }, '+ Agregar paso'),
+        // Previsualizador en vivo: el paso a paso tal como lo verá el cliente.
+        h('div', { key: 'cfgpv', style: { marginTop: 14 } }, h(ConfigPreview, { draft: d })),
+        // Mismo atajo que la tool BUILD_3D_STEPS del agente: un paso por parte
+        // del modelo, con un valor por acabado y el vínculo 3D ya hecho.
+        has3d(d) && ((d.model3d.finishes || []).length > 0) && h('button', { key: 'gen3d', className: 'gp-btn gp-btn-dark',
+          title: 'Crea un paso por cada parte del modelo, con un valor por cada acabado, ya vinculados al 3D',
+          onClick: () => {
+            const m = d.model3d;
+            const gen = (m.parts || []).map((part) => {
+              const values = (m.finishes || []).map((f) => ({
+                id: newId('val'), label: f.label || f.id, swatchColor: f.color || '', imageUrl: '',
+                componentIds: [], priceDelta: 0,
+                model3d: [{ partId: part.id, type: 'finish', finishId: f.id }],
+              }));
+              const defFin = part.defaultFinish ? (m.finishes || []).find((f) => f.id === part.defaultFinish) : null;
+              const def = defFin ? values.find((v) => v.label === (defFin.label || defFin.id)) : values[0];
+              return { id: newId('grp'), typeId: types()[0].id, label: part.label || part.id, photoStep: false,
+                values, defaultValueId: def ? def.id : (values[0] && values[0].id) || null };
+            });
+            if (!gen.length) { shell.notify({ level: 'warn', text: 'El modelo no tiene partes definidas.' }); return; }
+            const replace = !d.groups.length || window.confirm('¿Reemplazar los pasos actuales por los generados desde el modelo 3D?\n\nAceptar = reemplazar · Cancelar = agregarlos al final');
+            up({ groups: replace ? gen : d.groups.concat(gen) });
+          } }, '⚡ Generar pasos desde el modelo 3D'),
+      ]),
       ]),
         h('div', { key: 'f', style: sec === 'ficha' ? null : { display: 'none' } }, [
       // ── Ficha: galería del producto ──
-      h('div', { key: 'galeria', className: 'pl-card', style: { marginTop: 12 } }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'FICHA'), 'Galería del producto']),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
+      h('div', { key: 'galeria', className: 'gp-card', style: { marginTop: 12 } }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Galería del producto']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'Biblioteca de imágenes de ESTE producto: lo que subas aquí o en cualquier campo de imagen (fondos de hero, fotos de valores) queda disponible en los pickers "Galería…" para reutilizarlo en otras secciones, junto a las fotos del producto en Jumpseller (marcadas JS).'),
         h('div', { key: 'grid', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
           productoGallery.length
@@ -2635,14 +3454,28 @@ export default function mount(shell) {
                 const own = (d.galleryImages || []).indexOf(u) !== -1;
                 const isProd = prodImgs.indexOf(u) !== -1;
                 return h('div', { key: i, style: { position: 'relative' } }, [
-                  h('img', { key: 'i', src: u, alt: '', title: u, style: { width: 84, height: 84, objectFit: 'cover', border: '1px solid var(--pl-gris-claro)', background: '#fff', display: 'block' } }),
-                  isProd ? h('span', { key: 'p', className: 'pl-chip acc', style: { position: 'absolute', left: 2, bottom: 2 } }, 'JS') : null,
-                  own ? h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)', style: { position: 'absolute', top: 2, right: 2, padding: '2px 5px' }, onClick: () => up({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) }) }, '✕') : null,
+                  h('img', { key: 'i', src: u, alt: '', title: u, style: { width: 84, height: 84, objectFit: 'cover', border: '1px solid var(--gp-gris-claro)', background: '#fff', display: 'block' } }),
+                  isProd ? h('span', { key: 'p', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, bottom: 2 } }, 'JS') : null,
+                  own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)', style: { position: 'absolute', top: 2, right: 2, padding: '2px 5px' }, onClick: () => up({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) }) }, '✕') : null,
                 ]);
               })
-            : h('span', { key: 'e', className: 'pl-muted' }, 'Aún no hay imágenes: sube algunas o enlaza el producto para ver su galería.')),
-        h('div', { key: 'act', className: 'pl-compline', style: { borderBottom: 0, marginTop: 8 } }, [
-          h('label', { key: 'up', className: 'pl-btn pl-btn-sm pl-btn-dark', style: { cursor: 'pointer' } }, [
+            : h('span', { key: 'e', className: 'gp-muted' }, 'Aún no hay imágenes: sube algunas o enlaza el producto para ver su galería.')),
+        // La galería llega del producto enlazado (app Productos). Si de allí
+        // solo viene la foto principal, no hay nada que la app pueda inventar:
+        // el síntoma es "solo se ve una foto" y la causa está una capa antes,
+        // así que se dice en claro y con el paso exacto para arreglarlo.
+        (function () {
+          const p = productItemFor(d);
+          if (!p) return null;
+          const n = Array.isArray(p.images) ? p.images.filter(Boolean).length : 0;
+          if (n > 1) return null;
+          return h('div', { key: 'sync', className: 'gp-muted', style: { marginTop: 8, borderLeft: '2px solid var(--gp-fucsia)', paddingLeft: 8 } },
+            n === 1 || !n
+              ? 'De la tienda solo llega ' + (n ? 'la foto principal' : 'ninguna foto') + '. La galería completa la trae la app Productos al sincronizar: abre Productos → "' + (p.name || d.name) + '" → sincronizar (pull) desde Jumpseller, y vuelve aquí. Mientras tanto puedes subir fotos a mano con "+ Subir imágenes…".'
+              : null);
+        })(),
+        h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 8 } }, [
+          h('label', { key: 'up', className: 'gp-btn gp-btn-sm gp-btn-dark', style: { cursor: 'pointer' } }, [
             h('span', { key: 's' }, galBusy ? 'Subiendo…' : '+ Subir imágenes…'),
             h('input', { key: 'f', type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' }, disabled: galBusy, onChange: async (e) => {
               const files = Array.from(e.target.files || []);
@@ -2664,79 +3497,79 @@ export default function mount(shell) {
         ]),
       ]),
       // ── Ficha: BUILDER de descripción del producto ──
-      h('div', { key: 'builder', className: 'pl-card', style: { marginTop: 12 } }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [
-          h('span', { key: 'n', className: 'pl-num' }, 'FICHA'),
+      h('div', { key: 'builder', className: 'gp-card', style: { marginTop: 12 } }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [
+          h('span', { key: 'n', className: 'gp-num' }, 'FICHA'),
           'Builder de descripción del producto',
           h('span', { key: 'sp', style: { flex: 1 } }),
-          h('div', { key: 'vm', className: 'pl-editor-tabs' }, [
-            h('button', { key: 'd2', className: 'pl-etab' + (viewMode === 'desk' ? ' on' : ''), onClick: () => setViewMode('desk') }, 'Escritorio'),
-            h('button', { key: 'm2', className: 'pl-etab' + (viewMode === 'mob' ? ' on' : ''), onClick: () => setViewMode('mob') }, 'Móvil'),
+          h('div', { key: 'vm', className: 'gp-editor-tabs' }, [
+            h('button', { key: 'd2', className: 'gp-etab' + (viewMode === 'desk' ? ' on' : ''), onClick: () => setViewMode('desk') }, 'Escritorio'),
+            h('button', { key: 'm2', className: 'gp-etab' + (viewMode === 'mob' ? ' on' : ''), onClick: () => setViewMode('mob') }, 'Móvil'),
           ]),
         ]),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'La página del modelo se compone de SECCIONES una bajo otra: heros con patrón flexbox, la tabla de especificaciones y la nota (reordenables con ↑↓; specs y nota se pueden ocultar). Pincha un contenedor o un bloque en la previsualización para editarlo abajo, y ARRASTRA bloques entre contenedores (incluso de otra sección). La previsualización es aproximada; el theme pone la tipografía final.'),
         h(React.Fragment, { key: 'list' }, sfPage.map((sec2, si2) => {
           const moveBtns = [
-            si2 > 0 && h('button', { key: 'up', className: 'pl-btn pl-btn-sm', title: 'Subir', onClick: () => {
+            si2 > 0 && h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
               const xs = sfPage.slice(); const t = xs[si2 - 1]; xs[si2 - 1] = xs[si2]; xs[si2] = t; upPage(xs);
             } }, '↑'),
-            si2 < sfPage.length - 1 && h('button', { key: 'dn', className: 'pl-btn pl-btn-sm', title: 'Bajar', onClick: () => {
+            si2 < sfPage.length - 1 && h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar', onClick: () => {
               const xs = sfPage.slice(); const t = xs[si2 + 1]; xs[si2 + 1] = xs[si2]; xs[si2] = t; upPage(xs);
             } }, '↓'),
           ];
           // ── Secciones fijas: especificaciones y nota (orden + mostrar) ──
           if (sec2.kind === 'specs' || sec2.kind === 'note' || sec2.kind === 'fotos') {
-            return h('div', { key: sec2.id, className: 'pl-group' }, [
-              h('div', { key: 'h', className: 'pl-group-head' }, [
-                h('span', { key: 's', className: 'pl-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
-                h('span', { key: 'k', className: 'pl-chip neg' }, sec2.kind === 'specs' ? 'ESPECIFICACIONES' : sec2.kind === 'fotos' ? 'FOTOS' : 'NOTA'),
-                h('label', { key: 'sw', className: 'pl-switch', style: { margin: 0 } }, [
+            return h('div', { key: sec2.id, className: 'gp-group' }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+                h('span', { key: 'k', className: 'gp-chip neg' }, sec2.kind === 'specs' ? 'ESPECIFICACIONES' : sec2.kind === 'fotos' ? 'FOTOS' : 'NOTA'),
+                h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 } }, [
                   h('input', { key: 'c', type: 'checkbox', checked: sec2.show !== false, onChange: (e) => upPageX(sec2.id, { show: e.target.checked }) }),
                   h('span', { key: 's2' }, 'mostrar'),
                 ]),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns)),
-              sec2.show !== false && h('div', { key: 'b', className: 'pl-group-body' },
+              sec2.show !== false && h('div', { key: 'b', className: 'gp-group-body' },
                 sec2.kind === 'fotos'
-                  ? h('span', { key: 'ft', className: 'pl-muted' },
+                  ? h('span', { key: 'ft', className: 'gp-muted' },
                       'Grilla de fotos del producto (galería de Jumpseller) con visor grande y título centrado (renombrable en Pestañas). Las fotos se gestionan en el producto, en la tienda.')
                   : sec2.kind === 'specs'
                   ? (specRows.length
                       ? h('div', { key: 'pv', style: { maxWidth: viewMode === 'mob' ? 375 : 560 } },
-                          specRows.slice(0, 6).map((sp) => h('div', { key: sp.id, className: 'pl-compline' }, [
-                            h('span', { key: 'l', className: 'pl-muted', style: { width: '40%' } }, sp.label),
+                          specRows.slice(0, 6).map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
+                            h('span', { key: 'l', className: 'gp-muted', style: { width: '40%' } }, sp.label),
                             h('span', { key: 'v' }, sp.value),
-                          ])).concat(specRows.length > 6 ? [h('div', { key: 'more', className: 'pl-muted' }, '… +' + (specRows.length - 6) + ' filas')] : []))
-                      : h('span', { key: 'e', className: 'pl-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.'))
+                          ])).concat(specRows.length > 6 ? [h('div', { key: 'more', className: 'gp-muted' }, '… +' + (specRows.length - 6) + ' filas')] : []))
+                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.'))
                   : h('div', { key: 'note' }, [
-                      h('div', { key: 'h2', className: 'pl-muted', style: { marginBottom: 6 } },
+                      h('div', { key: 'h2', className: 'gp-muted', style: { marginBottom: 6 } },
                         'Nota discreta (letra chica) con separador fino: condiciones o aclaraciones. Vacía = no se muestra.'),
-                      h('textarea', { key: 'tx', className: 'pl-textarea', rows: 3, value: sf.photosNote || '',
+                      h('textarea', { key: 'tx', className: 'gp-textarea', rows: 3, value: sf.photosNote || '',
                         placeholder: 'Ej: Las fotos son referenciales; la configuración interna corresponde a lo seleccionado en el personalizador.',
                         onChange: (e) => up({ storefront: Object.assign({}, sf, { photosNote: e.target.value }) }) }),
                     ])),
             ]);
           }
-          // ── Sección IMAGEN: una foto a lo ancho, alto según la imagen ──
+          // ── Sección IMAGEN (ProductLab): una foto, alto según la imagen ──
           if (sec2.kind === 'imagen') {
-            return h('div', { key: sec2.id, className: 'pl-group' }, [
-              h('div', { key: 'h', className: 'pl-group-head' }, [
-                h('span', { key: 's', className: 'pl-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
-                h('span', { key: 'k', className: 'pl-chip acc' }, 'IMAGEN'),
-                h('select', { key: 'w', className: 'pl-select', style: { width: 'auto' }, value: sec2.width || 'content', onChange: (e) => upPageX(sec2.id, { width: e.target.value }) }, [
+            return h('div', { key: sec2.id, className: 'gp-group' }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+                h('span', { key: 'k', className: 'gp-chip fuc' }, 'IMAGEN'),
+                h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' }, value: sec2.width || 'content', onChange: (e) => upPageX(sec2.id, { width: e.target.value }) }, [
                   h('option', { key: 'c', value: 'content' }, 'Ancho del contenido'),
                   h('option', { key: 'f', value: 'full' }, 'Borde a borde'),
                 ]),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns).concat([
-                h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
+                h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
               ])),
-              h('div', { key: 'b', className: 'pl-group-body' }, [
-                h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 6 } },
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
                   'Sección de solo foto: en la tienda ocupa el ancho elegido y su ALTO se adapta a la imagen (sin recortes). Encadena varias para descripciones hechas de fotos apiladas, cada una con su altura natural.'),
                 h(ImgField, { key: 'img', label: null, value: sec2.imageUrl || '', gallery: productoGallery, onChange: (u) => upPageX(sec2.id, { imageUrl: u }) }),
-                h('div', { key: 'meta', className: 'pl-grid2' }, [
+                h('div', { key: 'meta', className: 'gp-grid2' }, [
                   h(Row, { key: 'alt', label: 'Texto alternativo (accesibilidad, opcional)' },
                     h(TextInput, { value: sec2.alt || '', onChange: (e) => upPageX(sec2.id, { alt: e.target.value }) })),
                   h(Row, { key: 'lnk', label: 'Link al hacer clic (opcional)' },
@@ -2744,29 +3577,9 @@ export default function mount(shell) {
                 ]),
                 sec2.imageUrl
                   ? h('div', { key: 'pv', style: { overflowX: 'auto', marginTop: 8 } },
-                      h('img', { src: sec2.imageUrl, alt: sec2.alt || '', style: { display: 'block', width: viewMode === 'mob' ? 375 : '100%', maxWidth: viewMode === 'mob' ? 375 : 900, height: 'auto', margin: '0 auto', border: '1px solid var(--pl-gris-claro)' } }))
-                  : h('div', { key: 'pv', className: 'pl-muted' }, 'Sube o elige una imagen para previsualizarla con su alto real.'),
+                      h('img', { src: sec2.imageUrl, alt: sec2.alt || '', style: { display: 'block', width: viewMode === 'mob' ? 375 : '100%', maxWidth: viewMode === 'mob' ? 375 : 900, height: 'auto', margin: '0 auto', border: '1px solid var(--gp-gris-claro)' } }))
+                  : h('div', { key: 'pv', className: 'gp-muted' }, 'Sube o elige una imagen para previsualizarla con su alto real.'),
               ]),
-            ]);
-          }
-          // ── Sección VISOR 3D: visualizador embebido en la página ──
-          if (sec2.kind === 'visor3d') {
-            const emb = viewerEmbedUrl(d);
-            return h('div', { key: sec2.id, className: 'pl-group' }, [
-              h('div', { key: 'h', className: 'pl-group-head' }, [
-                h('span', { key: 's', className: 'pl-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
-                h('span', { key: 'k', className: 'pl-chip acc' }, 'VISOR 3D'),
-                h('span', { key: 'hl', className: 'pl-label' }, 'alto (px)'),
-                h(TextInput, { key: 'hh', mono: true, type: 'number', min: 240, max: 900, value: sec2.height || 480, style: { width: 80 }, onChange: (e) => upPageX(sec2.id, { height: e.target.value }) }),
-                h('span', { key: 'sp', style: { flex: 1 } }),
-              ].concat(moveBtns).concat([
-                h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
-              ])),
-              h('div', { key: 'b', className: 'pl-group-body' },
-                d.model3d && d.model3d.enabled && emb
-                  ? h('iframe', { key: 'if', src: emb, title: 'Visualizador 3D', style: { width: '100%', height: Math.max(240, Math.min(900, num(sec2.height, 480))), border: '1px solid var(--pl-gris-claro)', background: '#fff' } })
-                  : h('div', { key: 'e', className: 'pl-muted' },
-                      'Configura y habilita el Visualizador 3D en la card "Visualizador 3D" (más abajo) para previsualizarlo aquí. En la tienda, esta sección embebe el visor en la posición elegida.')),
             ]);
           }
           // ── Sección hero ──
@@ -2832,13 +3645,9 @@ export default function mount(shell) {
             };
             if (b.type === 'photo') {
               const src3 = productoImage(d);
-              // size 'auto' = alto natural de la foto (solo limita el ancho)
-              const phStyle = b.size === 'auto'
-                ? { maxWidth: '100%', height: 'auto', filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))' }
-                : { maxHeight: Math.round((PH[b.size] || PH.m) * (isMob ? 0.8 : 1)), maxWidth: '100%', filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))' };
               return h('div', common, src3
-                ? h('img', { src: src3, alt: '', style: phStyle })
-                : h('div', { style: { width: 90, height: 70, background: 'var(--pl-accent)', opacity: .85 } }));
+                ? h('img', { src: src3, alt: '', style: { maxHeight: Math.round((PH[b.size] || PH.m) * (isMob ? 0.8 : 1)), maxWidth: '100%', filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))' } })
+                : h('div', { style: { width: 90, height: 70, background: 'var(--gp-fucsia)', opacity: .85 } }));
             }
             if (b.type === 'title') return h('div', common, [
               h('div', { key: 't3', style: { fontWeight: 700, fontSize: isMob ? 15 : 19, letterSpacing: '-.02em' } }, d.name || 'Nombre del producto'),
@@ -2858,16 +3667,16 @@ export default function mount(shell) {
             }
             if (b.type === 'items') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, { display: 'flex', flexDirection: 'column', gap: 5, alignItems: alignSelf }) }),
               (b.items || []).length ? b.items.map((it) => h('div', { key: it.id, style: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(29,29,27,.78)', color: '#fff', border: '1px solid rgba(255,255,255,.25)', padding: '4px 8px 4px 4px', fontSize: 10, width: 'fit-content' } }, [
-                h('span', { key: 'p', style: { width: 14, height: 14, background: 'var(--pl-accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 } }, '+'),
+                h('span', { key: 'p', style: { width: 14, height: 14, background: 'var(--gp-fucsia)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 } }, '+'),
                 h('span', { key: 't4' }, it.title || '(item)'),
               ])) : [h('span', { key: 'e', style: { fontSize: 10, opacity: .6 } }, '(items vacíos)')]);
             if (b.type === 'cta') return h('div', common, h('span', { style: {
               display: 'inline-block', padding: '7px 14px', fontSize: 11, fontWeight: 600,
-              background: b.style === 'dark' ? '#1D1D1B' : b.style === 'ghost' ? 'rgba(255,255,255,.12)' : 'var(--pl-accent)',
+              background: b.style === 'dark' ? '#1D1D1B' : b.style === 'ghost' ? 'rgba(255,255,255,.12)' : 'var(--gp-fucsia)',
               color: '#fff', border: b.style === 'ghost' ? '1px solid rgba(255,255,255,.5)' : '0',
             } }, b.label || 'Configurar'));
             if (b.type === 'icons') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, { display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }) }),
-              (b.items || []).map((it) => h('div', { key: it.id, style: { borderLeft: '2px solid var(--pl-accent)', paddingLeft: 6, fontSize: 10, textAlign: 'left' } }, [
+              (b.items || []).map((it) => h('div', { key: it.id, style: { borderLeft: '2px solid var(--gp-fucsia)', paddingLeft: 6, fontSize: 10, textAlign: 'left' } }, [
                 it.icon ? h('div', { key: 'i4', style: { fontSize: 14 } }, it.icon) : null,
                 h('b', { key: 't5', style: { display: 'block', fontSize: 11 } }, it.title || '—'),
                 it.text ? h('span', { key: 'x5', style: { opacity: .75 } }, it.text) : null,
@@ -2879,12 +3688,22 @@ export default function mount(shell) {
               ])));
             if (b.type === 'gallery') {
               const gu = prodImgs[Math.max(0, (num(b.index, 1) || 1) - 1)];
-              const gStyle = b.size === 'auto'
-                ? { maxWidth: '100%', height: 'auto' }
-                : { maxHeight: Math.round(((PH[b.size] || PH.m) * 0.8)), maxWidth: '100%', objectFit: 'contain' };
               return h('div', common, gu
-                ? h('img', { src: gu, alt: '', style: gStyle })
+                ? h('img', { src: gu, alt: '', style: { maxHeight: 120, maxWidth: '100%', objectFit: 'contain' } })
                 : h('div', { style: { width: 120, height: 74, background: 'rgba(255,255,255,.12)', border: '1px dashed rgba(255,255,255,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, letterSpacing: '.1em' } }, 'GALERÍA Nº' + (b.index || 1)));
+            }
+            if (b.type === 'description') {
+              // Se previsualiza en texto plano: la descripción de la tienda
+              // viene en HTML y aquí interesa ver el encaje, no el marcado.
+              const fs2 = (isMob ? { xl: 30, l: 22, m: 14, s: 12 } : { xl: 40, l: 28, m: 13, s: 10.5 })[b.size || 'm'];
+              const isBody2 = b.size === 'm' || b.size === 's';
+              const txt = descriptionText(productDescriptionFor(d), num(b.max, 0));
+              return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, {
+                fontSize: fs2, fontWeight: isBody2 ? 400 : 700,
+                lineHeight: isBody2 ? 1.5 : 1.15, whiteSpace: 'pre-line',
+                maxWidth: isBody2 && !isMob ? 440 : '100%',
+                opacity: txt ? 1 : .6,
+              }) }), txt || '(el producto de la tienda aún no tiene descripción)');
             }
             if (b.type === 'html') return h('div', Object.assign({}, common, {
               style: Object.assign({}, common.style, { fontSize: 11, maxWidth: 320 }),
@@ -2892,13 +3711,13 @@ export default function mount(shell) {
             }));
             return null;
           };
-          return h('div', { key: hx.id, className: 'pl-group' }, [
-            h('div', { key: 'h', className: 'pl-group-head' }, [
-              h('span', { key: 's', className: 'pl-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
-              h('span', { key: 'k', className: 'pl-chip acc' }, 'HERO'),
-              h('select', { key: 'pat', className: 'pl-select', style: { width: 'auto' }, value: pat.id, onChange: (e) => upPageX(hx.id, { pattern: e.target.value }) },
+          return h('div', { key: hx.id, className: 'gp-group' }, [
+            h('div', { key: 'h', className: 'gp-group-head' }, [
+              h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+              h('span', { key: 'k', className: 'gp-chip fuc' }, 'HERO'),
+              h('select', { key: 'pat', className: 'gp-select', style: { width: 'auto' }, value: pat.id, onChange: (e) => upPageX(hx.id, { pattern: e.target.value }) },
                 HERO_PATTERNS.map((p) => h('option', { key: p.id, value: p.id }, p.label))),
-              h('select', { key: 'hh', className: 'pl-select', style: { width: 'auto' }, value: hx.height || 'm', onChange: (e) => upPageX(hx.id, { height: e.target.value }) }, [
+              h('select', { key: 'hh', className: 'gp-select', style: { width: 'auto' }, value: hx.height || 'm', onChange: (e) => upPageX(hx.id, { height: e.target.value }) }, [
                 h('option', { key: 's4', value: 's' }, 'Compacto'),
                 h('option', { key: 'm4', value: 'm' }, 'Normal'),
                 h('option', { key: 'l4', value: 'l' }, 'Alto'),
@@ -2907,23 +3726,23 @@ export default function mount(shell) {
               ]),
               h('span', { key: 'sp', style: { flex: 1 } }),
             ].concat(moveBtns).concat([
-              h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== hx.id)) }, 'Quitar'),
+              h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== hx.id)) }, 'Quitar'),
             ])),
-            h('div', { key: 'b', className: 'pl-group-body' }, [
-              h('div', { key: 'bg', className: 'pl-grid2' }, [
+            h('div', { key: 'b', className: 'gp-group-body' }, [
+              h('div', { key: 'bg', className: 'gp-grid2' }, [
                 h(Row, { key: 'bc', label: 'Color de fondo (vacío = negro del sistema)' },
                   h(ColorField, { label: null, value: hx.bgColor || '', onChange: (v) => upPageX(hx.id, { bgColor: v }), placeholder: '#1D1D1B (vacío = negro)' })),
                 h(ImgField, { key: 'bi', label: 'Imagen de fondo (tapa el color)', value: hx.bgImageUrl || '', gallery: productoGallery, onChange: (v) => upPageX(hx.id, { bgImageUrl: v }) }),
                 h(Row, { key: 'tc', label: 'Color del texto (vacío = automático según fondo)' },
                   h(ColorField, { label: null, value: hx.textColor || '', onChange: (v) => upPageX(hx.id, { textColor: v }) })),
-                h('label', { key: 'ov', className: 'pl-switch', style: { alignSelf: 'end' } }, [
+                h('label', { key: 'ov', className: 'gp-switch', style: { alignSelf: 'end' } }, [
                   h('input', { key: 'c', type: 'checkbox', checked: hx.overlay !== false, onChange: (e) => upPageX(hx.id, { overlay: e.target.checked }) }),
                   h('span', { key: 's5' }, 'Oscurecer imagen de fondo (legibilidad)'),
                 ]),
               ]),
               // ── Previsualización en vivo (clic = seleccionar, drop = mover) ──
               h('div', { key: 'prev', style: { overflowX: 'auto', marginBottom: 8 } },
-                h('div', { style: Object.assign({ width: isMob ? 375 : '100%', maxWidth: isMob ? 375 : 900, margin: '0 auto', border: '1px solid var(--pl-gris-claro)', color: pvText, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'space-between', minHeight: minH }, pvBg) },
+                h('div', { style: Object.assign({ width: isMob ? 375 : '100%', maxWidth: isMob ? 375 : 900, margin: '0 auto', border: '1px solid var(--gp-gris-claro)', color: pvText, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'space-between', minHeight: minH }, pvBg) },
                   pat.rows.map((row, ri) => h('div', { key: ri, style: { display: 'flex', flexDirection: isMob ? 'column' : 'row', gap: 8, flex: row.length > 1 ? 1 : 'none' } },
                     row.map((cell) => {
                       const cid = cellId(cell);
@@ -2939,7 +3758,7 @@ export default function mount(shell) {
                           flex: isMob ? 'none' : cellFlex(cell), minHeight: 44, minWidth: 0,
                           display: 'flex', flexDirection: 'column', gap: 8,
                           alignItems: 'center', justifyContent: 'center', padding: 6, cursor: 'pointer',
-                          outline: on2 ? '2px dashed var(--pl-accent)' : '1px dashed ' + (pvDark ? 'rgba(255,255,255,.28)' : 'rgba(29,29,27,.25)'),
+                          outline: on2 ? '2px dashed var(--gp-fucsia)' : '1px dashed ' + (pvDark ? 'rgba(255,255,255,.28)' : 'rgba(29,29,27,.25)'),
                           outlineOffset: -2,
                           background: on2 ? 'rgba(25,172,177,.12)' : 'transparent',
                         },
@@ -2949,122 +3768,133 @@ export default function mount(shell) {
                     })))))
               ,
               // ── Editor del contenedor seleccionado ──
-              h('div', { key: 'ed', style: { borderTop: '1px dashed var(--pl-linea)', paddingTop: 8 } }, [
-                h('div', { key: 't6', className: 'pl-label', style: { marginBottom: 6 } }, 'Contenido de: ' + (CONTAINER_LABELS[selC] || selC)),
-                blocks.length === 0 && h('div', { key: 'e6', className: 'pl-muted', style: { marginBottom: 6 } }, 'Contenedor vacío. Agrega bloques abajo.'),
-                h(React.Fragment, { key: 'blocks' }, blocks.map((b, bi) => h('div', { key: b.id, style: { border: '1px solid var(--pl-linea)', padding: '6px 8px', marginBottom: 6 } }, [
-                  h('div', { key: 'bh', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                    h('span', { key: 'c6', className: 'pl-chip neg' }, chipOf(b.type)),
-                    h('span', { key: 'l6', className: 'pl-muted' }, (HERO_BLOCK_TYPES.find((x) => x.id === b.type) || {}).label || b.type),
-                    h('select', { key: 'al', className: 'pl-select', style: { width: 110 }, title: 'Alineación horizontal en el contenedor', value: b.align || 'center', onChange: (e) => upBlock(b.id, { align: e.target.value }) }, [
+              h('div', { key: 'ed', style: { borderTop: '1px dashed var(--gp-linea)', paddingTop: 8 } }, [
+                h('div', { key: 't6', className: 'gp-label', style: { marginBottom: 6 } }, 'Contenido de: ' + (CONTAINER_LABELS[selC] || selC)),
+                blocks.length === 0 && h('div', { key: 'e6', className: 'gp-muted', style: { marginBottom: 6 } }, 'Contenedor vacío. Agrega bloques abajo.'),
+                h(React.Fragment, { key: 'blocks' }, blocks.map((b, bi) => h('div', { key: b.id, style: { border: '1px solid var(--gp-linea)', padding: '6px 8px', marginBottom: 6 } }, [
+                  h('div', { key: 'bh', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h('span', { key: 'c6', className: 'gp-chip neg' }, chipOf(b.type)),
+                    h('span', { key: 'l6', className: 'gp-muted' }, (HERO_BLOCK_TYPES.find((x) => x.id === b.type) || {}).label || b.type),
+                    h('select', { key: 'al', className: 'gp-select', style: { width: 110 }, title: 'Alineación horizontal en el contenedor', value: b.align || 'center', onChange: (e) => upBlock(b.id, { align: e.target.value }) }, [
                       h('option', { key: 'l7', value: 'left' }, 'Izquierda'),
                       h('option', { key: 'c7', value: 'center' }, 'Centro'),
                       h('option', { key: 'r7', value: 'right' }, 'Derecha'),
                     ]),
                     h('span', { key: 'sp6', className: 'grow' }),
-                    bi > 0 && h('button', { key: 'up6', className: 'pl-btn pl-btn-sm', title: 'Subir', onClick: () => {
+                    bi > 0 && h('button', { key: 'up6', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
                       const xs = blocks.slice(); const t = xs[bi - 1]; xs[bi - 1] = xs[bi]; xs[bi] = t; upSlot(selC, xs);
                     } }, '↑'),
-                    h('button', { key: 'x6', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upSlot(selC, blocks.filter((y) => y.id !== b.id)) }, '✕'),
+                    h('button', { key: 'x6', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upSlot(selC, blocks.filter((y) => y.id !== b.id)) }, '✕'),
                   ]),
-                  b.type === 'photo' && h('div', { key: 'f', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                    h('span', { key: 'l1', className: 'pl-label' }, 'tamaño'),
-                    h('select', { key: 's7', className: 'pl-select', style: { width: 130 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
+                  b.type === 'photo' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h('span', { key: 'l1', className: 'gp-label' }, 'tamaño'),
+                    h('select', { key: 's7', className: 'gp-select', style: { width: 130 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
                       [['s', 'Pequeña'], ['m', 'Mediana'], ['l', 'Grande'], ['xl', 'Extra grande'], ['auto', 'Natural (alto según la foto)']].map(([v, l]) => h('option', { key: v, value: v }, l))),
-                    h('span', { key: 'l2', className: 'pl-label' }, 'animación'),
-                    h('select', { key: 'a7', className: 'pl-select', style: { width: 130 }, value: b.anim || 'none', onChange: (e) => upBlock(b.id, { anim: e.target.value }) },
+                    h('span', { key: 'l2', className: 'gp-label' }, 'animación'),
+                    h('select', { key: 'a7', className: 'gp-select', style: { width: 130 }, value: b.anim || 'none', onChange: (e) => upBlock(b.id, { anim: e.target.value }) },
                       [['none', 'Sin animación'], ['float', 'Flotar'], ['zoom', 'Respirar'], ['sway', 'Balanceo']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                   ]),
-                  b.type === 'title' && h('div', { key: 'f', className: 'pl-muted' }, 'Nombre del producto + SKU (automático desde la tienda).'),
+                  b.type === 'title' && h('div', { key: 'f', className: 'gp-muted' }, 'Nombre del producto + SKU (automático desde la tienda).'),
                   b.type === 'text' && h('div', { key: 'f' }, [
-                    h('div', { key: 'r1', className: 'pl-compline', style: { borderBottom: 0 } }, [
+                    h('div', { key: 'r1', className: 'gp-compline', style: { borderBottom: 0 } }, [
                       h(TextInput, { key: 'tx7', value: b.text || '', placeholder: 'Texto a mostrar', style: { flex: 1, minWidth: 200 }, onChange: (e) => upBlock(b.id, { text: e.target.value }) }),
-                      h('select', { key: 's8', className: 'pl-select', style: { width: 120 }, value: b.size || 'l', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
+                      h('select', { key: 's8', className: 'gp-select', style: { width: 120 }, value: b.size || 'l', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
                         [['xl', 'Muy grande'], ['l', 'Grande'], ['m', 'Normal'], ['s', 'Pequeño']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                     ]),
                     h(ColorField, { key: 'c8', label: null, value: b.color || '', onChange: (v) => upBlock(b.id, { color: v }), placeholder: 'color (vacío = del hero)' }),
                   ]),
                   b.type === 'items' && h('div', { key: 'f' }, [
-                    h(React.Fragment, { key: 'its' }, (b.items || []).map((it) => h('div', { key: it.id, className: 'pl-compline' }, [
-                      h('span', { key: 'c9', className: 'pl-chip acc' }, '+'),
+                    h(React.Fragment, { key: 'its' }, (b.items || []).map((it) => h('div', { key: it.id, className: 'gp-compline' }, [
+                      h('span', { key: 'c9', className: 'gp-chip fuc' }, '+'),
                       h(TextInput, { key: 't9', value: it.title, placeholder: 'Título', style: { width: 180 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { title: e.target.value }) : x)) }) }),
                       h(TextInput, { key: 'x9', value: it.text, placeholder: 'Texto al abrir', style: { flex: 1, minWidth: 140 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { text: e.target.value }) : x)) }) }),
-                      h('button', { key: 'd9', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upBlock(b.id, { items: b.items.filter((x) => x.id !== it.id) }) }, '✕'),
+                      h('button', { key: 'd9', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upBlock(b.id, { items: b.items.filter((x) => x.id !== it.id) }) }, '✕'),
                     ]))),
-                    h('div', { key: 'act', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                      h('button', { key: 'add', className: 'pl-btn pl-btn-sm', onClick: () => upBlock(b.id, { items: (b.items || []).concat([{ id: newId('hi'), title: '', text: '' }]) }) }, '+ Item'),
-                      h('label', { key: 'fl', className: 'pl-switch', style: { margin: 0 } }, [
+                    h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                      h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upBlock(b.id, { items: (b.items || []).concat([{ id: newId('hi'), title: '', text: '' }]) }) }, '+ Item'),
+                      h('label', { key: 'fl', className: 'gp-switch', style: { margin: 0 } }, [
                         h('input', { key: 'c10', type: 'checkbox', checked: b.float !== false, onChange: (e) => upBlock(b.id, { float: e.target.checked }) }),
                         h('span', { key: 's10' }, 'flotar'),
                       ]),
                     ]),
                   ]),
-                  b.type === 'cta' && h('div', { key: 'f', className: 'pl-compline', style: { borderBottom: 0 } }, [
+                  b.type === 'cta' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
                     h(TextInput, { key: 'l11', value: b.label || '', placeholder: 'Texto del botón', style: { width: 180 }, onChange: (e) => upBlock(b.id, { label: e.target.value }) }),
-                    h('select', { key: 's11', className: 'pl-select', style: { width: 110 }, value: b.style || 'primary', onChange: (e) => upBlock(b.id, { style: e.target.value }) },
-                      [['primary', 'Acento'], ['dark', 'Oscuro'], ['ghost', 'Fantasma']].map(([v, l]) => h('option', { key: v, value: v }, l))),
-                    h('select', { key: 'a11', className: 'pl-select', style: { width: 150 }, value: b.action || 'configurar', onChange: (e) => upBlock(b.id, { action: e.target.value }) },
+                    h('select', { key: 's11', className: 'gp-select', style: { width: 110 }, value: b.style || 'primary', onChange: (e) => upBlock(b.id, { style: e.target.value }) },
+                      [['primary', 'Fucsia'], ['dark', 'Oscuro'], ['ghost', 'Fantasma']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                    h('select', { key: 'a11', className: 'gp-select', style: { width: 150 }, value: b.action || 'configurar', onChange: (e) => upBlock(b.id, { action: e.target.value }) },
                       [['configurar', 'Ir a Configurar'], ['url', 'Abrir URL']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                     b.action === 'url' && h(TextInput, { key: 'u11', mono: true, value: b.url || '', placeholder: 'https://…', style: { flex: 1, minWidth: 160 }, onChange: (e) => upBlock(b.id, { url: e.target.value }) }),
                   ]),
                   b.type === 'icons' && h('div', { key: 'f' }, [
-                    h(React.Fragment, { key: 'its' }, (b.items || []).map((it) => h('div', { key: it.id, className: 'pl-compline' }, [
+                    h(React.Fragment, { key: 'its' }, (b.items || []).map((it) => h('div', { key: it.id, className: 'gp-compline' }, [
                       h(TextInput, { key: 'i12', value: it.icon, placeholder: '❄️', title: 'Icono (emoji o carácter)', style: { width: 60, textAlign: 'center' }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { icon: e.target.value }) : x)) }) }),
-                      h(TextInput, { key: 't12', value: it.title, placeholder: 'Destaque (ej: 8 núcleos)', style: { width: 180 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { title: e.target.value }) : x)) }) }),
+                      h(TextInput, { key: 't12', value: it.title, placeholder: 'Destaque (ej: Roble macizo)', style: { width: 180 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { title: e.target.value }) : x)) }) }),
                       h(TextInput, { key: 'x12', value: it.text, placeholder: 'Detalle (opcional)', style: { flex: 1, minWidth: 120 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { text: e.target.value }) : x)) }) }),
-                      h('button', { key: 'd12', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upBlock(b.id, { items: b.items.filter((x) => x.id !== it.id) }) }, '✕'),
+                      h('button', { key: 'd12', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upBlock(b.id, { items: b.items.filter((x) => x.id !== it.id) }) }, '✕'),
                     ]))),
-                    h('button', { key: 'add', className: 'pl-btn pl-btn-sm', onClick: () => upBlock(b.id, { items: (b.items || []).concat([{ id: newId('ic'), icon: '', title: '', text: '' }]) }) }, '+ Icono'),
+                    h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upBlock(b.id, { items: (b.items || []).concat([{ id: newId('ic'), icon: '', title: '', text: '' }]) }) }, '+ Icono'),
                   ]),
-                  b.type === 'specs' && h('div', { key: 'f', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                    h('span', { key: 'l13', className: 'pl-label' }, 'filas a mostrar'),
+                  b.type === 'specs' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h('span', { key: 'l13', className: 'gp-label' }, 'filas a mostrar'),
                     h(TextInput, { key: 'n13', mono: true, type: 'number', min: 1, max: 12, value: b.count || 4, style: { width: 70 }, onChange: (e) => upBlock(b.id, { count: e.target.value }) }),
-                    h('span', { key: 'm13', className: 'pl-muted' }, 'primeras filas de la tabla de Especificaciones.'),
+                    h('span', { key: 'm13', className: 'gp-muted' }, 'primeras filas de la tabla de Especificaciones.'),
                   ]),
-                  b.type === 'gallery' && h('div', { key: 'f', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                    h('span', { key: 'l14', className: 'pl-label' }, 'foto Nº'),
+                  b.type === 'gallery' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h('span', { key: 'l14', className: 'gp-label' }, 'foto Nº'),
                     h(TextInput, { key: 'n14', mono: true, type: 'number', min: 1, value: b.index || 1, style: { width: 70 }, onChange: (e) => upBlock(b.id, { index: e.target.value }) }),
-                    h('span', { key: 's14', className: 'pl-label' }, 'tamaño'),
-                    h('select', { key: 'sz14', className: 'pl-select', style: { width: 170 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
+                    h('span', { key: 's14', className: 'gp-label' }, 'tamaño'),
+                    h('select', { key: 'sz14', className: 'gp-select', style: { width: 170 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
                       [['s', 'Pequeña'], ['m', 'Mediana'], ['l', 'Grande'], ['xl', 'Extra grande'], ['auto', 'Natural (alto según la foto)']].map(([v, l]) => h('option', { key: v, value: v }, l))),
-                    h('span', { key: 'm14', className: 'pl-muted' }, 'número de la foto en la galería del producto (1 = primera).'),
+                    h('span', { key: 'm14', className: 'gp-muted' }, 'número de la foto en la galería del producto (1 = primera).'),
                   ]),
-                  b.type === 'html' && h('textarea', { key: 'f', className: 'pl-textarea pl-mono', rows: 3, value: b.html || '', placeholder: '<div>HTML libre…</div>', onChange: (e) => upBlock(b.id, { html: e.target.value }) }),
+                  b.type === 'description' && h('div', { key: 'f' }, [
+                    h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                      h('span', { key: 'l16', className: 'gp-label' }, 'tamaño'),
+                      h('select', { key: 's16', className: 'gp-select', style: { width: 130 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
+                        [['xl', 'Muy grande'], ['l', 'Grande'], ['m', 'Normal'], ['s', 'Pequeño']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                      h('span', { key: 'l17', className: 'gp-label' }, 'recortar a'),
+                      h(TextInput, { key: 'n16', mono: true, type: 'number', min: 0, value: b.max || 0, style: { width: 90 }, onChange: (e) => upBlock(b.id, { max: e.target.value }) }),
+                      h('span', { key: 'm16', className: 'gp-muted' }, 'caracteres (0 = completa).'),
+                    ]),
+                    h('div', { key: 'help', className: 'gp-muted' },
+                      'Es la descripción que el producto ya tiene en la tienda: se lee viva, no se copia. Si la editas en la tienda, la ficha se actualiza sola.'),
+                  ]),
+                  b.type === 'html' && h('textarea', { key: 'f', className: 'gp-textarea gp-mono', rows: 3, value: b.html || '', placeholder: '<div>HTML libre…</div>', onChange: (e) => upBlock(b.id, { html: e.target.value }) }),
                 ]))),
-                h('div', { key: 'add', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                  h('select', { key: 's15', className: 'pl-select', style: { width: 240 }, value: addType, onChange: (e) => { const o = Object.assign({}, blockSel); o[hx.id] = e.target.value; setBlockSel(o); } },
+                h('div', { key: 'add', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                  h('select', { key: 's15', className: 'gp-select', style: { width: 240 }, value: addType, onChange: (e) => { const o = Object.assign({}, blockSel); o[hx.id] = e.target.value; setBlockSel(o); } },
                     HERO_BLOCK_TYPES.map((t) => h('option', { key: t.id, value: t.id }, t.label))),
-                  h('button', { key: 'b15', className: 'pl-btn pl-btn-sm pl-btn-dark', onClick: () => upSlot(selC, blocks.concat([normalizeHeroBlock({ type: addType })])) }, '+ Agregar bloque'),
+                  h('button', { key: 'b15', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => upSlot(selC, blocks.concat([normalizeHeroBlock({ type: addType })])) }, '+ Agregar bloque'),
                 ]),
               ]),
             ]),
           ]);
         })),
         h('div', { key: 'addrow', style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, [
-          h('button', { key: 'addh', className: 'pl-btn', onClick: () => upPage(sfPage.concat([{ id: newId('hb'), kind: 'hero', pattern: 'clasico', height: 'm', bgColor: '', bgImageUrl: '', textColor: '', overlay: true, slots: {} }])) }, '+ Sección hero'),
-          h('button', { key: 'addi', className: 'pl-btn', title: 'Sección de solo foto: el alto se adapta a la imagen (sin recortes)', onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
-          sfPage.some((x) => x && x.kind === 'visor3d') ? null : h('button', { key: 'add3d', className: 'pl-btn', title: 'Embebe el visualizador 3D del producto en la página (configúralo en la card Visualizador 3D)', onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'visor3d', height: 480 }])) }, '+ Sección visualizador 3D'),
+          h('button', { key: 'addh', className: 'gp-btn', onClick: () => upPage(sfPage.concat([{ id: newId('hb'), kind: 'hero', pattern: 'clasico', height: 'm', bgColor: '', bgImageUrl: '', textColor: '', overlay: true, slots: {} }])) }, '+ Sección hero'),
+          h('button', { key: 'addi', className: 'gp-btn', title: 'Sección de solo foto: en la tienda el alto se adapta a la imagen (sin recortes). Encadena varias para descripciones hechas de fotos apiladas.', onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
         ]),
       ]),
       // ── Ficha de tienda: tabla de especificaciones ──
-      h('div', { key: 'specs', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'FICHA'), 'Tabla de especificaciones']),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
+      h('div', { key: 'specs', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Tabla de especificaciones']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'Pestaña Especificaciones de la tienda (pantalla completa). Defínela a tu gusto; "Generar desde componentes" siembra filas con la base y la configuración por defecto (sin marcas), y luego editas lo que quieras.'),
-        h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'pl-compline' }, [
+        h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
           h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 }, onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
           h(TextInput, { key: 'l', value: sp.label, placeholder: 'Etiqueta (ej: Material)', style: { width: 180 }, onChange: (e) => upSpecRow(sp.id, { label: e.target.value }) }),
-          h(TextInput, { key: 'v', value: sp.value, placeholder: 'Valor (ej: Roble macizo 18 mm)', style: { flex: 1, minWidth: 160 }, onChange: (e) => upSpecRow(sp.id, { value: e.target.value }) }),
-          h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: () => upSpecs(specRows.filter((x) => x.id !== sp.id)) }, '✕'),
+          h(TextInput, { key: 'v', value: sp.value, placeholder: 'Valor (ej: 100% algodón · Roble macizo 18mm)', style: { flex: 1, minWidth: 160 }, onChange: (e) => upSpecRow(sp.id, { value: e.target.value }) }),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upSpecs(specRows.filter((x) => x.id !== sp.id)) }, '✕'),
         ]))),
-        h('div', { key: 'act', className: 'pl-compline', style: { borderBottom: 0, marginTop: 4 } }, [
-          h('button', { key: 'add', className: 'pl-btn pl-btn-sm', onClick: () => upSpecs(specRows.concat([{ id: newId('sp'), group: '', label: '', value: '' }])) }, '+ Fila'),
-          h('button', { key: 'gen', className: 'pl-btn pl-btn-sm pl-btn-dark', onClick: genSpecs }, 'Generar desde componentes'),
+        h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
+          h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upSpecs(specRows.concat([{ id: newId('sp'), group: '', label: '', value: '' }])) }, '+ Fila'),
+          h('button', { key: 'gen', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: genSpecs }, 'Generar desde componentes'),
         ]),
       ]),
       // ── Ficha: pestañas de la barra (títulos, mostrar y orden) ──
-      h('div', { key: 'tabs', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'FICHA'), 'Pestañas de la barra (título, mostrar y orden)']),
+      h('div', { key: 'tabs', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Pestañas de la barra (título, mostrar y orden)']),
         (function () {
           const order = (Array.isArray(sfTabs.order) ? sfTabs.order : []).filter((x) => ['explorar', 'specs', 'fotos'].indexOf(x) !== -1);
           ['explorar', 'specs', 'fotos'].forEach((x) => { if (order.indexOf(x) === -1) order.push(x); });
@@ -3073,13 +3903,13 @@ export default function mount(shell) {
             specs: { label: 'Especificaciones', ph: 'Especificaciones (título)', showKey: 'showSpecs' },
             fotos: { label: 'Fotos', ph: 'Fotos (título)', showKey: 'showFotos' },
           };
-          return h(React.Fragment, { key: 'ord' }, order.map((tid, ti) => h('div', { key: tid, className: 'pl-compline' }, [
-            h('button', { key: 'up', className: 'pl-btn pl-btn-sm', disabled: ti === 0, title: 'Subir en el orden', onClick: () => {
+          return h(React.Fragment, { key: 'ord' }, order.map((tid, ti) => h('div', { key: tid, className: 'gp-compline' }, [
+            h('button', { key: 'up', className: 'gp-btn gp-btn-sm', disabled: ti === 0, title: 'Subir en el orden', onClick: () => {
               const xs = order.slice(); const t2 = xs[ti - 1]; xs[ti - 1] = xs[ti]; xs[ti] = t2; upTabs({ order: xs });
             } }, '↑'),
-            h('span', { key: 'k', className: 'pl-chip neg' }, meta[tid].label),
+            h('span', { key: 'k', className: 'gp-chip neg' }, meta[tid].label),
             h(TextInput, { key: 'l', value: sfTabs[tid] || '', placeholder: meta[tid].ph, style: { width: 230 }, onChange: (e) => { const o = {}; o[tid] = e.target.value; upTabs(o); } }),
-            meta[tid].showKey && h('label', { key: 'sw', className: 'pl-switch', style: { margin: 0 } }, [
+            meta[tid].showKey && h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 } }, [
               h('input', { key: 'c', type: 'checkbox', checked: sfTabs[meta[tid].showKey] !== false, onChange: (e) => { const o = {}; o[meta[tid].showKey] = e.target.checked; upTabs(o); } }),
               h('span', { key: 's' }, 'mostrar pestaña'),
             ]),
@@ -3087,18 +3917,18 @@ export default function mount(shell) {
         })(),
         h(Row, { key: 'buy', label: 'Botón Comprar (a la derecha; solo visible en la pestaña principal)' },
           h(TextInput, { value: sfTabs.comprar || '', onChange: (e) => upTabs({ comprar: e.target.value }), placeholder: 'Comprar' })),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginTop: 6 } },
+        h('div', { key: 'help', className: 'gp-muted', style: { marginTop: 6 } },
           'Ocultar una pestaña esconde su botón en la barra (la sección puede seguir en la página vía el builder). En móvil la barra solo muestra la pestaña principal.'),
       ]),
-      // ── Ficha: estilo del configurador y la página ──
-      h('div', { key: 'style', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'FICHA'), 'Estilo del configurador y la página']),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
-          'Personaliza cómo se ve el configurador de este producto en la tienda (vacío = colores y tipografías del theme del sitio). El previsualizador de la pestaña Pasos refleja estos ajustes en vivo.'),
+      // ── Ficha: estilo del configurador y la página (ProductLab) ──
+      h('div', { key: 'style', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Estilo del configurador y la página']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Personaliza cómo se ve el configurador de ESTE producto en la tienda (vacío = colores y tipografías del theme del sitio). El previsualizador de la pestaña Pasos refleja estos ajustes en vivo.'),
         (function () {
           const st = sf.style || {};
           const upStyle = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, patch) }) });
-          return h('div', { key: 'g', className: 'pl-grid3' }, [
+          return h('div', { key: 'g', className: 'gp-grid3' }, [
             h(Row, { key: 'ac', label: 'Color de acento (selección, precios, botón)' },
               h(ColorField, { label: null, value: st.accentColor || '', onChange: (v) => upStyle({ accentColor: v }), placeholder: 'vacío = acento del theme' })),
             h(Row, { key: 'bg', label: 'Fondo del configurador' },
@@ -3106,97 +3936,223 @@ export default function mount(shell) {
             h(Row, { key: 'rd', label: 'Radio de esquinas (px; 0 = recto)' },
               h(TextInput, { mono: true, type: 'number', min: 0, max: 24, value: st.radius == null ? 0 : st.radius, onChange: (e) => upStyle({ radius: e.target.value }) })),
             h(Row, { key: 'cs', label: 'Presentación de los valores' },
-              h('select', { className: 'pl-select', value: st.cardStyle || 'cards', onChange: (e) => upStyle({ cardStyle: e.target.value }) }, [
+              h('select', { className: 'gp-select', value: st.cardStyle || 'cards', onChange: (e) => upStyle({ cardStyle: e.target.value }) }, [
                 h('option', { key: 'c', value: 'cards' }, 'Cards con foto (grilla)'),
                 h('option', { key: 'l', value: 'list' }, 'Lista vertical'),
                 h('option', { key: 'k', value: 'compact' }, 'Cards compactas'),
               ])),
             h(Row, { key: 'sd', label: 'Precio en las cards' },
-              h('select', { className: 'pl-select', value: st.showDeltas || 'delta', onChange: (e) => upStyle({ showDeltas: e.target.value }) }, [
+              h('select', { className: 'gp-select', value: st.showDeltas || 'delta', onChange: (e) => upStyle({ showDeltas: e.target.value }) }, [
                 h('option', { key: 'd', value: 'delta' }, 'Diferencia (+/− $) vs selección'),
                 h('option', { key: 't', value: 'total' }, 'Precio total resultante'),
                 h('option', { key: 'n', value: 'none' }, 'Sin precio en las cards'),
               ])),
-            h('label', { key: 'sc', className: 'pl-switch', style: { alignSelf: 'end' } }, [
+            h('label', { key: 'sc', className: 'gp-switch', style: { alignSelf: 'end' } }, [
               h('input', { key: 'c', type: 'checkbox', checked: st.stepsCollapsed === true, onChange: (e) => upStyle({ stepsCollapsed: e.target.checked }) }),
               h('span', { key: 's' }, 'Pasos colapsados al entrar (solo el primero abierto)'),
             ]),
           ]);
         })(),
       ]),
-      // ── Ficha: visualizador 3D (herencia del personalizador) ──
-      h('div', { key: 'v3d', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'FICHA'), 'Visualizador 3D']),
-        h('div', { key: 'help', className: 'pl-muted', style: { marginBottom: 8 } },
-          'Visor 3D web del producto (partes y texturas personalizables en tiempo real). La configuración se publica en el JSON público: el visor la lee vía ?def=…&producto=…, el theme la embebe con la sección "Visualizador 3D" del builder, y el backend puede servir el modelo AR con colores aplicados (GET /api/public/app/{instancia}/ar/{sku}.glb?m=Material:hex). Ver docs/VISUALIZADOR.md de la app.'),
-        h('label', { key: 'en', className: 'pl-switch' }, [
-          h('input', { key: 'c', type: 'checkbox', checked: !!(d.model3d && d.model3d.enabled), onChange: (e) => upV3({ enabled: e.target.checked }) }),
-          h('span', { key: 's' }, 'Habilitar visualizador 3D para este producto'),
-        ]),
-        h('div', { key: 'g', className: 'pl-grid2' }, [
-          h(Row, { key: 'vu', label: 'URL del visualizador (visor desplegado)' },
-            h(TextInput, { mono: true, value: (d.model3d || {}).viewerUrl || '', placeholder: 'https://visualizador.mitienda.cl/', onChange: (e) => upV3({ viewerUrl: e.target.value }) })),
-          h(Row, { key: 'mu', label: 'Modelo 3D (GLB; meshopt + texturas WebP recomendado)' },
-            h(TextInput, { mono: true, value: (d.model3d || {}).modelUrl || '', placeholder: 'https://…/producto.glb', onChange: (e) => upV3({ modelUrl: e.target.value }) })),
-          h(Row, { key: 'au', label: 'GLB para AR (ruta /api/public/files/… de KIMOS; opcional)' },
-            h(TextInput, { mono: true, value: (d.model3d || {}).arUrl || '', placeholder: '/api/public/files/imagenes/productlab/producto-ar.glb', onChange: (e) => upV3({ arUrl: e.target.value }) })),
-          h(Row, { key: 'bs', label: 'Paso que elige la textura/acabado en el visor (opcional)' },
-            h('select', { className: 'pl-select', value: (d.model3d || {}).bindStepId || '', onChange: (e) => upV3({ bindStepId: e.target.value }) },
-              [h('option', { key: '', value: '' }, '— ninguno —')].concat(d.groups.map((g, gi) => h('option', { key: g.id, value: g.id }, 'PASO ' + String(gi + 1).padStart(2, '0') + ' · ' + (g.label || typeLabel(g.typeId))))))),
-        ]),
-        h(Row, { key: 'cfg', label: 'Configuración del visor (JSON: parts[] y finishes[] — partes del modelo, texturas y tintes)' },
-          h('div', { style: { width: '100%' } }, [
-            h('textarea', { key: 'ta', className: 'pl-textarea pl-mono', rows: 6, value: v3Text,
-              placeholder: '{\n  "parts": [{ "id": "superficie", "label": "Superficie", "materials": ["Material1"] }],\n  "finishes": [{ "id": "roble", "label": "Roble", "color": "#ffffff", "texture": "https://…/roble.webp", "roughness": 0.7, "textureScale": 0.09, "grain": 0.3 }]\n}',
-              onChange: (e) => setV3Text(e.target.value),
-              onBlur: () => {
-                const t = v3Text.trim();
-                if (!t) { setV3Err(''); upV3({ config: null }); return; }
-                try {
-                  const o = JSON.parse(t);
-                  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('debe ser un objeto');
-                  setV3Err('');
-                  upV3({ config: o });
-                } catch (err) { setV3Err('JSON inválido: ' + ((err && err.message) || '') + ' — no se guardará hasta corregirlo.'); }
-              } }),
-            v3Err ? h('div', { key: 'err', className: 'pl-errbox', style: { marginTop: 4 } }, v3Err) : null,
-          ])),
-        (function () {
-          if (!(d.model3d && d.model3d.enabled)) return null;
-          const emb = viewerEmbedUrl(d);
-          return emb
-            ? h('div', { key: 'pv' }, [
-                h('div', { key: 'l', className: 'pl-compline', style: { borderBottom: 0 } }, [
-                  h('span', { key: 't', className: 'pl-label' }, 'Previsualización en vivo del visor'),
-                  h('span', { key: 'sp', className: 'grow' }),
-                  h('a', { key: 'a', className: 'pl-btn pl-btn-sm', style: { textDecoration: 'none' }, href: emb, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir ↗'),
+      ]),
+        // ── Visor 3D (OPCIONAL) ──
+        h('div', { key: 'm3', style: sec === 'modelo3d' ? null : { display: 'none' } }, (function () {
+          const m = d.model3d || null;
+          const upM = (patch) => up({ model3d: Object.assign({ enabled: true, url: '', rotation: [0, 0, 0], parts: [], finishes: [] }, m, patch) });
+          const upPart = (pid, patch) => upM({ parts: (m.parts || []).map((p) => (p.id === pid ? Object.assign({}, p, patch) : p)) });
+          const upFin = (fid, patch) => upM({ finishes: (m.finishes || []).map((f) => (f.id === fid ? Object.assign({}, f, patch) : f)) });
+          const usedMats = (m && m.parts || []).reduce((a, p) => a.concat(p.materials || []), []);
+          const active = m && m.enabled !== false && s(m.url).trim();
+          return [
+            h('div', { key: 'intro', className: 'gp-card' }, [
+              h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, '3D'), 'Visor 3D del producto (opcional)']),
+              h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 10 } },
+                'Opcional: si este producto no tiene modelo 3D, deja la sección vacía y todo lo demás funciona igual. Al cargar un .glb, cada paso del configurador puede cambiar el color, el acabado o la visibilidad de una pieza, y verás el resultado en vivo.'),
+              !m
+                ? h('button', { key: 'add', className: 'gp-btn gp-btn-primary', onClick: () => upM({}) }, '+ Activar visor 3D para este producto')
+                : h(React.Fragment, { key: 'cfg' }, [
+                    h('label', { key: 'en', className: 'gp-switch' }, [
+                      h('input', { key: 'c', type: 'checkbox', checked: m.enabled !== false, onChange: (e) => upM({ enabled: e.target.checked }) }),
+                      h('span', { key: 's' }, 'Visor 3D activo en este producto'),
+                    ]),
+                    h(Row, { key: 'url', label: 'Archivo del modelo (.glb) — se sirve desde la plataforma' },
+                      h('div', { className: 'gp-verify-cost' }, [
+                        h(TextInput, { key: 'i', mono: true, value: m.url || '', placeholder: 'https://…/modelo.glb', onChange: (e) => upM({ url: e.target.value }) }),
+                        h('label', { key: 'u', className: 'gp-btn gp-btn-sm', style: { cursor: 'pointer' } }, [
+                          mdlBusy ? 'Subiendo…' : 'Subir .glb',
+                          h('input', { key: 'f', type: 'file', accept: '.glb,.gltf,model/gltf-binary', style: { display: 'none' },
+                            onChange: async (e) => {
+                              const f = e.target.files && e.target.files[0];
+                              e.target.value = '';
+                              if (!f) return;
+                              setMdlBusy(true);
+                              try { upM({ url: await uploadModel(f) }); shell.notify({ level: 'success', text: 'Modelo subido.' }); }
+                              catch (err) { shell.notify({ level: 'error', text: 'No se pudo subir: ' + ((err && err.message) || 'error') }); }
+                              setMdlBusy(false);
+                            } }),
+                        ]),
+                      ])),
+                    h('div', { key: 'rot', className: 'gp-grid3' }, ['X', 'Y', 'Z'].map((ax, i) =>
+                      h(Row, { key: ax, label: 'Rotación ' + ax + ' (rad) — corrige modelos CAD Z-up' },
+                        h(TextInput, { mono: true, type: 'number', step: '0.01', value: (m.rotation || [0, 0, 0])[i] || 0,
+                          onChange: (e) => { const r = (m.rotation || [0, 0, 0]).slice(); r[i] = num(e.target.value); upM({ rotation: r }); } })))),
+                    h('label', { key: 'mir', className: 'gp-switch' }, [
+                      h('input', { key: 'c', type: 'checkbox', checked: m.mirror === true, onChange: (e) => upM({ mirror: e.target.checked }) }),
+                      h('span', { key: 's' }, 'Reflejar en el eje X'),
+                    ]),
+                    // Realidad aumentada: el visor encuadra el modelo a un
+                    // tamaño arbitrario, así que apoyarlo en el suelo real
+                    // exige saber cuánto mide de verdad. Sin este dato el
+                    // botón "Ver en tu espacio" no se ofrece — mejor no
+                    // ofrecerlo que colocarlo a una escala inventada.
+                    h(Row, { key: 'real', label: 'Medida real del lado más largo, en cm (para "Ver en tu espacio" con la cámara)' },
+                      h(TextInput, { mono: true, type: 'number', min: 0, step: '0.5',
+                        value: m.realSizeCm == null || m.realSizeCm === 0 ? '' : m.realSizeCm,
+                        placeholder: 'ej: 45 — vacío = sin realidad aumentada',
+                        onChange: (e) => upM({ realSizeCm: e.target.value === '' ? 0 : num(e.target.value) }) })),
+                    // Android abre el AR con Google Scene Viewer, que es del
+                    // sistema y funciona en CUALQUIER navegador — no depende
+                    // de WebXR. Pero consume un ARCHIVO por URL pública y lo
+                    // interpreta en METROS: el .glb original mide lo que mida
+                    // (el Hanoi, ~50 unidades → 50 metros). Por eso se genera
+                    // aquí una copia a escala real y se sube.
+                    h(Row, { key: 'arglb', label: 'Modelo para AR de Android (Scene Viewer)' },
+                      h('div', { className: 'gp-verify-cost', style: { flexWrap: 'wrap' } }, [
+                        h('button', { key: 'g', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: arBusy || !m.url || !num(m.realSizeCm, 0), onClick: async () => {
+                          if (!viewerRef3d.current) { shell.notify({ level: 'error', text: 'Abre el visor primero: el archivo se genera desde el modelo cargado.' }); return; }
+                          setArBusy(true);
+                          try {
+                            const blob = await viewerRef3d.current.exportGLB({ realSizeCm: num(m.realSizeCm, 0) });
+                            const file = new File([blob], 'ar-' + (s(d.sku).trim() || 'modelo') + '.glb', { type: 'model/gltf-binary' });
+                            upM({ arUrl: await uploadModel(file) });
+                            shell.notify({ level: 'success', text: 'Modelo de AR generado (' + Math.round(blob.size / 1024) + ' KB). Guarda y publica para que llegue a la tienda.' });
+                          } catch (err) {
+                            shell.notify({ level: 'error', text: 'No se pudo generar: ' + ((err && err.message) || 'error') });
+                          }
+                          setArBusy(false);
+                        } }, arBusy ? 'Generando…' : (m.arUrl ? 'Regenerar' : 'Generar y subir')),
+                        m.arUrl ? h('span', { key: 'ok', className: 'gp-chip fuc' }, 'listo') : null,
+                        h('span', { key: 'h', className: 'gp-muted' }, !num(m.realSizeCm, 0)
+                          ? 'Pon primero la medida real: sin ella no se puede escalar.'
+                          : 'Se genera con la configuración por defecto del producto. Regenéralo si cambias el modelo, las partes o los acabados.'),
+                      ])),
+                    h('label', { key: 'pub', className: 'gp-switch' }, [
+                      h('input', { key: 'c', type: 'checkbox', checked: m.publish === true, onChange: (e) => upM({ publish: e.target.checked }) }),
+                      h('span', { key: 's' }, 'Publicar el 3D en la tienda (viaja en el JSON público para el theme)'),
+                    ]),
+                  ]),
+            ]),
+            // ── Visor + probar una configuración ──
+            active && h('div', { key: 'view', className: 'gp-card' }, [
+              h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'VISTA'), 'Resultado de la configuración']),
+              h(Viewer3D, { key: 'v', model: m, state: build3dState(d, try3d), height: 380, onViewer: (v) => { viewerRef3d.current = v; }, onMaterials: (list) => { if (JSON.stringify(list) !== JSON.stringify(mats)) setMats(list); } }),
+              (d.groups || []).length
+                ? h('div', { key: 'sel', className: 'gp-grid3', style: { marginTop: 10 } }, d.groups.map((g) =>
+                    h(Row, { key: g.id, label: g.label || typeLabel(g.typeId) },
+                      h('select', { className: 'gp-select', value: try3d[g.id] || (groupDefaultValue(g) || {}).id || '',
+                        onChange: (e) => setTry3d(Object.assign({}, try3d, { [g.id]: e.target.value })) },
+                        groupValues(g).map((v) => h('option', { key: v.id, value: v.id }, v.label))))))
+                : h('div', { key: 'nos', className: 'gp-muted', style: { marginTop: 8 } }, 'Este producto no tiene pasos: el visor muestra la configuración base.'),
+            ]),
+            // ── Partes: material del GLB → pieza controlable ──
+            m && h('div', { key: 'parts', className: 'gp-card' }, [
+              h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'PARTES'), 'Piezas controlables del modelo']),
+              h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+                'Una parte agrupa uno o más materiales del archivo 3D y es lo que los pasos pueden pintar, acabar u ocultar.'),
+              mats.length ? h('div', { key: 'mats' }, [
+                h('div', { key: 'l', className: 'gp-label' }, 'Materiales detectados en el modelo (clic para crear su parte)'),
+                h('div', { key: 'c' }, mats.map((name) => {
+                  const used = usedMats.indexOf(name) !== -1;
+                  return h('span', { key: name, className: 'gp-mat-chip' + (used ? ' used' : ''), title: used ? 'Ya asignado a una parte' : 'Crear una parte con este material',
+                    onClick: () => { if (used) return; upM({ parts: (m.parts || []).concat([{ id: newId('part'), label: name, materials: [name], defaultColor: '#cccccc' }]) }); } }, name);
+                })),
+              ]) : h('div', { key: 'nm', className: 'gp-muted' }, active ? 'Carga el visor para detectar los materiales del archivo.' : 'Sube un .glb para detectar sus materiales.'),
+              h('div', { key: 'list', style: { marginTop: 10 } }, (m.parts || []).map((p) => h('div', { key: p.id, className: 'gp-card', style: { background: 'var(--gp-plata)', marginBottom: 8 } }, [
+                h('div', { key: 'r1', className: 'gp-grid3' }, [
+                  h(Row, { key: 'l', label: 'Nombre de la parte' },
+                    h(TextInput, { value: p.label, placeholder: 'Ej: Tapiz, Estructura', onChange: (e) => upPart(p.id, { label: e.target.value }) })),
+                  h(Row, { key: 'm', label: 'Materiales del GLB (coma-sep., respeta mayúsculas)' },
+                    h(TextInput, { mono: true, value: joinList(p.materials), onChange: (e) => upPart(p.id, { materials: e.target.value }) })),
+                  h(ColorField, { key: 'c', label: 'Color por defecto', value: p.defaultColor, onChange: (v) => upPart(p.id, { defaultColor: v }) }),
                 ]),
-                h('iframe', { key: 'if', src: emb, title: 'Visualizador 3D', style: { width: '100%', height: 380, border: '1px solid var(--pl-gris-claro)', background: '#fff' } }),
-              ])
-            : h('div', { key: 'pv', className: 'pl-muted' }, 'Ingresa la URL del visualizador para previsualizarlo aquí (el visor recibe ?def=<JSON público>&producto=<sku>).');
-        })(),
-      ]),
-      ]),
-      warns.length > 0 && h('div', { key: 'w', className: 'pl-warnbox' }, warns.map((w, i) => h('div', { key: i }, '• ' + w))),
+                h('div', { key: 'r2', className: 'gp-grid3' }, [
+                  h(Row, { key: 'f', label: 'Acabado por defecto' },
+                    h('select', { className: 'gp-select', value: p.defaultFinish || '', onChange: (e) => upPart(p.id, { defaultFinish: e.target.value }) },
+                      [h('option', { key: '', value: '' }, '— color libre —')].concat((m.finishes || []).map((f) => h('option', { key: f.id, value: f.id }, f.label || f.id))))),
+                  h(Row, { key: 'rg', label: 'Rugosidad (vacío = 0.85)' },
+                    h(TextInput, { mono: true, type: 'number', step: '0.05', min: 0, max: 1, value: p.roughness == null ? '' : p.roughness,
+                      onChange: (e) => upPart(p.id, { roughness: e.target.value === '' ? null : num(e.target.value) }) })),
+                  h('div', { key: 'g' }, [
+                    h('label', { key: 'v', className: 'gp-switch' }, [
+                      h('input', { key: 'c', type: 'checkbox', checked: p.grainVertical === true, onChange: (e) => upPart(p.id, { grainVertical: e.target.checked }) }),
+                      h('span', { key: 's' }, 'Veta vertical (piezas de pie)'),
+                    ]),
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upM({ parts: m.parts.filter((x) => x.id !== p.id) }) }, '✕ Quitar parte'),
+                  ]),
+                ]),
+                // Ajuste fino de la veta: inclinación y excepciones por material.
+                h('div', { key: 'r3', className: 'gp-grid2' }, [
+                  h(Row, { key: 'ga', label: 'Inclinación de la veta (rad) — sigue el eje de piezas inclinadas' },
+                    h(TextInput, { mono: true, type: 'number', step: '0.01', value: p.grainAngle || 0,
+                      onChange: (e) => upPart(p.id, { grainAngle: num(e.target.value) }) })),
+                  h(Row, { key: 'gal', label: 'Materiales con veta A LO LARGO (excepciones; anulan vertical e inclinación)' },
+                    h(TextInput, { mono: true, value: joinList(p.grainAlongMaterials), placeholder: 'Ej: Travesano',
+                      onChange: (e) => upPart(p.id, { grainAlongMaterials: e.target.value }) })),
+                ]),
+              ]))),
+              h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upM({ parts: (m.parts || []).concat([{ id: newId('part'), label: '', materials: [], defaultColor: '#cccccc' }]) }) }, '+ Parte'),
+            ]),
+            // ── Acabados (opcional): textura + tinte + rugosidad ──
+            m && h('div', { key: 'fins', className: 'gp-card' }, [
+              h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'ACABADOS'), 'Acabados con textura (opcional)']),
+              h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+                'Un acabado es una textura + tinte + rugosidad (madera, tela con trama, laminado). Si te basta con colores planos, no hace falta ninguno. La proyección triplanar ignora las UVs del CAD y proyecta la textura de forma continua.'),
+              h('div', { key: 'list' }, (m.finishes || []).map((f) => h('div', { key: f.id, className: 'gp-card', style: { background: 'var(--gp-plata)', marginBottom: 8 } }, [
+                h('div', { key: 'r1', className: 'gp-grid3' }, [
+                  h(Row, { key: 'l', label: 'Nombre' }, h(TextInput, { value: f.label, placeholder: 'Ej: Roble natural', onChange: (e) => upFin(f.id, { label: e.target.value }) })),
+                  h(ColorField, { key: 'c', label: 'Tinte', value: f.color, onChange: (v) => upFin(f.id, { color: v }) }),
+                  h(ImgField, { key: 'tx', label: 'Textura', value: f.texture, gallery: productoGallery, onChange: (v) => upFin(f.id, { texture: v }) }),
+                ]),
+                h('div', { key: 'r2', className: 'gp-grid3' }, [
+                  h(Row, { key: 'rg', label: 'Rugosidad' }, h(TextInput, { mono: true, type: 'number', step: '0.05', min: 0, max: 1, value: f.roughness, onChange: (e) => upFin(f.id, { roughness: num(e.target.value) }) })),
+                  h(Row, { key: 'sc', label: 'Escala de textura' }, h(TextInput, { mono: true, type: 'number', step: '0.1', value: f.textureScale, onChange: (e) => upFin(f.id, { textureScale: num(e.target.value) }) })),
+                  h(Row, { key: 'gr', label: 'Veta en el brillo (0–1)' }, h(TextInput, { mono: true, type: 'number', step: '0.05', min: 0, max: 1, value: f.grain, onChange: (e) => upFin(f.id, { grain: num(e.target.value) }) })),
+                ]),
+                h('div', { key: 'r3', className: 'gp-fx-row' }, [
+                  h('label', { key: 'tp', className: 'gp-switch' }, [
+                    h('input', { key: 'c', type: 'checkbox', checked: f.triplanar !== false, onChange: (e) => upFin(f.id, { triplanar: e.target.checked }) }),
+                    h('span', { key: 's' }, 'Proyección triplanar'),
+                  ]),
+                  h('span', { key: 'sp', className: 'grow' }),
+                  h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upM({ finishes: m.finishes.filter((x) => x.id !== f.id) }) }, '✕'),
+                ]),
+              ]))),
+              h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upM({ finishes: (m.finishes || []).concat([{ id: newId('fin'), label: '', color: '#ffffff', texture: '', roughness: 0.8, textureScale: 1, grain: 0, triplanar: true }]) }) }, '+ Acabado'),
+            ]),
+            m && h('div', { key: 'del', className: 'gp-actions' },
+              h('button', { className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => { if (window.confirm('¿Quitar el visor 3D de este producto? Se borran partes, acabados y los efectos de los pasos.')) up({ model3d: null }); } }, 'Quitar el 3D de este producto')),
+          ];
+        })()),
+      warns.length > 0 && h('div', { key: 'w', className: 'gp-warnbox' }, warns.map((w, i) => h('div', { key: i }, '• ' + w))),
       ]),
       // ── Barra inferior fija: precio vivo + acciones ──
-      h('div', { key: 'bottom', className: 'pl-editor-bottom' }, [
+      h('div', { key: 'bottom', className: 'gp-editor-bottom' }, [
         h('div', { key: 'info' }, [
-          h('span', { key: 'l', className: 'pl-label' }, 'Precio configuración base'),
-          h('div', { key: 'p', className: 'pl-price pl-price-big' }, fmtCLP(price)),
-          h('div', { key: 'm', className: 'pl-muted', style: { fontSize: 11 } },
+          h('span', { key: 'l', className: 'gp-label' }, 'Precio configuración base'),
+          h('div', { key: 'p', className: 'gp-price gp-price-big' }, fmtMoney(price)),
+          h('div', { key: 'm', className: 'gp-muted', style: { fontSize: 11 } },
             combos + ' variante(s) · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
-            (initial && num(initial.price) !== price ? ' · guardado: ' + fmtCLP(initial.price) + ' →' : '') +
+            (initial && num(initial.price) !== price ? ' · guardado: ' + fmtMoney(initial.price) + ' →' : '') +
             (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s) arriba' : '')),
         ]),
-        h('div', { key: 'a', className: 'pl-actions', style: { margin: 0 } }, [
-        h('button', { key: 'save', className: 'pl-btn', disabled: busy || !s(d.name).trim(), onClick: async () => {
+        h('div', { key: 'a', className: 'gp-actions', style: { margin: 0 } }, [
+        h('button', { key: 'save', className: 'gp-btn', disabled: busy || !s(d.name).trim(), onClick: async () => {
           setBusy(true);
           const r = await saveProducto(d);
           setBusy(false);
           if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
         } }, initial ? 'Guardar' : 'Crear producto'),
-        ref && h('button', { key: 'apply', className: 'pl-btn pl-btn-primary', disabled: busy || !s(d.name).trim() || combos === 0 || combos > MAX_COMBOS, onClick: async () => {
+        ref && h('button', { key: 'apply', className: 'gp-btn gp-btn-primary', disabled: busy || !s(d.name).trim() || combos === 0 || combos > MAX_COMBOS, onClick: async () => {
           setBusy(true);
           const saved = await saveProducto(d);
           if (!saved.success) { setBusy(false); return; }
@@ -3211,7 +4167,7 @@ export default function mount(shell) {
         setPicking(false);
         const js = (p.sourceLinks || []).find((x) => x && x.integration === 'jumpseller');
         up({
-          productRef: {
+          storeRef: {
             instanceId: p.__instanceId, itemId: p.id,
             sourceId: js ? js.sourceId : null,
             sku: p.sku || '', name: p.name || '', imageUrl: p.imageUrl || '',
@@ -3237,14 +4193,14 @@ export default function mount(shell) {
       });
     }
     return h('div', null, [
-      h('div', { key: 'f', className: 'pl-filters' }, [
-        h('button', { key: 'new', className: 'pl-btn pl-btn-primary', onClick: () => setEditing({}) }, '+ Producto'),
-        h('span', { key: 'n', className: 'pl-muted', style: { marginLeft: 'auto' } }, state.productos.length + ' producto(s)'),
+      h('div', { key: 'f', className: 'gp-filters' }, [
+        h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Producto'),
+        h('span', { key: 'n', className: 'gp-muted', style: { marginLeft: 'auto' } }, state.productos.length + ' producto(s)'),
       ]),
       state.productos.length === 0
-        ? h('div', { key: 'e', className: 'pl-card pl-muted' }, 'Aún no hay productos. Un producto enlaza un producto de la tienda con sus pasos de personalización (componentes elegibles y default por paso) y calcula su precio desde los costos.')
-        : h('div', { key: 'tbl', className: 'pl-card', style: { padding: 0 } },
-            h('table', { className: 'pl-table' }, [
+        ? h('div', { key: 'e', className: 'gp-card gp-muted' }, 'Aún no hay productos. Un producto enlaza un producto de la tienda con sus pasos de personalización (componentes elegibles y default por paso) y calcula su precio desde los costos.')
+        : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
+            h('table', { className: 'gp-table' }, [
               h('thead', { key: 'h' }, h('tr', null, ['', 'Producto', 'SKU', 'Pasos', 'Precio', 'Recalculado', 'Entrega', 'Tienda', ''].map((c, i) => h('th', { key: i }, c)))),
               h('tbody', { key: 'b' }, state.productos.map((eq) => {
                 const computed = productoComputedPrice(eq);
@@ -3253,26 +4209,26 @@ export default function mount(shell) {
                   h('td', { key: 'i' }, h(Thumb, { url: productoImage(eq) })),
                   h('td', { key: 'n' }, [
                     h('div', { key: '1', style: { fontWeight: 600, cursor: 'pointer' }, title: 'Editar producto', onClick: () => setEditing(eq) }, eq.name),
-                    warns.length > 0 && h('div', { key: '2', className: 'pl-muted', style: { color: 'var(--pl-warn)' } }, '⚠ ' + warns.length + ' aviso(s)'),
+                    warns.length > 0 && h('div', { key: '2', className: 'gp-muted', style: { color: 'var(--gp-warn)' } }, '⚠ ' + warns.length + ' aviso(s)'),
                   ]),
-                  h('td', { key: 's', className: 'pl-mono', style: { fontSize: 11 } }, eq.sku || '—'),
-                  h('td', { key: 'g', className: 'pl-mono', style: { fontSize: 11 } }, (eq.groups || []).length),
-                  h('td', { key: 'p', className: 'pl-price' }, fmtCLP(eq.price)),
-                  h('td', { key: 'c', className: 'pl-price', style: computed !== num(eq.price) ? { color: 'var(--pl-err)', fontWeight: 600 } : null },
-                    computed !== num(eq.price) ? fmtCLP(computed) + ' *' : '='),
-                  h('td', { key: 'd', className: 'pl-mono', style: { fontSize: 11 } }, productoDelivery(eq) + 'd'),
+                  h('td', { key: 's', className: 'gp-mono', style: { fontSize: 11 } }, eq.sku || '—'),
+                  h('td', { key: 'g', className: 'gp-mono', style: { fontSize: 11 } }, (eq.groups || []).length),
+                  h('td', { key: 'p', className: 'gp-price' }, fmtMoney(eq.price)),
+                  h('td', { key: 'c', className: 'gp-price', style: computed !== num(eq.price) ? { color: 'var(--gp-err)', fontWeight: 600 } : null },
+                    computed !== num(eq.price) ? fmtMoney(computed) + ' *' : '='),
+                  h('td', { key: 'd', className: 'gp-mono', style: { fontSize: 11 } }, productoDelivery(eq) + 'd'),
                   h('td', { key: 'sync' }, h(SyncBadge, { eq })),
                   h('td', { key: 'a', style: { whiteSpace: 'nowrap' } }, [
-                    productoStoreUrl(eq) && h('a', { key: 'st', className: 'pl-btn pl-btn-sm', style: { textDecoration: 'none', display: 'inline-block' }, href: productoStoreUrl(eq), target: '_blank', rel: 'noopener noreferrer', title: 'Ver el producto en la tienda' }, 'Tienda ↗'),
+                    productoStoreUrl(eq) && h('a', { key: 'st', className: 'gp-btn gp-btn-sm', style: { textDecoration: 'none', display: 'inline-block' }, href: productoStoreUrl(eq), target: '_blank', rel: 'noopener noreferrer', title: 'Ver el producto en la tienda' }, 'Tienda ↗'),
                     productoStoreUrl(eq) && ' ',
-                    productRefOf(eq) && h('button', { key: 'ap', className: 'pl-btn pl-btn-sm pl-btn-dark', title: 'Escribir precio, opciones y variantes en el producto de la tienda', onClick: async () => {
+                    storeRefOf(eq) && h('button', { key: 'ap', className: 'gp-btn gp-btn-sm gp-btn-dark', title: 'Escribir precio, opciones y variantes en el producto de la tienda', onClick: async () => {
                       const r = await applyToStore(eq);
                       shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });
                     } }, 'Aplicar'),
                     ' ',
-                    h('button', { key: 'e', className: 'pl-btn pl-btn-sm', onClick: () => setEditing(eq) }, 'Editar'),
+                    h('button', { key: 'e', className: 'gp-btn gp-btn-sm', onClick: () => setEditing(eq) }, 'Editar'),
                     ' ',
-                    h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', onClick: async () => {
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: async () => {
                       if (!window.confirm('¿Eliminar "' + eq.name + '"? (no borra el producto en la tienda)')) return;
                       const r = await removeProducto(eq.id);
                       if (!r.success) shell.notify({ level: 'error', text: r.error });
@@ -3296,57 +4252,121 @@ export default function mount(shell) {
     const r = draft.rules;
     const numInput = (key, label, opts) => h(Row, { label },
       h(TextInput, Object.assign({ mono: true, type: 'number', value: r[key] == null ? '' : r[key], onChange: (e) => { const o = {}; o[key] = e.target.value === '' ? null : num(e.target.value); upR(o); } }, opts || {})));
+    const txtInput = (key, label, opts) => h(Row, { label },
+      h(TextInput, Object.assign({ value: r[key] == null ? '' : r[key], onChange: (e) => { const o = {}; o[key] = e.target.value; upR(o); } }, opts || {})));
     const pend = recalcPreview();
     return h('div', null, [
-      h('div', { key: 'rules', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'REGLAS'), 'Parámetros de precio']),
+      h('div', { key: 'rules', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'REGLAS'), 'Parámetros de precio']),
         (function () {
+          // Ejemplo vivo: usa los valores que se están editando (no los guardados).
           const m = num(r.marginDefaultPct, 25);
-          const iva = num(r.ivaPct, 19);
+          const taxPct = numOr(r.salesTaxPct, 19);
+          const taxLbl = s(r.salesTaxLabel).trim() || 'IVA';
           const basis = r.marginBasis === 'sale' ? 'sale' : 'cost';
-          const net = basis === 'sale' ? 100000 / (1 - Math.min(m, 95) / 100) : 100000 * (1 + m / 100);
-          return h('div', { key: 'basis', className: 'pl-warnbox', style: { background: 'var(--pl-plata)', border: '1px solid var(--pl-gris-claro)', color: 'var(--pl-negro)' } }, [
-            h('div', { key: 'r', className: 'pl-compline', style: { borderBottom: 0 } }, [
-              h('span', { key: 'l', className: 'pl-label' }, 'Base del margen'),
-              h('select', { key: 's', className: 'pl-select', style: { width: 'auto' }, value: basis, onChange: (e) => upR({ marginBasis: e.target.value }) }, [
+          const dec = Math.max(0, Math.min(4, num(r.currencyDecimals, 0)));
+          const sym = r.currencySymbol != null && r.currencySymbol !== '' ? s(r.currencySymbol) : '$';
+          const loc = s(r.locale).trim() || 'es-CL';
+          const dfmt = (v) => { try { return sym + (dec ? num(v) : Math.round(num(v))).toLocaleString(loc, { minimumFractionDigits: dec, maximumFractionDigits: dec }); } catch (e) { return sym + num(v).toFixed(dec); } };
+          const ex = dec ? 100 : 100000;
+          const net = basis === 'sale' ? ex / (1 - Math.min(m, 95) / 100) : ex * (1 + m / 100);
+          return h('div', { key: 'basis', className: 'gp-warnbox', style: { background: 'var(--gp-plata)', border: '1px solid var(--gp-gris-claro)', color: 'var(--gp-negro)' } }, [
+            h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0 } }, [
+              h('span', { key: 'l', className: 'gp-label' }, 'Base del margen'),
+              h('select', { key: 's', className: 'gp-select', style: { width: 'auto' }, value: basis, onChange: (e) => upR({ marginBasis: e.target.value }) }, [
                 h('option', { key: 'c', value: 'cost' }, 'Sobre el costo (markup): venta = costo × (1 + m%)'),
                 h('option', { key: 'v', value: 'sale' }, 'Sobre la venta: venta = costo ÷ (1 − m%)'),
               ]),
             ]),
-            h('div', { key: 'ex', className: 'pl-muted', style: { marginTop: 4 } },
-              'Ejemplo con el margen por defecto (' + m + '%): costo $100.000 → neto ' + fmtCLP(net) + ' → con IVA ' + iva + '% = ' + fmtCLP(net * (1 + iva / 100)) + '. ' +
+            h('div', { key: 'ex', className: 'gp-muted', style: { marginTop: 4 } },
+              'Ejemplo con el margen por defecto (' + m + '%): costo ' + dfmt(ex) + ' → neto ' + dfmt(net) + ' → con ' + taxLbl + ' ' + taxPct + '% = ' + dfmt(net * (1 + taxPct / 100)) + '. ' +
               (basis === 'sale'
                 ? 'Con base "sobre la venta", el ' + m + '% del precio neto de venta es tu ganancia.'
                 : 'Con base "sobre el costo", ganas el ' + m + '% de lo que te costó.')),
           ]);
         })(),
-        h('div', { key: 'g', className: 'pl-grid3' }, [
-          h(React.Fragment, { key: 'iva' }, numInput('ivaPct', 'IVA %')),
-          h(React.Fragment, { key: 'usd' }, numInput('usdRate', 'Tipo de cambio USD → CLP')),
+        // ── Moneda y formato ──
+        h('div', { key: 'cur-t', className: 'gp-label', style: { marginTop: 10 } }, 'MONEDA Y FORMATO'),
+        h('div', { key: 'cur', className: 'gp-grid3' }, [
+          h(React.Fragment, { key: 'cc' }, txtInput('currency', 'Moneda base (código)', { placeholder: 'CLP · USD · EUR · MXN…' })),
+          h(React.Fragment, { key: 'cs' }, txtInput('currencySymbol', 'Símbolo', { placeholder: '$ · € · S/' })),
+          h(React.Fragment, { key: 'cd' }, numInput('currencyDecimals', 'Decimales (0 para CLP/JPY, 2 para USD/EUR)')),
+          h(React.Fragment, { key: 'lo' }, txtInput('locale', 'Locale de formato', { placeholder: 'es-CL · es-MX · en-US' })),
+        ]),
+        // ── Tipos de cambio de monedas de costo ──
+        h('div', { key: 'fx-t', className: 'gp-label', style: { marginTop: 10 } }, 'MONEDAS DE COSTO (tipo de cambio → moneda base)'),
+        h('div', { key: 'fx-h', className: 'gp-muted', style: { marginBottom: 6 } },
+          'Para proveedores que cotizan en otra moneda. El costo del componente se convierte con este valor antes del margen.'),
+        h('div', { key: 'fx' }, Object.keys(r.fx || {}).map((code) => h('div', { key: code, className: 'gp-compline' }, [
+          h('span', { key: 'c', className: 'gp-chip neg' }, code),
+          h('span', { key: 'l', className: 'gp-label' }, '1 ' + code + ' ='),
+          h(TextInput, { key: 'v', mono: true, type: 'number', style: { width: 140 },
+            value: (r.fx || {})[code] == null ? '' : r.fx[code],
+            onChange: (e) => { const fx = Object.assign({}, r.fx || {}); fx[code] = num(e.target.value); upR({ fx }); } }),
+          h('span', { key: 'b', className: 'gp-label' }, s(r.currency).toUpperCase() || 'CLP'),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar moneda',
+            onClick: () => { const fx = Object.assign({}, r.fx || {}); delete fx[code]; upR({ fx }); } }, '✕'),
+        ]))),
+        h('button', { key: 'fx-add', className: 'gp-btn gp-btn-sm', style: { marginTop: 6 }, onClick: () => {
+          const code = s(window.prompt('Código de la moneda de costo (ej: USD, EUR, CNY):')).trim().toUpperCase();
+          if (!code) return;
+          const fx = Object.assign({}, r.fx || {}); if (fx[code] == null) fx[code] = 1; upR({ fx });
+        } }, '+ Moneda de costo'),
+        // ── Impuesto, márgenes, redondeo y plazos ──
+        h('div', { key: 'g-t', className: 'gp-label', style: { marginTop: 12 } }, 'IMPUESTO, MÁRGENES, REDONDEO Y PLAZOS'),
+        h('div', { key: 'g', className: 'gp-grid3' }, [
+          h(React.Fragment, { key: 'tl' }, txtInput('salesTaxLabel', 'Nombre del impuesto de venta', { placeholder: 'IVA · VAT · IGV' })),
+          h(React.Fragment, { key: 'tp' }, numInput('salesTaxPct', 'Impuesto de venta %')),
           h(React.Fragment, { key: 'md' }, numInput('marginDefaultPct', 'Margen por defecto % (tipos sin margen propio)')),
           h(React.Fragment, { key: 'mb' }, numInput('marginBasePct', 'Margen de costos adicionales % (solo extras manuales del producto)')),
           h(Row, { key: 'rm', label: 'Redondeo del precio final' },
-            h('select', { className: 'pl-select', value: r.roundMode || 'end990', onChange: (e) => upR({ roundMode: e.target.value }) }, [
-              h('option', { key: '1', value: 'end990' }, 'Terminación en 990'),
-              h('option', { key: '2', value: 'up1000' }, 'Subir al millar'),
-              h('option', { key: '3', value: 'none' }, 'Sin redondeo'),
+            h('select', { className: 'gp-select', value: r.roundMode || 'none', onChange: (e) => upR({ roundMode: e.target.value }) }, [
+              h('option', { key: '0', value: 'none' }, 'Sin redondeo'),
+              h('option', { key: '1', value: 'nearest' }, 'Al múltiplo más cercano'),
+              h('option', { key: '2', value: 'up' }, 'Hacia arriba al múltiplo'),
+              h('option', { key: '3', value: 'ending' }, 'Terminación fija (ej. 990)'),
             ])),
-          h(React.Fragment, { key: 'dr' }, numInput('deltaRoundTo', 'Redondeo de recargos (paso $)')),
-          h(React.Fragment, { key: 'ad' }, numInput('assemblyDays', 'Días de preparación por defecto')),
+          (r.roundMode === 'nearest' || r.roundMode === 'up' || r.roundMode === 'ending')
+            ? h(React.Fragment, { key: 'rt' }, numInput('roundTo', 'Múltiplo de redondeo'))
+            : null,
+          r.roundMode === 'ending'
+            ? h(React.Fragment, { key: 're' }, numInput('roundEnding', 'Terminación (ej. 990)'))
+            : null,
+          h(React.Fragment, { key: 'dr' }, numInput('deltaRoundTo', 'Redondeo de recargos (paso)')),
+          h(React.Fragment, { key: 'ad' }, numInput('leadTimeDays', 'Días propios de preparación/producción')),
           h(React.Fragment, { key: 'sd' }, numInput('staleDays', 'Alerta: días sin verificar proveedor')),
         ]),
       ]),
-      h('div', { key: 'types', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'TIPOS'), 'Tipos de componente y margen % por tipo']),
-        h('div', { key: 'th', className: 'pl-muted', style: { marginBottom: 8 } },
-          'Todo componente usa el margen de su tipo (vacío = margen por defecto). Esto aplica igual a los componentes base de los productos; el "margen de costos adicionales" de arriba es solo para los extras manuales (producción, embalaje, etc.).'),
+      h('div', { key: 'types', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIPOS'), 'Tipos de componente y margen % por tipo']),
+        h('div', { key: 'th', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Un componente es cualquier cosa que entra al costo: un material, una pieza, un insumo, mano de obra o un proceso externalizado. Cada componente usa el margen de su tipo (vacío = margen por defecto). El "margen de costos adicionales" de arriba es solo para los extras manuales del producto.'),
+        // Presets por rubro: punto de partida, siempre editable después.
+        h('div', { key: 'preset', className: 'gp-compline' }, [
+          h('span', { key: 'l', className: 'gp-label' }, 'Cargar preset de rubro'),
+          h('select', { key: 's', className: 'gp-select', style: { width: 'auto' }, value: '',
+            onChange: (e) => {
+              const p = presetById(e.target.value);
+              if (!e.target.value) return;
+              const usedIds = state.components.map((c) => c.type);
+              // Nunca se pierden tipos en uso: se conservan y se suman los del preset.
+              const keep = (draft.types || []).filter((t) => usedIds.indexOf(t.id) !== -1);
+              const merged = keep.concat(p.types.filter((t) => !keep.some((k) => k.id === t.id)));
+              setDraft(Object.assign({}, draft, { types: merged })); setDirty(true);
+            } },
+            [h('option', { key: '', value: '' }, 'Elegir rubro…')].concat(
+              TYPE_PRESETS.map((p) => h('option', { key: p.id, value: p.id }, p.label)))),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('span', { key: 'n', className: 'gp-muted' }, 'Los tipos en uso se conservan.'),
+        ]),
         h('div', { key: 'list' }, (draft.types || []).map((t) => {
           const used = state.components.some((c) => c.type === t.id);
-          return h('div', { key: t.id, className: 'pl-compline' }, [
-            h('span', { key: 'id', className: 'pl-chip neg' }, t.id),
+          return h('div', { key: t.id, className: 'gp-compline' }, [
+            h('span', { key: 'id', className: 'gp-chip neg' }, t.id),
             h(TextInput, { key: 'l', value: t.label, style: { width: 200 }, onChange: (e) => { setDraft(Object.assign({}, draft, { types: draft.types.map((x) => (x.id === t.id ? Object.assign({}, x, { label: e.target.value }) : x)) })); setDirty(true); } }),
             h('span', { key: 'sp', className: 'grow' }),
-            h('span', { key: 'ml', className: 'pl-label' }, 'margen %'),
+            h('span', { key: 'ml', className: 'gp-label' }, 'margen %'),
             h(TextInput, { key: 'm', mono: true, type: 'number', style: { width: 90 },
               placeholder: s(num(r.marginDefaultPct, 25)),
               value: (r.marginByType || {})[t.id] == null ? '' : r.marginByType[t.id],
@@ -3355,11 +4375,11 @@ export default function mount(shell) {
                 if (e.target.value === '') delete mbt[t.id]; else mbt[t.id] = num(e.target.value);
                 upR({ marginByType: mbt });
               } }),
-            h('button', { key: 'x', className: 'pl-btn pl-btn-sm pl-btn-danger', disabled: used, title: used ? 'Hay componentes de este tipo' : 'Quitar tipo', onClick: () => { setDraft(Object.assign({}, draft, { types: draft.types.filter((x) => x.id !== t.id) })); setDirty(true); } }, '✕'),
+            h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', disabled: used, title: used ? 'Hay componentes de este tipo' : 'Quitar tipo', onClick: () => { setDraft(Object.assign({}, draft, { types: draft.types.filter((x) => x.id !== t.id) })); setDirty(true); } }, '✕'),
           ]);
         })),
-        h('button', { key: 'add', className: 'pl-btn pl-btn-sm', style: { marginTop: 8 }, onClick: () => {
-          const label = window.prompt('Nombre del nuevo tipo (ej: Monitor):');
+        h('button', { key: 'add', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 }, onClick: () => {
+          const label = window.prompt('Nombre del nuevo tipo (ej: Herrajes, Estampado, Empaque):');
           if (!label || !label.trim()) return;
           const id = norm(label).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || newId('t');
           if ((draft.types || []).some((x) => x.id === id)) { shell.notify({ level: 'warn', text: 'Ya existe un tipo con ese id.' }); return; }
@@ -3367,9 +4387,9 @@ export default function mount(shell) {
           setDirty(true);
         } }, '+ Tipo'),
       ]),
-      h('div', { key: 'save', className: 'pl-actions' }, [
-        dirty && h('span', { key: 'd', className: 'pl-muted', style: { alignSelf: 'center' } }, 'Cambios sin guardar'),
-        h('button', { key: 'b', className: 'pl-btn pl-btn-primary', disabled: !dirty || busy, onClick: async () => {
+      h('div', { key: 'save', className: 'gp-actions' }, [
+        dirty && h('span', { key: 'd', className: 'gp-muted', style: { alignSelf: 'center' } }, 'Cambios sin guardar'),
+        h('button', { key: 'b', className: 'gp-btn gp-btn-primary', disabled: !dirty || busy, onClick: async () => {
           setBusy(true);
           const next = Object.assign({}, state.def || defaultDefinition(), { rules: draft.rules, types: draft.types });
           const res = await saveDefinition(next);
@@ -3378,22 +4398,22 @@ export default function mount(shell) {
         } }, 'Guardar reglas'),
       ]),
       // Recalculo
-      h('div', { key: 'recalc', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'RECÁLCULO'), 'Impacto en productos']),
+      h('div', { key: 'recalc', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'RECÁLCULO'), 'Impacto en productos']),
         pend.length === 0
-          ? h('div', { key: 'ok', className: 'pl-muted' }, 'Todos los productos están al día con los costos y reglas actuales.')
+          ? h('div', { key: 'ok', className: 'gp-muted' }, 'Todos los productos están al día con los costos y reglas actuales.')
           : h(React.Fragment, { key: 'p' }, [
-              h('table', { key: 'tbl', className: 'pl-table' }, [
+              h('table', { key: 'tbl', className: 'gp-table' }, [
                 h('thead', { key: 'h' }, h('tr', null, ['Producto', 'Precio actual', 'Precio nuevo', 'Δ'].map((c, i) => h('th', { key: i }, c)))),
                 h('tbody', { key: 'b' }, pend.map((x) => h('tr', { key: x.eq.id }, [
                   h('td', { key: 'n', style: { fontWeight: 600 } }, x.eq.name),
-                  h('td', { key: 'o', className: 'pl-price' }, fmtCLP(x.oldPrice)),
-                  h('td', { key: 'p', className: 'pl-price' }, fmtCLP(x.nextPrice)),
-                  h('td', { key: 'd', className: 'pl-delta' + (x.nextPrice < x.oldPrice ? ' neg' : '') }, fmtDelta(x.nextPrice - x.oldPrice)),
+                  h('td', { key: 'o', className: 'gp-price' }, fmtMoney(x.oldPrice)),
+                  h('td', { key: 'p', className: 'gp-price' }, fmtMoney(x.nextPrice)),
+                  h('td', { key: 'd', className: 'gp-delta' + (x.nextPrice < x.oldPrice ? ' neg' : '') }, fmtDelta(x.nextPrice - x.oldPrice)),
                 ]))),
               ]),
-              h('div', { key: 'a', className: 'pl-actions' },
-                h('button', { className: 'pl-btn pl-btn-primary', disabled: applying || dirty, title: dirty ? 'Guarda las reglas primero' : '', onClick: async () => {
+              h('div', { key: 'a', className: 'gp-actions' },
+                h('button', { className: 'gp-btn gp-btn-primary', disabled: applying || dirty, title: dirty ? 'Guarda las reglas primero' : '', onClick: async () => {
                   setApplying(true);
                   const res = await recalcApply();
                   setApplying(false);
@@ -3413,24 +4433,46 @@ export default function mount(shell) {
     const enabled = pub.enabled === true;
     const stamp = pub.data && pub.data.updatedAt;
     return h('div', null, [
-      h('div', { key: 'st', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'CONFIGURADOR'), 'Publicación para el theme de la tienda']),
-        h('div', { key: 'd', className: 'pl-muted', style: { marginBottom: 10 } },
+      h('div', { key: 'st', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Publicación para el theme de la tienda']),
+        h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
           'El theme (configurador.js) lee este JSON público para pintar los pasos, imágenes, recargos, compatibilidades y fechas de entrega de cada producto. Una vez publicado, se REPUBLICA SOLO cada vez que guardas componentes, productos o aplicas recálculos (la tienda lo ve en ~5 min por el caché del CDN).'),
-        h('div', { key: 'line', className: 'pl-compline' }, [
-          enabled ? h('span', { key: 'c', className: 'pl-chip ok' }, 'publicado') : h('span', { key: 'c', className: 'pl-chip gris' }, 'despublicado'),
-          stamp && h('span', { key: 's', className: 'pl-muted' }, 'última publicación: ' + fmtDateTime(stamp)),
+        h('div', { key: 'line', className: 'gp-compline' }, [
+          enabled ? h('span', { key: 'c', className: 'gp-chip ok' }, 'publicado') : h('span', { key: 'c', className: 'gp-chip gris' }, 'despublicado'),
+          stamp && h('span', { key: 's', className: 'gp-muted' }, 'última publicación: ' + fmtDateTime(stamp)),
           h('span', { key: 'sp', className: 'grow' }),
-          h('button', { key: 'pub', className: 'pl-btn pl-btn-primary', disabled: busy, onClick: async () => {
+          h('button', { key: 'pub', className: 'gp-btn gp-btn-primary', disabled: busy, onClick: async () => {
             setBusy(true);
             const r = await publish(true);
             setBusy(false);
             if (r.success) shell.notify({ level: 'success', text: 'Configurador publicado (' + buildPublicData().productos.length + ' productos).' });
           } }, enabled ? 'Republicar ahora' : 'Publicar'),
-          enabled && h('button', { key: 'unpub', className: 'pl-btn', disabled: busy, onClick: async () => {
+          enabled && h('button', { key: 'unpub', className: 'gp-btn', disabled: busy, onClick: async () => {
             setBusy(true); await publish(false); setBusy(false);
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
           } }, 'Despublicar'),
+        ]),
+        // Identidad de la empresa: marca visible en la app y nombre corto que
+        // viaja en el JSON público (el theme puede usarlo para distinguir tiendas).
+        h('div', { key: 'ident', className: 'gp-grid2' }, [
+          h(Row, { key: 'bn', label: 'Marca (se muestra en la barra superior de la app)' },
+            h(TextInput, { key: 'bn-' + s((state.def || {}).brandName),
+              defaultValue: s((state.def || {}).brandName), placeholder: 'Ej: Textiles del Sur',
+              onBlur: async (e) => {
+                const v = e.target.value.trim();
+                if (v === s((state.def || {}).brandName)) return;
+                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { brandName: v }));
+                if (r.success) shell.notify({ level: 'success', text: 'Marca guardada.' });
+              } })),
+          h(Row, { key: 'sn', label: 'Nombre corto de la tienda (viaja en el JSON público)' },
+            h(TextInput, { key: 'sn-' + s((state.def || {}).storeName), mono: true,
+              defaultValue: s((state.def || {}).storeName), placeholder: 'Ej: textiles-sur',
+              onBlur: async (e) => {
+                const v = e.target.value.trim();
+                if (v === s((state.def || {}).storeName)) return;
+                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { storeName: v }));
+                if (r.success) shell.notify({ level: 'success', text: 'Nombre de la tienda guardado.' });
+              } })),
         ]),
         h(Row, { key: 'sbu', label: 'URL base de la tienda (arma el botón "Tienda ↗": base + permalink del producto)' },
           h(TextInput, { key: 'sbu-' + s((state.def || {}).storeBaseUrl), mono: true,
@@ -3442,29 +4484,29 @@ export default function mount(shell) {
               if (r.success) shell.notify({ level: 'success', text: 'URL base de la tienda guardada.' });
             } })),
         h(Row, { key: 'url', label: 'URL pública (para configurador.js del theme)' },
-          h('div', { className: 'pl-verify-cost' }, [
+          h('div', { className: 'gp-verify-cost' }, [
             h(TextInput, { key: 'i', mono: true, readOnly: true, value: publicUrl, onFocus: (e) => e.target.select() }),
-            h('button', { key: 'c', className: 'pl-btn pl-btn-sm', onClick: () => copy(publicUrl) }, 'Copiar'),
+            h('button', { key: 'c', className: 'gp-btn gp-btn-sm', onClick: () => copy(publicUrl) }, 'Copiar'),
           ])),
-        h('label', { key: 'tgl', className: 'pl-switch' }, [
+        h('label', { key: 'tgl', className: 'gp-switch' }, [
           h('input', { key: 'c', type: 'checkbox', checked: showJson, onChange: (e) => setShowJson(e.target.checked) }),
           h('span', { key: 's' }, 'Ver JSON que se publicaría ahora'),
         ]),
-        showJson && h('pre', { key: 'json', className: 'pl-code' }, JSON.stringify(buildPublicData(), null, 2)),
+        showJson && h('pre', { key: 'json', className: 'gp-code' }, JSON.stringify(buildPublicData(), null, 2)),
       ]),
-      h('div', { key: 'plan', className: 'pl-card' }, [
-        h('div', { key: 't', className: 'pl-card-title' }, [h('span', { key: 'n', className: 'pl-num' }, 'JUMPSELLER'), 'Opciones y variantes por producto']),
-        h('div', { key: 'd', className: 'pl-muted', style: { marginBottom: 10 } },
+      h('div', { key: 'plan', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'JUMPSELLER'), 'Opciones y variantes por producto']),
+        h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
           'Las opciones (un paso = una opción) y las variantes con precio por combinación se escriben automáticamente al usar "Aplicar a la tienda" (van al item de la app Productos y su sync-push las empuja a Jumpseller). Aquí puedes inspeccionar el payload exacto que se generaría ahora.'),
         state.productos.length === 0
-          ? h('div', { key: 'e', className: 'pl-muted' }, 'Sin productos.')
-          : state.productos.map((eq) => h('div', { key: eq.id, className: 'pl-compline' }, [
+          ? h('div', { key: 'e', className: 'gp-muted' }, 'Sin productos.')
+          : state.productos.map((eq) => h('div', { key: eq.id, className: 'gp-compline' }, [
               h('span', { key: 'n', style: { fontWeight: 600 } }, eq.name),
-              h('span', { key: 'sku', className: 'pl-mono pl-muted', style: { fontSize: 10 } }, eq.sku || ''),
-              h('span', { key: 'cnt', className: 'pl-chip gris' }, comboCount(eq) + ' variantes'),
+              h('span', { key: 'sku', className: 'gp-mono gp-muted', style: { fontSize: 10 } }, eq.sku || ''),
+              h('span', { key: 'cnt', className: 'gp-chip gris' }, comboCount(eq) + ' variantes'),
               h('span', { key: 'st' }, h(SyncBadge, { eq })),
               h('span', { key: 'sp', className: 'grow' }),
-              h('button', { key: 'c', className: 'pl-btn pl-btn-sm', onClick: () => copy(JSON.stringify(storePlan(eq), null, 2)) }, 'Copiar payload JSON'),
+              h('button', { key: 'c', className: 'gp-btn gp-btn-sm', onClick: () => copy(JSON.stringify(storePlan(eq), null, 2)) }, 'Copiar payload JSON'),
             ])),
       ]),
     ]);
@@ -3474,18 +4516,32 @@ export default function mount(shell) {
   function Component() {
     const [state, setState] = useState(model);
     const [tab, setTab] = useState('productos');
+    // Preferencias del host (⚙️ Configurar): color de acento por empresa.
+    const [cfg, setCfg] = useState({});
     useEffect(() => {
       listeners.add(setState);
       void load();
-      void loadStoreCatalog();
+      void loadCatalog();
+      let offCfg = null;
+      if (shell.config && typeof shell.config.get === 'function') {
+        Promise.resolve(shell.config.get()).then((c) => setCfg(c || {})).catch(() => {});
+        if (typeof shell.config.onChange === 'function') {
+          try { offCfg = shell.config.onChange((c) => setCfg(c || {})); } catch (e) { /* opcional */ }
+        }
+      }
       const t = setInterval(() => {
         if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void load();
       }, 45000);
-      return () => { listeners.delete(setState); clearInterval(t); };
+      return () => {
+        listeners.delete(setState); clearInterval(t);
+        if (typeof offCfg === 'function') offCfg();
+      };
     }, []);
+    // El acento configurado gana sobre el default del CSS.
+    const rootStyle = cfg && cfg.accent ? { '--gp-acento': s(cfg.accent) } : undefined;
     if (!instanceId) {
-      return h('div', { className: 'kimos-productlab' },
-        h('div', { className: 'pl-empty' }, 'Crea un documento desde la pantalla de bienvenida: cada instancia es un catálogo de productos personalizables (normalmente basta una por tienda).'));
+      return h('div', { className: 'kimos-productlab', style: rootStyle },
+        h('div', { className: 'gp-empty' }, 'Crea un documento desde la pantalla de bienvenida: cada instancia es un catálogo de productos independiente, con sus propias reglas de margen, moneda e impuesto (normalmente basta una por tienda o línea de negocio).'));
     }
     const r = rules();
     const staleCount = state.components.filter((c) => daysSince(c.verifiedAt) > r.staleDays).length;
@@ -3495,25 +4551,25 @@ export default function mount(shell) {
       ['precios', 'Precios'],
       ['publicacion', 'Publicación'],
     ];
-    return h('div', { className: 'kimos-productlab' }, [
-      h('div', { key: 'top', className: 'pl-top' }, [
-        h('span', { key: 'b', className: 'pl-brand' }, ['PRODUCTLAB', h('i', { key: 'i' }, '.')]),
-        h('span', { key: 's', className: 'pl-sep' }),
-        h('span', { key: 't', className: 'pl-sub' }, 'Laboratorio de productos personalizables'),
-        h('div', { key: 'r', className: 'pl-right' },
-          h('span', { key: 'env', className: 'pl-sub' }, !state.storeCatalogLoaded
-            ? 'PRODUCTOS · CARGANDO'
-            : state.storeCatalog.length
-              ? 'PRODUCTOS · ' + state.storeCatalog.length + ' EN CATÁLOGO'
-              : 'PRODUCTOS · SIN ACCESO')),
+    return h('div', { className: 'kimos-productlab' + (cfg && cfg.denseTables ? ' gp-dense' : ''), style: rootStyle }, [
+      h('div', { key: 'top', className: 'gp-top' }, [
+        h('span', { key: 'b', className: 'gp-brand' }, [brandName(), h('i', { key: 'i' }, '.')]),
+        h('span', { key: 's', className: 'gp-sep' }),
+        h('span', { key: 't', className: 'gp-sub' }, 'Gestión avanzada de productos · costos, configuración y precios'),
+        h('div', { key: 'r', className: 'gp-right' },
+          h('span', { key: 'env', className: 'gp-sub' }, !state.catalogLoaded
+            ? 'CATÁLOGO · CARGANDO'
+            : state.catalog.length
+              ? 'CATÁLOGO · ' + state.catalog.length + ' PRODUCTOS'
+              : 'CATÁLOGO · SIN ACCESO')),
       ]),
-      h('div', { key: 'tabs', className: 'pl-tabs' },
-        tabs.map(([id, label]) => h('button', { key: id, className: 'pl-tab' + (tab === id ? ' on' : ''), onClick: () => setTab(id) }, label))
-          .concat([h('button', { key: 'r', className: 'pl-tab pl-tab-right', title: 'Actualizar', onClick: () => { void load(); void loadStoreCatalog(); } }, '⟳')])),
-      h('div', { key: 'body', className: 'pl-body' }, [
-        state.error && h('div', { key: 'err', className: 'pl-errbox' }, state.error),
+      h('div', { key: 'tabs', className: 'gp-tabs' },
+        tabs.map(([id, label]) => h('button', { key: id, className: 'gp-tab' + (tab === id ? ' on' : ''), onClick: () => setTab(id) }, label))
+          .concat([h('button', { key: 'r', className: 'gp-tab gp-tab-right', title: 'Actualizar', onClick: () => { void load(); void loadCatalog(); } }, '⟳')])),
+      h('div', { key: 'body', className: 'gp-body' }, [
+        state.error && h('div', { key: 'err', className: 'gp-errbox' }, state.error),
         !state.loaded
-          ? h('div', { key: 'l', className: 'pl-empty' }, 'Cargando…')
+          ? h('div', { key: 'l', className: 'gp-empty' }, 'Cargando…')
           : tab === 'componentes' ? h(ComponentesTab, { key: 'c', state })
           : tab === 'productos' ? h(ProductosTab, { key: 'e', state })
           : tab === 'precios' ? h(PreciosTab, { key: 'pr', state })
@@ -3524,6 +4580,9 @@ export default function mount(shell) {
 
   return {
     Component,
+    // Solo para las pruebas: el harness no ejecuta los componentes anidados,
+    // así que la decisión de recargar el editor se comprueba por aquí.
+    __test: { decidirRecarga, agentEdit },
     unmount() {
       listeners.clear();
       if (republishTimer) clearTimeout(republishTimer);

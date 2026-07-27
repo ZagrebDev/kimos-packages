@@ -1,0 +1,56 @@
+{
+  "_comentario": [
+    "Payload para la tool SET_MODEL3D del agente de la app Gestión Avanzada de Productos.",
+    "Reproduce EXACTAMENTE la Mesa Hanoi del personalizador 3D (src/catalog.ts).",
+    "ANTES DE USARLO: sube mesa_hanoi.glb y wood_col.webp desde la app y reemplaza",
+    "las dos URLs de abajo por las que devuelve la plataforma.",
+    "El campo `producto` debe coincidir con el nombre del producto en tu app."
+  ],
+  "producto": "Mesa Hanoi",
+  "url": "REEMPLAZAR_CON_LA_URL_DEL_GLB",
+  "publish": true,
+  "enabled": true,
+  "rotation": [-1.5707963267948966, 0, 3.141592653589793],
+  "mirror": true,
+  "parts": [
+    {
+      "id": "superficie",
+      "label": "Superficie",
+      "materials": ["Pino"],
+      "defaultColor": "#c8a165",
+      "defaultFinish": "natural"
+    },
+    {
+      "id": "estructura",
+      "label": "Estructura",
+      "materials": ["Pino_-_Brillante", "Travesano"],
+      "defaultColor": "#8a6642",
+      "defaultFinish": "natural",
+      "grainVertical": true,
+      "grainAngle": 0.24,
+      "grainAlongMaterials": ["Travesano"]
+    }
+  ],
+  "finishes": [
+    {
+      "id": "natural",
+      "label": "Natural",
+      "color": "#ffffff",
+      "texture": "REEMPLAZAR_CON_LA_URL_DE_LA_TEXTURA",
+      "roughness": 0.7,
+      "textureScale": 0.09,
+      "grain": 0.3,
+      "triplanar": true
+    },
+    {
+      "id": "carbonizado",
+      "label": "Carbonizado",
+      "color": "#3f4147",
+      "texture": "REEMPLAZAR_CON_LA_URL_DE_LA_TEXTURA",
+      "roughness": 0.4,
+      "textureScale": 0.09,
+      "grain": 1.0,
+      "triplanar": true
+    }
+  ]
+}

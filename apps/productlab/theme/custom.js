@@ -1,0 +1,140 @@
+/**
+ * custom.js del theme + arranque de Kimos 3D.
+ *
+ * Este archivo ya lo carga el theme en todas las páginas
+ * (templates/layout.liquid), así que se usa como punto de entrada: desde aquí
+ * se cargan el CSS y el script del visor 3D. Gracias a eso NO hay que editar
+ * ninguna plantilla Liquid.
+ *
+ * Lo único que debes cambiar es KIMOS_3D_URL, con la URL pública que te da la
+ * app en la pestaña Publicación.
+ */
+
+/* ─────────────── Kimos 3D — configuración ─────────────── */
+
+// URL pública del configurador (app Gestión Avanzada de Productos → Publicación).
+window.KIMOS_3D_URL = 'https://TU-KIMOS.kimos.dev/api/public/app/TU-INSTANCIA/definition';
+
+// Texto del botón que abre el visor.
+window.KIMOS_3D_LABEL = 'Ver en 3D';
+
+// true = abre el 3D al entrar, sin esperar el clic. Déjalo en false: así el
+// motor (~155 KB) solo se descarga si el cliente lo pide.
+window.KIMOS_3D_AUTOLOAD = false;
+
+// Fuerza a recargar los assets de KIMOS AHORA (salta el caché del navegador y
+// del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
+// nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
+// solos al día siguiente.
+window.KIMOS_ASSET_V = '19';
+
+// AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
+// propia página y el producto ENCIMA, con los colores elegidos al instante,
+// en iPhone y Android por igual. El motor pesa ~2 MB y solo se descarga si el
+// cliente pulsa "Ver en tu espacio". Déjalo vacío ('') para desactivarlo y
+// usar solo los visores del sistema (Scene Viewer / Quick Look).
+window.KIMOS_XR8_URL = 'https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js';
+
+// XRExtras (MIT): trae FullWindowCanvas, el módulo oficial que mantiene la
+// cámara a pantalla completa en cualquier teléfono y orientación.
+window.KIMOS_XREXTRAS_URL = 'https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js';
+
+// FICHA COMPLETA: true reemplaza la ficha del theme por la de KIMOS (barra con
+// pestañas, heros del builder, configurador con 3D, specs y fotos). En false
+// se usa solo el visor 3D sobre la galería, dejando tu ficha intacta.
+window.KIMOS_FULL = true;
+
+/* ───────── Kimos 3D — carga de los assets (no tocar) ───────── */
+(function () {
+  // Los tres archivos viven en la misma carpeta de assets que este custom.js,
+  // así que la URL se deduce de la de este propio script. document.currentScript
+  // apunta al script que se está ejecutando ahora mismo, sin depender de cómo
+  // se llame el archivo (Jumpseller puede versionarlo o renombrarlo).
+  var me = document.currentScript;
+  if (!me || !me.src) {
+    var scripts = document.getElementsByTagName('script');
+    for (var i = scripts.length - 1; i >= 0; i--) {
+      if (/custom[^/]*\.js/.test(scripts[i].src || '')) { me = scripts[i]; break; }
+    }
+  }
+  var src = (me && me.src) || '';
+  if (!src) { console.warn('[kimos3d] no pude deducir la ruta de los assets'); return; }
+  var base = src.replace(/[^/]*$/, '');
+
+  // Velo anti-parpadeo: si vamos a reemplazar la ficha, se oculta la original
+  // YA, antes de que el navegador la pinte, y el configurador la destapa (o
+  // la retira solo tras 4 s si algo falla, para no dejar la página en blanco).
+  if (window.KIMOS_FULL === true) {
+    var veil = document.createElement('style');
+    veil.id = 'kc-veil';
+    veil.textContent = '.product-page__wrapper,.product-page__info{visibility:hidden}';
+    document.head.appendChild(veil);
+    setTimeout(function () {
+      var v = document.getElementById('kc-veil');
+      if (v && v.parentNode) v.parentNode.removeChild(v);
+    }, 4000);
+  }
+
+  // Jumpseller MINIFICA y RENOMBRA los assets: la plantilla pide `custom.js` y
+  // el servidor entrega `custom.min.js?1784967522`. Por eso los nombres se
+  // deducen de cómo llegó ESTE archivo (si vino minificado, los demás también
+  // lo estarán) y, por si acaso, se prueba el otro nombre como respaldo: pedir
+  // el que no existe da 404 y el script nunca llega a ejecutarse.
+  var min = /\.min\.[a-z]+(\?|$)/.test(src);
+
+  // CACHÉ. Aquí había un fallo que hacía perder mucho tiempo: se le pegaba a
+  // los otros tres archivos el `?timestamp` con el que había llegado ESTE. Ese
+  // timestamp es el de custom.js, no el suyo, así que mientras custom.js no
+  // cambiara sus URLs eran idénticas byte a byte — y el navegador y el CDN
+  // seguían sirviendo la versión anterior por mucho que la volvieras a subir.
+  // El síntoma es desesperante: subes los archivos y no cambia nada.
+  //
+  // Ahora la marca la ponemos nosotros: por defecto cambia cada día (los
+  // cambios llegan solos en 24 h como mucho) y, si necesitas que sea YA,
+  // define KIMOS_ASSET_V con cualquier valor distinto al anterior.
+  var hoy = new Date();
+  var bust = '?kv=' + (window.KIMOS_ASSET_V || (hoy.getFullYear() * 10000 + (hoy.getMonth() + 1) * 100 + hoy.getDate()));
+  var candidatos = function (nombre, ext) {
+    var a = base + nombre + '.min.' + ext + bust;
+    var b = base + nombre + '.' + ext + bust;
+    return min ? [a, b] : [b, a];
+  };
+
+  // CSS: se intenta el primero y, si falla, el segundo.
+  (function (urls) {
+    var i = 0;
+    var poner = function () {
+      if (i >= urls.length) return;
+      var l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = urls[i++];
+      l.onerror = poner;
+      document.head.appendChild(l);
+    };
+    poner();
+  })(candidatos(window.KIMOS_FULL === true ? 'kimos-configurador' : 'kimos3d', 'css'));
+
+  // JS: la ficha completa o el visor simple, nunca los dos (duplicarían UI).
+  var modulo = window.KIMOS_FULL === true ? 'kimos-configurador' : 'kimos3d';
+  (function (urls) {
+    var i = 0;
+    var poner = function () {
+      if (i >= urls.length) {
+        console.warn('[kimos3d] no se pudo cargar ' + modulo + '.js desde', base,
+          '— ¿lo subiste a Assets del theme?');
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = urls[i++];
+      s.defer = true;
+      s.onerror = poner;
+      document.head.appendChild(s);
+    };
+    poner();
+  })(candidatos(modulo, 'js'));
+})();
+
+/* ─────────────── Resto de tu custom.js ─────────────── */
+jQuery(() => {
+  console.info(`[${new Date(Date.now()).toLocaleTimeString("en-GB", { hour12: false })}] Loaded custom.js`);
+});

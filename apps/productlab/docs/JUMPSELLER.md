@@ -93,9 +93,10 @@ El kit asume estas capacidades (Streamly las tiene; verifícalas al portar):
 
 | Síntoma | Causa probable |
 |---|---|
-| Configurador no aparece | Falta custom field `diseno=personalizado`, o la URL del configurador no está en el editor visual. |
+| Configurador no aparece | Falta el custom field de activación (configurable en la definición; default `diseno=personalizado`), o `KIMOS_3D_URL`/`KIMOS_FULL` sin configurar en `custom.js`. |
+| Assets viejos pese a actualizar | Jumpseller minifica/renombra y cachea: subir `KIMOS_ASSET_V` (el kit ya deduce los nombres minificados). |
 | 403 al leer la definición | Publicación desactivada, o la app se instaló por registry con un backend sin el parche de `permissions` (usar sideload o actualizar backend). |
 | `PRODUCTOS · SIN ACCESO` | Permiso `data.read:products` no aprobado o instancia de Productos no visible para tu equipo. |
 | Precio del carro ≠ mostrado | Variante desalineada: re-aplicar el producto. Ese caso **no debe existir** (el precio es la variante). |
-| Paso dependiente cobra oculto | Su default no es neutro — la app lo advierte en el editor. |
+| Paso dependiente cobra oculto | Su default no es un valor sin costo — la app lo advierte en el editor. |
 | Cambios no se ven en la tienda | Caches en cadena (≤5-8 min); `?_t` fuerza recarga. |

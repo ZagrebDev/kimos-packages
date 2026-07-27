@@ -1,0 +1,27 @@
+{
+  "name": "kimos-gestion-productos",
+  "private": true,
+  "version": "1.13.2",
+  "type": "module",
+  "description": "App instalable de KIMOS: gestión avanzada de productos configurables (genérica por rubro) con visor 3D.",
+  "scripts": {
+    "build:engine": "esbuild engine-src/engine3d.js --bundle --format=esm --minify --target=es2020 --outfile=assets/engine3d.js",
+    "test": "node test/test-app.mjs",
+    "pack": "node ../../kimos-packages/tools/pack.mjs .",
+    "verify:hanoi": "node packs/mesa-hanoi/verify.mjs",
+    "build:pack2": "node packs/mesa-hanoi/build-pack2.mjs",
+    "build:engine:theme": "esbuild engine-src/engine3d.js --bundle --format=iife --global-name=KimosEngine3D --minify --target=es2019 --outfile=theme/kimos-engine3d.js",
+    "test:theme": "node theme/test/run.mjs",
+    "test:ficha": "node theme/test/run-ficha.mjs",
+    "test:recarga": "node theme/test/run-recarga.mjs",
+    "test:assets": "node theme/test/run-assets.mjs",
+    "test:qr": "node theme/test/run-qr.mjs",
+    "test:ar": "node theme/test/run-ar-vivo.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "three": "^0.178.0",
+    "jsqr": "^1.4.0",
+    "@8thwall/engine-binary": "^1.0.0"
+  }
+}
