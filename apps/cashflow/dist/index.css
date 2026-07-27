@@ -1,0 +1,328 @@
+/* KIMOS Cashflow — estilos con scope .kimos-cashflow. Tema-consciente (vars
+   shadcn HSL del shell con fallback claro). Responsive: desktop → smartphone. */
+.kimos-cashflow {
+  --kcf-bg: hsl(var(--background, 0 0% 100%));
+  --kcf-fg: hsl(var(--foreground, 220 25% 6%));
+  --kcf-muted: hsl(var(--muted-foreground, 215 20% 32%));
+  --kcf-border: hsl(var(--border, 214 18% 82%));
+  --kcf-border-soft: hsl(var(--border, 214 18% 82%) / 0.5);
+  --kcf-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
+  --kcf-surface-solid: hsl(var(--muted, 220 14% 94%));
+  --kcf-card: hsl(var(--card, 0 0% 100%));
+  --kcf-accent: hsl(var(--primary, 182 75% 40%));
+  --kcf-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kcf-accent-soft: hsl(var(--primary, 182 75% 40%) / 0.12);
+  --kcf-green: #16a34a;
+  --kcf-green-soft: rgba(22, 163, 74, 0.12);
+  --kcf-red: #dc2626;
+  --kcf-red-soft: rgba(220, 38, 38, 0.1);
+  --kcf-amber: #d97706;
+  --kcf-amber-soft: rgba(217, 119, 6, 0.12);
+  --kcf-blue: #2563eb;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--kcf-fg);
+  background: var(--kcf-bg);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Toolbar superior ─────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; border-bottom: 1px solid var(--kcf-border-soft); flex-shrink: 0;
+}
+.kimos-cashflow .kcf-brand { font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+.kimos-cashflow .kcf-brand small { font-weight: 500; color: var(--kcf-muted); }
+.kimos-cashflow .kcf-select, .kimos-cashflow select.kcf-input {
+  height: 32px; padding: 0 8px; font-size: 12px; border: 1px solid var(--kcf-border);
+  border-radius: 8px; background: var(--kcf-bg); color: var(--kcf-fg); outline: none; max-width: 200px;
+}
+.kimos-cashflow .kcf-search {
+  flex: 1; min-width: 130px; max-width: 280px; height: 32px; padding: 0 12px;
+  font-size: 12.5px; border: 1px solid var(--kcf-border); border-radius: 8px;
+  background: var(--kcf-surface); color: var(--kcf-fg); outline: none;
+}
+.kimos-cashflow .kcf-search:focus { border-color: var(--kcf-accent); }
+.kimos-cashflow .kcf-spacer { flex: 1; }
+.kimos-cashflow .kcf-btn {
+  border: 1px solid var(--kcf-border); background: transparent; color: var(--kcf-fg);
+  height: 32px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.kimos-cashflow .kcf-btn:hover { background: var(--kcf-surface); }
+.kimos-cashflow .kcf-btn-primary {
+  background: var(--kcf-accent); border-color: var(--kcf-accent); color: var(--kcf-accent-fg); font-weight: 600;
+}
+.kimos-cashflow .kcf-btn-primary:hover { filter: brightness(1.05); background: var(--kcf-accent); }
+.kimos-cashflow .kcf-btn-income { background: var(--kcf-green); border-color: var(--kcf-green); color: #fff; font-weight: 600; }
+.kimos-cashflow .kcf-btn-expense { background: var(--kcf-red); border-color: var(--kcf-red); color: #fff; font-weight: 600; }
+.kimos-cashflow .kcf-btn-income:hover, .kimos-cashflow .kcf-btn-expense:hover { filter: brightness(1.08); }
+.kimos-cashflow .kcf-btn:disabled { opacity: 0.45; cursor: default; }
+.kimos-cashflow .kcf-mini {
+  border: none; background: transparent; color: var(--kcf-muted); cursor: pointer;
+  height: 26px; min-width: 26px; border-radius: 6px; font-size: 13px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.kimos-cashflow .kcf-mini:hover { background: var(--kcf-surface); color: var(--kcf-fg); }
+.kimos-cashflow .kcf-danger { color: var(--kcf-red); }
+
+/* ── Pestañas ─────────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-tabs {
+  display: flex; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--kcf-border-soft);
+  flex-shrink: 0; overflow-x: auto; scrollbar-width: thin;
+}
+.kimos-cashflow .kcf-tab {
+  border: none; background: transparent; color: var(--kcf-muted); cursor: pointer;
+  padding: 8px 12px 9px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 6px;
+}
+.kimos-cashflow .kcf-tab:hover { color: var(--kcf-fg); }
+.kimos-cashflow .kcf-tab.active { color: var(--kcf-accent); border-bottom-color: var(--kcf-accent); }
+.kimos-cashflow .kcf-badge {
+  background: var(--kcf-red); color: #fff; font-size: 10px; font-weight: 700;
+  border-radius: 99px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.kimos-cashflow .kcf-badge.soft { background: var(--kcf-accent-soft); color: var(--kcf-accent); }
+
+/* ── Cuerpo ───────────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
+.kimos-cashflow .kcf-section-title {
+  font-size: 13px; font-weight: 700; margin: 4px 0 10px; display: flex; align-items: center; gap: 8px;
+}
+.kimos-cashflow .kcf-section-title .kcf-sub { font-weight: 500; color: var(--kcf-muted); font-size: 12px; }
+.kimos-cashflow .kcf-empty {
+  text-align: center; color: var(--kcf-muted); padding: 40px 16px; font-size: 12.5px;
+}
+.kimos-cashflow .kcf-empty .big { font-size: 30px; display: block; margin-bottom: 8px; }
+
+/* ── KPI cards ────────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-kpis {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px;
+}
+.kimos-cashflow .kcf-kpi {
+  background: var(--kcf-card); border: 1px solid var(--kcf-border-soft); border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.kimos-cashflow .kcf-kpi .kcf-kpi-label { font-size: 11px; color: var(--kcf-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.kimos-cashflow .kcf-kpi .kcf-kpi-value { font-size: 18px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cashflow .kcf-kpi .kcf-kpi-delta { font-size: 11px; color: var(--kcf-muted); }
+.kimos-cashflow .kcf-kpi.pos .kcf-kpi-value { color: var(--kcf-green); }
+.kimos-cashflow .kcf-kpi.neg .kcf-kpi-value { color: var(--kcf-red); }
+.kimos-cashflow .kcf-kpi.warn { border-color: var(--kcf-amber); background: var(--kcf-amber-soft); }
+
+/* ── Paneles / grid de widgets ────────────────────────────────────────── */
+.kimos-cashflow .kcf-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+.kimos-cashflow .kcf-panel {
+  background: var(--kcf-card); border: 1px solid var(--kcf-border-soft); border-radius: 12px;
+  padding: 12px 14px; min-width: 0; overflow: hidden;
+}
+.kimos-cashflow .kcf-panel h4 {
+  margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--kcf-muted);
+  text-transform: uppercase; letter-spacing: 0.03em; display: flex; align-items: center; gap: 6px;
+}
+.kimos-cashflow .kcf-span6 { grid-column: span 6; }
+.kimos-cashflow .kcf-span4 { grid-column: span 4; }
+.kimos-cashflow .kcf-span8 { grid-column: span 8; }
+.kimos-cashflow .kcf-span12 { grid-column: span 12; }
+@media (max-width: 900px) {
+  .kimos-cashflow .kcf-span6, .kimos-cashflow .kcf-span4, .kimos-cashflow .kcf-span8 { grid-column: span 12; }
+}
+
+/* ── Gráficos SVG ─────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-chart { width: 100%; height: auto; display: block; }
+.kimos-cashflow .kcf-chart text { fill: var(--kcf-muted); font-size: 9px; font-family: system-ui, sans-serif; }
+.kimos-cashflow .kcf-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; color: var(--kcf-muted); }
+.kimos-cashflow .kcf-legend .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
+.kimos-cashflow .kcf-hbar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; }
+.kimos-cashflow .kcf-hbar-label { width: 130px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cashflow .kcf-hbar-track { flex: 1; height: 14px; background: var(--kcf-surface); border-radius: 7px; overflow: hidden; }
+.kimos-cashflow .kcf-hbar-fill { height: 100%; border-radius: 7px; min-width: 2px; }
+.kimos-cashflow .kcf-hbar-val { width: 92px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ── Tablas ───────────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-tablewrap { overflow-x: auto; }
+.kimos-cashflow table.kcf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.kimos-cashflow table.kcf-table th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--kcf-muted); font-weight: 700; padding: 7px 8px; border-bottom: 1px solid var(--kcf-border);
+  white-space: nowrap; position: sticky; top: 0; background: var(--kcf-bg); z-index: 1;
+}
+.kimos-cashflow table.kcf-table td { padding: 7px 8px; border-bottom: 1px solid var(--kcf-border-soft); vertical-align: top; }
+.kimos-cashflow table.kcf-table tr:hover td { background: var(--kcf-surface); }
+.kimos-cashflow .kcf-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kimos-cashflow th.kcf-num { text-align: right; }
+.kimos-cashflow .kcf-amount-in { color: var(--kcf-green); font-weight: 600; }
+.kimos-cashflow .kcf-amount-out { color: var(--kcf-red); font-weight: 600; }
+.kimos-cashflow .kcf-rowactions { white-space: nowrap; text-align: right; }
+.kimos-cashflow .kcf-daytotal td { background: var(--kcf-surface); font-weight: 700; font-size: 11.5px; color: var(--kcf-muted); }
+
+/* ── Chips / etiquetas ────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;
+  border-radius: 99px; padding: 2px 8px; background: var(--kcf-surface-solid); color: var(--kcf-muted);
+  white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
+.kimos-cashflow .kcf-chip.in { background: var(--kcf-green-soft); color: var(--kcf-green); }
+.kimos-cashflow .kcf-chip.out { background: var(--kcf-red-soft); color: var(--kcf-red); }
+.kimos-cashflow .kcf-chip.warn { background: var(--kcf-amber-soft); color: var(--kcf-amber); }
+.kimos-cashflow .kcf-chip.acc { background: var(--kcf-accent-soft); color: var(--kcf-accent); }
+.kimos-cashflow .kcf-chip.dot::before { content: ""; width: 7px; height: 7px; border-radius: 99px; background: currentColor; }
+
+/* ── Filtros avanzados ────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-filters {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;
+  padding: 10px; background: var(--kcf-surface); border: 1px solid var(--kcf-border-soft); border-radius: 10px;
+}
+.kimos-cashflow .kcf-filters label { font-size: 11px; color: var(--kcf-muted); font-weight: 600; display: flex; align-items: center; gap: 5px; }
+.kimos-cashflow .kcf-input {
+  height: 30px; padding: 0 8px; font-size: 12px; border: 1px solid var(--kcf-border);
+  border-radius: 7px; background: var(--kcf-bg); color: var(--kcf-fg); outline: none;
+}
+.kimos-cashflow .kcf-input:focus { border-color: var(--kcf-accent); }
+.kimos-cashflow textarea.kcf-input { height: auto; min-height: 56px; padding: 6px 8px; resize: vertical; font-family: inherit; }
+
+/* ── Formularios / modal ──────────────────────────────────────────────── */
+.kimos-cashflow .kcf-overlay {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.kimos-cashflow .kcf-modal {
+  background: var(--kcf-bg); border: 1px solid var(--kcf-border); border-radius: 14px;
+  width: 640px; max-width: 100%; max-height: 100%; display: flex; flex-direction: column;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+}
+.kimos-cashflow .kcf-modal-head {
+  display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+  border-bottom: 1px solid var(--kcf-border-soft); font-weight: 700; font-size: 13.5px; flex-shrink: 0;
+}
+.kimos-cashflow .kcf-modal-body { padding: 14px 16px; overflow-y: auto; }
+.kimos-cashflow .kcf-modal-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--kcf-border-soft); flex-shrink: 0; flex-wrap: wrap;
+}
+.kimos-cashflow .kcf-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 12px; }
+.kimos-cashflow .kcf-form .full { grid-column: 1 / -1; }
+.kimos-cashflow .kcf-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kimos-cashflow .kcf-field > span { font-size: 11px; font-weight: 600; color: var(--kcf-muted); }
+.kimos-cashflow .kcf-field .kcf-input, .kimos-cashflow .kcf-field select { width: 100%; box-sizing: border-box; }
+@media (max-width: 560px) { .kimos-cashflow .kcf-form { grid-template-columns: 1fr; } }
+
+.kimos-cashflow .kcf-seg { display: inline-flex; border: 1px solid var(--kcf-border); border-radius: 8px; overflow: hidden; }
+.kimos-cashflow .kcf-seg button {
+  border: none; background: transparent; color: var(--kcf-muted); cursor: pointer;
+  height: 30px; padding: 0 12px; font-size: 12px; font-weight: 600;
+}
+.kimos-cashflow .kcf-seg button.active { background: var(--kcf-accent); color: var(--kcf-accent-fg); }
+.kimos-cashflow .kcf-seg button.active.in { background: var(--kcf-green); color: #fff; }
+.kimos-cashflow .kcf-seg button.active.out { background: var(--kcf-red); color: #fff; }
+
+/* ── Gestor documental ────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-dropzone {
+  border: 2px dashed var(--kcf-border); border-radius: 14px; padding: 26px 16px;
+  text-align: center; color: var(--kcf-muted); font-size: 12.5px; margin-bottom: 14px;
+  transition: border-color 0.15s, background 0.15s; cursor: pointer;
+}
+.kimos-cashflow .kcf-dropzone.drag { border-color: var(--kcf-accent); background: var(--kcf-accent-soft); color: var(--kcf-accent); }
+.kimos-cashflow .kcf-dropzone .big { font-size: 26px; display: block; margin-bottom: 6px; }
+.kimos-cashflow .kcf-dropzone .kcf-dz-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.kimos-cashflow .kcf-docs { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.kimos-cashflow .kcf-doc {
+  background: var(--kcf-card); border: 1px solid var(--kcf-border-soft); border-radius: 12px;
+  padding: 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.kimos-cashflow .kcf-doc .kcf-doc-thumb {
+  height: 90px; border-radius: 8px; background: var(--kcf-surface); display: flex;
+  align-items: center; justify-content: center; font-size: 30px; overflow: hidden; cursor: pointer;
+}
+.kimos-cashflow .kcf-doc .kcf-doc-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.kimos-cashflow .kcf-doc .kcf-doc-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cashflow .kcf-doc .kcf-doc-meta { font-size: 11px; color: var(--kcf-muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.kimos-cashflow .kcf-doc .kcf-doc-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ── Revisión (Human in the Loop) ─────────────────────────────────────── */
+.kimos-cashflow .kcf-proposals { display: flex; flex-direction: column; gap: 12px; }
+.kimos-cashflow .kcf-proposal {
+  background: var(--kcf-card); border: 1px solid var(--kcf-border-soft); border-left: 4px solid var(--kcf-accent);
+  border-radius: 12px; padding: 12px 14px;
+}
+.kimos-cashflow .kcf-proposal.postponed { border-left-color: var(--kcf-amber); opacity: 0.8; }
+.kimos-cashflow .kcf-proposal-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.kimos-cashflow .kcf-proposal-title { font-weight: 700; font-size: 13px; flex: 1; min-width: 140px; }
+.kimos-cashflow .kcf-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; font-size: 12px; margin-bottom: 8px; }
+.kimos-cashflow .kcf-kv .k { color: var(--kcf-muted); font-size: 10.5px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
+.kimos-cashflow .kcf-kv .v { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.kimos-cashflow .kcf-proposal-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.kimos-cashflow .kcf-conf { font-size: 11px; color: var(--kcf-muted); }
+
+/* ── Análisis / alertas ───────────────────────────────────────────────── */
+.kimos-cashflow .kcf-alerts { display: flex; flex-direction: column; gap: 10px; }
+.kimos-cashflow .kcf-alert {
+  display: flex; gap: 10px; padding: 11px 13px; border-radius: 11px; font-size: 12.5px;
+  border: 1px solid var(--kcf-border-soft); background: var(--kcf-card); align-items: flex-start;
+}
+.kimos-cashflow .kcf-alert .ico { font-size: 17px; flex-shrink: 0; }
+.kimos-cashflow .kcf-alert b { display: block; margin-bottom: 2px; }
+.kimos-cashflow .kcf-alert .kcf-alert-reco { color: var(--kcf-muted); margin-top: 3px; font-size: 12px; }
+.kimos-cashflow .kcf-alert.sev-high { border-color: var(--kcf-red); background: var(--kcf-red-soft); }
+.kimos-cashflow .kcf-alert.sev-med { border-color: var(--kcf-amber); background: var(--kcf-amber-soft); }
+
+/* ── Presupuestos ─────────────────────────────────────────────────────── */
+.kimos-cashflow .kcf-budget-row { margin-bottom: 10px; }
+.kimos-cashflow .kcf-budget-top { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; gap: 8px; }
+.kimos-cashflow .kcf-progress { height: 9px; border-radius: 5px; background: var(--kcf-surface); overflow: hidden; }
+.kimos-cashflow .kcf-progress > div { height: 100%; border-radius: 5px; background: var(--kcf-green); }
+.kimos-cashflow .kcf-progress > div.over { background: var(--kcf-red); }
+.kimos-cashflow .kcf-progress > div.near { background: var(--kcf-amber); }
+
+/* ── Ajustes / catálogos ──────────────────────────────────────────────── */
+.kimos-cashflow .kcf-cat-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--kcf-border-soft);
+}
+.kimos-cashflow .kcf-cat-row input[type="color"] { width: 24px; height: 24px; border: none; background: transparent; padding: 0; cursor: pointer; }
+.kimos-cashflow .kcf-cat-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.kimos-cashflow .kcf-addrow { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.kimos-cashflow .kcf-addrow .kcf-input { flex: 1; min-width: 110px; }
+.kimos-cashflow .kcf-audit-row { font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--kcf-border-soft); display: flex; gap: 10px; }
+.kimos-cashflow .kcf-audit-when { color: var(--kcf-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── Visor de documento ───────────────────────────────────────────────── */
+.kimos-cashflow .kcf-viewer { width: 860px; }
+.kimos-cashflow .kcf-viewer-body { display: flex; gap: 14px; }
+.kimos-cashflow .kcf-viewer-preview {
+  flex: 1; min-width: 0; background: var(--kcf-surface); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; min-height: 260px; overflow: hidden;
+}
+.kimos-cashflow .kcf-viewer-preview img { max-width: 100%; max-height: 420px; object-fit: contain; }
+.kimos-cashflow .kcf-viewer-preview pre {
+  margin: 0; padding: 12px; font-size: 11px; max-height: 420px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word; width: 100%; box-sizing: border-box;
+}
+.kimos-cashflow .kcf-viewer-side { width: 260px; flex-shrink: 0; }
+@media (max-width: 760px) {
+  .kimos-cashflow .kcf-viewer-body { flex-direction: column; }
+  .kimos-cashflow .kcf-viewer-side { width: auto; }
+}
+
+/* ── Responsive fino (smartphone / tótems verticales) ─────────────────── */
+@media (max-width: 640px) {
+  .kimos-cashflow .kcf-body { padding: 10px; }
+  .kimos-cashflow .kcf-kpis { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .kimos-cashflow .kcf-kpi .kcf-kpi-value { font-size: 15px; }
+  .kimos-cashflow .kcf-hbar-label { width: 88px; }
+  .kimos-cashflow .kcf-hbar-val { width: 76px; }
+  .kimos-cashflow .kcf-toolbar { padding: 8px; }
+  .kimos-cashflow .kcf-brand small { display: none; }
+}
+
+/* Accesibilidad táctil (tótems FIGIT.ai) */
+@media (pointer: coarse) {
+  .kimos-cashflow .kcf-btn { height: 38px; }
+  .kimos-cashflow .kcf-tab { padding: 10px 14px 11px; }
+  .kimos-cashflow .kcf-mini { height: 32px; min-width: 32px; }
+}
