@@ -22,7 +22,7 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
-  const APP_VERSION = '1.3.3'; // mantener en sincronía con manifest.json
+  const APP_VERSION = '1.3.4'; // mantener en sincronía con manifest.json
 
   // Base pública del API: shell.assetUrl devuelve `${API_URL}/api/apps/...`;
   // recortamos y resolvemos contra el origin por si API_URL es relativo.
@@ -41,12 +41,15 @@ export default function mount(shell) {
   // mismo del que la plataforma instala los paquetes). Se usa cuando la app
   // no fue instalada como .kapp y por tanto no tiene assets subidos.
   //
-  // Se apunta a un TAG inmutable por versión (no a @main): jsDelivr cachea la
-  // resolución de ramas hasta 12 h y servía embed.js viejos tras cada release.
-  // Un tag nunca cambia de contenido, así el CDN no puede quedar desfasado.
-  // Protocolo de release: bump de APP_VERSION + manifests, commit, y crear el
-  // tag `contact-forms-v<version>` sobre ese commit (git tag + push del tag).
-  const CDN_ASSETS = 'https://cdn.jsdelivr.net/gh/ZagrebDev/kimos-packages@contact-forms-v' + APP_VERSION + '/apps/contact-forms/assets';
+  // Se apunta a un COMMIT inmutable (no a @main): jsDelivr cachea la
+  // resolución de ramas hasta 12 h y servía embed.js viejos tras cada
+  // release (los sitios recibían el estilo nuevo por el snippet pero
+  // ejecutaban código antiguo). Una URL @commit no puede quedar desfasada.
+  // Protocolo al cambiar assets/: primero commit de los assets, luego
+  // actualizar ASSETS_COMMIT a ese SHA (y bump de versión) en un segundo
+  // commit.
+  const ASSETS_COMMIT = '006149a985b1ff0a3c3fd62682e802bc3ca7b579';
+  const CDN_ASSETS = 'https://cdn.jsdelivr.net/gh/ZagrebDev/kimos-packages@' + ASSETS_COMMIT + '/apps/contact-forms/assets';
 
   const FIELD_TYPES = [
     ['text', 'Texto'],
