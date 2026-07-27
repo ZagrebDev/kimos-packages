@@ -66,8 +66,20 @@ export default function mount(shell) {
       borderWidth: 1,
       rounded: true,
       fontSize: 14,
+      bgOpacity: 100,
       ...STYLE_BASES[b],
     };
+  }
+
+  // Fondo con opacidad (0-100%): mismo cálculo que hace assets/embed.js.
+  function bgWithOpacity(hex, opacity) {
+    const pct = typeof opacity === 'number' ? Math.min(Math.max(opacity, 0), 100) : 100;
+    if (pct >= 100) return hex;
+    let h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h.slice(0, 6), 16);
+    if (Number.isNaN(n) || h.length < 6) return hex;
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + pct / 100 + ')';
   }
 
   // Estilo efectivo del widget: combina `style` con los campos legados
@@ -397,7 +409,7 @@ export default function mount(shell) {
           margin: align === 'center' ? '0 auto' : align === 'right' ? '0 0 0 auto' : '0 auto 0 0',
         } }, [
           h('div', { key: 'form', style: {
-            background: st.bgColor, color: st.textColor, padding: 20, boxSizing: 'border-box',
+            background: bgWithOpacity(st.bgColor, st.bgOpacity), color: st.textColor, padding: 20, boxSizing: 'border-box',
             border: bw > 0 ? bw + 'px solid ' + st.borderColor : 'none', borderRadius: rad, fontSize: fs,
           } }, [
             def.title && h('div', { key: 't', style: { fontSize: fs + 4, fontWeight: 700 } }, def.title),
@@ -533,6 +545,16 @@ export default function mount(shell) {
               h('label', { key: 'l', className: 'kcf-label' }, label),
               h('input', { key: 'i', type: 'color', className: 'kcf-color', value: st[key], onChange: (e) => upStyle({ [key]: e.target.value }) }),
             ]))),
+            h('div', { key: 'opacity', className: 'kcf-form-row', style: { marginTop: 6 } }, [
+              h('label', { key: 'l', className: 'kcf-label' },
+                'Opacidad del fondo: ' + (typeof st.bgOpacity === 'number' ? st.bgOpacity : 100) + '%' +
+                ((typeof st.bgOpacity === 'number' ? st.bgOpacity : 100) < 100 ? ' (deja ver el fondo del sitio)' : '')),
+              h('input', {
+                key: 'i', type: 'range', min: 0, max: 100, step: 5, className: 'kcf-range',
+                value: typeof st.bgOpacity === 'number' ? st.bgOpacity : 100,
+                onChange: (e) => upStyle({ bgOpacity: parseInt(e.target.value, 10) }),
+              }),
+            ]),
             h('div', { key: 'border', className: 'kcf-inline', style: { marginTop: 6 } }, [
               h('div', { key: 'on', className: 'kcf-form-row' }, [
                 h('label', { key: 'l', className: 'kcf-label' }, 'Borde'),

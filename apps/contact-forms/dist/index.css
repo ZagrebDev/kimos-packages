@@ -255,6 +255,7 @@
   background-position: 0 0, 9px 9px;
 }
 .kimos-contact-forms .kcf-preview-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.kimos-contact-forms .kcf-range { width: 100%; max-width: 260px; accent-color: var(--kcf-accent); }
 
 /* Snippets */
 .kimos-contact-forms .kcf-code {

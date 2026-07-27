@@ -47,6 +47,14 @@
     return e;
   }
 
+  function rgba(hex, alpha) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h.slice(0, 6), 16);
+    if (isNaN(n) || h.length < 6) return hex;
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + alpha + ')';
+  }
+
   function styleOf(cfg, def) {
     // El estilo del servidor (gateway público, en vivo) manda; si no llega,
     // se usa el snapshot que viaja en el snippet.
@@ -54,10 +62,15 @@
     var base = (s.base || (def && def.theme) || 'light') === 'dark' ? 'dark' : 'light';
     var d = BASES[base];
     var align = s.align === 'left' || s.align === 'right' ? s.align : 'center';
+    var bgSolid = s.bgColor || d.bgColor;
+    // Opacidad del fondo del formulario (0-100). El modal mantiene el fondo
+    // sólido para que el mensaje siempre sea legible.
+    var alpha = typeof s.bgOpacity === 'number' ? Math.min(Math.max(s.bgOpacity, 0), 100) / 100 : 1;
     return {
       dark: base === 'dark',
       align: align,
-      bg: s.bgColor || d.bgColor,
+      bgSolid: bgSolid,
+      bg: alpha < 1 ? rgba(bgSolid, alpha) : bgSolid,
       fg: s.textColor || d.textColor,
       inputBg: s.inputBgColor || d.inputBgColor,
       border: s.borderColor || d.borderColor,
@@ -130,7 +143,7 @@
     var modalText = el('div', { style: 'font-size:' + (fs + 1) + 'px;font-weight:600;line-height:1.45;' });
     var modalClose = el('button', { type: 'button', style: 'margin-top:14px;padding:8px 20px;border:none;border-radius:' + inRad + 'px;' +
       'background:' + st.accent + ';color:#fff;font-weight:600;font-size:' + (fs - 1) + 'px;cursor:pointer;' }, ['Cerrar']);
-    var modalCard = el('div', { style: 'background:' + st.bg + ';color:' + st.fg + ';border:1px solid ' + st.border +
+    var modalCard = el('div', { style: 'background:' + st.bgSolid + ';color:' + st.fg + ';border:1px solid ' + st.border +
       ';border-radius:' + (st.rounded ? 12 : 0) + 'px;padding:20px 22px;max-width:88%;box-sizing:border-box;text-align:center;' +
       'box-shadow:0 12px 32px rgba(0,0,0,.28);' }, [modalText, modalClose]);
     var overlay = el('div', { style: 'position:absolute;top:0;left:0;right:0;bottom:0;display:none;align-items:center;' +
