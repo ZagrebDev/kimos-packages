@@ -52,11 +52,18 @@ const prodInfo = {
   product: { id: 23008278, sku: 'PC-1', name: 'PC Gamer', options: OPTS },
   variant: { id: 1, price: 100000 },
 };
+// Variantes REALES del theme (script.product-json): la lista completa con el
+// precio de cada combinación, que es de donde debe salir el precio mostrado.
+const VARIANTES = [
+  { variant: { id: 1, price: 100000 }, values: [{ value: { id: 9001 } }, { value: { id: 9102 } }, { value: { id: 9201 } }] },
+  { variant: { id: 2, price: 300000 }, values: [{ value: { id: 9002 } }, { value: { id: 9102 } }, { value: { id: 9201 } }] },
+];
 const pagina = () => `<!doctype html><html lang="es"><body>
 <div id="kc-boot"><i></i></div>
 <section class="product-page" style="padding-top:40px;margin-top:24px">
   <div class="product-page__wrapper">
     <script type="application/json" class="product-form-json">${JSON.stringify({ options: {}, info: prodInfo })}</script>
+    <script type="application/json" class="product-json">${JSON.stringify(VARIANTES)}</script>
     <div class="product-options">${selectsHtml}</div>
     <form action="/cart/add" name="buy">
       <div class="product-form__quantity">
@@ -292,6 +299,13 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('el panel trae foto, precio y carro', !!panel.querySelector('.kc-panel-foto')
     && !!panel.querySelector('.kc-price') && !!panel.querySelector('.kc-btn'));
   t('el panel resume lo elegido', (panel.querySelector('.kc-summary').textContent || '').indexOf('Modelo') !== -1);
+  // El precio sale de la VARIANTE elegida, no del JSON de arranque (que solo
+  // trae la primera): al cambiar de paso tiene que cambiar.
+  t('precio de la variante inicial', /100\.000/.test(panel.querySelector('.kc-price').textContent));
+  d.querySelectorAll('.kc-card')[1].click();   // Modelo → Pro
+  await new Promise((r) => setTimeout(r, 20));
+  t('el precio sigue a la selección', /300\.000/.test(d.querySelector('.kc-price').textContent));
+  d.querySelectorAll('.kc-card')[0].click();   // volver a Base
   // El botón del theme resuelve la variante a su ritmo: el panel tiene que
   // seguirlo, o el aviso de "no disponible" se queda puesto para siempre.
   // El primer <button> del formulario es el "−" de cantidad: cogerlo dejaba el
@@ -308,6 +322,12 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   d.querySelector('.kc-bar-cta').click();
   t('el carro del panel y el de la barra pulsan el botón real (no el "−")', pulsado === 2);
   // En Configurar la barra no repite el título ni la foto/precio del panel.
+  // "desde" en la barra = la variante MÁS BARATA de verdad, no la primera.
+  d.querySelector('.kc-tab').click();
+  await new Promise((r) => setTimeout(r, 20));
+  t('"desde" usa la variante más barata',
+    !!d.querySelector('.kc-bar-desde') && /100\.000/.test(d.querySelector('.kc-bar-price').textContent));
+  d.querySelector('.kc-bar-cta').click();   // volver a Configurar
   t('sin botón "volver" que duplique el título', !d.querySelector('.kc-bar-back'));
   t('la barra no repite foto ni precio en Configurar',
     !d.querySelector('.kc-bar-thumb') && d.querySelector('.kc-bar-price').textContent === '');

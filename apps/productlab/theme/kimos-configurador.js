@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.5.1';
+  var VERSION = '5.6.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -295,18 +295,83 @@
   // selector por comodín se los traga y acaba mostrando JSON crudo en pantalla.
   // Precio REAL de la variante seleccionada, leído del JSON que el theme
   // imprime. Es la fuente autoritativa; rascar el DOM es adivinar.
-  function themePriceValue() {
+  // Los grupos nativos de la ficha montada, para que el precio se pueda pedir
+  // desde cualquier sitio sin arrastrarlos por parámetro.
+  var VARIANT_GROUPS = null;
+
+  /**
+   * VARIANTES REALES del theme (`script.product-json`): la lista completa que
+   * imprime Liquid, con el precio de cada combinación. Es la misma fuente que
+   * usa el theme para repintar su precio.
+   */
+  var VARIANTES = (function () {
+    var n = document.querySelector('script.product-json');
+    if (!n) return [];
+    try {
+      var p = JSON.parse(n.textContent);
+      if (Array.isArray(p)) return p;
+      if (p && Array.isArray(p.variants)) return p.variants;
+      return [];
+    } catch (e) { return []; }
+  })();
+  // La variante que casa con lo elegido en los controles nativos.
+  function varianteActual(groups) {
+    if (!VARIANTES.length || !groups || !groups.length) return null;
+    var sel = readSelection(groups);
+    var ids = groups.map(function (g) { return String(sel[g.id] || ''); }).filter(Boolean);
+    if (ids.length !== groups.length) return null;
+    for (var i = 0; i < VARIANTES.length; i++) {
+      var e = VARIANTES[i] || {};
+      var vals = (e.values || []).map(function (x) {
+        return String((x && x.value && x.value.id) != null ? x.value.id : (x && x.id));
+      });
+      if (vals.length !== ids.length) continue;
+      var todos = true;
+      for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+      if (todos) return e.variant || e;
+    }
+    return null;
+  }
+  // Precio "desde": la variante MÁS BARATA de verdad. El theme pinta el de la
+  // primera variante, que es la configuración por defecto y no tiene por qué
+  // ser la más barata; anunciarla como "desde" sería mentir por arriba.
+  function precioDesde() {
+    var min = Infinity;
+    for (var i = 0; i < VARIANTES.length; i++) {
+      var p = precioDeVariante((VARIANTES[i] || {}).variant || VARIANTES[i]);
+      if (p != null && isFinite(p) && p > 0 && p < min) min = p;
+    }
+    return min === Infinity ? null : min;
+  }
+  function precioDeVariante(v) {
+    if (!v) return null;
+    if (v.price_with_discount != null) return Number(v.price_with_discount);
+    var n = (Number(v.price) || 0) - (Number(v.discount) || 0);
+    return isFinite(n) ? n : null;
+  }
+  /**
+   * Precio de LO QUE HAY ELEGIDO ahora mismo.
+   *
+   * Antes salía de `product-form-json`, que solo trae la PRIMERA variante: el
+   * precio se quedaba clavado en el de arranque por mucho que se cambiara de
+   * paso. Ahora se busca la variante que casa con la selección; si no hay
+   * lista de variantes (theme raro o producto sin ellas), se cae al JSON de
+   * arranque, que al menos es correcto para un producto simple.
+   */
+  function themePriceValue(groups) {
+    var v = varianteActual(groups || VARIANT_GROUPS);
+    var real = precioDeVariante(v);
+    if (real != null && isFinite(real)) return real;
     var f = document.querySelector('script.product-form-json');
     if (!f) return null;
     try {
       var info = (JSON.parse(f.textContent) || {}).info || {};
-      var v = info.variant && info.variant.price;
+      var vp = info.variant && info.variant.price;
       var p = info.product && info.product.price;
-      var n = v != null ? Number(v) : (p != null ? Number(p) : null);
+      var n = vp != null ? Number(vp) : (p != null ? Number(p) : null);
       return n != null && isFinite(n) ? n : null;
     } catch (e) { return null; }
   }
-
   var digitos = function (t) { return String(t).replace(/\D/g, ''); };
 
   /**
@@ -1344,6 +1409,7 @@
     // Con JSON v1 no existe y todo queda con el aspecto del theme (default).
     var style = (sf.style && typeof sf.style === 'object') ? sf.style : {};
     var groups = nativeGroups(prod);
+    VARIANT_GROUPS = groups;   // el precio de la variante se calcula con ellos
     // Galería: manda la que publica KIMOS (`entry.images`), que trae la galería
     // COMPLETA leída de la tienda por el backend. Lo que se raspa del DOM se
     // añade detrás, por si el theme muestra alguna foto que el sync no tenga.
@@ -1866,8 +1932,11 @@
       }
       var precioBox = el('div', 'kc-bar-precio');
       // Precio: se COPIA del theme, no se calcula. Fuente única de verdad.
-      var texto = (barCfg.showPrice === false || enConf) ? '' : themePriceText();
-      if (current !== 'configurar' && conPasos && texto) {
+      var esDesde = current !== 'configurar' && conPasos;
+      var minimo = esDesde ? precioDesde() : null;
+      var texto = (barCfg.showPrice === false || enConf) ? ''
+        : (minimo != null ? fmtMonto(minimo) : themePriceText());
+      if (esDesde && texto) {
         precioBox.appendChild(el('span', 'kc-bar-desde', tabsCfg.desde || 'desde'));
       }
       precioBox.appendChild(el('div', 'kc-bar-price', texto));

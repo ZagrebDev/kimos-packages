@@ -123,6 +123,23 @@ es lo primero que hay**: recorre hacia arriba mientras siga siendo el primer
 hijo y anula ahí el `padding-top`/`margin-top`. Si encima queda algo del theme
 (migas de pan, un aviso), su espacio no se toca.
 
+## El precio: de la VARIANTE elegida
+
+El precio que enseña la ficha (panel de compra, "desde" de la barra y el modo
+`showDeltas: total`) sale de `script.product-json`, la lista completa de
+variantes que imprime el theme — la misma que usa él para repintar su precio.
+Se busca la variante cuyos valores casan con la selección actual y se toma su
+`price_with_discount` (o `price − discount`).
+
+Lo que había antes era `product-form-json`, que **solo trae la primera
+variante**: el precio se quedaba clavado en el de arranque por mucho que se
+cambiara de paso. Y el "desde" de la barra usa la variante **más barata** de
+verdad, no la primera, que es la configuración por defecto y no tiene por qué
+ser la mínima.
+
+Sigue en pie la regla de siempre: el precio **no se calcula** aquí, se lee de
+lo que la tienda publica. Lo que se cobra es la variante de Jumpseller.
+
 ## El botón de carro del theme
 
 Todo lo que la ficha dice sobre disponibilidad —y el propio "Añadir al carro"—
@@ -280,7 +297,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.5.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.6.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.
