@@ -39,6 +39,19 @@ window.KIMOS_XR8_URL = 'https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/di
 // cámara a pantalla completa en cualquier teléfono y orientación.
 window.KIMOS_XREXTRAS_URL = 'https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js';
 
+// ANCHO DEL CONTENIDO. 'auto' mide el contenedor del theme (el que centra el
+// resto de la web, ~1200px) y alinea el configurador a él; 'container' fuerza
+// el centrado aunque no se detecte; 'full' lo deja a todo el ancho. Cada
+// producto puede pisarlo desde ProductLab (Ficha → Estilo → Ancho en la tienda).
+window.KIMOS_WIDTH = 'auto';
+
+// TOPE DE LA BARRA. La barra de pestañas es pegajosa y se coloca justo debajo
+// del header del theme: su alto se MIDE solo (y se recalcula al hacer scroll,
+// porque muchos headers encogen). Solo si tu header no se detecta bien:
+//   window.KIMOS_TOP_OFFSET = 66;               // px fijos
+//   window.KIMOS_HEADER_SELECTOR = '.mi-header'; // o dile cuál es
+//   window.KIMOS_CONTAINER_SELECTOR = '.mi-container';
+
 // FICHA COMPLETA: true reemplaza la ficha del theme por la de KIMOS (barra con
 // pestañas, heros del builder, configurador con 3D, specs y fotos). En false
 // se usa solo el visor 3D sobre la galería, dejando tu ficha intacta.

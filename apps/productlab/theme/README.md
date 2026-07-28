@@ -19,6 +19,32 @@ producto del `<script class="product-json">` que el theme ya imprime.
 El arranque va en `assets/custom.js`, que el theme ya carga en todas las
 páginas — así que **no se toca ningún `.liquid`**.
 
+## Encaje con el theme: tope de la barra y ancho
+
+Dos cosas que ningún theme expone y el kit **mide del DOM real** (y recalcula
+en scroll/resize, porque muchos headers encogen al bajar):
+
+- **Tope de la barra.** La barra de pestañas es pegajosa; si el theme tiene su
+  propio header fijo/sticky, con `top: 0` quedaría tapada. El kit mide el alto
+  del header y lo expone en `--kc-top`. Si tu header no se detecta bien:
+  `window.KIMOS_TOP_OFFSET = 66` (px fijos) o
+  `window.KIMOS_HEADER_SELECTOR = '.mi-header'`.
+- **Ancho.** Casi todos los themes centran el contenido en un contenedor
+  (~1200px); ocupar el 100% se ve desalineado con el resto del sitio. El kit
+  mide ese contenedor (`--kc-maxw` + clase `kc-w-container`) y alinea el
+  configurador a él. Configurable en tres niveles:
+
+  | Dónde | Cómo |
+  |---|---|
+  | Por producto | ProductLab → Ficha → Estilo → **Ancho en la tienda** (`auto` / `container` / `full`) — manda sobre lo global |
+  | Global del theme | `window.KIMOS_WIDTH = 'auto' \| 'container' \| 'full'` en `custom.js` |
+  | Contenedor a medida | `window.KIMOS_CONTAINER_SELECTOR = '.mi-container'` |
+
+  En modo contenedor, las secciones de imagen marcadas **"Borde a borde"**
+  siguen sangrando hasta los bordes de la ventana: ese es su propósito.
+
+Prueba offline: `node test/run-encaje-theme.mjs` (requiere jsdom).
+
 ## Jumpseller renombra los assets (importante)
 
 Al subir un archivo a **Assets**, Jumpseller **sanea el nombre y le quita los

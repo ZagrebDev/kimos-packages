@@ -12,9 +12,26 @@
 
 .kimos-cfg { font: inherit; color: inherit; }
 
+/* ── Ancho: alineado al contenedor del theme ──
+   El JS mide el contenedor real del sitio y lo expone en --kc-maxw; con la
+   clase kc-w-container el configurador se centra igual que el resto de la
+   web. Sin la clase (modo 'full') ocupa todo el ancho, como antes. */
+.kimos-cfg.kc-w-container {
+  max-width: var(--kc-maxw, 1200px);
+  margin-left: auto; margin-right: auto;
+}
+/* Las secciones a "borde a borde" (imagen width:full) siguen sangrando hasta
+   los bordes de la ventana aunque el resto esté centrado: ese es su sentido. */
+.kimos-cfg.kc-w-container .kc-imagen-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+}
+
 /* ── Barra con pestañas ── */
 .kimos-cfg .kc-bar {
-  position: sticky; top: 0; z-index: 20;
+  /* --kc-top = alto del header fijo del theme (lo mide el JS): sin esto la
+     barra queda tapada por el menú del sitio al bajar. */
+  position: sticky; top: var(--kc-top, 0px); z-index: 20;
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 10px 16px; margin-bottom: 20px;
   background: var(--kc-bg, #fff); color: var(--kc-fg, inherit);

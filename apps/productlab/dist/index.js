@@ -1244,6 +1244,11 @@ export default function mount(shell) {
           bgColor: s(st.bgColor).trim(),
           radius: Math.max(0, Math.min(24, num(st.radius, 0))),
           cardStyle: ['list', 'compact'].indexOf(st.cardStyle) !== -1 ? st.cardStyle : 'cards',
+          // Ancho del configurador y de las secciones en la tienda:
+          //  'auto'      → se mide el contenedor del theme y se alinea a él
+          //  'container' → igual que 'auto' pero forzado (aunque no se detecte)
+          //  'full'      → a todo el ancho de la página
+          width: ['container', 'full'].indexOf(st.width) !== -1 ? st.width : 'auto',
           showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
           stepsCollapsed: st.stepsCollapsed === true,
         };
@@ -2160,7 +2165,7 @@ export default function mount(shell) {
             specs: { type: 'array', items: { type: 'object' }, description: 'filas {group?, label, value}' },
             photosNote: { type: 'string' },
             tabs: { type: 'object', description: '{explorar?, specs?, fotos?, comprar?, showSpecs?, showFotos?, order?}' },
-            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool} — vacío = theme del sitio' },
+            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde)} — vacío = theme del sitio' },
           }, required: ['producto'] } },
         { name: 'LINK_PRODUCT', description: 'Enlaza un producto a un producto del catálogo de la app Productos (por nombre, SKU o id Jumpseller). Luego usa APPLY_PRODUCTO para escribir en la tienda.',
           inputSchema: { type: 'object', properties: { producto: { type: 'string' }, product: { type: 'string' } }, required: ['producto', 'product'] } },
@@ -4378,6 +4383,12 @@ export default function mount(shell) {
                 h('option', { key: 'c', value: 'cards' }, 'Cards con foto (grilla)'),
                 h('option', { key: 'l', value: 'list' }, 'Lista vertical'),
                 h('option', { key: 'k', value: 'compact' }, 'Cards compactas'),
+              ])),
+            h(Row, { key: 'wd', label: 'Ancho en la tienda' },
+              h('select', { className: 'gp-select', value: st.width || 'auto', onChange: (e) => upStyle({ width: e.target.value }) }, [
+                h('option', { key: 'a', value: 'auto' }, 'Automático (se alinea al contenedor del theme)'),
+                h('option', { key: 'c', value: 'container' }, 'Contenedor (siempre centrado como el sitio)'),
+                h('option', { key: 'f', value: 'full' }, 'Ancho completo (borde a borde)'),
               ])),
             h(Row, { key: 'sd', label: 'Precio en las cards' },
               h('select', { className: 'gp-select', value: st.showDeltas || 'delta', onChange: (e) => upStyle({ showDeltas: e.target.value }) }, [

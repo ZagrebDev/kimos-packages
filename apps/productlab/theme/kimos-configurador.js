@@ -1138,6 +1138,111 @@
   }
 
   // ── Montaje de la ficha ──────────────────────────────────────────────────
+  // ── Encaje con el theme: tope de la barra y ancho del contenido ──────────
+  // Dos cosas que ningún theme expone y hay que MEDIR del DOM real:
+  //
+  //  1) TOPE. Nuestra barra es `sticky; top: var(--kc-top)`. Si el theme tiene
+  //     su propio header fijo o pegajoso, con top:0 la barra queda DEBAJO y no
+  //     se ve al bajar. Se mide el alto real del header y se descuenta. Se
+  //     recalcula en scroll/resize porque muchos headers encogen al bajar.
+  //
+  //  2) ANCHO. Casi todos los themes centran su contenido en un contenedor
+  //     (~1200px). Ocupar el 100% se ve enorme y desalineado respecto al resto
+  //     del sitio. Se mide el contenedor del theme y el configurador se alinea
+  //     a él. Todo es configurable: `storefront.style.width` del producto manda
+  //     sobre `window.KIMOS_WIDTH`, y 'full' vuelve al borde a borde.
+  var LAYOUT = {
+    // Selector propio del header, si la detección automática no acierta.
+    headerSel: window.KIMOS_HEADER_SELECTOR || '',
+    // Número de px fijo para el tope (salta la medición del header).
+    topFijo: (typeof window.KIMOS_TOP_OFFSET === 'number') ? window.KIMOS_TOP_OFFSET : null,
+    // Selector propio del contenedor del theme.
+    contSel: window.KIMOS_CONTAINER_SELECTOR || '',
+    // 'auto' | 'container' | 'full' (lo global del theme; el producto puede pisarlo).
+    width: String(window.KIMOS_WIDTH || 'auto').toLowerCase(),
+  };
+  var HEADER_CANDIDATOS = 'header, .header, #header, .theme-header, .site-header, .main-header, .navbar, .nav-bar, .topbar, .top-bar, [class*="header"][class*="fixed"], [class*="header"][class*="sticky"]';
+  var CONT_CANDIDATOS = '.container, .page-width, .site-width, .wrapper, .site-container, .page-container, .content-wrapper, main > .container, .shopify-section > .container';
+
+  // Alto ocupado por lo que está FIJO en la parte superior de la ventana.
+  function medirTop() {
+    if (LAYOUT.topFijo != null) return Math.max(0, LAYOUT.topFijo);
+    var nodos;
+    try { nodos = document.querySelectorAll(LAYOUT.headerSel || HEADER_CANDIDATOS); }
+    catch (e) { nodos = document.querySelectorAll(HEADER_CANDIDATOS); }
+    var top = 0;
+    for (var i = 0; i < nodos.length; i++) {
+      var n = nodos[i];
+      if (n.closest && n.closest('.kimos-cfg')) continue;     // no medirnos a nosotros
+      var cs = getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      // Solo cuenta lo que TAPA: fijo o pegajoso y anclado arriba del todo.
+      if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+      var r = n.getBoundingClientRect();
+      if (r.height <= 0 || r.top > 4 || r.bottom <= 0) continue;
+      if (r.bottom > top) top = r.bottom;
+    }
+    // Un header desmedido casi siempre es una medición equivocada (un
+    // contenedor entero marcado como sticky): mejor 0 que romper la página.
+    return top > window.innerHeight * 0.4 ? 0 : Math.round(top);
+  }
+
+  // Ancho útil del contenedor del theme (sin sus paddings) y su posición.
+  function medirContenedor(cerca) {
+    var sels = LAYOUT.contSel || CONT_CANDIDATOS;
+    var nodos = [];
+    // Primero se buscan contenedores que envuelvan a la ficha: son los que
+    // marcan el ancho de ESTA página, no el de un bloque cualquiera.
+    for (var p = cerca && cerca.parentElement; p && p !== document.body; p = p.parentElement) {
+      try { if (p.matches && p.matches(sels)) nodos.push(p); } catch (e) { /* selector raro */ }
+    }
+    if (!nodos.length) {
+      try { nodos = Array.prototype.slice.call(document.querySelectorAll(sels)); } catch (e) { nodos = []; }
+    }
+    var mejor = 0;
+    for (var i = 0; i < nodos.length; i++) {
+      var n = nodos[i];
+      if (n.closest && n.closest('.kimos-cfg')) continue;
+      var cs = getComputedStyle(n);
+      if (cs.display === 'none') continue;
+      var ancho = n.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      // Un contenedor de verdad es más angosto que la ventana, pero no una
+      // columna suelta: se descartan los extremos.
+      if (ancho <= 0 || ancho >= window.innerWidth - 8 || ancho < 480) continue;
+      if (ancho > mejor) mejor = ancho;
+    }
+    return Math.round(mejor);
+  }
+
+  // Aplica ambas medidas a la raíz del configurador y las mantiene al día.
+  function encajarConTheme(root, page, modo) {
+    var quiere = String(modo || LAYOUT.width || 'auto').toLowerCase();
+    var aplicar = function () {
+      root.style.setProperty('--kc-top', medirTop() + 'px');
+      if (quiere === 'full') { root.classList.remove('kc-w-container'); return; }
+      var ancho = medirContenedor(page);
+      if (!ancho && quiere === 'container') ancho = Math.min(1200, window.innerWidth - 32);
+      if (ancho) {
+        root.style.setProperty('--kc-maxw', ancho + 'px');
+        root.classList.add('kc-w-container');
+      } else {
+        root.classList.remove('kc-w-container');   // 'auto' sin contenedor = full
+      }
+    };
+    aplicar();
+    var pedido = 0;
+    var alVuelo = function () {
+      if (pedido) return;
+      pedido = requestAnimationFrame(function () { pedido = 0; aplicar(); });
+    };
+    window.addEventListener('scroll', alVuelo, { passive: true });
+    window.addEventListener('resize', alVuelo);
+    // Los headers de muchos themes cambian de alto después de cargar (fuentes,
+    // banners, JS propio): unas pocas pasadas tempranas evitan el desfase.
+    [120, 400, 1200].forEach(function (ms) { setTimeout(aplicar, ms); });
+    return aplicar;
+  }
+
   function mount(entry, prod, contractVer) {
     var page = document.querySelector('[id^="product-template-"]') || document.querySelector('.product-page');
     if (!page) { console.warn(LOG, 'no encontré la sección del producto'); return; }
@@ -1218,6 +1323,10 @@
     root.appendChild(bar);
     root.appendChild(body);
     page.insertBefore(root, page.firstChild);
+    // Encaje con el theme: tope de la barra (header fijo del sitio) y ancho
+    // del contenido. El producto manda (storefront.style.width) sobre el
+    // ajuste global de custom.js (window.KIMOS_WIDTH).
+    encajarConTheme(root, page, style.width);
 
     var has3d = !!(entry.model3d && entry.model3d.url);
     var secs = (sf.pageSections || []).filter(function (s) { return s.kind !== 'hero' ? s.show !== false : true; });
