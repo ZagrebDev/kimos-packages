@@ -19,6 +19,25 @@ producto del `<script class="product-json">` que el theme ya imprime.
 El arranque va en `assets/custom.js`, que el theme ya carga en todas las
 páginas — así que **no se toca ningún `.liquid`**.
 
+## Barra y fotos, configurables desde la app
+
+Todo lo visible se decide en ProductLab (Ficha → Estilo) y viaja en
+`storefront.style`; el kit solo lo aplica:
+
+| Ajuste | Campo |
+|---|---|
+| Fondo y color de texto de la barra | `style.bar.bgColor` / `bar.textColor` (el texto se calcula por contraste si no lo fijas) |
+| Ancho de la barra | `style.bar.width` (`auto` / `container` / `full`) |
+| Barra fija al hacer scroll | `style.bar.sticky` |
+| Separación extra bajo el menú del sitio | `style.bar.offset` (px; el alto del menú se mide solo) |
+| Pestañas secundarias en móvil | `style.bar.mobileTabs` (por defecto **ocultas**: se amontonaban con el precio y engordaban la barra) |
+| Precio y miniatura en la barra | `style.bar.showPrice` / `bar.showThumb` |
+| Tamaño de la galería en Explorar | `style.photos.size` (`s`/`m`/`l`/`xl`) y `photos.cols` |
+
+**Contraste garantizado:** `--kc-accent` tiene un valor sólido por defecto y
+nunca cae a `currentColor` — eso dejaba el botón blanco sobre blanco dentro de
+un hero con texto claro. `style.accentColor` lo sobreescribe.
+
 ## No dejes conviviendo el configurador antiguo
 
 Si la tienda venía del theme de computadores, tendrá `assets/configurador.js`

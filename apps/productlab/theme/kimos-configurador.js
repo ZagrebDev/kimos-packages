@@ -507,8 +507,16 @@
     return wrap;
   }
 
-  function renderPhotos(images, note) {
+  // `cfg` = storefront.style.photos: tamaño de la galería dentro de Explorar
+  // (s|m|l|xl) y fotos por fila (0 = automático). Sin cfg, todo como antes.
+  function renderPhotos(images, note, cfg) {
     var wrap = el('div', 'kc-fotos');
+    var pc = cfg || {};
+    wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
+    if (pc.cols > 0) {
+      wrap.setAttribute('data-cols', String(pc.cols));
+      wrap.style.setProperty('--kc-foto-cols', String(pc.cols));
+    }
     var main = el('div', 'kc-foto-main');
     var big = el('img');
     big.src = images[0] || '';
@@ -1352,7 +1360,24 @@
     if (style.cardStyle === 'list' || style.cardStyle === 'compact') {
       root.classList.add('kc-style-' + style.cardStyle);
     }
+    // ── Barra: todo lo que el producto haya configurado (style.bar) ──
+    var barCfg = (style.bar && typeof style.bar === 'object') ? style.bar : {};
     var bar = el('div', 'kc-bar');
+    if (barCfg.sticky === false) bar.classList.add('kc-bar-static');
+    if (barCfg.width === 'full') bar.classList.add('kc-bar-full');
+    else if (barCfg.width === 'container') bar.classList.add('kc-bar-container');
+    if (String(barCfg.bgColor || '').trim()) {
+      bar.style.background = String(barCfg.bgColor).trim();
+      // El texto acompaña al fondo elegido salvo que se pida uno explícito.
+      bar.style.color = String(barCfg.textColor || '').trim()
+        || (esOscuro(barCfg.bgColor) ? '#fff' : '#111');
+    } else if (String(barCfg.textColor || '').trim()) {
+      bar.style.color = String(barCfg.textColor).trim();
+    }
+    if (barCfg.offset != null && isFinite(Number(barCfg.offset))) {
+      root.style.setProperty('--kc-bar-offset', Number(barCfg.offset) + 'px');
+    }
+    if (barCfg.mobileTabs === true) root.classList.add('kc-bar-mtabs');
     var body = el('div', 'kc-body');
     root.appendChild(bar);
     root.appendChild(body);
@@ -1457,7 +1482,11 @@
       TABS.forEach(function (t) {
         // Solo se marca activa la pestaña de la vista, no las anclas.
         var activa = current === t[0] && !t[2];
-        var b = el('button', 'kc-tab' + (activa ? ' on' : ''), t[1]);
+        // Las secundarias (Especificaciones, Fotos) llevan marca propia: en
+        // móvil se ocultan salvo que el producto pida lo contrario.
+        // t[2] = ancla dentro de Explorar (specs/fotos). Las que la llevan son
+        // las SECUNDARIAS: en móvil se ocultan salvo que el producto las pida.
+        var b = el('button', 'kc-tab' + (activa ? ' on' : '') + (t[2] ? ' kc-tab-sec' : ''), t[1]);
         b.type = 'button';
         b.addEventListener('click', function () { setTab(t[0], t[2]); });
         nav.appendChild(b);
@@ -1467,7 +1496,7 @@
       // fuera del configurador el precio es un "desde" (la combinación más
       // barata la elige el cliente); dentro, el precio de lo que lleva puesto.
       var info = el('div', 'kc-bar-info');
-      var mini = images[0] || entry.imageUrl || '';
+      var mini = barCfg.showThumb === false ? '' : (images[0] || entry.imageUrl || '');
       if (mini) {
         var im = el('img', 'kc-bar-thumb');
         im.src = mini; im.alt = '';
@@ -1476,7 +1505,7 @@
       }
       var precioBox = el('div', 'kc-bar-precio');
       // Precio: se COPIA del theme, no se calcula. Fuente única de verdad.
-      var texto = themePriceText();
+      var texto = barCfg.showPrice === false ? '' : themePriceText();
       if (current !== 'configurar' && conPasos && texto) {
         precioBox.appendChild(el('span', 'kc-bar-desde', tabsCfg.desde || 'desde'));
       }
@@ -1520,7 +1549,7 @@
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });

@@ -1257,6 +1257,33 @@ export default function mount(shell) {
           //  'container' → igual que 'auto' pero forzado (aunque no se detecte)
           //  'full'      → a todo el ancho de la página
           width: ['container', 'full'].indexOf(st.width) !== -1 ? st.width : 'auto',
+          // Barra superior (pestañas + precio + botón): todo configurable, para
+          // que encaje con el diseño de cada tienda sin tocar CSS.
+          bar: (function () {
+            const b = (st.bar && typeof st.bar === 'object') ? st.bar : {};
+            return {
+              bgColor: s(b.bgColor).trim(),      // vacío = fondo del configurador
+              textColor: s(b.textColor).trim(),  // vacío = automático por contraste
+              width: ['container', 'full'].indexOf(b.width) !== -1 ? b.width : 'auto',
+              sticky: b.sticky !== false,        // se queda pegada al bajar
+              // Separación extra bajo el header del theme (px). El alto del
+              // header se mide solo; esto es un ajuste fino encima.
+              offset: Math.max(-200, Math.min(400, num(b.offset, 0))),
+              // Pestañas secundarias (Especificaciones, Fotos) en móvil: por
+              // defecto NO, se amontonan con el precio y engordan la barra.
+              mobileTabs: b.mobileTabs === true,
+              showPrice: b.showPrice !== false,
+              showThumb: b.showThumb !== false,
+            };
+          })(),
+          // Fotos del producto dentro de Explorar (sección "fotos").
+          photos: (function () {
+            const f = (st.photos && typeof st.photos === 'object') ? st.photos : {};
+            return {
+              size: ['s', 'm', 'l', 'xl'].indexOf(f.size) !== -1 ? f.size : 'm',
+              cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
+            };
+          })(),
           showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
           stepsCollapsed: st.stepsCollapsed === true,
         };
@@ -2173,7 +2200,7 @@ export default function mount(shell) {
             specs: { type: 'array', items: { type: 'object' }, description: 'filas {group?, label, value}' },
             photosNote: { type: 'string' },
             tabs: { type: 'object', description: '{explorar?, specs?, fotos?, comprar?, showSpecs?, showFotos?, order?}' },
-            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde)} — vacío = theme del sitio' },
+            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl", cols? 0-6}} — vacío = theme del sitio' },
           }, required: ['producto'] } },
         { name: 'LINK_PRODUCT', description: 'Enlaza un producto a un producto del catálogo de la app Productos (por nombre, SKU o id Jumpseller). Luego usa APPLY_PRODUCTO para escribir en la tienda.',
           inputSchema: { type: 'object', properties: { producto: { type: 'string' }, product: { type: 'string' } }, required: ['producto', 'product'] } },
@@ -3992,8 +4019,27 @@ export default function mount(shell) {
               ].concat(moveBtns)),
               sec2.show !== false && h('div', { key: 'b', className: 'gp-group-body' },
                 sec2.kind === 'fotos'
-                  ? h('span', { key: 'ft', className: 'gp-muted' },
-                      'Grilla de fotos del producto (galería de Jumpseller) con visor grande y título centrado (renombrable en Pestañas). Las fotos se gestionan en el producto, en la tienda.')
+                  ? (function () {
+                      const st = sf.style || {};
+                      const ph = st.photos || {};
+                      const upPh = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { photos: Object.assign({}, ph, patch) }) }) });
+                      return h('div', { key: 'ft' }, [
+                        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+                          'Grilla de fotos del producto (galería de la tienda) con visor grande. Las fotos se gestionan en el producto; aquí decides cómo se ven dentro de la ficha.'),
+                        h('div', { key: 'g', className: 'gp-grid2' }, [
+                          h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
+                            h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (e) => upPh({ size: e.target.value }) }, [
+                              h('option', { key: 's', value: 's' }, 'Pequeñas (miniaturas)'),
+                              h('option', { key: 'm', value: 'm' }, 'Medianas'),
+                              h('option', { key: 'l', value: 'l' }, 'Grandes'),
+                              h('option', { key: 'xl', value: 'xl' }, 'Extra grandes'),
+                            ])),
+                          h(Row, { key: 'co', label: 'Fotos por fila (0 = automático)' },
+                            h(TextInput, { mono: true, type: 'number', min: 0, max: 6, value: ph.cols == null ? 0 : ph.cols,
+                              onChange: (e) => upPh({ cols: e.target.value === '' ? 0 : num(e.target.value) }) })),
+                        ]),
+                      ]);
+                    })()
                   : sec2.kind === 'specs'
                   ? (specRows.length
                       ? h('div', { key: 'pv', style: { maxWidth: viewMode === 'mob' ? 375 : 560 } },
@@ -4430,6 +4476,47 @@ export default function mount(shell) {
             h('label', { key: 'sc', className: 'gp-switch', style: { alignSelf: 'end' } }, [
               h('input', { key: 'c', type: 'checkbox', checked: st.stepsCollapsed === true, onChange: (e) => upStyle({ stepsCollapsed: e.target.checked }) }),
               h('span', { key: 's' }, 'Pasos colapsados al entrar (solo el primero abierto)'),
+            ]),
+          ]);
+        })(),
+        // ── Barra superior de la ficha ──
+        (function () {
+          const st = sf.style || {};
+          const bar = st.bar || {};
+          const upBar = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { bar: Object.assign({}, bar, patch) }) }) });
+          return h('div', { key: 'bar', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 10 } }, [
+            h('div', { key: 't', className: 'gp-label', style: { marginBottom: 6 } }, 'BARRA SUPERIOR (pestañas · precio · botón)'),
+            h('div', { key: 'g', className: 'gp-grid3' }, [
+              h(Row, { key: 'bg', label: 'Color de fondo de la barra' },
+                h(ColorField, { label: null, value: bar.bgColor || '', onChange: (v) => upBar({ bgColor: v }), placeholder: 'vacío = fondo de la ficha' })),
+              h(Row, { key: 'fg', label: 'Color del texto de la barra' },
+                h(ColorField, { label: null, value: bar.textColor || '', onChange: (v) => upBar({ textColor: v }), placeholder: 'vacío = automático por contraste' })),
+              h(Row, { key: 'w', label: 'Ancho de la barra' },
+                h('select', { className: 'gp-select', value: bar.width || 'auto', onChange: (e) => upBar({ width: e.target.value }) }, [
+                  h('option', { key: 'a', value: 'auto' }, 'Según la ficha'),
+                  h('option', { key: 'c', value: 'container' }, 'Contenedor'),
+                  h('option', { key: 'f', value: 'full' }, 'Ancho completo'),
+                ])),
+              h(Row, { key: 'off', label: 'Separación extra bajo el menú del sitio (px)' },
+                h(TextInput, { mono: true, type: 'number', value: bar.offset == null ? 0 : bar.offset,
+                  title: 'El alto del menú del theme se mide solo; esto es un ajuste fino encima (puede ser negativo).',
+                  onChange: (e) => upBar({ offset: e.target.value === '' ? 0 : num(e.target.value) }) })),
+              h('label', { key: 'sk', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: bar.sticky !== false, onChange: (e) => upBar({ sticky: e.target.checked }) }),
+                h('span', { key: 's' }, 'Fijar la barra al hacer scroll'),
+              ]),
+              h('label', { key: 'mt', className: 'gp-switch', style: { alignSelf: 'end' }, title: 'En móvil las pestañas secundarias se amontonan con el precio y engordan la barra; por eso van ocultas salvo que las pidas.' }, [
+                h('input', { key: 'c', type: 'checkbox', checked: bar.mobileTabs === true, onChange: (e) => upBar({ mobileTabs: e.target.checked }) }),
+                h('span', { key: 's' }, 'Mostrar pestañas secundarias en móvil'),
+              ]),
+              h('label', { key: 'sp', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: bar.showPrice !== false, onChange: (e) => upBar({ showPrice: e.target.checked }) }),
+                h('span', { key: 's' }, 'Mostrar el precio en la barra'),
+              ]),
+              h('label', { key: 'th', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: bar.showThumb !== false, onChange: (e) => upBar({ showThumb: e.target.checked }) }),
+                h('span', { key: 's' }, 'Mostrar la miniatura del producto'),
+              ]),
             ]),
           ]);
         })(),

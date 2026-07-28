@@ -10,7 +10,14 @@
   white-space: nowrap;
 }
 
-.kimos-cfg { font: inherit; color: inherit; }
+.kimos-cfg {
+  font: inherit; color: inherit;
+  /* El acento NUNCA cae a currentColor: dentro de un hero con texto blanco
+     eso dejaba el botón blanco sobre blanco (invisible). Si el producto
+     define storefront.style.accentColor, el JS lo sobreescribe. */
+  --kc-accent: #19ACB1;
+  --kc-accent-fg: #ffffff;
+}
 
 /* ── Ancho: alineado al contenedor del theme ──
    El JS mide el contenedor real del sitio y lo expone en --kc-maxw; con la
@@ -40,9 +47,10 @@
 
 /* ── Barra con pestañas ── */
 .kimos-cfg .kc-bar {
-  /* --kc-top = alto del header fijo del theme (lo mide el JS): sin esto la
-     barra queda tapada por el menú del sitio al bajar. */
-  position: sticky; top: var(--kc-top, 0px); z-index: 20;
+  /* --kc-top = alto del header fijo del theme (lo mide el JS) + la separación
+     extra que pida el producto: sin esto la barra queda tapada por el menú
+     del sitio al bajar. Con bar.sticky:false la barra no se fija. */
+  position: sticky; top: calc(var(--kc-top, 0px) + var(--kc-bar-offset, 0px)); z-index: 20;
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 10px 16px; margin-bottom: 20px;
   background: var(--kc-bg, #fff); color: var(--kc-fg, inherit);
@@ -53,7 +61,7 @@
   border: 0; background: none; color: inherit; font: inherit; font-size: 14px;
   padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; opacity: .6;
 }
-.kimos-cfg .kc-tab.on { opacity: 1; border-bottom-color: var(--kc-accent, currentColor); font-weight: 600; }
+.kimos-cfg .kc-tab.on { opacity: 1; border-bottom-color: var(--kc-accent); font-weight: 600; }
 /* Bloque derecho de la barra: mini-foto + "desde" + precio (paridad con la
    ficha de computadores). */
 .kimos-cfg .kc-bar-info { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -71,10 +79,10 @@
   /* --kc-radius: radio de storefront.style (contrato v2); sin él, el de siempre. */
   border-radius: var(--kc-radius, 4px);
 }
-.kimos-cfg .kc-btn-primary { background: var(--kc-accent, currentColor); border-color: var(--kc-accent, currentColor); }
+.kimos-cfg .kc-btn-primary { background: var(--kc-accent); border-color: var(--kc-accent); }
 .kimos-cfg .kc-btn-primary { color: var(--kc-accent-fg, var(--kc-bg, #fff)); }
 .kimos-cfg.kc-dark .kc-btn-primary {
-  background: var(--kc-accent, #fff); border-color: var(--kc-accent, #fff);
+  background: var(--kc-accent); border-color: var(--kc-accent);
   color: var(--kc-accent-fg, #111);
 }
 .kimos-cfg .kc-btn-dark { background: #333; border-color: #333; color: #fff; }
@@ -138,11 +146,11 @@
   transition: border-color .15s ease, background .15s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.kimos-cfg .kc-item-btn:hover { border-color: var(--kc-accent, currentColor); }
+.kimos-cfg .kc-item-btn:hover { border-color: var(--kc-accent); }
 .kimos-cfg .kc-item-btn.kc-item-solo { cursor: default; }
 .kimos-cfg .kc-item-plus {
   width: 22px; height: 22px; flex-shrink: 0;
-  background: var(--kc-accent, currentColor); color: var(--kc-accent-fg, #fff);
+  background: var(--kc-accent); color: var(--kc-accent-fg, #fff);
   border-radius: var(--kc-radius, 0);
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 14px; font-weight: 700; line-height: 1;
@@ -152,7 +160,7 @@
 .kimos-cfg .kc-item-x {
   display: none; margin-top: 6px;
   background: #fff; color: #1D1D1B;
-  border-left: 3px solid var(--kc-accent, currentColor);
+  border-left: 3px solid var(--kc-accent);
   border-radius: var(--kc-radius, 0);
   font-size: 13px; line-height: 1.55; padding: 10px 12px;
   width: max-content; max-width: min(420px, 86vw);
@@ -241,10 +249,10 @@
   padding: 12px 10px; border-radius: var(--kc-radius, 6px); cursor: pointer; text-align: center;
   transition: border-color .15s, box-shadow .15s;
 }
-.kimos-cfg .kc-card:hover { border-color: var(--kc-accent, currentColor); }
+.kimos-cfg .kc-card:hover { border-color: var(--kc-accent); }
 .kimos-cfg .kc-card.on {
-  border-color: var(--kc-accent, currentColor);
-  box-shadow: 0 0 0 1px var(--kc-accent, currentColor) inset;
+  border-color: var(--kc-accent);
+  box-shadow: 0 0 0 1px var(--kc-accent) inset;
 }
 .kimos-cfg .kc-card-img { width: 100%; max-height: 90px; object-fit: contain; }
 .kimos-cfg .kc-card-sw { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--kc-line, rgba(0,0,0,.15)); }
@@ -433,3 +441,32 @@
   pointer-events: none;
 }
 .kc-arv-escala-on { opacity: 1; }
+
+/* ── Barra: opciones del producto (storefront.style.bar) ── */
+.kimos-cfg .kc-bar-static { position: static; }
+.kimos-cfg .kc-bar-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+  padding-left: max(16px, calc(50vw - var(--kc-maxw, 1200px) / 2));
+  padding-right: max(16px, calc(50vw - var(--kc-maxw, 1200px) / 2));
+}
+.kimos-cfg .kc-bar-container { max-width: var(--kc-maxw, 1200px); margin-left: auto; margin-right: auto; }
+
+/* ── Fotos: tamaño configurable (storefront.style.photos) ── */
+.kimos-cfg .kc-fotos[data-size="s"] { max-width: 520px; }
+.kimos-cfg .kc-fotos[data-size="m"] { max-width: 900px; }
+.kimos-cfg .kc-fotos[data-size="l"] { max-width: 1200px; }
+.kimos-cfg .kc-fotos[data-size="xl"] { max-width: none; }
+.kimos-cfg .kc-fotos[data-cols] .kc-foto-thumbs {
+  display: grid; grid-template-columns: repeat(var(--kc-foto-cols, 4), 1fr);
+}
+.kimos-cfg .kc-fotos[data-cols] .kc-foto-th { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+
+/* ── Móvil: las pestañas secundarias se amontonan con el precio y engordan
+   la barra. Por defecto solo queda la principal; el producto puede pedir
+   verlas todas con bar.mobileTabs. ── */
+@media (max-width: 720px) {
+  .kimos-cfg:not(.kc-bar-mtabs) .kc-tab-sec { display: none; }
+  .kimos-cfg .kc-bar { flex-wrap: nowrap; }
+  .kimos-cfg .kc-tabs { flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+}

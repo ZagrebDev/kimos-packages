@@ -100,6 +100,48 @@ async function montar(def, prep) {
   return w;
 }
 
+// ═══ Escenario 0: barra configurable, fotos y contraste garantizado ════════
+console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
+{
+  const def = {
+    version: 2, currency: 'CLP', store: 'i1',
+    productos: [producto({
+      images: ['https://cdn.local/p1.jpg', 'https://cdn.local/p2.jpg', 'https://cdn.local/p3.jpg'],
+      storefront: {
+        specs: [], photosNote: '',
+        pageSections: [
+          { id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [{ type: 'cta', label: 'Comprar', style: 'primary' }] } },
+          { id: 'f1', kind: 'fotos', show: true },
+        ],
+        tabs: { showSpecs: true, showFotos: true, order: ['explorar', 'specs', 'fotos'] },
+        style: {
+          bar: { bgColor: '#101418', textColor: '', width: 'full', sticky: false, offset: 12, showThumb: false },
+          photos: { size: 'l', cols: 3 },
+        },
+      },
+    })],
+  };
+  const w = await montar(def);
+  const d = w.document;
+  const root = d.querySelector('.kimos-cfg');
+  const bar = d.querySelector('.kc-bar');
+  t('barra con fondo propio', bar.style.background !== '');
+  t('barra: texto por contraste sobre fondo oscuro', bar.style.color === 'rgb(255, 255, 255)' || bar.style.color === '#fff');
+  t('barra a ancho completo', bar.classList.contains('kc-bar-full'));
+  t('barra no pegajosa (sticky:false)', bar.classList.contains('kc-bar-static'));
+  t('separación extra bajo el menú', root.style.getPropertyValue('--kc-bar-offset') === '12px');
+  t('miniatura oculta (showThumb:false)', !d.querySelector('.kc-bar-thumb'));
+  t('pestañas secundarias marcadas para móvil', d.querySelectorAll('.kc-tab.kc-tab-sec').length >= 1);
+  t('sin la clase de pestañas en móvil (default)', !root.classList.contains('kc-bar-mtabs'));
+  const fotos = d.querySelector('.kc-fotos');
+  t('fotos con tamaño configurado', fotos && fotos.getAttribute('data-size') === 'l');
+  t('fotos por fila configuradas', fotos && fotos.style.getPropertyValue('--kc-foto-cols') === '3');
+  // El acento SIEMPRE resuelve a un color sólido: sin esto el botón quedaba
+  // blanco sobre blanco dentro de un hero con texto claro.
+  const acento = w.getComputedStyle(root).getPropertyValue('--kc-accent').trim();
+  t('acento nunca es currentColor', acento !== 'currentColor');
+}
+
 // ═══ Escenario 1: JSON v2 completo (deps + style + imagen + hero auto) ═════
 console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —');
 {
