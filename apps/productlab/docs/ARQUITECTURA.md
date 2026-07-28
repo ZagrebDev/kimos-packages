@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.1.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.5.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -74,7 +74,9 @@ cost/sale + `marginDefaultPct` + `marginBasePct` + `marginByType`,
 `roundMode` none/nearest/up/ending + `roundTo` + `roundEnding`,
 `deltaRoundTo`, `leadTimeDays`, `staleDays`), `brandName`, `storeName`,
 `storeBaseUrl`, `storeCustomField {name,value}` (parametrizable; vacío = no se
-envía), `public {enabled, data}`. Alias legacy aceptados en lectura: `ivaPct`,
+envía), `styleTemplates[] {id, name, style}` + `styleDefaultId` (plantillas de
+estilo del catálogo: un look completo reutilizable en muchos productos),
+`public {enabled, data}`. Alias legacy aceptados en lectura: `ivaPct`,
 `usdRate`, `assemblyDays`, `end990`/`up1000`.
 
 ### `component`
@@ -126,9 +128,17 @@ texture,roughness,textureScale,grain,opacity,triplanar,plySpacing}]}`.
 de bloque incluido `description`; secciones fijas `specs`/`fotos`/`note`; y
 **NUEVO** `{kind:'imagen', imageUrl, alt, width:'content'|'full', link}` —
 repetible, alto adaptado a la foto), `specs[]`, `photosNote`, `tabs{}`,
-`heroSeeded`, y **NUEVO `style{accentColor,bgColor,radius,cardStyle,
-showDeltas,stepsCollapsed}`** (estilo del configurador por producto). Bloques
+`heroSeeded`, `style{accentColor,bgColor,radius,cardStyle,showDeltas,
+stepsCollapsed,width,bar{},photos{}}` (estilo del configurador por producto) y
+`styleId` (**2.5**: `''` = lo que diga el catálogo · `'own'` = el `style` de
+arriba · `<id>` = una plantilla de `definition.styleTemplates`). Bloques
 `photo`/`gallery` y la altura del hero aceptan `'auto'` (alto natural).
+
+**Estilo efectivo.** `resolveStyle(producto)` decide qué rige — la plantilla
+elegida, la del catálogo o el estilo propio — y **el JSON público viaja ya
+resuelto**: el theme recibe un `storefront.style` plano y no sabe que existen
+plantillas. Una plantilla se aplica entera (es un look completo, no una mezcla
+campo a campo); el producto se desengancha copiándola a su estilo propio.
 
 ## 4. Motor de precios
 
@@ -151,8 +161,8 @@ Claves de `data`: `version: 2`, `currency`, `store`, `productos[]` (el theme
 acepta también `equipos` legacy) con: `sku`, `productId`, `name`, `basePrice`,
 `deliveryDays`, `leadTimeDays` (+ alias `assemblyDays`), `deliveryMode`,
 `baseDeliveryDays`, `imageUrl`, `images[]` (galería viva), `description`
-(HTML vivo de la tienda), `storefront` **íntegro** (incluye `style` y las
-secciones `imagen`), `model3d` (solo si `enabled && publish`; incluye `arUrl`
+(HTML vivo de la tienda), `storefront` **íntegro** (con `style` ya RESUELTO
+—plantilla del catálogo o propio— y las secciones `imagen`), `model3d` (solo si `enabled && publish`; incluye `arUrl`
 y `realSizeCm`), y `groups[]` con `dependsOn {groupId,valueIds}` (**NUEVO**) y
 values con `qty` (**NUEVO**), `priceDelta` implícito en `delta`, `desc`,
 `swatchColor`, `imageUrl`, `deliveryDays`, `tags/requires/excludes`,
@@ -201,8 +211,15 @@ validación estricta + anti-borrado + errores didácticos que listan valores
 válidos, alias de payload y de pasos en español, payload como string JSON, y
 **sincronía agente↔editor abierto** (`agentEdit` + `decidirRecarga`: recarga
 sola o pregunta con banner). SET_PRODUCTO_STEPS acepta además `qty`/`cantidad`
-y `dependsOn {step, values}` por labels; SET_STOREFRONT acepta `style` y
-secciones `imagen`.
+y `dependsOn {step, values}` por labels; SET_STOREFRONT acepta `style`,
+`styleId` y secciones `imagen`.
+
+**Plantillas de estilo (2.5).** `SET_STYLE_TEMPLATE` (crear/editar, con `from`
+para copiar el estilo de un producto y `setDefault` para que rija en todo el
+catálogo), `DELETE_STYLE_TEMPLATE` y `APPLY_STYLE_TEMPLATE` (`producto` o
+`all:true`; `template` acepta id, nombre, `own` o `catalog`). El snapshot
+expone `styleTemplates[]`, `styleDefaultId` y, por producto,
+`storefront.styleId` + `styleEffective` + `styleSource`.
 
 ## 8.b Datos: migración y export/import (2.1)
 

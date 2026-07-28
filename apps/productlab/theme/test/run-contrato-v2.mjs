@@ -159,6 +159,18 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
     && iconos.querySelectorAll('.kc-icon-t').length === 2
     && iconos.querySelectorAll('.kc-icon-x').length === 1);
   t('iconos: el CSS les da el filete de acento', /\.kc-icon\s*\{[^}]*border-left:[^;]*var\(--kc-accent\)/.test(CSS_SRC));
+  // Paridad visual con la ficha de computadores: galería con visor y flechas,
+  // filas del hero marcadas para repartir el alto, y paleta derivada del fondo.
+  t('galería: flechas y contador', !!d.querySelector('.kc-foto-prev') && !!d.querySelector('.kc-foto-next')
+    && (d.querySelector('.kc-foto-count') || {}).textContent === '1 / 3');
+  d.querySelector('.kc-foto-next').click();
+  t('galería: la flecha cambia la foto y el contador',
+    (d.querySelector('.kc-foto-count') || {}).textContent === '2 / 3'
+    && d.querySelectorAll('.kc-foto-th')[1].classList.contains('on'));
+  t('filas del hero con nº de celdas', !!d.querySelector('.kc-row[data-cols]'));
+  t('paleta derivada: borde, plata y gris', root.style.getPropertyValue('--kc-borde') !== ''
+    && root.style.getPropertyValue('--kc-plata') !== '' && root.style.getPropertyValue('--kc-gris') !== '');
+  t('el SKU acompaña al título', !!d.querySelector('.kc-b-title .kc-b-sku') || !d.querySelector('.kc-b-title'));
 }
 
 // ═══ Escenario 1: JSON v2 completo (deps + style + imagen + hero auto) ═════

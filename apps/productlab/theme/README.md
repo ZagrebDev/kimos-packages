@@ -38,6 +38,41 @@ Todo lo visible se decide en ProductLab (Ficha → Estilo) y viaja en
 nunca cae a `currentColor` — eso dejaba el botón blanco sobre blanco dentro de
 un hero con texto claro. `style.accentColor` lo sobreescribe.
 
+## Sistema visual (y de dónde sale cada color)
+
+El dibujo es el de la ficha de computadores —plano, filetes rectos, acento
+fuerte, la tipografía del sitio— pero sin nada cableado. Cada token se
+resuelve en tres escalones y **gana el primero que exista**:
+
+1. **ProductLab** (`storefront.style`): el JS escribe las variables inline en
+   la raíz de la ficha, así que lo que definas en la app manda siempre.
+2. **El bundle del theme**: `--color-links` (acento), `--color-main` (texto),
+   `--color-background`, `--font-main`, `--font-secondary`. Si tu theme los
+   expone, la ficha adopta la paleta y las tipografías del sitio sola.
+3. **El valor de reserva del kit**, para que en un theme que no exponga nada
+   la ficha siga siendo legible.
+
+| Token | Para qué |
+|---|---|
+| `--kc-accent` / `--kc-accent-fg` | acento (pestaña activa, `+`, botón, filetes) y su color de texto |
+| `--kc-bg` / `--kc-fg` | fondo y texto de la ficha (se miden del theme si no los fijas) |
+| `--kc-line` | filetes finos: tablas, separadores, borde inferior de la barra |
+| `--kc-borde` | bordes de piezas: cards de los pasos, miniaturas |
+| `--kc-plata` | fondo de las cajas de imagen (cards, visor de fotos) |
+| `--kc-gris` | texto secundario (descripciones, "desde", contador) |
+| `--kc-radius` | radio de esquinas; **0 = plano** (`style.radius`) |
+
+Los tres derivados (`--kc-borde`, `--kc-plata`, `--kc-gris`) se recalculan
+según el fondo real: en una tienda de fondo oscuro pasan a tonos claros
+translúcidos, así que el mismo kit contrasta igual en ambos casos.
+
+## Plantillas de estilo (un look en muchos productos)
+
+En la app, *Ficha → Estilo* permite guardar el estilo como **plantilla del
+catálogo** y engancharle otros productos, o marcarla como la que rige en todo
+el catálogo. **El kit no sabe nada de esto**: el JSON público ya trae
+`storefront.style` resuelto por producto, así que el theme no cambia.
+
 ## No dejes conviviendo el configurador antiguo
 
 Si la tienda venía del theme de computadores, tendrá `assets/configurador.js`
@@ -118,7 +153,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.0.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.1.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.
@@ -260,6 +295,14 @@ window.KIMOS_3D_URL = 'https://TU-KIMOS.kimos.dev/api/public/app/TU-INSTANCIA/de
 ```
 
 Si ya tenías cosas en tu `custom.js`, pégalas al final del archivo nuevo.
+
+> **Al actualizar el kit, `custom.js` es el archivo delicado.** Los otros dos
+> se pisan sin miedo, pero este lleva TU configuración: si lo subes tal cual
+> viene, `KIMOS_3D_URL` vuelve a la URL de ejemplo y la ficha KIMOS deja de
+> aparecer sin ningún error a la vista (la tienda muestra su ficha normal).
+> Lo normal al actualizar es **no** subir `custom.js`: basta con cambiar
+> `KIMOS_ASSET_V` en el que ya tienes. El kit avisa por consola —
+> `KIMOS_3D_URL sigue con la URL de ejemplo`— si se cuela.
 
 ## Si subes un archivo nuevo y no cambia nada
 

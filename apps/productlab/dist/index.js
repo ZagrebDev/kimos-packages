@@ -221,6 +221,11 @@ export default function mount(shell) {
       // Custom field de Jumpseller que le dice al theme que este producto usa
       // la vista de configurador. Parametrizable por si el theme usa otro.
       storeCustomField: { name: 'diseno', value: 'personalizado' },
+      // Plantillas de estilo del catálogo: un look completo (colores, barra,
+      // fotos, anchos) reutilizable en muchos productos, y cuál rige por
+      // defecto. Vacío = cada producto con su estilo propio.
+      styleTemplates: [],
+      styleDefaultId: '',
       // Bloque leído por el gateway público (theme de la tienda):
       public: { enabled: false, channels: [], data: null },
     };
@@ -785,6 +790,101 @@ export default function mount(shell) {
   // Migración de formas antiguas de producto (v2.0):
   //  - groups con componentIds directos → valores genéricos (1 alternativa c/u)
   //  - base{cost} manual → un costo adicional "Costo base (migrado)"
+  // ── Estilo de la ficha en la tienda ───────────────────────────────────────
+  // Un solo normalizador para los dos sitios donde vive un estilo: el del
+  // producto y el de una PLANTILLA del catálogo. Así lo que se guarda, lo que
+  // se previsualiza y lo que se publica tienen exactamente la misma forma.
+  function normalizeStyle(raw) {
+    const st = (raw && typeof raw === 'object') ? raw : {};
+    return {
+      accentColor: s(st.accentColor).trim(),
+      bgColor: s(st.bgColor).trim(),
+      radius: Math.max(0, Math.min(24, num(st.radius, 0))),
+      cardStyle: ['list', 'compact'].indexOf(st.cardStyle) !== -1 ? st.cardStyle : 'cards',
+      // Ancho del configurador y de las secciones en la tienda:
+      //  'auto'      → se mide el contenedor del theme y se alinea a él
+      //  'container' → igual que 'auto' pero forzado (aunque no se detecte)
+      //  'full'      → a todo el ancho de la página
+      width: ['container', 'full'].indexOf(st.width) !== -1 ? st.width : 'auto',
+      // Barra superior (pestañas + precio + botón): todo configurable, para
+      // que encaje con el diseño de cada tienda sin tocar CSS.
+      bar: (function () {
+        const b = (st.bar && typeof st.bar === 'object') ? st.bar : {};
+        return {
+          bgColor: s(b.bgColor).trim(),      // vacío = fondo del configurador
+          textColor: s(b.textColor).trim(),  // vacío = automático por contraste
+          width: ['container', 'full'].indexOf(b.width) !== -1 ? b.width : 'auto',
+          sticky: b.sticky !== false,        // se queda pegada al bajar
+          // Separación extra bajo el header del theme (px). El alto del
+          // header se mide solo; esto es un ajuste fino encima.
+          offset: Math.max(-200, Math.min(400, num(b.offset, 0))),
+          // Pestañas secundarias (Especificaciones, Fotos) en móvil: por
+          // defecto NO, se amontonan con el precio y engordan la barra.
+          mobileTabs: b.mobileTabs === true,
+          showPrice: b.showPrice !== false,
+          showThumb: b.showThumb !== false,
+        };
+      })(),
+      // Fotos del producto dentro de Explorar (sección "fotos").
+      photos: (function () {
+        const f = (st.photos && typeof st.photos === 'object') ? st.photos : {};
+        return {
+          size: ['s', 'm', 'l', 'xl'].indexOf(f.size) !== -1 ? f.size : 'm',
+          cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
+        };
+      })(),
+      showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
+      stepsCollapsed: st.stepsCollapsed === true,
+    };
+  }
+
+  // Plantillas de estilo del CATÁLOGO: un mismo look (colores, barra, fotos,
+  // anchos) reutilizable en muchos productos. Sin esto había que repetir la
+  // misma configuración producto a producto.
+  function styleTemplates() {
+    const raw = (model.def && Array.isArray(model.def.styleTemplates)) ? model.def.styleTemplates : [];
+    return raw.map((t) => ({
+      id: s(t && t.id).trim() || newId('sty'),
+      name: s(t && t.name).trim() || 'Plantilla',
+      style: normalizeStyle(t && t.style),
+    })).filter((t) => t.name);
+  }
+  function styleTemplateById(id) {
+    const k = s(id).trim();
+    if (!k) return null;
+    return styleTemplates().find((t) => t.id === k) || null;
+  }
+  // Plantilla que rige por defecto en TODO el catálogo (los productos que no
+  // eligen ninguna). Vacío = cada producto con su estilo propio.
+  function defaultStyleTemplate() {
+    return styleTemplateById((model.def || {}).styleDefaultId);
+  }
+  /**
+   * Estilo EFECTIVO de un producto: el de su plantilla si usa una (la suya o
+   * la del catálogo), y si no el suyo propio. Una plantilla se aplica entera
+   * — es un look completo, no una mezcla campo a campo — y el producto puede
+   * desengancharse en cualquier momento copiándola a su estilo propio.
+   */
+  function resolveStyle(eq) {
+    const sf = (eq && eq.storefront) || {};
+    const elegido = s(sf.styleId).trim();
+    if (elegido === 'own') return normalizeStyle(sf.style);       // propio, explícito
+    const t = elegido ? styleTemplateById(elegido) : defaultStyleTemplate();
+    return t ? t.style : normalizeStyle(sf.style);
+  }
+  // Nombre de lo que rige, para decirlo en la interfaz sin adivinar.
+  function styleSourceLabel(eq) {
+    const sf = (eq && eq.storefront) || {};
+    const elegido = s(sf.styleId).trim();
+    if (elegido === 'own') return 'estilo propio';
+    if (elegido) {
+      const t = styleTemplateById(elegido);
+      return t ? 'plantilla «' + t.name + '»' : 'plantilla eliminada → estilo propio';
+    }
+    const d = defaultStyleTemplate();
+    return d ? 'plantilla del catálogo «' + d.name + '»' : 'estilo propio';
+  }
+
   function normalizeProductoShape(raw, comps) {
     const lookup = (id) => (comps || model.components).find((c) => c.id === id) || null;
     const eq = Object.assign({}, raw);
@@ -1246,49 +1346,12 @@ export default function mount(shell) {
       // Estilo del configurador y la página en la tienda por producto
       // (ProductLab; vacío = colores y tipografías del theme del sitio). El
       // previsualizador de la pestaña Pasos lo refleja en vivo.
-      style: (function () {
-        const st = sf.style || {};
-        return {
-          accentColor: s(st.accentColor).trim(),
-          bgColor: s(st.bgColor).trim(),
-          radius: Math.max(0, Math.min(24, num(st.radius, 0))),
-          cardStyle: ['list', 'compact'].indexOf(st.cardStyle) !== -1 ? st.cardStyle : 'cards',
-          // Ancho del configurador y de las secciones en la tienda:
-          //  'auto'      → se mide el contenedor del theme y se alinea a él
-          //  'container' → igual que 'auto' pero forzado (aunque no se detecte)
-          //  'full'      → a todo el ancho de la página
-          width: ['container', 'full'].indexOf(st.width) !== -1 ? st.width : 'auto',
-          // Barra superior (pestañas + precio + botón): todo configurable, para
-          // que encaje con el diseño de cada tienda sin tocar CSS.
-          bar: (function () {
-            const b = (st.bar && typeof st.bar === 'object') ? st.bar : {};
-            return {
-              bgColor: s(b.bgColor).trim(),      // vacío = fondo del configurador
-              textColor: s(b.textColor).trim(),  // vacío = automático por contraste
-              width: ['container', 'full'].indexOf(b.width) !== -1 ? b.width : 'auto',
-              sticky: b.sticky !== false,        // se queda pegada al bajar
-              // Separación extra bajo el header del theme (px). El alto del
-              // header se mide solo; esto es un ajuste fino encima.
-              offset: Math.max(-200, Math.min(400, num(b.offset, 0))),
-              // Pestañas secundarias (Especificaciones, Fotos) en móvil: por
-              // defecto NO, se amontonan con el precio y engordan la barra.
-              mobileTabs: b.mobileTabs === true,
-              showPrice: b.showPrice !== false,
-              showThumb: b.showThumb !== false,
-            };
-          })(),
-          // Fotos del producto dentro de Explorar (sección "fotos").
-          photos: (function () {
-            const f = (st.photos && typeof st.photos === 'object') ? st.photos : {};
-            return {
-              size: ['s', 'm', 'l', 'xl'].indexOf(f.size) !== -1 ? f.size : 'm',
-              cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
-            };
-          })(),
-          showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
-          stepsCollapsed: st.stepsCollapsed === true,
-        };
-      })(),
+      style: normalizeStyle(sf.style),
+      // Qué estilo rige en la tienda:
+      //   ''     → lo que diga el catálogo (su plantilla por defecto, si hay)
+      //   'own'  → el estilo propio de arriba, aunque el catálogo tenga una
+      //   <id>   → esa plantilla del catálogo
+      styleId: s(sf.styleId).trim(),
       // Pestañas de la barra: títulos (vacío = default), visibilidad y orden.
       tabs: (function () {
         const t = sf.tabs || {};
@@ -1586,8 +1649,12 @@ export default function mount(shell) {
           // que incrustar en la ficha.
           images: productImagesFor(eq),
           description: productDescriptionFor(eq),
-          // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones
-          storefront: eq.storefront || null,
+          // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones.
+          // El estilo viaja ya RESUELTO (plantilla del catálogo o propio): el
+          // theme no sabe de plantillas, recibe un estilo y lo aplica.
+          storefront: eq.storefront
+            ? Object.assign({}, eq.storefront, { style: resolveStyle(eq) })
+            : null,
           // Contrato 3D para el theme: el mismo que consume el motor
           // (assets/engine3d.js), así la tienda reutiliza el núcleo tal cual.
           model3d: pubModel3d ? {
@@ -1878,6 +1945,16 @@ export default function mount(shell) {
         types: merged.length ? merged : cur.types,
       });
       ['brandName', 'storeName', 'storeBaseUrl'].forEach((k) => { if (s(inDef[k]).trim() && !s(cur[k]).trim()) next[k] = s(inDef[k]).trim(); });
+      // Plantillas de estilo: se añaden las que falten (por id), nunca se
+      // pisan las de aquí — el catálogo de destino manda sobre su propio look.
+      if (Array.isArray(inDef.styleTemplates) && inDef.styleTemplates.length) {
+        const tpls = (cur.styleTemplates || []).slice();
+        inDef.styleTemplates.forEach((t) => {
+          if (t && t.id && !tpls.some((x) => x && x.id === t.id)) tpls.push(t);
+        });
+        next.styleTemplates = tpls;
+        if (!s(cur.styleDefaultId).trim() && s(inDef.styleDefaultId).trim()) next.styleDefaultId = s(inDef.styleDefaultId).trim();
+      }
       if (inDef.storeCustomField && !cur.storeCustomField) next.storeCustomField = inDef.storeCustomField;
       const r = await saveDefinition(next);
       if (!r.success) res.errors.push('Reglas: ' + r.error);
@@ -1982,7 +2059,10 @@ export default function mount(shell) {
       components: (items || []).filter((i) => i.kind === 'component'),
       productos: (items || []).filter((i) => i.kind === 'equipo' || i.kind === 'producto'),
     };
-    if (def) pack.definition = { rules: def.rules || {}, types: def.types || [], storeBaseUrl: def.storeBaseUrl, storeName: def.storeName, brandName: def.brandName, storeCustomField: def.storeCustomField };
+    if (def) pack.definition = { rules: def.rules || {}, types: def.types || [], storeBaseUrl: def.storeBaseUrl, storeName: def.storeName, brandName: def.brandName, storeCustomField: def.storeCustomField,
+      // Las plantillas de estilo viajan con el catálogo: al migrar o importar,
+      // los productos que las usan siguen viéndose igual.
+      styleTemplates: def.styleTemplates || [], styleDefaultId: def.styleDefaultId || '' };
     return pack;
   }
   async function migrateFromInstance(iid, opts) {
@@ -2202,7 +2282,24 @@ export default function mount(shell) {
             photosNote: { type: 'string' },
             tabs: { type: 'object', description: '{explorar?, specs?, fotos?, comprar?, showSpecs?, showFotos?, order?}' },
             style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl", cols? 0-6}} — vacío = theme del sitio' },
+            styleId: { type: 'string', description: 'qué estilo rige en la tienda: "" = el del catálogo (su plantilla por defecto), "own" = el style propio de este producto, o el id/nombre de una plantilla (snapshot.styleTemplates)' },
           }, required: ['producto'] } },
+        { name: 'SET_STYLE_TEMPLATE', description: 'Crea o edita una PLANTILLA de estilo del catálogo: un mismo look (colores, barra, fotos, anchos) reutilizable en muchos productos. Sin id crea una nueva; con id (o el nombre de una existente) la actualiza y el cambio alcanza de golpe a todos los productos que la usan. Con setDefault:true pasa a regir en todo el catálogo (los productos que no elijan otra cosa). El estado está en snapshot.styleTemplates.',
+          inputSchema: { type: 'object', properties: {
+            id: { type: 'string', description: 'id o nombre de una plantilla existente; vacío = crear' },
+            name: { type: 'string', description: 'nombre visible de la plantilla' },
+            style: { type: 'object', description: 'mismo objeto que SET_STOREFRONT.style; reemplaza el de la plantilla (se fusiona con el actual al editar)' },
+            setDefault: { type: 'boolean', description: 'true = esta plantilla rige en todo el catálogo' },
+            from: { type: 'string', description: 'opcional: id/nombre/SKU de un producto del que copiar su estilo efectivo' },
+          } } },
+        { name: 'DELETE_STYLE_TEMPLATE', description: 'Borra una plantilla de estilo del catálogo. Los productos que la usaban vuelven a su estilo propio (nada más cambia).',
+          inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'id o nombre de la plantilla' } }, required: ['id'] } },
+        { name: 'APPLY_STYLE_TEMPLATE', description: 'Engancha productos a una plantilla de estilo. Con all:true la aplica a TODO el catálogo (uno por uno); con producto, solo a ese. template acepta el id/nombre de una plantilla, "own" (estilo propio del producto) o "catalog" (lo que diga la plantilla por defecto del catálogo).',
+          inputSchema: { type: 'object', properties: {
+            template: { type: 'string', description: 'id/nombre de plantilla, "own" o "catalog"' },
+            producto: { type: 'string', description: 'id, nombre o SKU de un producto' },
+            all: { type: 'boolean', description: 'true = todos los productos del catálogo' },
+          }, required: ['template'] } },
         { name: 'LINK_PRODUCT', description: 'Enlaza un producto a un producto del catálogo de la app Productos (por nombre, SKU o id Jumpseller). Luego usa APPLY_PRODUCTO para escribir en la tienda.',
           inputSchema: { type: 'object', properties: { producto: { type: 'string' }, product: { type: 'string' } }, required: ['producto', 'product'] } },
         { name: 'SET_STOCK', description: 'Actualiza el stock de uno o varios componentes (null/vacío = sin control; 0 = no elegible).',
@@ -2330,10 +2427,19 @@ export default function mount(shell) {
             specs: (eq.storefront && eq.storefront.specs) || [],
             photosNote: (eq.storefront && eq.storefront.photosNote) || '',
             tabs: (eq.storefront && eq.storefront.tabs) || {},
+            // Estilo propio guardado + el que de verdad rige (plantilla del
+            // catálogo o el propio), para que el agente no tenga que deducirlo.
             style: (eq.storefront && eq.storefront.style) || {},
+            styleId: (eq.storefront && eq.storefront.styleId) || '',
+            styleEffective: resolveStyle(eq),
+            styleSource: styleSourceLabel(eq),
           },
         })),
         staleComponents: model.components.filter((c) => daysSince(c.verifiedAt) > rules().staleDays).map((c) => c.name),
+        // Plantillas de estilo del catálogo (un look en muchos productos) y
+        // cuál rige por defecto. Se editan con SET_STYLE_TEMPLATE.
+        styleTemplates: styleTemplates().map((t) => ({ id: t.id, name: t.name, style: t.style })),
+        styleDefaultId: s((model.def || {}).styleDefaultId),
         publicEnabled: !!(model.def && model.def.public && model.def.public.enabled),
         publicUrl,
         storeBaseUrl: s(model.def && model.def.storeBaseUrl),
@@ -2698,6 +2804,14 @@ export default function mount(shell) {
               if (!v || typeof v !== 'object' || Array.isArray(v)) return { success: false, error: 'style debe ser un objeto JSON: {accentColor?, bgColor?, radius?, cardStyle?, showDeltas?, stepsCollapsed?}.' };
               sf.style = Object.assign({}, sf.style, v);
             }
+            if (p.styleId !== undefined) {
+              const v = s(p.styleId).trim();
+              if (v && v !== 'own' && v !== 'catalog') {
+                const t = styleTemplateById(v) || styleTemplates().find((x) => norm(x.name) === norm(v));
+                if (!t) return { success: false, error: 'No hay ninguna plantilla de estilo "' + v + '". Las disponibles están en snapshot.styleTemplates; créala con SET_STYLE_TEMPLATE, o usa "own" (estilo propio) o "catalog" (la del catálogo).' };
+                sf.styleId = t.id;
+              } else sf.styleId = v === 'catalog' ? '' : v;
+            }
             const r = await saveProducto(Object.assign({}, eq, { storefront: sf }));
             if (!r.success) return { success: false, error: r.error };
             const out = r.item.storefront || {};
@@ -2709,6 +2823,81 @@ export default function mount(shell) {
               return 'hero ' + (i + 1) + ' [' + hx.pattern + '] ' + (parts.join(' · ') || 'SIN BLOQUES');
             }).join(' — ');
             return { success: true, message: 'Ficha de "' + r.item.name + '" guardada: ' + (out.pageSections || []).length + ' secciones (' + heros.length + ' hero(s)), ' + (out.specs || []).length + ' filas de specs' + (out.photosNote ? ', con nota' : '') + '. Normalizada y republicada automáticamente.' + (heroDetail ? ' Detalle: ' + heroDetail + '.' : '') };
+          }
+          // ── Plantillas de estilo del catálogo ──
+          if (type === 'SET_STYLE_TEMPLATE') {
+            const lista = styleTemplates();
+            const clave = s(p.id).trim();
+            const previa = clave
+              ? (styleTemplateById(clave) || lista.find((x) => norm(x.name) === norm(clave)) || null)
+              : null;
+            if (clave && !previa) return { success: false, error: 'No hay ninguna plantilla "' + clave + '". Envía SET_STYLE_TEMPLATE sin id para crear una nueva; las existentes están en snapshot.styleTemplates.' };
+            // El estilo puede llegar explícito o copiarse de un producto.
+            let base = previa ? previa.style : normalizeStyle(null);
+            if (p.from !== undefined) {
+              const src = findProducto(s(p.from).trim());
+              if (!src) return { success: false, error: 'No encontré el producto "' + p.from + '" del que copiar el estilo.' };
+              base = resolveStyle(src);
+            }
+            if (p.style !== undefined) {
+              const v = parseJson(p.style);
+              if (!v || typeof v !== 'object' || Array.isArray(v)) return { success: false, error: 'style debe ser un objeto JSON (mismo formato que SET_STOREFRONT.style).' };
+              base = normalizeStyle(Object.assign({}, base, v, {
+                bar: Object.assign({}, base.bar, v.bar || {}),
+                photos: Object.assign({}, base.photos, v.photos || {}),
+              }));
+            }
+            const nombre = s(p.name).trim() || (previa && previa.name) || 'Estilo del catálogo';
+            const item = { id: previa ? previa.id : newId('sty'), name: nombre, style: base };
+            const next = previa ? lista.map((t) => (t.id === previa.id ? item : t)) : lista.concat([item]);
+            const defId = p.setDefault === true ? item.id
+              : (p.setDefault === false && s((model.def || {}).styleDefaultId) === item.id ? '' : s((model.def || {}).styleDefaultId));
+            const r = await saveDefinition(Object.assign({}, model.def || defaultDefinition(), { styleTemplates: next, styleDefaultId: defId }));
+            if (!r.success) return r;
+            scheduleRepublish();
+            const usan = model.productos.filter((eq) => s((eq.storefront || {}).styleId).trim() === item.id).length;
+            return { success: true, message: 'Plantilla de estilo «' + item.name + '» ' + (previa ? 'actualizada' : 'creada') + ' (id ' + item.id + ')'
+              + (defId === item.id ? ', y rige en todo el catálogo' : '')
+              + '. La usan ' + usan + ' producto(s) de forma explícita. Engánchale más con APPLY_STYLE_TEMPLATE.' };
+          }
+          if (type === 'DELETE_STYLE_TEMPLATE') {
+            const clave = s(p.id).trim();
+            const lista = styleTemplates();
+            const t = styleTemplateById(clave) || lista.find((x) => norm(x.name) === norm(clave));
+            if (!t) return { success: false, error: 'No hay ninguna plantilla "' + clave + '". Las disponibles están en snapshot.styleTemplates.' };
+            const defId = s((model.def || {}).styleDefaultId) === t.id ? '' : s((model.def || {}).styleDefaultId);
+            const r = await saveDefinition(Object.assign({}, model.def || defaultDefinition(), {
+              styleTemplates: lista.filter((x) => x.id !== t.id), styleDefaultId: defId,
+            }));
+            if (!r.success) return r;
+            scheduleRepublish();
+            return { success: true, message: 'Plantilla «' + t.name + '» borrada. Los productos que la usaban vuelven a su estilo propio.' };
+          }
+          if (type === 'APPLY_STYLE_TEMPLATE') {
+            const clave = s(p.template).trim();
+            let styleId = '';
+            let etiqueta = 'la plantilla del catálogo';
+            if (clave === 'own') { styleId = 'own'; etiqueta = 'su estilo propio'; }
+            else if (clave && clave !== 'catalog') {
+              const t = styleTemplateById(clave) || styleTemplates().find((x) => norm(x.name) === norm(clave));
+              if (!t) return { success: false, error: 'No hay ninguna plantilla "' + clave + '". Créala con SET_STYLE_TEMPLATE; las existentes están en snapshot.styleTemplates.' };
+              styleId = t.id; etiqueta = 'la plantilla «' + t.name + '»';
+            }
+            let destino;
+            if (p.all === true) destino = model.productos.slice();
+            else {
+              const eq = findProducto(s(p.producto).trim());
+              if (!eq) return { success: false, error: 'Indica un producto (producto: id/nombre/SKU) o all:true para todo el catálogo.' };
+              destino = [eq];
+            }
+            let n = 0;
+            for (const eq of destino) {
+              const sf = Object.assign({}, eq.storefront || {}, { styleId });
+              const r = await saveProducto(Object.assign({}, eq, { storefront: sf }));
+              if (!r.success) return { success: false, error: 'Falló en "' + eq.name + '": ' + r.error };
+              n++;
+            }
+            return { success: true, message: n + ' producto(s) usan ahora ' + etiqueta + '. Republicado automáticamente.' };
           }
           if (type === 'LINK_PRODUCT') {
             const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
@@ -3393,7 +3582,9 @@ export default function mount(shell) {
   function ConfigPreview({ draft }) {
     const [sel, setSel] = useState({});      // groupId → valueId elegido
     const [mob, setMob] = useState(false);
-    const st = (draft.storefront && draft.storefront.style) || {};
+    // El previsualizador muestra lo que verá la tienda: si el producto usa
+    // una plantilla del catálogo, manda la plantilla, no su estilo guardado.
+    const st = resolveStyle(draft);
     const accent = /^#[0-9a-fA-F]{6}$/.test(s(st.accentColor).trim()) ? s(st.accentColor).trim() : '#19ACB1';
     const radius = Math.max(0, num(st.radius, 0));
     const compact = st.cardStyle === 'compact';
@@ -3525,6 +3716,8 @@ export default function mount(shell) {
     const [mats, setMats] = useState([]);             // materiales detectados en el GLB
     const [try3d, setTry3d] = useState({});           // probar configuración: grupo → valor
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
+    const [tplName, setTplName] = useState('');       // nombre de la plantilla de estilo a crear
+    const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
     const [conflicto, setConflicto] = useState(null); // el agente cambió esto mientras yo editaba
@@ -4142,6 +4335,11 @@ export default function mount(shell) {
           const pvText = hx.textColor || (pvDark ? '#FFFFFF' : '#1D1D1B');
           const pvBg = { background: hx.bgColor || '#1D1D1B' };
           if (hx.bgImageUrl) { pvBg.backgroundImage = 'url("' + hx.bgImageUrl + '")'; pvBg.backgroundSize = 'cover'; pvBg.backgroundPosition = 'center'; }
+          // Acento REAL de la tienda (plantilla del catálogo o estilo propio):
+          // el previsualizador tiene que enseñar los colores que se van a ver,
+          // no los de la app.
+          const pvSt = resolveStyle(d);
+          const pvAccent = s(pvSt.accentColor).trim() || 'var(--gp-fucsia)';
           const PH = { s: 70, m: 150, l: 240, xl: 340 }; // foto a ~la mitad del tamaño real
           const minH = hx.height === 'auto' ? 60 : { s: 130, m: 190, l: 260, xl: 330 }[hx.height || 'm'];
           // Bloque en la previsualización: clic = seleccionar, arrastrar = mover
@@ -4159,7 +4357,7 @@ export default function mount(shell) {
               const src3 = productoImage(d);
               return h('div', common, src3
                 ? h('img', { src: src3, alt: '', style: { maxHeight: Math.round((PH[b.size] || PH.m) * (isMob ? 0.8 : 1)), maxWidth: '100%', filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))' } })
-                : h('div', { style: { width: 90, height: 70, background: 'var(--gp-fucsia)', opacity: .85 } }));
+                : h('div', { style: { width: 90, height: 70, background: pvAccent, opacity: .85 } }));
             }
             if (b.type === 'title') return h('div', common, [
               h('div', { key: 't3', style: { fontWeight: 700, fontSize: isMob ? 15 : 19, letterSpacing: '-.02em' } }, d.name || 'Nombre del producto'),
@@ -4179,19 +4377,19 @@ export default function mount(shell) {
             }
             if (b.type === 'items') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, { display: 'flex', flexDirection: 'column', gap: 5, alignItems: alignSelf }) }),
               (b.items || []).length ? b.items.map((it) => h('div', { key: it.id, style: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(29,29,27,.78)', color: '#fff', border: '1px solid rgba(255,255,255,.25)', padding: '4px 8px 4px 4px', fontSize: 10, width: 'fit-content' } }, [
-                h('span', { key: 'p', style: { width: 14, height: 14, background: 'var(--gp-fucsia)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 } }, '+'),
+                h('span', { key: 'p', style: { width: 14, height: 14, background: pvAccent, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 } }, '+'),
                 h('span', { key: 't4' }, it.title || '(item)'),
               ])) : [h('span', { key: 'e', style: { fontSize: 10, opacity: .6 } }, '(items vacíos)')]);
             if (b.type === 'cta') return h('div', common, h('span', { style: {
               display: 'inline-block', padding: '7px 14px', fontSize: 11, fontWeight: 600,
-              background: b.style === 'dark' ? '#1D1D1B' : b.style === 'ghost' ? 'rgba(255,255,255,.12)' : 'var(--gp-fucsia)',
+              background: b.style === 'dark' ? '#1D1D1B' : b.style === 'ghost' ? 'rgba(255,255,255,.12)' : pvAccent,
               color: '#fff', border: b.style === 'ghost' ? '1px solid rgba(255,255,255,.5)' : '0',
             } }, b.label || 'Configurar'));
             if (b.type === 'icons') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, {
               display: 'flex', flexWrap: 'wrap', gap: 10, color: b.color || undefined,
               justifyContent: b.align === 'left' ? 'flex-start' : b.align === 'right' ? 'flex-end' : 'center',
             }) }),
-              (b.items || []).map((it) => h('div', { key: it.id, style: { borderLeft: '2px solid var(--gp-fucsia)', paddingLeft: 6, fontSize: 10, textAlign: 'left' } }, [
+              (b.items || []).map((it) => h('div', { key: it.id, style: { borderLeft: '2px solid ' + pvAccent, paddingLeft: 6, fontSize: 10, textAlign: 'left' } }, [
                 it.icon ? h('div', { key: 'i4', style: { fontSize: 14 } }, it.icon) : null,
                 h('b', { key: 't5', style: { display: 'block', fontSize: 11 } }, it.title || '—'),
                 it.text ? h('span', { key: 'x5', style: { opacity: .75 } }, it.text) : null,
@@ -4450,6 +4648,66 @@ export default function mount(shell) {
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Estilo del configurador y la página']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'Personaliza cómo se ve el configurador de ESTE producto en la tienda (vacío = colores y tipografías del theme del sitio). El previsualizador de la pestaña Pasos refleja estos ajustes en vivo.'),
+        // ── Plantillas: un mismo look en muchos productos ──
+        (function () {
+          const tpls = styleTemplates();
+          const porDefecto = defaultStyleTemplate();
+          const elegido = s(sf.styleId).trim();
+          const usando = elegido && elegido !== 'own' ? styleTemplateById(elegido) : (elegido === 'own' ? null : porDefecto);
+          const upSf = (patch) => up({ storefront: Object.assign({}, sf, patch) });
+          const guardarTpls = async (lista, defId) => {
+            const base = model.def || defaultDefinition();
+            const next = Object.assign({}, base, { styleTemplates: lista });
+            if (defId !== undefined) next.styleDefaultId = defId;
+            const r = await saveDefinition(next);
+            if (!r.success) shell.notify({ level: 'error', text: r.error });
+            return r.success;
+          };
+          return h('div', { key: 'tpl', style: { borderBottom: '1px dashed var(--gp-linea)', marginBottom: 10, paddingBottom: 10 } }, [
+            h('div', { key: 'l', className: 'gp-label', style: { marginBottom: 6 } }, 'PLANTILLA DE ESTILO (compartida entre productos)'),
+            h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0 } }, [
+              h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 250 }, value: elegido,
+                onChange: (e) => upSf({ styleId: e.target.value }) }, [
+                h('option', { key: '', value: '' }, porDefecto ? 'Del catálogo — «' + porDefecto.name + '»' : 'Del catálogo — (ninguna definida)'),
+                h('option', { key: 'own', value: 'own' }, 'Estilo propio de este producto'),
+                ...tpls.map((t) => h('option', { key: t.id, value: t.id }, 'Plantilla — ' + t.name)),
+              ]),
+              h(TextInput, { key: 'nm', value: tplName, placeholder: 'nombre de plantilla nueva', style: { width: 190 },
+                onChange: (e) => setTplName(e.target.value) }),
+              h('button', { key: 'new', className: 'gp-btn gp-btn-sm', disabled: !s(tplName).trim(),
+                title: 'Guarda el estilo de abajo como plantilla nueva y engancha este producto a ella.',
+                onClick: async () => {
+                  const t = { id: newId('sty'), name: s(tplName).trim(), style: normalizeStyle(sf.style) };
+                  if (await guardarTpls(tpls.concat([t]))) { upSf({ styleId: t.id }); setTplName(''); }
+                } }, '+ Guardar como plantilla'),
+              usando && h('button', { key: 'upd', className: 'gp-btn gp-btn-sm',
+                title: 'Escribe el estilo de abajo en la plantilla: cambia en TODOS los productos que la usan.',
+                onClick: () => guardarTpls(tpls.map((t) => (t.id === usando.id ? Object.assign({}, t, { style: normalizeStyle(sf.style) }) : t))) },
+                'Actualizar «' + usando.name + '» con lo de abajo'),
+              usando && h('button', { key: 'cp', className: 'gp-btn gp-btn-sm', title: 'Copia la plantilla al estilo propio de este producto y lo desengancha.',
+                onClick: () => upSf({ style: JSON.parse(JSON.stringify(usando.style)), styleId: 'own' }) }, 'Desenganchar (copiar aquí)'),
+              usando && h('button', { key: 'def', className: 'gp-btn gp-btn-sm',
+                disabled: !!(porDefecto && porDefecto.id === usando.id),
+                title: 'La usarán todos los productos que no elijan otra cosa.',
+                onClick: () => guardarTpls(tpls, usando.id) }, 'Usar en todo el catálogo'),
+              // Borrado en dos tiempos: en un iframe los diálogos del navegador
+              // pueden estar bloqueados, así que la confirmación es del propio botón.
+              usando && h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger',
+                title: 'Borra la plantilla; los productos que la usaban vuelven a su estilo propio.',
+                onClick: async () => {
+                  if (tplDel !== usando.id) { setTplDel(usando.id); return; }
+                  const defId = porDefecto && porDefecto.id === usando.id ? '' : s((model.def || {}).styleDefaultId);
+                  await guardarTpls(tpls.filter((t) => t.id !== usando.id), defId);
+                  setTplDel('');
+                } }, tplDel === usando.id ? '✕ Confirmar borrado' : '✕ Borrar plantilla'),
+            ]),
+            h('div', { key: 'm', className: 'gp-muted' }, [
+              'En la tienda rige: ', h('b', { key: 'b' }, styleSourceLabel(d)), '. ',
+              usando ? 'Los ajustes de abajo son el estilo PROPIO del producto: se guardan, pero no se aplican mientras use una plantilla (edítala con «Actualizar la plantilla» o desengancha).'
+                : 'Los ajustes de abajo se aplican tal cual a este producto.',
+            ]),
+          ]);
+        })(),
         (function () {
           const st = sf.style || {};
           const upStyle = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, patch) }) });

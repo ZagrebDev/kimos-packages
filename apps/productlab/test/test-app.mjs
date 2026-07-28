@@ -890,6 +890,64 @@ const badImg = await agentReg.dispatchAction({ type: 'SET_STOREFRONT', payload: 
 if (badImg.success || badImg.error.indexOf('imageUrl') === -1) throw new Error('sección imagen sin URL no rechazada: ' + JSON.stringify(badImg));
 console.log('ProductLab: secciones imagen, tamaños auto y estilo por producto OK');
 
+// ── ProductLab 2.5: PLANTILLAS de estilo (un look en muchos productos) ────
+// Crear una plantilla copiando el estilo de un producto, y engancharlo a ella.
+const tpl = await act('SET_STYLE_TEMPLATE', { name: 'Tienda oscura', from: 'Mesa Modular',
+  style: { bar: { bgColor: '#101418', sticky: false, offset: 12 }, photos: { size: 'l', cols: 3 } } });
+const tplId = (agentReg.getSnapshot().styleTemplates[0] || {}).id;
+if (!tplId) throw new Error('la plantilla no quedó en el snapshot: ' + JSON.stringify(tpl));
+const tplSnap = agentReg.getSnapshot().styleTemplates[0];
+// `from` copia el estilo del producto y `style` se fusiona encima (sin perder
+// lo que no se envía: la barra y las fotos se mezclan campo a campo).
+expectEq('plantilla: acento copiado del producto', tplSnap.style.accentColor, '#0FA36B');
+expectEq('plantilla: radio copiado del producto', tplSnap.style.radius, 8);
+expectEq('plantilla: fondo de barra propio', tplSnap.style.bar.bgColor, '#101418');
+expectEq('plantilla: barra no pegajosa', tplSnap.style.bar.sticky, false);
+expectEq('plantilla: fotos grandes', tplSnap.style.photos.size, 'l');
+// Enganchar UN producto: su estilo propio no se toca, pero lo que rige es la plantilla.
+await act('APPLY_STYLE_TEMPLATE', { template: 'Tienda oscura', producto: 'Camisa Clásica' });
+const camisa = agentReg.getSnapshot().productos.find((e) => e.name === 'Camisa Clásica');
+expectEq('producto enganchado a la plantilla', camisa.storefront.styleId, tplId);
+expectEq('estilo efectivo = el de la plantilla', camisa.storefront.styleEffective.accentColor, '#0FA36B');
+expectEq('estilo propio intacto', camisa.storefront.style.accentColor || '', '');
+await act('PUBLISH_CONFIG', { enabled: true });
+const pubCamisa = store.get('definition').public.data.productos.find((e) => e.name === 'Camisa Clásica');
+expectEq('publicado con el estilo resuelto', pubCamisa.storefront.style.accentColor, '#0FA36B');
+expectEq('publicado con la barra de la plantilla', pubCamisa.storefront.style.bar.bgColor, '#101418');
+// Editar la plantilla alcanza de golpe a todos los que la usan.
+await act('SET_STYLE_TEMPLATE', { id: tplId, style: { accentColor: '#FF6A00' } });
+await act('PUBLISH_CONFIG', { enabled: true });
+expectEq('editar la plantilla cambia el producto',
+  store.get('definition').public.data.productos.find((e) => e.name === 'Camisa Clásica').storefront.style.accentColor, '#FF6A00');
+// Plantilla por defecto del catálogo: rige en los que no eligieron nada.
+await act('SET_STYLE_TEMPLATE', { id: tplId, setDefault: true });
+await act('PUBLISH_CONFIG', { enabled: true });
+const pubMesa = store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD');
+expectEq('la plantilla por defecto alcanza al resto', pubMesa.storefront.style.bar.bgColor, '#101418');
+// …salvo el que pide explícitamente su estilo propio.
+await act('APPLY_STYLE_TEMPLATE', { template: 'own', producto: 'Mesa Modular' });
+await act('PUBLISH_CONFIG', { enabled: true });
+const pubMesaOwn = store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD');
+expectEq('"own" ignora la plantilla del catálogo', pubMesaOwn.storefront.style.bar.bgColor || '', '');
+expectEq('"own" conserva el estilo propio', pubMesaOwn.storefront.style.accentColor, '#0FA36B');
+// Aplicar a TODO el catálogo de una vez.
+const todos = await act('APPLY_STYLE_TEMPLATE', { template: tplId, all: true });
+if (!/producto\(s\) usan ahora/.test(todos.message)) throw new Error('APPLY_STYLE_TEMPLATE all sin resumen: ' + todos.message);
+expectEq('todos enganchados',
+  agentReg.getSnapshot().productos.filter((e) => e.storefront.styleId === tplId).length,
+  agentReg.getSnapshot().productos.length);
+// Plantilla inexistente: error didáctico, nada se guarda.
+const tplMal = await agentReg.dispatchAction({ type: 'APPLY_STYLE_TEMPLATE', payload: { template: 'No Existe', all: true } });
+if (tplMal.success || tplMal.error.indexOf('SET_STYLE_TEMPLATE') === -1) throw new Error('plantilla inexistente no rechazada: ' + JSON.stringify(tplMal));
+// Borrarla devuelve a todos a su estilo propio, sin tocar nada más.
+await act('DELETE_STYLE_TEMPLATE', { id: tplId });
+expectEq('plantilla borrada', agentReg.getSnapshot().styleTemplates.length, 0);
+expectEq('deja de ser la del catálogo', agentReg.getSnapshot().styleDefaultId, '');
+await act('PUBLISH_CONFIG', { enabled: true });
+expectEq('sin plantilla vuelve el estilo propio',
+  store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD').storefront.style.accentColor, '#0FA36B');
+console.log('ProductLab: plantillas de estilo (crear, aplicar, editar, por defecto y borrar) OK');
+
 // ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────
 // LIST_SOURCES ve la instancia ajena (y no la propia).
 const src = await act('LIST_SOURCES', {});
@@ -979,5 +1037,5 @@ expectEq('modo skip no crea duplicados', agentReg.getSnapshot().components.lengt
 if (impSkip.message.indexOf('omitidos') === -1) throw new Error('modo skip no informó omisiones: ' + impSkip.message);
 console.log('ProductLab: migración desde otra app, export/import JSON y CSV (ida y vuelta) OK');
 
-console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen y estilo por producto válidos');
+console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen, estilo por producto y plantillas de estilo válidos');
 cleanups.forEach((c) => c());

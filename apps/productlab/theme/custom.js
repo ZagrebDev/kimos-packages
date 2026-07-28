@@ -26,7 +26,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
 // solos al día siguiente.
-window.KIMOS_ASSET_V = '20';
+window.KIMOS_ASSET_V = '21';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
@@ -72,6 +72,15 @@ window.KIMOS_FULL = true;
   }
   var src = (me && me.src) || '';
   if (!src) { console.warn('[kimos3d] no pude deducir la ruta de los assets'); return; }
+
+  // Aviso claro cuando se sube este archivo TAL CUAL viene del kit: con la URL
+  // de ejemplo no hay definición que leer y la ficha KIMOS no aparece por
+  // ningún lado, sin ningún error visible. Pasa al actualizar los assets y
+  // pisar el custom.js ya configurado.
+  if (/TU-KIMOS|TU-INSTANCIA/.test(String(window.KIMOS_3D_URL || ''))) {
+    console.error('[kimos3d] KIMOS_3D_URL sigue con la URL de ejemplo: pon la de tu app '
+      + '(ProductLab → Publicación) en custom.js. Hasta entonces la ficha KIMOS no se monta.');
+  }
   var base = src.replace(/[^/]*$/, '');
 
   // Velo anti-parpadeo: si vamos a reemplazar la ficha, se oculta la original

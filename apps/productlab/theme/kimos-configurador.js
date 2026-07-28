@@ -33,7 +33,7 @@
     xrextras: window.KIMOS_XREXTRAS_URL || '',
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.0.1';
+  var VERSION = '5.1.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -375,6 +375,8 @@
       n.appendChild(img);
     } else if (b.type === 'title') {
       n = el('h2', 'kc-b kc-b-title', ctx.name || '');
+      // El SKU acompaña al nombre, como en la ficha de computadores.
+      if (ctx.sku) n.appendChild(el('span', 'kc-b-sku', 'SKU · ' + ctx.sku));
     } else if (b.type === 'text') {
       n = el('div', 'kc-b kc-b-text kc-size-' + (b.size || 'l'), b.text || '');
       if (b.color) n.style.color = b.color;
@@ -478,6 +480,9 @@
     var rows = PAT_ROWS[sec.pattern] || PAT_ROWS.clasico;
     rows.forEach(function (cells) {
       var row = el('div', 'kc-row');
+      // Las filas de varias celdas se reparten el alto sobrante del hero; las
+      // de una sola (título arriba, botón abajo) ocupan solo lo suyo.
+      row.setAttribute('data-cols', String(cells.length));
       cells.forEach(function (cid) {
         var cell = el('div', 'kc-cell');
         cell.style.flex = String(FLEX[cid] || 1);
@@ -523,23 +528,44 @@
       wrap.setAttribute('data-cols', String(pc.cols));
       wrap.style.setProperty('--kc-foto-cols', String(pc.cols));
     }
+    // Visor EN LÍNEA (nunca un modal): la foto elegida se ve grande sobre la
+    // grilla, con flechas y contador. Es la galería de la ficha de
+    // computadores, que es la que el cliente ya conoce.
     var main = el('div', 'kc-foto-main');
     var big = el('img');
     big.src = images[0] || '';
     big.alt = '';
     main.appendChild(big);
-    wrap.appendChild(main);
+    var thumbs = images.length > 1 ? el('div', 'kc-foto-thumbs') : null;
+    var actual = 0;
+    var count = null;
+    function mostrar(i) {
+      actual = (i + images.length) % images.length;
+      big.src = images[actual];
+      if (count) count.textContent = (actual + 1) + ' / ' + images.length;
+      if (!thumbs) return;
+      Array.prototype.forEach.call(thumbs.children, function (c, k) {
+        c.classList[k === actual ? 'add' : 'remove']('on');
+      });
+    }
     if (images.length > 1) {
-      var thumbs = el('div', 'kc-foto-thumbs');
+      var prev = el('button', 'kc-foto-nav kc-foto-prev', '←');
+      var next = el('button', 'kc-foto-nav kc-foto-next', '→');
+      prev.type = 'button'; next.type = 'button';
+      prev.setAttribute('aria-label', 'Foto anterior');
+      next.setAttribute('aria-label', 'Foto siguiente');
+      prev.addEventListener('click', function () { mostrar(actual - 1); });
+      next.addEventListener('click', function () { mostrar(actual + 1); });
+      count = el('div', 'kc-foto-count', '1 / ' + images.length);
+      main.appendChild(prev); main.appendChild(next); main.appendChild(count);
+    }
+    wrap.appendChild(main);
+    if (thumbs) {
       images.forEach(function (u, i) {
         var t = el('img', 'kc-foto-th' + (i === 0 ? ' on' : ''));
         t.src = u;
         t.alt = '';
-        t.addEventListener('click', function () {
-          big.src = u;
-          Array.prototype.forEach.call(thumbs.children, function (c) { c.classList.remove('on'); });
-          t.classList.add('on');
-        });
+        t.addEventListener('click', function () { mostrar(i); });
         thumbs.appendChild(t);
       });
       wrap.appendChild(thumbs);
@@ -1348,8 +1374,13 @@
     var oscuro = esOscuro(bg);
     root.style.setProperty('--kc-bg', bg);
     root.style.setProperty('--kc-fg', getComputedStyle(page).color || 'inherit');
-    root.style.setProperty('--kc-card', oscuro ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.03)');
-    root.style.setProperty('--kc-line', oscuro ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.15)');
+    // Paleta derivada del fondo real: las cards, los filetes y las cajas de
+    // imagen tienen que contrastar igual en una tienda clara y en una oscura.
+    root.style.setProperty('--kc-card', oscuro ? 'rgba(255,255,255,.07)' : bg);
+    root.style.setProperty('--kc-line', oscuro ? 'rgba(255,255,255,.18)' : '#EAEAEA');
+    root.style.setProperty('--kc-borde', oscuro ? 'rgba(255,255,255,.30)' : '#DDDDDD');
+    root.style.setProperty('--kc-plata', oscuro ? 'rgba(255,255,255,.06)' : '#F5F5F5');
+    root.style.setProperty('--kc-gris', oscuro ? 'rgba(255,255,255,.62)' : '#7C7C7B');
     root.style.setProperty('--kc-stage', oscuro ? 'rgba(255,255,255,.05)' : '#f5f5f5');
     if (oscuro) root.classList.add('kc-dark');
     // Resto de storefront.style: acento, radio y forma de las cards. Todo va
@@ -1424,7 +1455,8 @@
     var current = pedidoAR || !(hasHero || hasSpecs || hasFotos) ? 'configurar' : 'explorar';
     var anclas = {};   // sección → nodo, para bajar hasta ella
     var ctx = {
-      name: prod.name, image: images[0] || '', images: images, specs: sf.specs || [],
+      name: prod.name, sku: entry.sku || prod.sku || '',
+      image: images[0] || '', images: images, specs: sf.specs || [],
       desc: desc,
       style: style,
       stepsOpen: null,   // colapso por paso: lo siembra renderSteps
@@ -1647,7 +1679,16 @@
       if (!(sf.pageSections || []).length && !(entry.model3d && entry.model3d.url)) { destapar(); return; }
       // `version` 1 o 2: el contrato v2 (ProductLab) añade campos que aquí se
       // tratan como opcionales, así que ambos se montan por la misma vía.
-      mount(entry, prod, (def && def.version) || 1);
+      // Si el montaje falla, la ficha del theme TIENE que volver a verse: sin
+      // este resguardo un error dejaba el velo puesto y la página en blanco.
+      try { mount(entry, prod, (def && def.version) || 1); }
+      catch (e) {
+        console.error(LOG, 'la ficha KIMOS falló al montarse; se deja la del theme:', e);
+        var roto = document.querySelector('.kimos-cfg');
+        if (roto && roto.parentNode) roto.parentNode.removeChild(roto);
+        var oculto = document.querySelector('.kc-hidden-native');
+        if (oculto) oculto.classList.remove('kc-hidden-native');
+      }
       destapar();
     }).catch(function (e) { destapar(); console.warn(LOG, 'no se pudo leer la definición:', e.message); });
   }
