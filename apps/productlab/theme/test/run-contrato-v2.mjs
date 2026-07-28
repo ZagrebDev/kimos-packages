@@ -35,6 +35,23 @@ const CSS_SRC = fs.readFileSync(new URL('../kimos-configurador.css', import.meta
 let fallos = 0;
 const t = (nombre, cond) => { console.log((cond ? '✔ ' : '✘ ') + nombre); if (!cond) fallos++; };
 
+// ── Integridad de la hoja de estilos ──────────────────────────────────────
+// Las pruebas de DOM no se enteran de que falte CSS: la ficha se monta igual,
+// solo que sin estilos. Una edición a machete se llevó por delante los bloques
+// de pasos, cards y AR y solo se vio en la tienda. Esto lo caza aquí.
+console.log('— la hoja de estilos está completa —');
+{
+  const PIEZAS = ['.kc-bar-cta', '.kc-tab {', '.kc-hero {', '.kc-b-icons', '.kc-b-items',
+    '.kc-step-h', '.kc-cards', '.kc-card {', '.kc-card-img', '.kc-style-list', '.kc-style-compact',
+    '.kc-panel {', '.kc-panel-head', '.kc-price {', '.kc-summary', '.kc-panel-exp',
+    '.kc-specs-t', '.kc-fotos {', '.kc-foto-th', '.kc-ar-btn', '.kc-arv-chip', '.kc-imagen'];
+  const faltan = PIEZAS.filter((sel) => CSS_SRC.indexOf(sel) === -1);
+  t('no falta ningún bloque' + (faltan.length ? ' (sin ' + faltan.join(', ') + ')' : ''), !faltan.length);
+  const abre = (CSS_SRC.match(/\{/g) || []).length;
+  const cierra = (CSS_SRC.match(/\}/g) || []).length;
+  t('llaves equilibradas (' + abre + ')', abre === cierra);
+}
+
 // ── Réplica mínima del theme: product-form-json + selects .prod-options ────
 const OPTS = [
   { id: 900, name: 'Modelo', values: [{ id: 9001, name: 'Base' }, { id: 9002, name: 'Pro' }] },
