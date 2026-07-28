@@ -28,8 +28,8 @@ Todo lo visible se decide en ProductLab (Ficha → Estilo) y viaja en
 |---|---|
 | Fondo y color de texto de la barra | `style.bar.bgColor` / `bar.textColor` (el texto se calcula por contraste si no lo fijas) |
 | Ancho de la barra | `style.bar.width` (`auto` / `container` / `full`) |
-| Barra fija al hacer scroll | `style.bar.sticky` |
-| Separación extra bajo el menú del sitio | `style.bar.offset` (px; el alto del menú se mide solo) |
+| Barra fija al hacer scroll | `style.bar.sticky` (la barra es `position: fixed`, no sticky: dentro de un theme con `overflow` en algún ancestro, sticky se va con el scroll) |
+| Separación extra bajo el menú del sitio | `style.bar.offset` (px; **deja 0**: el alto del menú se mide solo y este valor se SUMA encima) |
 | Pestañas secundarias en móvil | `style.bar.mobileTabs` (por defecto **ocultas**: se amontonaban con el precio y engordaban la barra) |
 | Precio y miniatura en la barra | `style.bar.showPrice` / `bar.showThumb` |
 | Tamaño de la galería en Explorar | `style.photos.size` (`s`/`m`/`l`/`xl`) y `photos.cols` |
@@ -66,12 +66,16 @@ Los tres derivados (`--kc-borde`, `--kc-plata`, `--kc-gris`) se recalculan
 según el fondo real: en una tienda de fondo oscuro pasan a tonos claros
 translúcidos, así que el mismo kit contrasta igual en ambos casos.
 
+La barra **hereda el estilo general**: sin `bar.bgColor` propio usa el fondo y
+el texto de la ficha, y siempre toma de ella el acento (pestaña activa, botón)
+y el radio.
+
 ## Plantillas de estilo (un look en muchos productos)
 
-En la app, *Ficha → Estilo* permite guardar el estilo como **plantilla del
-catálogo** y engancharle otros productos, o marcarla como la que rige en todo
-el catálogo. **El kit no sabe nada de esto**: el JSON público ya trae
-`storefront.style` resuelto por producto, así que el theme no cambia.
+El aspecto se define UNA vez en la pestaña **Estilos** de la app (plantillas
+del catálogo) y cada producto solo elige cuál aplicar en *Ficha de tienda*.
+**El kit no sabe nada de esto**: el JSON público ya trae `storefront.style`
+resuelto por producto, así que el theme no cambia.
 
 ## No dejes conviviendo el configurador antiguo
 
@@ -98,9 +102,10 @@ aplica con `kc-sec-full` (sangrado a la ventana) o `kc-sec-container`
 Dos cosas que ningún theme expone y el kit **mide del DOM real** (y recalcula
 en scroll/resize, porque muchos headers encogen al bajar):
 
-- **Tope de la barra.** La barra de pestañas es pegajosa; si el theme tiene su
+- **Tope de la barra.** La barra de pestañas va fija; si el theme tiene su
   propio header fijo/sticky, con `top: 0` quedaría tapada. El kit mide el alto
-  del header y lo expone en `--kc-top`. Si tu header no se detecta bien:
+  del header y lo expone en `--kc-top` (y guarda el hueco de la barra en el
+  flujo con `--kc-bar-h`, medido también). Si tu header no se detecta bien:
   `window.KIMOS_TOP_OFFSET = 66` (px fijos) o
   `window.KIMOS_HEADER_SELECTOR = '.mi-header'`.
 - **Ancho.** Casi todos los themes centran el contenido en un contenedor
@@ -153,7 +158,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.1.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.2.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

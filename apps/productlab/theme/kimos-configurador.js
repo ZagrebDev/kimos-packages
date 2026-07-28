@@ -33,7 +33,7 @@
     xrextras: window.KIMOS_XREXTRAS_URL || '',
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.1.0';
+  var VERSION = '5.2.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1416,13 +1416,27 @@
     }
     if (barCfg.mobileTabs === true) root.classList.add('kc-bar-mtabs');
     var body = el('div', 'kc-body');
-    root.appendChild(bar);
+    // La barra va fija (ver el CSS): este envoltorio le guarda el hueco en el
+    // flujo para que el contenido no se meta debajo.
+    var barWrap = el('div', 'kc-bar-wrap');
+    if (barCfg.sticky === false) barWrap.classList.add('kc-bar-wrap-static');
+    barWrap.appendChild(bar);
+    root.appendChild(barWrap);
     root.appendChild(body);
     page.insertBefore(root, page.firstChild);
     // Encaje con el theme: tope de la barra (header fijo del sitio) y ancho
     // del contenido. El producto manda (storefront.style.width) sobre el
     // ajuste global de custom.js (window.KIMOS_WIDTH).
-    encajarConTheme(root, page, style.width);
+    var reencajar = encajarConTheme(root, page, style.width);
+    // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
+    // recalcula porque cambia con el contenido (precio largo, dos líneas en
+    // móvil) y con el ancho de la ventana.
+    function medirBarra() {
+      var alto = bar.getBoundingClientRect().height;
+      if (alto) root.style.setProperty('--kc-bar-h', Math.round(alto) + 'px');
+    }
+    window.addEventListener('resize', medirBarra);
+    [0, 120, 400, 1200].forEach(function (ms) { setTimeout(medirBarra, ms); });
 
     var has3d = !!(entry.model3d && entry.model3d.url);
     var secs = (sf.pageSections || []).filter(function (s) { return s.kind !== 'hero' ? s.show !== false : true; });
@@ -1576,6 +1590,7 @@
 
     function paint() {
       paintBar();
+      if (typeof medirBarra === 'function') medirBarra();
       body.innerHTML = '';
       if (current === 'explorar') {
         // Specs y Fotos van AQUÍ DENTRO, en el orden del builder, y las
@@ -1656,6 +1671,8 @@
     // (sin aviso: nadie eligió nada todavía; solo se sincroniza la variante).
     ajustar(false);
     paint();
+    medirBarra();
+    reencajar();
     console.info(LOG, 'v' + VERSION + ' · ficha KIMOS activa para "' + (entry.name || prod.name) + '"'
       + (has3d ? ' (con 3D)' : '') + ' · contrato v' + (contractVer || 1));
   }

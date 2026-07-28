@@ -90,17 +90,37 @@
    Alto único (64px, el de la mini-foto), fondo sólido, pestaña activa con
    filete de acento y botón de compra a la derecha. Nada crece ni se mueve al
    hacer scroll: comportamiento simple y predecible. */
+/* La barra va FIJA, no sticky. `position: sticky` muere en cuanto un ancestro
+   del theme tiene overflow (hidden/auto), cosa habilísima —casi todos ponen
+   overflow-x: hidden en main o en la sección de producto— y entonces la barra
+   se va con el scroll. Fija no depende de nadie. El hueco lo guarda
+   .kc-bar-wrap con el alto real, medido por el JS. */
+.kimos-cfg .kc-bar-wrap { height: var(--kc-bar-h, 64px); }
+.kimos-cfg .kc-bar-wrap.kc-bar-wrap-static { height: auto; }
 .kimos-cfg .kc-bar {
   /* --kc-top = alto del header fijo del theme (lo mide el JS) + la separación
      extra que pida el producto: sin esto la barra queda tapada por el menú
-     del sitio al bajar. Con bar.sticky:false la barra no se fija. */
-  position: sticky; top: calc(var(--kc-top, 0px) + var(--kc-bar-offset, 0px)); z-index: 20;
+     del sitio al bajar. */
+  position: fixed; top: calc(var(--kc-top, 0px) + var(--kc-bar-offset, 0px));
+  left: 0; right: 0; z-index: 11;   /* sobre el contenido, bajo el menú del sitio */
   display: flex; align-items: stretch; gap: 2px;
   min-height: 64px;
-  background: var(--kc-bar-bg, #FAFAFB); color: var(--kc-fg, inherit);
+  /* Por defecto la barra ES la ficha: mismo fondo y mismo texto. Solo se
+     separa si el estilo le da un color propio (style.bar.bgColor). */
+  background: var(--kc-bar-bg, var(--kc-bg, #fff)); color: var(--kc-fg, inherit);
   border-bottom: 1px solid var(--kc-line);
 }
-.kimos-cfg.kc-dark .kc-bar { background: var(--kc-bar-bg, rgba(255,255,255,.06)); }
+/* Centrada al contenedor del theme: en modo 'container' siempre, y en 'auto'
+   cuando la ficha entera va centrada. */
+.kimos-cfg.kc-w-container .kc-bar:not(.kc-bar-full),
+.kimos-cfg .kc-bar.kc-bar-container {
+  left: 50%; right: auto; transform: translateX(-50%);
+  width: min(var(--kc-maxw, 1200px), 100%);
+}
+/* bar.sticky:false — la barra vuelve al flujo y se va con el scroll. */
+.kimos-cfg .kc-bar.kc-bar-static {
+  position: static; transform: none; left: auto; right: auto; width: auto;
+}
 .kimos-cfg .kc-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; }
 .kimos-cfg .kc-tab {
   border: 0; background: none; color: inherit;
@@ -527,7 +547,6 @@
 }
 
 /* ── Barra: opciones del producto (storefront.style.bar) ── */
-.kimos-cfg .kc-bar-static { position: static; }
 .kimos-cfg .kc-bar-full {
   margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
   max-width: 100vw; width: 100vw;

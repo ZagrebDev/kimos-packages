@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.5.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.6.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -133,6 +133,11 @@ stepsCollapsed,width,bar{},photos{}}` (estilo del configurador por producto) y
 `styleId` (**2.5**: `''` = lo que diga el catálogo · `'own'` = el `style` de
 arriba · `<id>` = una plantilla de `definition.styleTemplates`). Bloques
 `photo`/`gallery` y la altura del hero aceptan `'auto'` (alto natural).
+
+**Dónde se edita (2.6).** El aspecto vive en la pestaña **Estilos** (plantillas
+del catálogo, con previsualizador); en el producto solo se elige cuál aplicar,
+y el editor completo aparece únicamente si el producto lleva estilo propio. El
+formulario es un único componente (`StyleEditor`) usado en ambos sitios.
 
 **Estilo efectivo.** `resolveStyle(producto)` decide qué rige — la plantilla
 elegida, la del catálogo o el estilo propio — y **el JSON público viaja ya

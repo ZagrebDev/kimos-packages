@@ -3579,6 +3579,103 @@ export default function mount(shell) {
   // modo de precio (auto/fijo/tienda) y refleja storefront.style. El cobro
   // real en la tienda siempre es el de la variante Jumpseller; la simulación
   // usa exactamente las mismas reglas de cálculo que "Aplicar a la tienda".
+  /**
+   * Editor de un estilo de ficha. Se usa en DOS sitios con el mismo dibujo: la
+   * pestaña Estilos (plantillas del catálogo) y el estilo propio de un
+   * producto. `onChange` recibe el parche a nivel raíz del estilo.
+   */
+  function StyleEditor({ st, onChange }) {
+    const e = st || {};
+    const bar = e.bar || {};
+    const ph = e.photos || {};
+    const upBar = (patch) => onChange({ bar: Object.assign({}, bar, patch) });
+    const upPh = (patch) => onChange({ photos: Object.assign({}, ph, patch) });
+    return h('div', { className: 'gp-styleed' }, [
+      h('div', { key: 'g', className: 'gp-grid3' }, [
+        h(Row, { key: 'ac', label: 'Color de acento (selección, precios, botón)' },
+          h(ColorField, { label: null, value: e.accentColor || '', onChange: (v) => onChange({ accentColor: v }), placeholder: 'vacío = acento del theme' })),
+        h(Row, { key: 'bg', label: 'Fondo del configurador' },
+          h(ColorField, { label: null, value: e.bgColor || '', onChange: (v) => onChange({ bgColor: v }), placeholder: 'vacío = fondo del theme' })),
+        h(Row, { key: 'rd', label: 'Radio de esquinas (px; 0 = recto)' },
+          h(TextInput, { mono: true, type: 'number', min: 0, max: 24, value: e.radius == null ? 0 : e.radius, onChange: (ev) => onChange({ radius: ev.target.value }) })),
+        h(Row, { key: 'cs', label: 'Presentación de los valores' },
+          h('select', { className: 'gp-select', value: e.cardStyle || 'cards', onChange: (ev) => onChange({ cardStyle: ev.target.value }) }, [
+            h('option', { key: 'c', value: 'cards' }, 'Cards con foto (grilla)'),
+            h('option', { key: 'l', value: 'list' }, 'Lista vertical'),
+            h('option', { key: 'k', value: 'compact' }, 'Cards compactas'),
+          ])),
+        h(Row, { key: 'wd', label: 'Ancho en la tienda' },
+          h('select', { className: 'gp-select', value: e.width || 'auto', onChange: (ev) => onChange({ width: ev.target.value }) }, [
+            h('option', { key: 'a', value: 'auto' }, 'Automático (se alinea al contenedor del theme)'),
+            h('option', { key: 'c', value: 'container' }, 'Contenedor (siempre centrado como el sitio)'),
+            h('option', { key: 'f', value: 'full' }, 'Ancho completo (borde a borde)'),
+          ])),
+        h(Row, { key: 'sd', label: 'Precio en las cards' },
+          h('select', { className: 'gp-select', value: e.showDeltas || 'delta', onChange: (ev) => onChange({ showDeltas: ev.target.value }) }, [
+            h('option', { key: 'd', value: 'delta' }, 'Diferencia (+/− $) vs selección'),
+            h('option', { key: 't', value: 'total' }, 'Precio total resultante'),
+            h('option', { key: 'n', value: 'none' }, 'Sin precio en las cards'),
+          ])),
+        h('label', { key: 'sc', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+          h('input', { key: 'c', type: 'checkbox', checked: e.stepsCollapsed === true, onChange: (ev) => onChange({ stepsCollapsed: ev.target.checked }) }),
+          h('span', { key: 's' }, 'Pasos colapsados al entrar (solo el primero abierto)'),
+        ]),
+      ]),
+      // ── Barra superior ──
+      h('div', { key: 'bar', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 10 } }, [
+        h('div', { key: 't', className: 'gp-label', style: { marginBottom: 6 } }, 'BARRA SUPERIOR (pestañas · precio · botón)'),
+        h('div', { key: 'g', className: 'gp-grid3' }, [
+          h(Row, { key: 'bg', label: 'Color de fondo de la barra' },
+            h(ColorField, { label: null, value: bar.bgColor || '', onChange: (v) => upBar({ bgColor: v }), placeholder: 'vacío = fondo de la ficha' })),
+          h(Row, { key: 'fg', label: 'Color del texto de la barra' },
+            h(ColorField, { label: null, value: bar.textColor || '', onChange: (v) => upBar({ textColor: v }), placeholder: 'vacío = automático por contraste' })),
+          h(Row, { key: 'w', label: 'Ancho de la barra' },
+            h('select', { className: 'gp-select', value: bar.width || 'auto', onChange: (ev) => upBar({ width: ev.target.value }) }, [
+              h('option', { key: 'a', value: 'auto' }, 'Según la ficha'),
+              h('option', { key: 'c', value: 'container' }, 'Contenedor'),
+              h('option', { key: 'f', value: 'full' }, 'Ancho completo'),
+            ])),
+          h(Row, { key: 'off', label: 'Separación extra bajo el menú del sitio (px)' },
+            h(TextInput, { mono: true, type: 'number', value: bar.offset == null ? 0 : bar.offset,
+              title: 'El alto del menú del theme se MIDE solo: deja 0 salvo que quieras separación extra (admite negativos).',
+              onChange: (ev) => upBar({ offset: ev.target.value === '' ? 0 : num(ev.target.value) }) })),
+          h('label', { key: 'sk', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: bar.sticky !== false, onChange: (ev) => upBar({ sticky: ev.target.checked }) }),
+            h('span', { key: 's' }, 'Fijar la barra al hacer scroll'),
+          ]),
+          h('label', { key: 'mt', className: 'gp-switch', style: { alignSelf: 'end' }, title: 'En móvil las pestañas secundarias se amontonan con el precio y engordan la barra; por eso van ocultas salvo que las pidas.' }, [
+            h('input', { key: 'c', type: 'checkbox', checked: bar.mobileTabs === true, onChange: (ev) => upBar({ mobileTabs: ev.target.checked }) }),
+            h('span', { key: 's' }, 'Mostrar pestañas secundarias en móvil'),
+          ]),
+          h('label', { key: 'sp', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: bar.showPrice !== false, onChange: (ev) => upBar({ showPrice: ev.target.checked }) }),
+            h('span', { key: 's' }, 'Mostrar el precio en la barra'),
+          ]),
+          h('label', { key: 'th', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: bar.showThumb !== false, onChange: (ev) => upBar({ showThumb: ev.target.checked }) }),
+            h('span', { key: 's' }, 'Mostrar la miniatura del producto'),
+          ]),
+        ]),
+      ]),
+      // ── Galería de fotos dentro de Explorar ──
+      h('div', { key: 'ph', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 10 } }, [
+        h('div', { key: 't', className: 'gp-label', style: { marginBottom: 6 } }, 'GALERÍA DE FOTOS (sección Explorar)'),
+        h('div', { key: 'g', className: 'gp-grid3' }, [
+          h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
+            h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (ev) => upPh({ size: ev.target.value }) }, [
+              h('option', { key: 's', value: 's' }, 'Pequeñas (miniaturas)'),
+              h('option', { key: 'm', value: 'm' }, 'Medianas'),
+              h('option', { key: 'l', value: 'l' }, 'Grandes'),
+              h('option', { key: 'xl', value: 'xl' }, 'Extra grandes'),
+            ])),
+          h(Row, { key: 'co', label: 'Fotos por fila (0 = automático)' },
+            h(TextInput, { mono: true, type: 'number', min: 0, max: 6, value: ph.cols == null ? 0 : ph.cols,
+              onChange: (ev) => upPh({ cols: ev.target.value === '' ? 0 : num(ev.target.value) }) })),
+        ]),
+      ]),
+    ]);
+  }
+
   function ConfigPreview({ draft }) {
     const [sel, setSel] = useState({});      // groupId → valueId elegido
     const [mob, setMob] = useState(false);
@@ -4648,139 +4745,36 @@ export default function mount(shell) {
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Estilo del configurador y la página']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'Personaliza cómo se ve el configurador de ESTE producto en la tienda (vacío = colores y tipografías del theme del sitio). El previsualizador de la pestaña Pasos refleja estos ajustes en vivo.'),
-        // ── Plantillas: un mismo look en muchos productos ──
+        // ── Qué estilo rige aquí. Los colores y la barra se definen UNA vez
+        // en la pestaña Estilos; en el producto solo se elige cuál aplicar
+        // (o se ajusta su estilo propio, si no usa plantilla).
         (function () {
           const tpls = styleTemplates();
           const porDefecto = defaultStyleTemplate();
           const elegido = s(sf.styleId).trim();
           const usando = elegido && elegido !== 'own' ? styleTemplateById(elegido) : (elegido === 'own' ? null : porDefecto);
           const upSf = (patch) => up({ storefront: Object.assign({}, sf, patch) });
-          const guardarTpls = async (lista, defId) => {
-            const base = model.def || defaultDefinition();
-            const next = Object.assign({}, base, { styleTemplates: lista });
-            if (defId !== undefined) next.styleDefaultId = defId;
-            const r = await saveDefinition(next);
-            if (!r.success) shell.notify({ level: 'error', text: r.error });
-            return r.success;
-          };
-          return h('div', { key: 'tpl', style: { borderBottom: '1px dashed var(--gp-linea)', marginBottom: 10, paddingBottom: 10 } }, [
-            h('div', { key: 'l', className: 'gp-label', style: { marginBottom: 6 } }, 'PLANTILLA DE ESTILO (compartida entre productos)'),
+          return h('div', { key: 'tpl' }, [
             h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0 } }, [
-              h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 250 }, value: elegido,
+              h('span', { key: 'l', className: 'gp-label' }, 'estilo aplicado'),
+              h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 280 }, value: elegido,
                 onChange: (e) => upSf({ styleId: e.target.value }) }, [
-                h('option', { key: '', value: '' }, porDefecto ? 'Del catálogo — «' + porDefecto.name + '»' : 'Del catálogo — (ninguna definida)'),
+                h('option', { key: '', value: '' }, porDefecto ? 'Del catálogo — «' + porDefecto.name + '»' : 'Del catálogo — (ninguna plantilla definida)'),
                 h('option', { key: 'own', value: 'own' }, 'Estilo propio de este producto'),
                 ...tpls.map((t) => h('option', { key: t.id, value: t.id }, 'Plantilla — ' + t.name)),
               ]),
-              h(TextInput, { key: 'nm', value: tplName, placeholder: 'nombre de plantilla nueva', style: { width: 190 },
-                onChange: (e) => setTplName(e.target.value) }),
-              h('button', { key: 'new', className: 'gp-btn gp-btn-sm', disabled: !s(tplName).trim(),
-                title: 'Guarda el estilo de abajo como plantilla nueva y engancha este producto a ella.',
-                onClick: async () => {
-                  const t = { id: newId('sty'), name: s(tplName).trim(), style: normalizeStyle(sf.style) };
-                  if (await guardarTpls(tpls.concat([t]))) { upSf({ styleId: t.id }); setTplName(''); }
-                } }, '+ Guardar como plantilla'),
-              usando && h('button', { key: 'upd', className: 'gp-btn gp-btn-sm',
-                title: 'Escribe el estilo de abajo en la plantilla: cambia en TODOS los productos que la usan.',
-                onClick: () => guardarTpls(tpls.map((t) => (t.id === usando.id ? Object.assign({}, t, { style: normalizeStyle(sf.style) }) : t))) },
-                'Actualizar «' + usando.name + '» con lo de abajo'),
-              usando && h('button', { key: 'cp', className: 'gp-btn gp-btn-sm', title: 'Copia la plantilla al estilo propio de este producto y lo desengancha.',
-                onClick: () => upSf({ style: JSON.parse(JSON.stringify(usando.style)), styleId: 'own' }) }, 'Desenganchar (copiar aquí)'),
-              usando && h('button', { key: 'def', className: 'gp-btn gp-btn-sm',
-                disabled: !!(porDefecto && porDefecto.id === usando.id),
-                title: 'La usarán todos los productos que no elijan otra cosa.',
-                onClick: () => guardarTpls(tpls, usando.id) }, 'Usar en todo el catálogo'),
-              // Borrado en dos tiempos: en un iframe los diálogos del navegador
-              // pueden estar bloqueados, así que la confirmación es del propio botón.
-              usando && h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger',
-                title: 'Borra la plantilla; los productos que la usaban vuelven a su estilo propio.',
-                onClick: async () => {
-                  if (tplDel !== usando.id) { setTplDel(usando.id); return; }
-                  const defId = porDefecto && porDefecto.id === usando.id ? '' : s((model.def || {}).styleDefaultId);
-                  await guardarTpls(tpls.filter((t) => t.id !== usando.id), defId);
-                  setTplDel('');
-                } }, tplDel === usando.id ? '✕ Confirmar borrado' : '✕ Borrar plantilla'),
+              usando && h('button', { key: 'cp', className: 'gp-btn gp-btn-sm',
+                title: 'Copia la plantilla al estilo propio de este producto para retocarlo aquí sin afectar a los demás.',
+                onClick: () => upSf({ style: JSON.parse(JSON.stringify(usando.style)), styleId: 'own' }) }, 'Copiar a estilo propio'),
             ]),
-            h('div', { key: 'm', className: 'gp-muted' }, [
+            h('div', { key: 'm', className: 'gp-muted', style: { marginBottom: 8 } }, [
               'En la tienda rige: ', h('b', { key: 'b' }, styleSourceLabel(d)), '. ',
-              usando ? 'Los ajustes de abajo son el estilo PROPIO del producto: se guardan, pero no se aplican mientras use una plantilla (edítala con «Actualizar la plantilla» o desengancha).'
-                : 'Los ajustes de abajo se aplican tal cual a este producto.',
+              usando ? 'Las plantillas se crean y se editan en la pestaña ESTILOS; al cambiarlas cambian todos los productos que las usan.'
+                : 'Este producto lleva su propio estilo; para reutilizarlo en otros, guárdalo como plantilla en la pestaña ESTILOS.',
             ]),
-          ]);
-        })(),
-        (function () {
-          const st = sf.style || {};
-          const upStyle = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, patch) }) });
-          return h('div', { key: 'g', className: 'gp-grid3' }, [
-            h(Row, { key: 'ac', label: 'Color de acento (selección, precios, botón)' },
-              h(ColorField, { label: null, value: st.accentColor || '', onChange: (v) => upStyle({ accentColor: v }), placeholder: 'vacío = acento del theme' })),
-            h(Row, { key: 'bg', label: 'Fondo del configurador' },
-              h(ColorField, { label: null, value: st.bgColor || '', onChange: (v) => upStyle({ bgColor: v }), placeholder: 'vacío = fondo del theme' })),
-            h(Row, { key: 'rd', label: 'Radio de esquinas (px; 0 = recto)' },
-              h(TextInput, { mono: true, type: 'number', min: 0, max: 24, value: st.radius == null ? 0 : st.radius, onChange: (e) => upStyle({ radius: e.target.value }) })),
-            h(Row, { key: 'cs', label: 'Presentación de los valores' },
-              h('select', { className: 'gp-select', value: st.cardStyle || 'cards', onChange: (e) => upStyle({ cardStyle: e.target.value }) }, [
-                h('option', { key: 'c', value: 'cards' }, 'Cards con foto (grilla)'),
-                h('option', { key: 'l', value: 'list' }, 'Lista vertical'),
-                h('option', { key: 'k', value: 'compact' }, 'Cards compactas'),
-              ])),
-            h(Row, { key: 'wd', label: 'Ancho en la tienda' },
-              h('select', { className: 'gp-select', value: st.width || 'auto', onChange: (e) => upStyle({ width: e.target.value }) }, [
-                h('option', { key: 'a', value: 'auto' }, 'Automático (se alinea al contenedor del theme)'),
-                h('option', { key: 'c', value: 'container' }, 'Contenedor (siempre centrado como el sitio)'),
-                h('option', { key: 'f', value: 'full' }, 'Ancho completo (borde a borde)'),
-              ])),
-            h(Row, { key: 'sd', label: 'Precio en las cards' },
-              h('select', { className: 'gp-select', value: st.showDeltas || 'delta', onChange: (e) => upStyle({ showDeltas: e.target.value }) }, [
-                h('option', { key: 'd', value: 'delta' }, 'Diferencia (+/− $) vs selección'),
-                h('option', { key: 't', value: 'total' }, 'Precio total resultante'),
-                h('option', { key: 'n', value: 'none' }, 'Sin precio en las cards'),
-              ])),
-            h('label', { key: 'sc', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-              h('input', { key: 'c', type: 'checkbox', checked: st.stepsCollapsed === true, onChange: (e) => upStyle({ stepsCollapsed: e.target.checked }) }),
-              h('span', { key: 's' }, 'Pasos colapsados al entrar (solo el primero abierto)'),
-            ]),
-          ]);
-        })(),
-        // ── Barra superior de la ficha ──
-        (function () {
-          const st = sf.style || {};
-          const bar = st.bar || {};
-          const upBar = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { bar: Object.assign({}, bar, patch) }) }) });
-          return h('div', { key: 'bar', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 10 } }, [
-            h('div', { key: 't', className: 'gp-label', style: { marginBottom: 6 } }, 'BARRA SUPERIOR (pestañas · precio · botón)'),
-            h('div', { key: 'g', className: 'gp-grid3' }, [
-              h(Row, { key: 'bg', label: 'Color de fondo de la barra' },
-                h(ColorField, { label: null, value: bar.bgColor || '', onChange: (v) => upBar({ bgColor: v }), placeholder: 'vacío = fondo de la ficha' })),
-              h(Row, { key: 'fg', label: 'Color del texto de la barra' },
-                h(ColorField, { label: null, value: bar.textColor || '', onChange: (v) => upBar({ textColor: v }), placeholder: 'vacío = automático por contraste' })),
-              h(Row, { key: 'w', label: 'Ancho de la barra' },
-                h('select', { className: 'gp-select', value: bar.width || 'auto', onChange: (e) => upBar({ width: e.target.value }) }, [
-                  h('option', { key: 'a', value: 'auto' }, 'Según la ficha'),
-                  h('option', { key: 'c', value: 'container' }, 'Contenedor'),
-                  h('option', { key: 'f', value: 'full' }, 'Ancho completo'),
-                ])),
-              h(Row, { key: 'off', label: 'Separación extra bajo el menú del sitio (px)' },
-                h(TextInput, { mono: true, type: 'number', value: bar.offset == null ? 0 : bar.offset,
-                  title: 'El alto del menú del theme se mide solo; esto es un ajuste fino encima (puede ser negativo).',
-                  onChange: (e) => upBar({ offset: e.target.value === '' ? 0 : num(e.target.value) }) })),
-              h('label', { key: 'sk', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-                h('input', { key: 'c', type: 'checkbox', checked: bar.sticky !== false, onChange: (e) => upBar({ sticky: e.target.checked }) }),
-                h('span', { key: 's' }, 'Fijar la barra al hacer scroll'),
-              ]),
-              h('label', { key: 'mt', className: 'gp-switch', style: { alignSelf: 'end' }, title: 'En móvil las pestañas secundarias se amontonan con el precio y engordan la barra; por eso van ocultas salvo que las pidas.' }, [
-                h('input', { key: 'c', type: 'checkbox', checked: bar.mobileTabs === true, onChange: (e) => upBar({ mobileTabs: e.target.checked }) }),
-                h('span', { key: 's' }, 'Mostrar pestañas secundarias en móvil'),
-              ]),
-              h('label', { key: 'sp', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-                h('input', { key: 'c', type: 'checkbox', checked: bar.showPrice !== false, onChange: (e) => upBar({ showPrice: e.target.checked }) }),
-                h('span', { key: 's' }, 'Mostrar el precio en la barra'),
-              ]),
-              h('label', { key: 'th', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-                h('input', { key: 'c', type: 'checkbox', checked: bar.showThumb !== false, onChange: (e) => upBar({ showThumb: e.target.checked }) }),
-                h('span', { key: 's' }, 'Mostrar la miniatura del producto'),
-              ]),
-            ]),
+            // Sin plantilla, el estilo propio se edita aquí mismo.
+            !usando && h(StyleEditor, { key: 'ed', st: sf.style || {},
+              onChange: (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, sf.style || {}, patch) }) }) }),
           ]);
         })(),
       ]),
@@ -5256,6 +5250,118 @@ export default function mount(shell) {
   }
 
   // ── Pestaña: Publicación (JSON del configurador + plan de opciones) ───────
+  /**
+   * Pestaña ESTILOS — el aspecto de la tienda vive AQUÍ, a nivel de catálogo:
+   * plantillas completas (colores, barra, galería, anchos) que luego los
+   * productos solo aplican. Una de ellas puede regir en todo el catálogo.
+   */
+  function EstilosTab({ state }) {
+    const tpls = styleTemplates();
+    const defId = s((state.def || {}).styleDefaultId);
+    const [selId, setSelId] = useState(tpls[0] ? tpls[0].id : '');
+    const [draft, setDraft] = useState(null);   // {id, name, style} en edición
+    const [nuevo, setNuevo] = useState('');
+    const [del, setDel] = useState('');
+    const [busy, setBusy] = useState(false);
+    const sel = tpls.find((t) => t.id === selId) || tpls[0] || null;
+    // El borrador solo vale para la plantilla que se está editando: al cambiar
+    // de plantilla se vuelve a partir de lo guardado (sin efectos ni sorpresas).
+    const cur = draft && sel && draft.id === sel.id ? draft : sel;
+    const dirty = !!(draft && sel && draft.id === sel.id && JSON.stringify(draft) !== JSON.stringify(sel));
+    const usos = (id) => state.productos.filter((eq) => s((eq.storefront || {}).styleId).trim() === id).length;
+    const sinPlantilla = state.productos.filter((eq) => {
+      const k = s((eq.storefront || {}).styleId).trim();
+      return k === 'own' || (k && !styleTemplateById(k));
+    }).length;
+
+    const guardarDef = async (lista, nuevoDef) => {
+      setBusy(true);
+      const base = state.def || defaultDefinition();
+      const next = Object.assign({}, base, { styleTemplates: lista });
+      if (nuevoDef !== undefined) next.styleDefaultId = nuevoDef;
+      const r = await saveDefinition(next);
+      setBusy(false);
+      if (!r.success) shell.notify({ level: 'error', text: r.error });
+      else scheduleRepublish();
+      return r.success;
+    };
+
+    // Previsualizador: se pinta un producto real con ESTE estilo puesto, para
+    // ver el resultado sin ir a la tienda.
+    const demo = state.productos.find((eq) => (eq.groups || []).length) || state.productos[0] || null;
+
+    return h('div', null, [
+      h('div', { key: 'intro', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'ESTILOS'), 'Cómo se ve la ficha en la tienda']),
+        h('div', { key: 'h', className: 'gp-muted' },
+          'Aquí se define el aspecto una sola vez —colores, barra superior, galería y anchos— y los productos solo eligen qué plantilla aplicar (pestaña Ficha de tienda de cada producto). Cambiar una plantilla cambia de golpe todos los productos que la usan. La marcada como "del catálogo" rige en los que no eligen nada.'),
+        h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0, marginTop: 8 } }, [
+          h(TextInput, { key: 'n', value: nuevo, placeholder: 'nombre de la plantilla nueva', style: { width: 240 }, onChange: (ev) => setNuevo(ev.target.value) }),
+          h('button', { key: 'add', className: 'gp-btn gp-btn-primary gp-btn-sm', disabled: busy || !s(nuevo).trim(),
+            onClick: async () => {
+              const t = { id: newId('sty'), name: s(nuevo).trim(), style: normalizeStyle(null) };
+              if (await guardarDef(tpls.concat([t]), tpls.length ? undefined : t.id)) { setSelId(t.id); setDraft(null); setNuevo(''); }
+            } }, '+ Nueva plantilla'),
+          demo ? null : h('span', { key: 'w', className: 'gp-muted' }, 'Aún no hay productos: el previsualizador aparece cuando crees el primero.'),
+        ]),
+      ]),
+      !tpls.length
+        ? h('div', { key: 'empty', className: 'gp-empty' },
+            'Todavía no hay plantillas. Crea una arriba: es la forma de tener el mismo diseño en todos los productos sin repetir la configuración uno por uno.')
+        : h('div', { key: 'ed', className: 'gp-card' }, [
+            h('div', { key: 'sel', className: 'gp-compline' }, [
+              h('span', { key: 'l', className: 'gp-label' }, 'plantilla'),
+              h('select', { key: 's', className: 'gp-select', style: { minWidth: 260 }, value: sel ? sel.id : '',
+                onChange: (ev) => { setSelId(ev.target.value); setDraft(null); setDel(''); } },
+                tpls.map((t) => h('option', { key: t.id, value: t.id },
+                  t.name + (t.id === defId ? ' — del catálogo' : '') + ' · ' + usos(t.id) + ' producto(s)'))),
+              h(TextInput, { key: 'nm', value: cur ? cur.name : '', style: { width: 200 }, placeholder: 'nombre',
+                onChange: (ev) => setDraft(Object.assign({}, cur, { name: ev.target.value })) }),
+              h('span', { key: 'sp', style: { flex: 1 } }),
+              h('button', { key: 'def', className: 'gp-btn gp-btn-sm', disabled: busy || !sel || sel.id === defId,
+                title: 'La usarán todos los productos que no elijan otra cosa.',
+                onClick: () => guardarDef(tpls, sel.id) }, sel && sel.id === defId ? '✓ Rige en el catálogo' : 'Usar en todo el catálogo'),
+              h('button', { key: 'apply', className: 'gp-btn gp-btn-sm', disabled: busy || !sel,
+                title: 'Engancha TODOS los productos a esta plantilla, uno por uno.',
+                onClick: async () => {
+                  setBusy(true);
+                  for (const eq of state.productos) {
+                    await saveProducto(Object.assign({}, eq, { storefront: Object.assign({}, eq.storefront || {}, { styleId: sel.id }) }));
+                  }
+                  setBusy(false);
+                  shell.notify({ level: 'success', text: state.productos.length + ' producto(s) usan ahora «' + sel.name + '».' });
+                } }, 'Aplicar a todos los productos'),
+              h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger', disabled: busy || !sel,
+                onClick: async () => {
+                  if (del !== sel.id) { setDel(sel.id); return; }
+                  await guardarDef(tpls.filter((t) => t.id !== sel.id), sel.id === defId ? '' : undefined);
+                  setDel(''); setDraft(null); setSelId('');
+                } }, del === (sel && sel.id) ? '✕ Confirmar borrado' : '✕ Borrar'),
+            ]),
+            h('div', { key: 'u', className: 'gp-muted', style: { marginBottom: 8 } },
+              sel ? ('La usan ' + usos(sel.id) + ' producto(s) de forma explícita'
+                + (sel.id === defId ? ', y rige por defecto en los ' + (state.productos.length - sinPlantilla - usos(sel.id)) + ' que no eligen nada' : '')
+                + '. Borrarla devuelve esos productos a su estilo propio.') : ''),
+            cur && h(StyleEditor, { key: 'form-' + cur.id, st: cur.style,
+              onChange: (patch) => setDraft(Object.assign({}, cur, { style: Object.assign({}, cur.style, patch) })) }),
+            h('div', { key: 'save', className: 'gp-compline', style: { borderBottom: 0, marginTop: 10 } }, [
+              h('button', { key: 'g', className: 'gp-btn gp-btn-primary', disabled: busy || !dirty,
+                onClick: async () => {
+                  const item = { id: cur.id, name: s(cur.name).trim() || 'Plantilla', style: normalizeStyle(cur.style) };
+                  if (await guardarDef(tpls.map((t) => (t.id === item.id ? item : t)))) setDraft(null);
+                } }, dirty ? 'Guardar cambios' : 'Guardado'),
+              dirty && h('button', { key: 'c', className: 'gp-btn gp-btn-sm', onClick: () => setDraft(null) }, 'Descartar'),
+              h('span', { key: 'm', className: 'gp-muted' }, 'Al guardar se republica el JSON de la tienda solo.'),
+            ]),
+            demo && cur && h('div', { key: 'pv', style: { marginTop: 12 } }, [
+              h('div', { key: 'l', className: 'gp-label', style: { marginBottom: 6 } }, 'PREVISUALIZACIÓN · ' + demo.name),
+              h(ConfigPreview, { key: 'p-' + cur.id,
+                draft: Object.assign({}, demo, { storefront: Object.assign({}, demo.storefront || {}, { style: cur.style, styleId: 'own' }) }) }),
+            ]),
+          ]),
+    ]);
+  }
+
   function PublicacionTab({ state }) {
     const [busy, setBusy] = useState(false);
     const [showJson, setShowJson] = useState(false);
@@ -5529,6 +5635,7 @@ export default function mount(shell) {
       ['productos', 'Productos' + (state.productos.length ? ' (' + state.productos.length + ')' : '')],
       ['componentes', 'Componentes' + (state.components.length ? ' (' + state.components.length + ')' : '') + (staleCount ? ' · ⚠' + staleCount + ' por verificar' : '')],
       ['precios', 'Precios'],
+      ['estilos', 'Estilos' + (styleTemplates().length ? ' (' + styleTemplates().length + ')' : '')],
       ['publicacion', 'Publicación'],
       ['datos', 'Datos'],
     ];
@@ -5554,6 +5661,7 @@ export default function mount(shell) {
           : tab === 'componentes' ? h(ComponentesTab, { key: 'c', state })
           : tab === 'productos' ? h(ProductosTab, { key: 'e', state })
           : tab === 'precios' ? h(PreciosTab, { key: 'pr', state })
+          : tab === 'estilos' ? h(EstilosTab, { key: 'sty', state })
           : tab === 'datos' ? h(DatosTab, { key: 'dat', state })
           : h(PublicacionTab, { key: 'pub', state }),
       ]),

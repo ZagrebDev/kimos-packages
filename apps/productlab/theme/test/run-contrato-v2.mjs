@@ -171,6 +171,11 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   t('paleta derivada: borde, plata y gris', root.style.getPropertyValue('--kc-borde') !== ''
     && root.style.getPropertyValue('--kc-plata') !== '' && root.style.getPropertyValue('--kc-gris') !== '');
   t('el SKU acompaña al título', !!d.querySelector('.kc-b-title .kc-b-sku') || !d.querySelector('.kc-b-title'));
+  // La barra va FIJA (sticky moría dentro de themes con overflow) y su hueco
+  // lo guarda el envoltorio, así el contenido no se le mete debajo.
+  t('la barra vive en su hueco', bar.parentNode.classList.contains('kc-bar-wrap'));
+  t('sticky:false → el hueco no reserva alto', bar.parentNode.classList.contains('kc-bar-wrap-static'));
+  t('el CSS la fija, no la pega', /\.kc-bar\s*\{[^}]*position:\s*fixed/.test(CSS_SRC));
 }
 
 // ═══ Escenario 1: JSON v2 completo (deps + style + imagen + hero auto) ═════
@@ -196,6 +201,11 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   const d = w.document;
   const root = d.querySelector('.kimos-cfg');
   t('monta la ficha completa', !!root);
+  // Sin color propio, la barra ES la ficha: hereda su fondo y su texto.
+  const bar1 = d.querySelector('.kc-bar');
+  t('barra sin color propio hereda el de la ficha', bar1.style.background === '' && bar1.style.color === '');
+  t('barra fija: su hueco reserva alto', bar1.parentNode.classList.contains('kc-bar-wrap')
+    && !bar1.parentNode.classList.contains('kc-bar-wrap-static'));
 
   // (d) hero height auto + photo size auto
   t('hero con height auto (.kc-h-auto)', !!d.querySelector('.kc-hero.kc-h-auto'));
