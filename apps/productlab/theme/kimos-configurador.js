@@ -379,11 +379,33 @@
       n = el('div', 'kc-b kc-b-text kc-size-' + (b.size || 'l'), b.text || '');
       if (b.color) n.style.color = b.color;
     } else if (b.type === 'items') {
+      // Item (+): botón que despliega su texto EN FLUJO, como en la app de
+      // computadores. Se abren varios a la vez y se empujan entre sí (nada de
+      // popovers absolutos que se solapen). El "+" gira 45° al abrir y, con
+      // `float`, los items flotan suavemente.
       n = el('div', 'kc-b kc-b-items');
+      if (b.float !== false) n.setAttribute('data-float', '1');
       (b.items || []).forEach(function (it) {
         var w = el('div', 'kc-item');
-        w.appendChild(el('div', 'kc-item-t', it.title || ''));
-        if (it.text) w.appendChild(el('div', 'kc-item-x', it.text));
+        var btn = el('button', 'kc-item-btn');
+        btn.type = 'button';
+        btn.setAttribute('aria-expanded', 'false');
+        var mas = el('span', 'kc-item-plus', '+');
+        mas.setAttribute('aria-hidden', 'true');
+        btn.appendChild(mas);
+        btn.appendChild(el('span', '', it.title || ''));
+        var txt = it.text ? el('div', 'kc-item-x', it.text) : null;
+        if (txt) {
+          btn.addEventListener('click', function () {
+            var abierto = w.classList.toggle('open');
+            btn.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+          });
+        } else {
+          btn.disabled = true;              // sin texto no hay nada que abrir
+          btn.classList.add('kc-item-solo');
+        }
+        w.appendChild(btn);
+        if (txt) w.appendChild(txt);
         n.appendChild(w);
       });
     } else if (b.type === 'cta') {
@@ -517,7 +539,8 @@
   // viewport; con `link` la imagen entera es un enlace. Repetible.
   function renderImagen(sec) {
     if (!sec || !sec.imageUrl) return null;
-    var wrap = el('div', 'kc-imagen' + (sec.width === 'full' ? ' kc-imagen-full' : ''));
+    // El ancho (auto/container/full) lo aplica anchoSeccion() al insertarla.
+    var wrap = el('div', 'kc-imagen');
     var img = el('img', 'kc-imagen-img');
     img.src = sec.imageUrl;
     img.alt = sec.alt || '';
@@ -1214,6 +1237,17 @@
     return Math.round(mejor);
   }
 
+  // Ancho propio de UNA sección, independiente del de la ficha:
+  //   'full'      → sangra hasta los bordes de la ventana
+  //   'container' → se centra al ancho del contenedor del theme
+  //   ausente/'auto' → hereda lo que tenga el configurador
+  function anchoSeccion(nodo, ancho) {
+    if (!nodo) return nodo;
+    if (ancho === 'full') nodo.classList.add('kc-sec-full');
+    else if (ancho === 'container') nodo.classList.add('kc-sec-container');
+    return nodo;
+  }
+
   // Aplica ambas medidas a la raíz del configurador y las mantiene al día.
   function encajarConTheme(root, page, modo) {
     var quiere = String(modo || LAYOUT.width || 'auto').toLowerCase();
@@ -1429,8 +1463,26 @@
         nav.appendChild(b);
       });
       bar.appendChild(nav);
+      // Mini-foto + precio a la derecha, como en la ficha de computadores:
+      // fuera del configurador el precio es un "desde" (la combinación más
+      // barata la elige el cliente); dentro, el precio de lo que lleva puesto.
+      var info = el('div', 'kc-bar-info');
+      var mini = images[0] || entry.imageUrl || '';
+      if (mini) {
+        var im = el('img', 'kc-bar-thumb');
+        im.src = mini; im.alt = '';
+        im.setAttribute('data-kc-photo', '1');   // los swatches la actualizan
+        info.appendChild(im);
+      }
+      var precioBox = el('div', 'kc-bar-precio');
       // Precio: se COPIA del theme, no se calcula. Fuente única de verdad.
-      bar.appendChild(el('div', 'kc-bar-price', themePriceText()));
+      var texto = themePriceText();
+      if (current !== 'configurar' && conPasos && texto) {
+        precioBox.appendChild(el('span', 'kc-bar-desde', tabsCfg.desde || 'desde'));
+      }
+      precioBox.appendChild(el('div', 'kc-bar-price', texto));
+      info.appendChild(precioBox);
+      bar.appendChild(info);
 
       // Botón de la derecha. Fuera del configurador invita a entrar en él (con
       // el texto que ponga el usuario); dentro, es el carro de verdad. Un
@@ -1470,7 +1522,7 @@
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
-          if (n) body.appendChild(n);
+          if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
       } else if (current === 'configurar') {
         // El panel de configuración se construye UNA vez y se reutiliza. Antes

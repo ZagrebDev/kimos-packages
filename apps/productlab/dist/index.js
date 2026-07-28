@@ -936,6 +936,8 @@ export default function mount(shell) {
       pattern: pat.id,
       // 'auto' = el hero crece según su contenido (sin altura mínima grande)
       height: ['s', 'l', 'xl', 'auto'].indexOf(hx.height) !== -1 ? hx.height : 'm',
+      // Ancho propio de este hero (independiente del resto de la ficha).
+      width: ['container', 'full'].indexOf(hx.width) !== -1 ? hx.width : 'auto',
       bgColor: s(hx.bgColor).trim(),
       bgImageUrl: s(hx.bgImageUrl).trim(),
       textColor: s(hx.textColor).trim(),
@@ -966,10 +968,15 @@ export default function mount(shell) {
 
   // Sección del builder de descripción: hero (patrón + bloques), la tabla de
   // especificaciones o la nota — reordenables; specs/nota se ocultan con show.
+  // Ancho de una sección en la tienda, independiente del resto:
+  //  ''|'auto' → el del configurador (Ficha → Estilo → Ancho en la tienda)
+  //  'container' → centrado como el contenido del theme
+  //  'full'      → borde a borde de la ventana
+  const sectionWidth = (w) => (['container', 'full'].indexOf(w) !== -1 ? w : 'auto');
   function normalizePageSection(x) {
     if (!x || typeof x !== 'object') return null;
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
-      return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false };
+      return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width) };
     }
     // Sección IMAGEN (ProductLab): solo una foto, a lo ancho, cuyo ALTO se
     // adapta a la imagen (sin recortes) — ideal para descripciones hechas de
@@ -980,7 +987,8 @@ export default function mount(shell) {
         kind: 'imagen',
         imageUrl: s(x.imageUrl).trim(),
         alt: s(x.alt).trim(),
-        width: x.width === 'full' ? 'full' : 'content',   // full = borde a borde
+        // 'content' se mantiene como alias histórico de 'container'.
+        width: x.width === 'full' ? 'full' : (x.width === 'container' || x.width === 'content' ? 'container' : 'auto'),
         link: s(x.link).trim(),
       };
     }
@@ -3971,6 +3979,15 @@ export default function mount(shell) {
                   h('input', { key: 'c', type: 'checkbox', checked: sec2.show !== false, onChange: (e) => upPageX(sec2.id, { show: e.target.checked }) }),
                   h('span', { key: 's2' }, 'mostrar'),
                 ]),
+                (function (secId, val) {
+                return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                  title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                  value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                  h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                  h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                  h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                ]);
+              })(sec2.id, sec2.width),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns)),
               sec2.show !== false && h('div', { key: 'b', className: 'gp-group-body' },
@@ -4000,10 +4017,15 @@ export default function mount(shell) {
               h('div', { key: 'h', className: 'gp-group-head' }, [
                 h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
                 h('span', { key: 'k', className: 'gp-chip fuc' }, 'IMAGEN'),
-                h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' }, value: sec2.width || 'content', onChange: (e) => upPageX(sec2.id, { width: e.target.value }) }, [
-                  h('option', { key: 'c', value: 'content' }, 'Ancho del contenido'),
-                  h('option', { key: 'f', value: 'full' }, 'Borde a borde'),
-                ]),
+(function (secId, val) {
+                return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                  title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                  value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                  h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                  h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                  h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                ]);
+              })(sec2.id, sec2.width),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns).concat([
                 h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
@@ -4160,6 +4182,15 @@ export default function mount(shell) {
               h('span', { key: 'k', className: 'gp-chip fuc' }, 'HERO'),
               h('select', { key: 'pat', className: 'gp-select', style: { width: 'auto' }, value: pat.id, onChange: (e) => upPageX(hx.id, { pattern: e.target.value }) },
                 HERO_PATTERNS.map((p) => h('option', { key: p.id, value: p.id }, p.label))),
+(function (secId, val) {
+                return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                  title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                  value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                  h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                  h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                  h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                ]);
+              })(hx.id, hx.width),
               h('select', { key: 'hh', className: 'gp-select', style: { width: 'auto' }, value: hx.height || 'm', onChange: (e) => upPageX(hx.id, { height: e.target.value }) }, [
                 h('option', { key: 's4', value: 's' }, 'Compacto'),
                 h('option', { key: 'm4', value: 'm' }, 'Normal'),

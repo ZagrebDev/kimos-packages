@@ -19,6 +19,26 @@ producto del `<script class="product-json">` que el theme ya imprime.
 El arranque va en `assets/custom.js`, que el theme ya carga en todas las
 páginas — así que **no se toca ningún `.liquid`**.
 
+## No dejes conviviendo el configurador antiguo
+
+Si la tienda venía del theme de computadores, tendrá `assets/configurador.js`
+y `configurador.css` cargados desde la rama `diseno=personalizado` de
+`components/product-template.liquid`. **Los dos configuradores se montan a la
+vez**: barra duplicada, descripción anidada y estilos peleándose. Al instalar
+este kit:
+
+1. Borra `assets/configurador.js` y `assets/configurador.css`.
+2. Deja `components/product-template.liquid` con su rama estándar (sin la
+   vista personalizada). Este kit no necesita tocar ningún `.liquid`.
+
+## Ancho por sección
+
+Cada sección de la ficha (hero, imagen, especificaciones, fotos, nota, visor
+3D) puede llevar su propio ancho, independiente del general: se define en
+ProductLab (Ficha → builder, selector *Ancho* de la sección) y el kit lo
+aplica con `kc-sec-full` (sangrado a la ventana) o `kc-sec-container`
+(centrado al contenedor del theme). Sin valor propio, hereda el de la ficha.
+
 ## Encaje con el theme: tope de la barra y ancho
 
 Dos cosas que ningún theme expone y el kit **mide del DOM real** (y recalcula

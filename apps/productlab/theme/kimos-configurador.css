@@ -20,8 +20,19 @@
   max-width: var(--kc-maxw, 1200px);
   margin-left: auto; margin-right: auto;
 }
-/* Las secciones a "borde a borde" (imagen width:full) siguen sangrando hasta
-   los bordes de la ventana aunque el resto esté centrado: ese es su sentido. */
+/* ── Ancho por SECCIÓN (independiente del de la ficha) ──
+   kc-sec-full sangra hasta los bordes de la ventana aunque el configurador
+   esté centrado; kc-sec-container centra esa sección aunque el configurador
+   vaya a ancho completo. Sin clase, la sección hereda el ancho de la ficha. */
+.kimos-cfg .kc-sec-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+}
+.kimos-cfg .kc-sec-container {
+  max-width: var(--kc-maxw, 1200px);
+  margin-left: auto; margin-right: auto;
+}
+/* Compatibilidad con el contrato anterior de la sección imagen. */
 .kimos-cfg.kc-w-container .kc-imagen-full {
   margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
   max-width: 100vw; width: 100vw;
@@ -43,7 +54,16 @@
   padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; opacity: .6;
 }
 .kimos-cfg .kc-tab.on { opacity: 1; border-bottom-color: var(--kc-accent, currentColor); font-weight: 600; }
-.kimos-cfg .kc-bar-price { margin-left: auto; font-size: 20px; font-weight: 600; white-space: nowrap; }
+/* Bloque derecho de la barra: mini-foto + "desde" + precio (paridad con la
+   ficha de computadores). */
+.kimos-cfg .kc-bar-info { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.kimos-cfg .kc-bar-thumb {
+  width: 46px; height: 46px; object-fit: contain; flex-shrink: 0;
+  border-radius: var(--kc-radius, 0);
+}
+.kimos-cfg .kc-bar-precio { display: flex; flex-direction: column; line-height: 1.1; }
+.kimos-cfg .kc-bar-desde { font-size: 11px; opacity: .6; font-style: italic; }
+.kimos-cfg .kc-bar-price { font-size: 20px; font-weight: 600; white-space: nowrap; }
 
 .kimos-cfg .kc-btn {
   border: 1px solid currentColor; background: transparent; color: inherit;
@@ -102,9 +122,51 @@
 
 /* Descripción del producto: viene de la tienda, con sus saltos de línea. */
 .kimos-cfg .kc-b-desc { white-space: pre-line; line-height: 1.55; max-width: 46em; }
-.kimos-cfg .kc-b-items { display: flex; flex-direction: column; gap: 10px; }
-.kimos-cfg .kc-item-t { font-weight: 600; }
-.kimos-cfg .kc-item-x { font-size: 13px; opacity: .8; }
+/* ── Items (+): botón que despliega su texto en flujo ──
+   Paridad con la ficha de computadores: cuadrado de acento con "+", que gira
+   45° al abrir, y el texto desplegado con filete de acento. */
+.kimos-cfg .kc-b-items { display: flex; flex-direction: column; gap: 10px; align-items: inherit; }
+.kimos-cfg .kc-item { position: relative; max-width: 420px; }
+.kimos-cfg .kc-item.open { z-index: 8; }
+.kimos-cfg .kc-item-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--kc-item-bg, rgba(0,0,0,.72)); color: var(--kc-item-fg, #fff);
+  border: 1px solid var(--kc-item-line, rgba(255,255,255,.25));
+  border-radius: var(--kc-radius, 0);
+  cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; text-align: left;
+  padding: 8px 12px 8px 8px;
+  transition: border-color .15s ease, background .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.kimos-cfg .kc-item-btn:hover { border-color: var(--kc-accent, currentColor); }
+.kimos-cfg .kc-item-btn.kc-item-solo { cursor: default; }
+.kimos-cfg .kc-item-plus {
+  width: 22px; height: 22px; flex-shrink: 0;
+  background: var(--kc-accent, currentColor); color: var(--kc-accent-fg, #fff);
+  border-radius: var(--kc-radius, 0);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; line-height: 1;
+  transition: transform .2s ease;
+}
+.kimos-cfg .kc-item.open .kc-item-plus { transform: rotate(45deg); }
+.kimos-cfg .kc-item-x {
+  display: none; margin-top: 6px;
+  background: #fff; color: #1D1D1B;
+  border-left: 3px solid var(--kc-accent, currentColor);
+  border-radius: var(--kc-radius, 0);
+  font-size: 13px; line-height: 1.55; padding: 10px 12px;
+  width: max-content; max-width: min(420px, 86vw);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
+}
+.kimos-cfg .kc-item.open .kc-item-x { display: block; }
+/* Flotación suave (b.float): desfasada para que no vayan al unísono. */
+@keyframes kc-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item { animation: kc-float 4.5s ease-in-out infinite; }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item:nth-child(2n) { animation-duration: 5.4s; animation-delay: .7s; }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item.open { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .kimos-cfg .kc-b-items[data-float="1"] .kc-item { animation: none; }
+}
 .kimos-cfg .kc-b-icons { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
 .kimos-cfg .kc-icon { flex: 1 1 120px; }
 .kimos-cfg .kc-icon-i { font-size: 26px; }
@@ -253,6 +315,7 @@
 
 @media (max-width: 720px) {
   .kimos-cfg .kc-bar { padding: 8px 10px; gap: 8px; }
+  .kimos-cfg .kc-bar-thumb { width: 36px; height: 36px; }
   .kimos-cfg .kc-bar-price { font-size: 17px; }
   .kimos-cfg .kc-hero { padding: 22px 14px; }
   .kimos-cfg .kc-b-title, .kimos-cfg .kc-size-xl { font-size: 24px; }

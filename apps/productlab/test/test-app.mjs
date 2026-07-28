@@ -855,7 +855,8 @@ await act('SET_STOREFRONT', { producto: 'Mesa Modular', allowEmpty: true, pageSe
 ], style: { accentColor: '#0FA36B', radius: 8, cardStyle: 'compact', showDeltas: 'total' } });
 const sfMod = agentReg.getSnapshot().productos.find((e) => e.name === 'Mesa Modular').storefront;
 const imgSecs = sfMod.pageSections.filter((x) => x.kind === 'imagen');
-if (imgSecs.length !== 2 || imgSecs[0].width !== 'full' || imgSecs[1].width !== 'content') throw new Error('secciones imagen mal normalizadas: ' + JSON.stringify(imgSecs));
+// Sin width propio, la sección hereda el ancho de la ficha ('auto').
+if (imgSecs.length !== 2 || imgSecs[0].width !== 'full' || imgSecs[1].width !== 'auto') throw new Error('secciones imagen mal normalizadas: ' + JSON.stringify(imgSecs));
 const heroAuto = sfMod.pageSections.find((x) => x.kind === 'hero');
 if (heroAuto.height !== 'auto' || heroAuto.slots.center[0].size !== 'auto' || heroAuto.slots.bottom[0].size !== 'auto') {
   throw new Error('alturas/tamaños auto no persistieron: ' + JSON.stringify({ h: heroAuto.height, p: heroAuto.slots.center[0].size, g: heroAuto.slots.bottom[0].size }));
@@ -863,6 +864,28 @@ if (heroAuto.height !== 'auto' || heroAuto.slots.center[0].size !== 'auto' || he
 if (sfMod.style.accentColor !== '#0FA36B' || sfMod.style.radius !== 8 || sfMod.style.cardStyle !== 'compact' || sfMod.style.showDeltas !== 'total') {
   throw new Error('style no persistió: ' + JSON.stringify(sfMod.style));
 }
+// Ancho INDEPENDIENTE por sección (hero/imagen/specs/fotos), además del
+// ancho general de la ficha (style.width).
+await act('SET_STOREFRONT', { producto: 'Mesa Modular', allowEmpty: true, pageSections: [
+  { kind: 'hero', pattern: 'clasico', width: 'full', slots: { top: [{ type: 'title' }] } },
+  { kind: 'hero', pattern: 'apilado', width: 'container', slots: { top: [{ type: 'title' }] } },
+  { kind: 'hero', pattern: 'banda', slots: { left: [{ type: 'title' }] } },
+  { kind: 'imagen', imageUrl: 'https://cdn/a.png', width: 'content' },   // alias histórico
+  { kind: 'specs', width: 'container' }, { kind: 'fotos', width: 'full' }, { kind: 'note' },
+] });
+const anchos = agentReg.getSnapshot().productos.find((e) => e.name === 'Mesa Modular').storefront.pageSections;
+const heros3 = anchos.filter((x) => x.kind === 'hero');
+expectEq('hero 1 a ancho completo', heros3[0].width, 'full');
+expectEq('hero 2 en contenedor', heros3[1].width, 'container');
+expectEq('hero 3 hereda de la ficha', heros3[2].width, 'auto');
+expectEq('imagen: alias content → container', anchos.find((x) => x.kind === 'imagen').width, 'container');
+expectEq('specs con ancho propio', anchos.find((x) => x.kind === 'specs').width, 'container');
+expectEq('fotos con ancho propio', anchos.find((x) => x.kind === 'fotos').width, 'full');
+expectEq('note hereda', anchos.find((x) => x.kind === 'note').width, 'auto');
+await act('PUBLISH_CONFIG', { enabled: true });
+const pubAnchos = store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD').storefront.pageSections;
+expectEq('ancho por sección publicado', pubAnchos.filter((x) => x.width === 'full').length, 2);
+
 const badImg = await agentReg.dispatchAction({ type: 'SET_STOREFRONT', payload: { producto: 'Mesa Modular', pageSections: [{ kind: 'imagen' }] } });
 if (badImg.success || badImg.error.indexOf('imageUrl') === -1) throw new Error('sección imagen sin URL no rechazada: ' + JSON.stringify(badImg));
 console.log('ProductLab: secciones imagen, tamaños auto y estilo por producto OK');

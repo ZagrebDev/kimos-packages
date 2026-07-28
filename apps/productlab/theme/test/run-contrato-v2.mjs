@@ -130,7 +130,9 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
 
   // (b) dos secciones imagen: full y content con link
   t('dos secciones imagen renderizadas', d.querySelectorAll('.kc-imagen').length === 2);
-  t('imagen width full (sangrado)', !!d.querySelector('.kc-imagen.kc-imagen-full img[src="https://cdn.local/banner-full.jpg"]'));
+  // El sangrado lo aplica ahora la clase de ANCHO POR SECCIÓN (kc-sec-full),
+  // común a heros, imágenes, specs y fotos.
+  t('imagen width full (sangrado)', !!d.querySelector('.kc-imagen.kc-sec-full img[src="https://cdn.local/banner-full.jpg"]'));
   const conLink = d.querySelector('.kc-imagen:not(.kc-imagen-full) a');
   t('imagen width content envuelta en su link', !!conLink
     && conLink.getAttribute('href') === 'https://tienda.local/landing'
