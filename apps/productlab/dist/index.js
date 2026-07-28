@@ -835,6 +835,11 @@ export default function mount(shell) {
       })(),
       showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
       stepsCollapsed: st.stepsCollapsed === true,
+      // Texto del botón de la barra que lleva al configurador ("Comprar",
+      // "Personalizar", "Armar el mío"…). Va en el ESTILO para poder cambiarlo
+      // de una vez en todos los productos que comparten plantilla; cada
+      // producto puede pisarlo con storefront.tabs.comprar.
+      buyLabel: s(st.buyLabel).trim(),
     };
   }
 
@@ -2281,7 +2286,7 @@ export default function mount(shell) {
             specs: { type: 'array', items: { type: 'object' }, description: 'filas {group?, label, value}' },
             photosNote: { type: 'string' },
             tabs: { type: 'object', description: '{explorar?, specs?, fotos?, comprar?, showSpecs?, showFotos?, order?}' },
-            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl", cols? 0-6}} — vacío = theme del sitio' },
+            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, buyLabel? "texto del botón de la barra que lleva al configurador (vacío = Comprar); va en el estilo para cambiarlo de una vez en todos los productos que comparten plantilla", width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl", cols? 0-6}} — vacío = theme del sitio' },
             styleId: { type: 'string', description: 'qué estilo rige en la tienda: "" = el del catálogo (su plantilla por defecto), "own" = el style propio de este producto, o el id/nombre de una plantilla (snapshot.styleTemplates)' },
           }, required: ['producto'] } },
         { name: 'SET_STYLE_TEMPLATE', description: 'Crea o edita una PLANTILLA de estilo del catálogo: un mismo look (colores, barra, fotos, anchos) reutilizable en muchos productos. Sin id crea una nueva; con id (o el nombre de una existente) la actualiza y el cambio alcanza de golpe a todos los productos que la usan. Con setDefault:true pasa a regir en todo el catálogo (los productos que no elijan otra cosa). El estado está en snapshot.styleTemplates.',
@@ -3616,6 +3621,10 @@ export default function mount(shell) {
             h('option', { key: 't', value: 'total' }, 'Precio total resultante'),
             h('option', { key: 'n', value: 'none' }, 'Sin precio en las cards'),
           ])),
+        h(Row, { key: 'bl', label: 'Texto del botón de la barra (lleva al configurador)' },
+          h(TextInput, { value: e.buyLabel || '', placeholder: 'Comprar',
+            title: 'Se aplica a todos los productos que usen este estilo. Cada producto puede pisarlo en Ficha → Pestañas.',
+            onChange: (ev) => onChange({ buyLabel: ev.target.value }) })),
         h('label', { key: 'sc', className: 'gp-switch', style: { alignSelf: 'end' } }, [
           h('input', { key: 'c', type: 'checkbox', checked: e.stepsCollapsed === true, onChange: (ev) => onChange({ stepsCollapsed: ev.target.checked }) }),
           h('span', { key: 's' }, 'Pasos colapsados al entrar (solo el primero abierto)'),

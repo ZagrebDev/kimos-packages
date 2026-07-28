@@ -893,7 +893,7 @@ console.log('ProductLab: secciones imagen, tamaños auto y estilo por producto O
 // ── ProductLab 2.5: PLANTILLAS de estilo (un look en muchos productos) ────
 // Crear una plantilla copiando el estilo de un producto, y engancharlo a ella.
 const tpl = await act('SET_STYLE_TEMPLATE', { name: 'Tienda oscura', from: 'Mesa Modular',
-  style: { bar: { bgColor: '#101418', sticky: false, offset: 12 }, photos: { size: 'l', cols: 3 } } });
+  style: { bar: { bgColor: '#101418', sticky: false, offset: 12 }, photos: { size: 'l', cols: 3 }, buyLabel: 'Personalizar' } });
 const tplId = (agentReg.getSnapshot().styleTemplates[0] || {}).id;
 if (!tplId) throw new Error('la plantilla no quedó en el snapshot: ' + JSON.stringify(tpl));
 const tplSnap = agentReg.getSnapshot().styleTemplates[0];
@@ -904,6 +904,9 @@ expectEq('plantilla: radio copiado del producto', tplSnap.style.radius, 8);
 expectEq('plantilla: fondo de barra propio', tplSnap.style.bar.bgColor, '#101418');
 expectEq('plantilla: barra no pegajosa', tplSnap.style.bar.sticky, false);
 expectEq('plantilla: fotos grandes', tplSnap.style.photos.size, 'l');
+// El texto del botón que lleva al configurador viaja en el estilo: se cambia
+// una vez y lo heredan todos los productos de la plantilla.
+expectEq('plantilla: texto del botón de la barra', tplSnap.style.buyLabel, 'Personalizar');
 // Enganchar UN producto: su estilo propio no se toca, pero lo que rige es la plantilla.
 await act('APPLY_STYLE_TEMPLATE', { template: 'Tienda oscura', producto: 'Camisa Clásica' });
 const camisa = agentReg.getSnapshot().productos.find((e) => e.name === 'Camisa Clásica');
@@ -914,6 +917,7 @@ await act('PUBLISH_CONFIG', { enabled: true });
 const pubCamisa = store.get('definition').public.data.productos.find((e) => e.name === 'Camisa Clásica');
 expectEq('publicado con el estilo resuelto', pubCamisa.storefront.style.accentColor, '#0FA36B');
 expectEq('publicado con la barra de la plantilla', pubCamisa.storefront.style.bar.bgColor, '#101418');
+expectEq('publicado con el texto del botón', pubCamisa.storefront.style.buyLabel, 'Personalizar');
 // Editar la plantilla alcanza de golpe a todos los que la usan.
 await act('SET_STYLE_TEMPLATE', { id: tplId, style: { accentColor: '#FF6A00' } });
 await act('PUBLISH_CONFIG', { enabled: true });

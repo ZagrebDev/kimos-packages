@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.7.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.8.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -138,6 +138,11 @@ arriba · `<id>` = una plantilla de `definition.styleTemplates`). Bloques
 del catálogo, con previsualizador); en el producto solo se elige cuál aplicar,
 y el editor completo aparece únicamente si el producto lleva estilo propio. El
 formulario es un único componente (`StyleEditor`) usado en ambos sitios.
+
+**Campos del estilo (2.8).** Además de colores, radio, anchos, barra y fotos,
+`style.buyLabel` fija el texto del botón que lleva al configurador; vive en el
+estilo para cambiarlo de una vez en toda una plantilla, y `storefront.tabs.comprar`
+lo pisa por producto.
 
 **Estilo efectivo.** `resolveStyle(producto)` decide qué rige — la plantilla
 elegida, la del catálogo o el estilo propio — y **el JSON público viaja ya

@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.6.0';
+  var VERSION = '5.7.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1413,7 +1413,14 @@
     // Galería: manda la que publica KIMOS (`entry.images`), que trae la galería
     // COMPLETA leída de la tienda por el backend. Lo que se raspa del DOM se
     // añade detrás, por si el theme muestra alguna foto que el sync no tenga.
-    var images = addImages(addImages([], entry.images), prod.images);
+    // Galería del producto: la que publica KIMOS (`entry.images`), que el
+    // backend lee de la ficha real de la tienda. NO se mezcla con lo que haya
+    // en el DOM: ahí el theme imprime también las fotos de las variantes (los
+    // colores del gabinete, por ejemplo) y acababan colándose en la sección
+    // Fotos como si fueran del producto. El raspado del DOM queda solo como
+    // respaldo para cuando no hay galería publicada.
+    var images = addImages([], entry.images);
+    if (!images.length) images = addImages([], prod.images);
     if (!images.length && entry.imageUrl) images.push(entry.imageUrl);
     // Descripción del producto en la tienda, para el bloque `description`.
     var desc = String(entry.description || '');
@@ -1776,11 +1783,13 @@
       if (!ancla) { root.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       var destino = anclas[ancla];
       if (!destino) return;
-      // La barra es pegajosa: hay que descontar su alto o el título de la
-      // sección queda escondido justo debajo.
+      // Lo que tapa no es el ALTO de la barra, sino dónde TERMINA: va fija
+      // bajo el menú del sitio, así que hay que descontar también ese menú (y
+      // la separación extra del producto). Con el alto a secas, el título de
+      // la sección quedaba escondido detrás de la barra.
       setTimeout(function () {
-        var alto = bar.getBoundingClientRect().height + 12;
-        var y = destino.getBoundingClientRect().top + (window.pageYOffset || 0) - alto;
+        var tapa = bar.getBoundingClientRect().bottom + 12;
+        var y = destino.getBoundingClientRect().top + (window.pageYOffset || 0) - tapa;
         window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
       }, 30);
     }
@@ -1947,9 +1956,12 @@
       // el texto que ponga el usuario); dentro, es el carro de verdad. Un
       // producto sin pasos no tiene nada que configurar: va directo al carro.
       var enConfig = current === 'configurar';
+      // Fuera del configurador el botón invita a entrar en él. El texto sale
+      // del ESTILO (así se cambia de una vez en todos los productos que
+      // comparten plantilla) y el producto puede pisarlo con tabs.comprar.
       var etiqueta = enConfig || !conPasos
         ? ((botonCarro() && (botonCarro().textContent || '').trim()) || 'Añadir al carro')
-        : (tabsCfg.comprar || 'Configurar');
+        : (tabsCfg.comprar || String(style.buyLabel || '').trim() || 'Configurar');
       var cta = el('button', 'kc-btn kc-btn-primary kc-bar-cta', etiqueta);
       cta.type = 'button';
       cta.addEventListener('click', function () {

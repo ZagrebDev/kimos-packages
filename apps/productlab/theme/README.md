@@ -33,6 +33,7 @@ Todo lo visible se decide en ProductLab (Ficha → Estilo) y viaja en
 | Pestañas secundarias en móvil | `style.bar.mobileTabs` (por defecto **ocultas**: se amontonaban con el precio y engordaban la barra) |
 | Precio y miniatura en la barra | `style.bar.showPrice` / `bar.showThumb` |
 | Tamaño de la galería en Explorar | `style.photos.size` (`s`/`m`/`l`/`xl`) y `photos.cols` |
+| Texto del botón que lleva al configurador | `style.buyLabel` (vacío = "Configurar"); va en el ESTILO para cambiarlo de una vez en todos los productos de una plantilla, y `storefront.tabs.comprar` lo pisa para un producto suelto |
 
 **Contraste garantizado:** `--kc-accent` tiene un valor sólido por defecto y
 nunca cae a `currentColor` — eso dejaba el botón blanco sobre blanco dentro de
@@ -122,6 +123,21 @@ entre la barra y el hero. El kit lo quita al montar, pero **solo donde la ficha
 es lo primero que hay**: recorre hacia arriba mientras siga siendo el primer
 hijo y anula ahí el `padding-top`/`margin-top`. Si encima queda algo del theme
 (migas de pan, un aviso), su espacio no se toca.
+
+## La galería son las fotos DEL PRODUCTO
+
+La sección *Fotos* usa la galería que publica KIMOS (`productos[].images`), que
+el backend lee de la ficha real de la tienda. **No se mezcla con lo que haya en
+el DOM**: ahí el theme imprime también las fotos de las variantes —los colores
+del gabinete, por ejemplo— y acababan colándose como si fueran del producto. El
+raspado del DOM queda solo de respaldo, para cuando no hay galería publicada.
+
+## Bajar a una sección sin que la barra tape el título
+
+Las pestañas *Fotos* y *Especificaciones* bajan hasta su sección. Lo que hay
+que descontar no es el ALTO de la barra sino **dónde termina**: va fija bajo el
+menú del sitio, así que su borde inferior incluye ese menú y la separación
+extra del producto. Con el alto a secas, el título quedaba detrás de la barra.
 
 ## El precio: de la VARIANTE elegida
 
@@ -297,7 +313,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.6.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.7.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

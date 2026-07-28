@@ -49,7 +49,10 @@ const selectsHtml = OPTS.map((o) =>
      <select class="prod-options" data-optionid="${o.id}">${o.values.map((v) => `<option value="${v.id}">${v.name}</option>`).join('')}</select>
    </fieldset>`).join('');
 const prodInfo = {
-  product: { id: 23008278, sku: 'PC-1', name: 'PC Gamer', options: OPTS },
+  // El theme imprime también las fotos de las VARIANTES: no son del producto y
+  // no deben acabar en la sección Fotos.
+  product: { id: 23008278, sku: 'PC-1', name: 'PC Gamer', options: OPTS,
+    images: ['https://cdn.local/p1.jpg', 'https://cdn.local/variante-negro.jpg', 'https://cdn.local/variante-blanco.jpg'] },
   variant: { id: 1, price: 100000 },
 };
 // Variantes REALES del theme (script.product-json): la lista completa con el
@@ -143,6 +146,7 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
         style: {
           bar: { bgColor: '#101418', textColor: '', width: 'full', sticky: false, offset: 12, showThumb: false },
           photos: { size: 'l', cols: 3 },
+          buyLabel: 'Personalizar',
         },
       },
     })],
@@ -160,12 +164,19 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   t('pestañas secundarias marcadas para móvil', d.querySelectorAll('.kc-tab.kc-tab-sec').length >= 1);
   t('sin la clase de pestañas en móvil (default)', !root.classList.contains('kc-bar-mtabs'));
   const fotos = d.querySelector('.kc-fotos');
+  // Solo la galería publicada del producto: nada de fotos de variantes.
+  t('la galería es la del producto, sin fotos de variantes',
+    fotos.querySelectorAll('.kc-foto-th').length === 3
+    && !fotos.innerHTML.indexOf('variante-') !== -1);
   t('fotos con tamaño configurado', fotos && fotos.getAttribute('data-size') === 'l');
   t('fotos por fila configuradas', fotos && fotos.style.getPropertyValue('--kc-foto-cols') === '3');
   // El acento SIEMPRE resuelve a un color sólido: sin esto el botón quedaba
   // blanco sobre blanco dentro de un hero con texto claro.
   const acento = w.getComputedStyle(root).getPropertyValue('--kc-accent').trim();
   t('acento nunca es currentColor', acento !== 'currentColor');
+  // El texto del botón que lleva al configurador viaja en el ESTILO, para
+  // cambiarlo de una vez en todos los productos de una plantilla.
+  t('botón de la barra con el texto del estilo', d.querySelector('.kc-bar-cta').textContent === 'Personalizar');
   // Velo de arranque: tapa hasta que la ficha está pintada y con sus fotos, y
   // se retira fundiéndose (nunca de golpe, que es lo que se veía como cambiazo).
   const boot = d.getElementById('kc-boot');
@@ -201,6 +212,24 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   t('la barra vive en su hueco', bar.parentNode.classList.contains('kc-bar-wrap'));
   t('sticky:false → el hueco no reserva alto', bar.parentNode.classList.contains('kc-bar-wrap-static'));
   t('el CSS la fija, no la pega', /\.kc-bar\s*\{[^}]*position:\s*fixed/.test(CSS_SRC));
+
+  // Al bajar a Fotos/Especificaciones se descuenta DÓNDE TERMINA la barra (va
+  // fija bajo el menú del sitio), no su alto: con el alto a secas el título de
+  // la sección quedaba detrás. jsdom no hace layout: se simulan las medidas
+  // POR CLASE, porque al cambiar de pestaña se repinta y los nodos son otros.
+  const RECT = { left: 0, right: 1000, width: 1000, x: 0, y: 0, toJSON() { return this; } };
+  w.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList && this.classList.contains('kc-bar')) return Object.assign({ top: 100, bottom: 164, height: 64 }, RECT);
+    if (this.classList && this.classList.contains('kc-fotos')) return Object.assign({ top: 500, bottom: 900, height: 400 }, RECT);
+    return Object.assign({ top: 0, bottom: 0, height: 0 }, RECT);
+  };
+  let bajarA = null;
+  w.scrollTo = (o) => { bajarA = o && o.top; };
+  Array.prototype.slice.call(d.querySelectorAll('.kc-tab'))
+    .filter((b2) => /Fotos/.test(b2.textContent))[0].click();
+  await new Promise((r) => setTimeout(r, 60));
+  t('la sección queda bajo la barra, no detrás', bajarA === 500 - 164 - 12);
+  w.close();
 }
 
 // ═══ Escenario 1: JSON v2 completo (deps + style + imagen + hero auto) ═════
@@ -341,7 +370,7 @@ console.log('\n— v1: degradación elegante (equipos, deltas por defecto) —')
     version: 1, updatedAt: '2026-07-27T00:00:00Z', currency: 'CLP', store: 'i1',
     equipos: [producto({
       groups: grupos(false), imageUrl: '', images: [],
-      storefront: { specs: [], photosNote: '', pageSections: [{ id: 'n1', kind: 'note', show: true }], tabs: {} },
+      storefront: { specs: [], photosNote: '', pageSections: [{ id: 'n1', kind: 'note', show: true }], tabs: { showFotos: false } },
     })],
   };
   const w = await montar(def);
@@ -363,7 +392,7 @@ console.log('\n— v2: showDeltas total (precio absoluto de la variante candidat
     version: 2, updatedAt: '2026-07-27T00:00:00Z', currency: 'CLP', store: 'i1',
     productos: [producto({
       groups: grupos(false), imageUrl: '', images: [],
-      storefront: { specs: [], photosNote: '', pageSections: [{ id: 'n1', kind: 'note', show: true }], tabs: {},
+      storefront: { specs: [], photosNote: '', pageSections: [{ id: 'n1', kind: 'note', show: true }], tabs: { showFotos: false },
         style: { accentColor: '', bgColor: '', radius: 0, cardStyle: 'cards', showDeltas: 'total', stepsCollapsed: false } },
     })],
   };
