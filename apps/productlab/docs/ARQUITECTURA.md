@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.0.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.1.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -204,6 +204,18 @@ sola o pregunta con banner). SET_PRODUCTO_STEPS acepta además `qty`/`cantidad`
 y `dependsOn {step, values}` por labels; SET_STOREFRONT acepta `style` y
 secciones `imagen`.
 
+## 8.b Datos: migración y export/import (2.1)
+
+`shell.authFetch` permite leer **otra instancia** con el RBAC del usuario
+(`GET /api/app-instances` y `…/{id}/items`), y el backend **respeta el `id`**
+al crear items (`POST /items` usa `body.id`) — por eso la migración conserva
+los identificadores y los pasos siguen apuntando a sus componentes sin
+re-enlazar. `normalizeRules()` (extraída de `rules()`) traduce los alias
+históricos del origen antes de fusionar. Formato de intercambio
+`kimos.productlab.data` (definition + components + productos) y CSV de
+componentes con encabezado tolerante (coma o punto y coma, ids opcionales,
+tipos creados al vuelo). Detalle operativo en `docs/MIGRACION.md`.
+
 ## 9. Decisiones ProductLab 2.0 (nuevas)
 
 | Decisión | Motivo |
@@ -216,6 +228,8 @@ secciones `imagen`.
 | `style` por producto además del acento global (⚙️) | El acento de ⚙️ Configurar es de la APP; `style` personaliza el configurador de CADA producto en la tienda. |
 | Parche backend: `permissions` + `assets` en installs de registry | Sin ellos, una app oficial no podía usar el gateway público ni servir `engine3d.js`. |
 | JSON v2 con fallback v1 en el theme | Migración suave de instalaciones gestion-productos/hubpro. |
+| Migración preservando ids (no regenerarlos) | Los pasos referencian componentes por id: regenerarlos obligaría a re-armar cada producto a mano. |
+| Import idempotente (match por id, luego por nombre) | Permite repetir la migración sin duplicar y usar el CSV como fuente de actualización masiva. |
 
 ## 10. Deuda conocida y roadmap corto
 

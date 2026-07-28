@@ -1,7 +1,7 @@
 # ProductLab 🧪
 
 **Laboratorio de productos personalizables para la tienda — app oficial de
-KIMOS** (`apps/productlab`, v2.0.0). Gestiona componentes/insumos y costos
+KIMOS** (`apps/productlab`, v2.1.0). Gestiona componentes/insumos y costos
 reales, arma productos configurables paso a paso, calcula precios con reglas
 parametrizables, muestra el producto en un **visor 3D con AR**, y publica todo
 hacia el ecommerce: precio + opciones + **variantes por combinación** (vía la
@@ -54,7 +54,11 @@ theme.
   (`GET /api/public/app/{instanceId}/definition`, contrato **version 2**) con
   republicación automática; marca (`brandName`), tienda, URL base y custom
   field parametrizable.
-- **Agente IA** — 16 tools con snapshot completo, contrato embebido
+- **Datos** — migración desde otro catálogo (p. ej. la app de computadores)
+  preservando ids, y exportación/importación: **CSV de componentes** editable
+  en planilla (ida y vuelta) y JSON del catálogo completo (respaldo o traslado
+  a otro proyecto). Ver `docs/MIGRACION.md`.
+- **Agente IA** — 20 tools con snapshot completo, contrato embebido
   (`builderRef`), alias en español, errores didácticos y sincronía con el
   editor abierto (banner de conflicto).
 
@@ -70,7 +74,7 @@ theme.
    `docs/JUMPSELLER.md`.
 4. 3D/AR: ver `docs/VISUALIZADOR.md` y los packs de ejemplo en `packs/`.
 
-## Tools del agente (16)
+## Tools del agente (20)
 
 `UPSERT_COMPONENT` · `SET_COMPONENT_COST` · `SET_MARGIN` · `SET_STOCK` ·
 `RECALC_PRICES` · `UPSERT_PRODUCTO` (con `priceMode`/`fixedPrice`) ·
@@ -78,7 +82,9 @@ theme.
 3D, alias en español) · `COMPOSE_HERO` · `SET_STOREFRONT` (pageSections con
 secciones `imagen`, `style` por producto, validación estricta + anti-borrado)
 · `LINK_PRODUCT` · `APPLY_PRODUCTO` · `PUBLISH_CONFIG` · `IMPORT_IMAGE` ·
-`SET_MODEL3D` · `BUILD_3D_STEPS` (genera pasos desde el modelo 3D).
+`SET_MODEL3D` · `BUILD_3D_STEPS` (genera pasos desde el modelo 3D) ·
+`LIST_SOURCES` · `MIGRATE_FROM` (migra otro catálogo aquí) · `EXPORT_DATA` ·
+`IMPORT_DATA` (CSV o JSON, por URL o inline).
 
 ## Estructura
 
@@ -91,7 +97,7 @@ apps/productlab/
 ├─ engine-src/            # fuente del motor (esbuild: npm run build:engine)
 ├─ theme/                 # kit Jumpseller sin tocar liquid (+ AR + tests)
 ├─ packs/mesa-hanoi/      # pack de ejemplo (model3d.json + pasos.json)
-├─ docs/                  # ARQUITECTURA · JUMPSELLER · PLATAFORMAS · VISUALIZADOR
+├─ docs/                  # ARQUITECTURA · MIGRACION · JUMPSELLER · PLATAFORMAS · VISUALIZADOR
 └─ test/test-app.mjs      # smoke test completo offline (node test/test-app.mjs)
 ```
 

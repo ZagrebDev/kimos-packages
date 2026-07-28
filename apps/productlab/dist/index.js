@@ -300,8 +300,13 @@ export default function mount(shell) {
 
   // ── Reglas de precio ──────────────────────────────────────────────────────
   const ROUND_MODES = ['none', 'nearest', 'up', 'ending'];
-  function rules() {
-    const r = (model.def && model.def.rules) || {};
+  function rules() { return normalizeRules((model.def && model.def.rules) || {}); }
+  // Normalización pura de un bloque de reglas: resuelve los alias históricos
+  // (ivaPct, usdRate, assemblyDays, end990/up1000) y rellena defaults. Se usa
+  // tanto para leer las propias como para traducir las de un catálogo que se
+  // importa o migra desde otra app de la familia.
+  function normalizeRules(raw) {
+    const r = raw || {};
     // fx: mapa MONEDA→tipo de cambio hacia la moneda base. Se acepta el
     // usdRate antiguo como atajo para no perder configuraciones simples.
     const fx = Object.assign({}, r.fx && typeof r.fx === 'object' ? r.fx : null);
@@ -1632,6 +1637,336 @@ export default function mount(shell) {
     };
   }
 
+  // ── Exportar / Importar / Migrar datos ────────────────────────────────────
+  // Tres vías, todas sobre el mismo formato:
+  //  1. JSON completo (reglas + tipos + componentes + productos): respaldo y
+  //     traslado entre instancias, proyectos o tenants.
+  //  2. CSV de componentes: la parte más costosa de cargar a mano; se edita en
+  //     una planilla y vuelve (ida y vuelta sin pérdida).
+  //  3. Migración directa desde otra app de la familia (p. ej.
+  //     `hubpro.computadores`): se lee su instancia con el RBAC del usuario
+  //     (shell.authFetch) y se traduce su esquema al de ProductLab.
+  // Los IDs se PRESERVAN (el backend respeta `id` al crear items), así los
+  // pasos siguen apuntando a sus componentes sin re-enlazar nada.
+  const DATA_FORMAT = 'kimos.productlab.data';
+  const DATA_FORMAT_VERSION = 1;
+
+  // Traducción de un componente de otra app de la familia. El esquema es casi
+  // idéntico; lo único que cambió de nombre es productRef → storeRef.
+  function foreignComponent(c) {
+    const out = Object.assign({}, c, { kind: 'component' });
+    if (c.productRef && !out.storeRef) out.storeRef = c.productRef;
+    delete out.productRef;
+    return out;
+  }
+  // Traducción de un "equipo" (computadores) a un producto de ProductLab.
+  function foreignProducto(e) {
+    const out = Object.assign({}, e, { kind: 'producto' });
+    if (e.productRef && !out.storeRef) out.storeRef = e.productRef;
+    delete out.productRef;
+    // computadores calculaba SIEMPRE desde los costos.
+    if (!out.priceMode) out.priceMode = 'auto';
+    return out;
+  }
+  const isForeignItem = (it) => !!it && (it.kind === 'equipo' || it.kind === 'producto' || it.kind === 'component' || it.kind === 'definition');
+
+  function exportData(opts) {
+    const o = opts || {};
+    const payload = {
+      format: DATA_FORMAT,
+      version: DATA_FORMAT_VERSION,
+      exportedAt: nowIso(),
+      source: { appId: (shell.app && shell.app.appId) || 'productlab', instanceId: instanceId || null },
+    };
+    if (o.rules !== false) {
+      const def = model.def || defaultDefinition();
+      payload.definition = {
+        rules: rules(),                 // ya normalizado (alias legacy resueltos)
+        types: types(),
+        brandName: s(def.brandName),
+        storeName: s(def.storeName),
+        storeBaseUrl: s(def.storeBaseUrl),
+        storeCustomField: def.storeCustomField || null,
+      };
+    }
+    if (o.components !== false) {
+      payload.components = model.components.map((c) => Object.assign({}, c));
+    }
+    if (o.productos) {
+      payload.productos = model.productos.map((eq) => {
+        const p = Object.assign({}, eq);
+        // Los enlaces con la tienda son del PROYECTO de origen: fuera de él
+        // apuntan a instancias que no existen.
+        if (o.keepStoreLinks === false) { delete p.storeRef; delete p.lastPush; }
+        return p;
+      });
+    }
+    return payload;
+  }
+
+  // ── CSV de componentes (ida y vuelta) ─────────────────────────────────────
+  const CSV_COLS = [
+    ['id', (c) => s(c.id)],
+    ['nombre', (c) => s(c.name)],
+    ['tipo', (c) => typeLabel(c.type)],
+    ['marca', (c) => s(c.brand)],
+    ['specs', (c) => s(c.specs)],
+    ['costo', (c) => s(num(c.cost, 0))],
+    ['moneda', (c) => s(c.currency || rules().currency)],
+    ['impuestoPct', (c) => s(num(c.taxPct, 0))],
+    ['stock', (c) => (c.stock == null ? '' : s(num(c.stock)))],
+    ['diasEntrega', (c) => s(num(c.deliveryDays, 0))],
+    ['proveedor', (c) => s(c.supplierName)],
+    ['urlProveedor', (c) => s(c.supplierUrl)],
+    ['verificadoEn', (c) => s(c.verifiedAt || '')],
+    ['aporta', (c) => joinList(c.tags)],
+    ['requiere', (c) => joinList(c.requires)],
+    ['incompatibleCon', (c) => joinList(c.excludes)],
+    ['activo', (c) => (c.active === false ? 'no' : 'si')],
+    ['imagenUrl', (c) => s(c.imageUrl)],
+    ['notas', (c) => s(c.notes)],
+  ];
+  const csvCell = (v) => (/[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+  function componentsCsv(list) {
+    const rows = [CSV_COLS.map((c) => c[0]).join(',')];
+    (list || model.components).forEach((c) => rows.push(CSV_COLS.map((col) => csvCell(col[1](c))).join(',')));
+    return rows.join('\r\n');
+  }
+  // Parser RFC4180 tolerante: acepta coma o punto y coma como separador y
+  // comillas dobles escapadas (lo que exporta cualquier planilla).
+  function parseCsv(text) {
+    const src = s(text).replace(/^﻿/, '');
+    const sep = (src.split('\n')[0] || '').split(';').length > (src.split('\n')[0] || '').split(',').length ? ';' : ',';
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (q) {
+        if (ch === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (ch !== '\r') cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((x) => s(x).trim() !== ''));
+  }
+  // Resuelve el tipo por id o por etiqueta; si no existe, lo CREA (migrar no
+  // debe perder la clasificación del catálogo de origen).
+  function resolveTypeId(raw, nuevos) {
+    const key = norm(raw);
+    if (!key) return 'other';
+    const t = types().find((x) => norm(x.id) === key) || types().find((x) => norm(x.label) === key);
+    if (t) return t.id;
+    const pend = (nuevos || []).find((x) => norm(x.label) === key || norm(x.id) === key);
+    if (pend) return pend.id;
+    const id = key.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || newId('t');
+    if (nuevos) nuevos.push({ id, label: s(raw).trim() || id });
+    return id;
+  }
+  function componentsFromCsv(text, nuevosTipos) {
+    const rows = parseCsv(text);
+    if (!rows.length) return { error: 'El archivo no tiene filas.' };
+    const head = rows[0].map((x) => norm(x));
+    const idx = (...names) => { for (const n of names) { const i = head.indexOf(norm(n)); if (i !== -1) return i; } return -1; };
+    const iName = idx('nombre', 'name', 'componente');
+    if (iName === -1) return { error: 'Falta la columna "nombre" (encabezados encontrados: ' + rows[0].join(', ') + ').' };
+    const cols = {
+      id: idx('id'), type: idx('tipo', 'type'), brand: idx('marca', 'brand'), specs: idx('specs', 'descripcion', 'descripción'),
+      cost: idx('costo', 'cost', 'precio'), currency: idx('moneda', 'currency'), taxPct: idx('impuestopct', 'impuesto', 'taxpct'),
+      stock: idx('stock'), deliveryDays: idx('diasentrega', 'dias', 'deliverydays'),
+      supplierName: idx('proveedor', 'suppliername'), supplierUrl: idx('urlproveedor', 'link', 'supplierurl'),
+      verifiedAt: idx('verificadoen', 'verifiedat'), tags: idx('aporta', 'tags'), requires: idx('requiere', 'requires'),
+      excludes: idx('incompatiblecon', 'excludes'), active: idx('activo', 'active'), imageUrl: idx('imagenurl', 'imagen', 'imageurl'),
+      notes: idx('notas', 'notes'),
+    };
+    const get = (r, i) => (i === -1 ? '' : s(r[i]).trim());
+    const out = [];
+    rows.slice(1).forEach((r) => {
+      const name = get(r, iName);
+      if (!name) return;
+      const c = { name, kind: 'component' };
+      const id = get(r, cols.id);
+      if (id) c.id = id;
+      c.type = resolveTypeId(get(r, cols.type), nuevosTipos);
+      c.brand = get(r, cols.brand); c.specs = get(r, cols.specs);
+      c.cost = num(get(r, cols.cost).replace(/\./g, '').replace(',', '.'), 0);
+      c.currency = get(r, cols.currency) || rules().currency;
+      c.taxPct = num(get(r, cols.taxPct), 0);
+      const stk = get(r, cols.stock);
+      c.stock = stk === '' ? null : Math.max(0, num(stk, 0));
+      c.deliveryDays = num(get(r, cols.deliveryDays), 0);
+      c.supplierName = get(r, cols.supplierName); c.supplierUrl = get(r, cols.supplierUrl);
+      const vf = get(r, cols.verifiedAt);
+      if (vf) c.verifiedAt = vf;
+      c.tags = parseList(get(r, cols.tags)); c.requires = parseList(get(r, cols.requires)); c.excludes = parseList(get(r, cols.excludes));
+      const act = norm(get(r, cols.active));
+      c.active = !(act === 'no' || act === 'false' || act === '0' || act === 'inactivo');
+      c.imageUrl = get(r, cols.imageUrl); c.notes = get(r, cols.notes);
+      out.push(c);
+    });
+    return { components: out };
+  }
+
+  // ── Importación ───────────────────────────────────────────────────────────
+  // mode 'merge' (default): actualiza lo que ya existe (por id, si no por
+  // nombre) y crea el resto. mode 'skip': no toca lo existente.
+  async function importData(payload, opts) {
+    const o = opts || {};
+    const res = { components: { created: 0, updated: 0, skipped: 0 }, productos: { created: 0, updated: 0, skipped: 0 }, types: 0, errors: [], warnings: [] };
+    if (!payload || typeof payload !== 'object') return Object.assign(res, { errors: ['El contenido no es un objeto JSON válido.'] });
+    const skipExisting = o.mode === 'skip';
+    const nuevosTipos = [];
+
+    // 1) Reglas y tipos
+    const inDef = payload.definition || (payload.rules || payload.types ? { rules: payload.rules, types: payload.types } : null);
+    if (inDef && o.rules !== false) {
+      const cur = model.def || defaultDefinition();
+      const inTypes = Array.isArray(inDef.types) ? inDef.types.filter((t) => t && t.id) : [];
+      const merged = (cur.types || []).slice();
+      inTypes.forEach((t) => { if (!merged.some((x) => x.id === t.id)) { merged.push({ id: s(t.id), label: s(t.label) || s(t.id) }); res.types++; } });
+      const next = Object.assign({}, cur, {
+        // rules() del ORIGEN ya viene normalizado; si llega crudo (legacy),
+        // los alias (ivaPct/usdRate/assemblyDays/end990) se resuelven al leer.
+        // Las reglas del origen se NORMALIZAN antes de fusionar: así los
+        // alias legacy (ivaPct, usdRate, assemblyDays, end990) llegan ya
+        // traducidos y ganan sobre los valores actuales, que es lo que se
+        // espera al marcar "traer reglas de precio".
+        rules: inDef.rules ? Object.assign({}, cur.rules, normalizeRules(inDef.rules)) : cur.rules,
+        types: merged.length ? merged : cur.types,
+      });
+      ['brandName', 'storeName', 'storeBaseUrl'].forEach((k) => { if (s(inDef[k]).trim() && !s(cur[k]).trim()) next[k] = s(inDef[k]).trim(); });
+      if (inDef.storeCustomField && !cur.storeCustomField) next.storeCustomField = inDef.storeCustomField;
+      const r = await saveDefinition(next);
+      if (!r.success) res.errors.push('Reglas: ' + r.error);
+    }
+
+    // 2) Componentes (lo más costoso de recrear: se prioriza)
+    const inComps = Array.isArray(payload.components) ? payload.components : [];
+    for (const raw of inComps) {
+      try {
+        const src = foreignComponent(raw);
+        if (!s(src.name).trim()) { res.warnings.push('componente sin nombre omitido'); continue; }
+        if (src.type) src.type = resolveTypeId(src.type, nuevosTipos);
+        const prev = (src.id && model.components.find((c) => c.id === src.id))
+          || model.components.find((c) => norm(c.name) === norm(src.name));
+        if (prev && skipExisting) { res.components.skipped++; continue; }
+        const item = normalizeComponent(prev ? Object.assign({}, prev, src, { id: prev.id }) : src);
+        if (prev) { await shell.items.update(item.id, item); res.components.updated++; }
+        else { await shell.items.create(item); res.components.created++; }
+        // El modelo local se actualiza al vuelo para que los productos
+        // importados a continuación resuelvan sus componentIds.
+        model.components = prev
+          ? model.components.map((c) => (c.id === item.id ? item : c))
+          : model.components.concat([item]);
+      } catch (e) { res.errors.push('Componente "' + s(raw && raw.name) + '": ' + ((e && e.message) || 'error')); }
+    }
+    // Tipos nuevos detectados al resolver componentes.
+    if (nuevosTipos.length) {
+      const cur = model.def || defaultDefinition();
+      const merged = (cur.types || []).slice();
+      nuevosTipos.forEach((t) => { if (!merged.some((x) => x.id === t.id)) { merged.push(t); res.types++; } });
+      await saveDefinition(Object.assign({}, cur, { types: merged }));
+    }
+    setModel({ components: model.components.slice() });
+
+    // 3) Productos
+    const inProds = Array.isArray(payload.productos) ? payload.productos : (Array.isArray(payload.equipos) ? payload.equipos : []);
+    if (inProds.length && o.productos !== false) {
+      for (const raw of inProds) {
+        try {
+          const src = foreignProducto(raw);
+          if (!s(src.name).trim()) { res.warnings.push('producto sin nombre omitido'); continue; }
+          const prev = (src.id && model.productos.find((e) => e.id === src.id))
+            || model.productos.find((e) => norm(e.name) === norm(src.name));
+          if (prev && skipExisting) { res.productos.skipped++; continue; }
+          if (o.keepStoreLinks === false) { delete src.storeRef; delete src.lastPush; }
+          const draft = normalizeProductoShape(prev ? Object.assign({}, prev, src, { id: prev.id }) : src, model.components);
+          // Componentes que el producto usa y no llegaron en el paquete.
+          const faltan = [];
+          (draft.baseComponentIds || []).forEach((id) => { if (!compById(id)) faltan.push(id); });
+          (draft.groups || []).forEach((g) => groupValues(g).forEach((v) => (v.componentIds || []).forEach((id) => { if (!compById(id)) faltan.push(id); })));
+          if (faltan.length) res.warnings.push('"' + src.name + '": ' + faltan.length + ' referencia(s) a componentes que no están en el paquete (se omiten).');
+          const r = await saveProducto(draft);
+          if (!r.success) { res.errors.push('Producto "' + src.name + '": ' + r.error); continue; }
+          if (prev) res.productos.updated++; else res.productos.created++;
+        } catch (e) { res.errors.push('Producto "' + s(raw && raw.name) + '": ' + ((e && e.message) || 'error')); }
+      }
+    }
+    await load();
+    scheduleRepublish();
+    return res;
+  }
+
+  const importSummary = (res) =>
+    'Componentes: ' + res.components.created + ' nuevos, ' + res.components.updated + ' actualizados'
+    + (res.components.skipped ? ', ' + res.components.skipped + ' omitidos' : '')
+    + ' · Productos: ' + res.productos.created + ' nuevos, ' + res.productos.updated + ' actualizados'
+    + (res.productos.skipped ? ', ' + res.productos.skipped + ' omitidos' : '')
+    + (res.types ? ' · ' + res.types + ' tipo(s) de componente creados' : '')
+    + (res.warnings.length ? ' · Avisos: ' + res.warnings.slice(0, 4).join(' · ') : '')
+    + (res.errors.length ? ' · ERRORES: ' + res.errors.slice(0, 4).join(' · ') : '');
+
+  // ── Lectura de otra instancia (migración directa) ──────────────────────────
+  // Usa el RBAC del usuario: solo ve instancias a las que ya tiene acceso.
+  async function listOtherInstances() {
+    if (!shell.authFetch) return { error: 'authFetch no disponible en este host.' };
+    try {
+      const res = await shell.authFetch(API + '/api/app-instances');
+      if (!res.ok) return { error: 'HTTP ' + res.status + ' al listar instancias.' };
+      const data = await res.json().catch(() => ({}));
+      const list = (data.instances || []).filter((i) => i && i.id !== instanceId);
+      return { instances: list };
+    } catch (e) { return { error: (e && e.message) || 'Error de red.' }; }
+  }
+  async function readInstanceItems(iid) {
+    if (!shell.authFetch) return { error: 'authFetch no disponible en este host.' };
+    try {
+      const res = await shell.authFetch(API + '/api/app-instances/' + encodeURIComponent(iid) + '/items');
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        return { error: s(d.detail) || 'HTTP ' + res.status + ' al leer los items (¿tienes acceso a esa instancia?).' };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { items: (data.items || []).filter(isForeignItem) };
+    } catch (e) { return { error: (e && e.message) || 'Error de red.' }; }
+  }
+  // Convierte los items de otra instancia en un paquete importable.
+  function packFromItems(items) {
+    const def = (items || []).find((i) => i.kind === 'definition' || i.id === 'definition');
+    const pack = {
+      format: DATA_FORMAT,
+      version: DATA_FORMAT_VERSION,
+      components: (items || []).filter((i) => i.kind === 'component'),
+      productos: (items || []).filter((i) => i.kind === 'equipo' || i.kind === 'producto'),
+    };
+    if (def) pack.definition = { rules: def.rules || {}, types: def.types || [], storeBaseUrl: def.storeBaseUrl, storeName: def.storeName, brandName: def.brandName, storeCustomField: def.storeCustomField };
+    return pack;
+  }
+  async function migrateFromInstance(iid, opts) {
+    const r = await readInstanceItems(iid);
+    if (r.error) return { success: false, error: r.error };
+    const pack = packFromItems(r.items);
+    const conteo = { components: (pack.components || []).length, productos: (pack.productos || []).length, rules: !!pack.definition };
+    if (opts && opts.dryRun) return { success: true, dryRun: true, pack, conteo };
+    const res = await importData(pack, opts);
+    return { success: res.errors.length === 0, res, conteo };
+  }
+
+  // Descarga de un archivo generado en el navegador (export).
+  function downloadText(name, text, mime) {
+    try {
+      const blob = new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return true;
+    } catch (e) { shell.notify({ level: 'error', text: 'No se pudo descargar: ' + ((e && e.message) || 'error') }); return false; }
+  }
+
   // ── Agente IA ─────────────────────────────────────────────────────────────
   let offAgent = null;
   function findComponent(ref) {
@@ -1865,13 +2200,40 @@ export default function mount(shell) {
             suffix: { type: 'string', description: 'texto después del nombre de cada paso (ej: " Hanoi 1")' },
             append: { type: 'boolean', description: 'true = conserva los pasos actuales y agrega los nuevos (útil en packs de varias unidades); por defecto reemplaza' },
           }, required: ['producto'] } },
+        { name: 'LIST_SOURCES', description: 'Lista las instancias de apps visibles para el usuario (otros catálogos desde los que se puede migrar, p. ej. una app de computadores). Devuelve id, nombre y template de cada una: úsalos como `origen` en MIGRATE_FROM.',
+          inputSchema: { type: 'object', properties: {} } },
+        { name: 'MIGRATE_FROM', description: 'Trae a ESTE catálogo los datos de otra instancia (componentes, productos con sus pasos y ficha, reglas y tipos), traduciendo el esquema si viene de otra app de la familia (kind "equipo" → producto, productRef → storeRef). Los IDs se conservan, así los pasos siguen apuntando a sus componentes. Es idempotente: lo que ya existe se actualiza en vez de duplicarse. Usa dryRun para ver primero cuánto hay. Descubre el `origen` con LIST_SOURCES.',
+          inputSchema: { type: 'object', properties: {
+            origen: { type: 'string', description: 'id de la instancia de origen (ver LIST_SOURCES)' },
+            dryRun: { type: 'boolean', description: 'true = solo informa qué hay en el origen, sin escribir nada' },
+            rules: { type: 'boolean', description: 'traer reglas de precio y tipos de componente (default true)' },
+            productos: { type: 'boolean', description: 'traer productos además de componentes (default true)' },
+            keepStoreLinks: { type: 'boolean', description: 'mantener el enlace de cada producto con la tienda (default true; ponlo en false si el origen es de OTRO proyecto)' },
+            mode: { type: 'string', description: '"merge" (default) actualiza lo existente | "skip" solo crea lo que falta' },
+          }, required: ['origen'] } },
+        { name: 'EXPORT_DATA', description: 'Exporta el catálogo a un archivo y devuelve su URL pública (respaldo o traslado a otro proyecto). El CSV de componentes se puede editar en una planilla y volver con IMPORT_DATA.',
+          inputSchema: { type: 'object', properties: {
+            formato: { type: 'string', description: '"json" (default) | "csv" (solo componentes)' },
+            productos: { type: 'boolean', description: 'incluir los productos en el JSON (default true)' },
+            keepStoreLinks: { type: 'boolean', description: 'incluir los enlaces con la tienda (default true)' },
+          } } },
+        { name: 'IMPORT_DATA', description: 'Importa un catálogo desde una URL (JSON exportado o CSV de componentes) o desde un objeto JSON inline. Los tipos de componente que no existan se crean solos; lo existente se actualiza por id o por nombre.',
+          inputSchema: { type: 'object', properties: {
+            url: { type: 'string', description: 'URL del archivo (p. ej. la que devolvió EXPORT_DATA, o un adjunto ya subido)' },
+            datos: { type: 'object', description: 'alternativa a url: el paquete JSON inline {components:[…], productos:[…], definition:{…}} (o string JSON)' },
+            rules: { type: 'boolean', description: 'aplicar las reglas y tipos del paquete (default true)' },
+            productos: { type: 'boolean', description: 'importar los productos del paquete (default true)' },
+            keepStoreLinks: { type: 'boolean', description: 'conservar los enlaces con la tienda del paquete (default true)' },
+            mode: { type: 'string', description: '"merge" (default) | "skip"' },
+          } } },
       ],
       getSnapshot: () => ({
         rules: rules(),
         types: types(),
         components: model.components.map((c) => ({
           id: c.id, name: c.name, type: c.type, cost: c.cost, currency: c.currency, taxPct: num(c.taxPct, 0),
-          salePrice: componentSale(c), supplierUrl: c.supplierUrl, supplierName: c.supplierName,
+          salePrice: componentSale(c), deliveryDays: num(c.deliveryDays, 0),
+          supplierUrl: c.supplierUrl, supplierName: c.supplierName,
           verifiedAt: c.verifiedAt, staleDays: daysSince(c.verifiedAt) === Infinity ? null : daysSince(c.verifiedAt),
           active: c.active !== false, stock: c.stock == null ? null : num(c.stock),
           available: compAvailable(c), tags: c.tags, requires: c.requires, excludes: c.excludes,
@@ -2429,7 +2791,83 @@ export default function mount(shell) {
               + '.' + (dropped ? ' Aviso: ' + dropped + ' parte(s) ignorada(s) por no declarar materiales.' : '')
               + ' Vincula los pasos con SET_PRODUCTO_STEPS (campo model3d de cada valor).' };
           }
-          return { success: false, error: 'Acción desconocida: ' + s(type) + '. Acciones válidas: UPSERT_COMPONENT, SET_COMPONENT_COST, SET_MARGIN, RECALC_PRICES, APPLY_PRODUCTO, UPSERT_PRODUCTO, SET_PRODUCTO_STEPS, SET_STOREFRONT, COMPOSE_HERO, LINK_PRODUCT, SET_STOCK, PUBLISH_CONFIG, IMPORT_IMAGE, SET_MODEL3D, BUILD_3D_STEPS.' };
+          if (type === 'LIST_SOURCES') {
+            const r = await listOtherInstances();
+            if (r.error) return { success: false, error: r.error };
+            const list = (r.instances || []).map((i) => ({ id: i.id, name: i.name || i.id, template: i.templateId || '' }));
+            if (!list.length) return { success: true, message: 'No hay otras instancias visibles para tu usuario (solo esta).' };
+            return { success: true, message: 'Catálogos disponibles para migrar: '
+              + list.map((i) => '"' + i.name + '" (id: ' + i.id + ', template: ' + i.template + ')').join(' · ')
+              + '. Usa MIGRATE_FROM con {"origen": "<id>"}; con dryRun:true primero para ver cuánto trae.' };
+          }
+          if (type === 'MIGRATE_FROM') {
+            const origen = s(refIn(p, ['origen', 'instancia', 'instanceId', 'from', 'source', 'id'])).trim();
+            if (!origen) return { success: false, error: 'Falta "origen" (id de la instancia). Descúbrelo con LIST_SOURCES.' };
+            const opts = {
+              dryRun: p.dryRun === true,
+              rules: p.rules !== false,
+              productos: p.productos !== false,
+              keepStoreLinks: p.keepStoreLinks !== false,
+              mode: p.mode === 'skip' ? 'skip' : 'merge',
+            };
+            const r = await migrateFromInstance(origen, opts);
+            if (!r.success && r.error) return { success: false, error: r.error + ' Usa LIST_SOURCES para ver los ids válidos.' };
+            if (opts.dryRun) {
+              return { success: true, message: 'Origen "' + origen + '": ' + r.conteo.components + ' componente(s), '
+                + r.conteo.productos + ' producto(s)' + (r.conteo.rules ? ' y sus reglas de precio' : '')
+                + '. Nada se escribió (dryRun). Repite sin dryRun para migrar.' };
+            }
+            return { success: r.success, message: 'Migración desde "' + origen + '" — ' + importSummary(r.res),
+              error: r.success ? undefined : 'Migración con errores: ' + r.res.errors.slice(0, 4).join(' · ') };
+          }
+          if (type === 'EXPORT_DATA') {
+            if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
+            const csv = norm(p.formato) === 'csv';
+            const text = csv
+              ? componentsCsv()
+              : JSON.stringify(exportData({ productos: p.productos !== false, keepStoreLinks: p.keepStoreLinks !== false }), null, 2);
+            const fecha = nowIso().slice(0, 10);
+            const nombre = (csv ? 'componentes-' : 'productlab-') + fecha + (csv ? '.csv' : '.json');
+            try {
+              const file = new File([text], nombre, { type: csv ? 'text/csv' : 'application/json' });
+              const url = await uploadFile(file, { folder: "exportaciones", maxMB: 20 });
+              return { success: true, message: 'Exportado: ' + url + ' — ' + model.components.length + ' componente(s)'
+                + (csv ? ' (CSV editable en planilla; vuelve con IMPORT_DATA {url})' : ' y ' + model.productos.length + ' producto(s)') + '.' };
+            } catch (e) { return { success: false, error: 'No se pudo exportar: ' + ((e && e.message) || 'error') }; }
+          }
+          if (type === 'IMPORT_DATA') {
+            let pack = parseJson(p.datos);
+            if (!pack && s(p.url).trim()) {
+              let url = s(p.url).trim();
+              if (url.indexOf('/') === 0) url = API + url;
+              try {
+                const sameOrigin = url.indexOf(API) === 0;
+                const res = sameOrigin ? await shell.authFetch(url) : await fetch(url, { mode: 'cors' });
+                if (!res.ok) return { success: false, error: 'No se pudo descargar el archivo (HTTP ' + res.status + ').' };
+                const text = await res.text();
+                if (/^\s*[[{]/.test(text)) pack = JSON.parse(text);
+                else {
+                  const tiposCsv = [];
+                  const r = componentsFromCsv(text, tiposCsv);
+                  if (r.error) return { success: false, error: r.error };
+                  pack = { format: DATA_FORMAT, components: r.components };
+                  // Los tipos que aparecen en la planilla y aún no existen se
+                  // crean con su etiqueta tal cual la escribió el usuario.
+                  if (tiposCsv.length) pack.definition = { types: tiposCsv };
+                }
+              } catch (e) { return { success: false, error: 'No se pudo leer la URL: ' + ((e && e.message) || 'error') + '. Si es externa puede bloquearla CORS.' }; }
+            }
+            if (!pack || typeof pack !== 'object') {
+              return { success: false, error: 'Indica "url" (JSON o CSV accesible) o "datos" con el paquete JSON {components:[…], productos:[…]}.' };
+            }
+            const res = await importData(pack, {
+              rules: p.rules !== false, productos: p.productos !== false,
+              keepStoreLinks: p.keepStoreLinks !== false, mode: p.mode === 'skip' ? 'skip' : 'merge',
+            });
+            return { success: res.errors.length === 0, message: 'Importación — ' + importSummary(res),
+              error: res.errors.length ? 'Importado con errores: ' + res.errors.slice(0, 4).join(' · ') : undefined };
+          }
+          return { success: false, error: 'Acción desconocida: ' + s(type) + '. Acciones válidas: UPSERT_COMPONENT, SET_COMPONENT_COST, SET_MARGIN, RECALC_PRICES, APPLY_PRODUCTO, UPSERT_PRODUCTO, SET_PRODUCTO_STEPS, SET_STOREFRONT, COMPOSE_HERO, LINK_PRODUCT, SET_STOCK, PUBLISH_CONFIG, IMPORT_IMAGE, SET_MODEL3D, BUILD_3D_STEPS, LIST_SOURCES, MIGRATE_FROM, EXPORT_DATA, IMPORT_DATA.' };
         } catch (e) {
           return { success: false, error: (e && e.message) || 'Error interno.' };
         }
@@ -4512,6 +4950,156 @@ export default function mount(shell) {
     ]);
   }
 
+
+  // ── Pestaña: Datos (migrar, exportar, importar) ───────────────────────────
+  function DatosTab({ state }) {
+    const [insts, setInsts] = useState(null);      // null = sin cargar
+    const [instErr, setInstErr] = useState('');
+    const [sel, setSel] = useState('');
+    const [busy, setBusy] = useState('');
+    const [prev, setPrev] = useState(null);        // análisis previo (dry-run)
+    const [opts, setOpts] = useState({ rules: true, productos: true, keepStoreLinks: true, mode: 'merge' });
+    const [log, setLog] = useState('');
+    const [fileInfo, setFileInfo] = useState(null); // {name, pack} listo para importar
+    const upOpts = (patch) => setOpts(Object.assign({}, opts, patch));
+    const stamp = () => new Date().toISOString().slice(0, 10);
+
+    const cargarInstancias = async () => {
+      setBusy('list'); setInstErr('');
+      const r = await listOtherInstances();
+      setBusy('');
+      if (r.error) { setInstErr(r.error); setInsts([]); return; }
+      setInsts(r.instances || []);
+    };
+    const analizar = async () => {
+      if (!sel) return;
+      setBusy('scan'); setPrev(null); setLog('');
+      const r = await migrateFromInstance(sel, { dryRun: true });
+      setBusy('');
+      if (!r.success) { setLog('✕ ' + r.error); return; }
+      setPrev(r.conteo);
+    };
+    const migrar = async () => {
+      if (!sel) return;
+      if (!window.confirm('Se traerán los datos de la instancia seleccionada a ESTE catálogo (los ids se conservan; lo que ya exista con el mismo id o nombre se actualiza). ¿Continuar?')) return;
+      setBusy('mig'); setLog('');
+      const r = await migrateFromInstance(sel, opts);
+      setBusy('');
+      if (r.error) { setLog('✕ ' + r.error); return; }
+      setLog((r.success ? '✔ ' : '⚠ ') + importSummary(r.res));
+      shell.notify({ level: r.success ? 'success' : 'warn', text: 'Migración: ' + importSummary(r.res) });
+    };
+    const leerArchivo = async (f) => {
+      if (!f) return;
+      setLog(''); setFileInfo(null);
+      try {
+        const text = await f.text();
+        if (/\.csv$/i.test(f.name) || (!/^\s*[[{]/.test(text) && text.indexOf(',') !== -1)) {
+          const tiposCsv = [];
+          const r = componentsFromCsv(text, tiposCsv);
+          if (r.error) { setLog('✕ ' + r.error); return; }
+          const pk = { format: DATA_FORMAT, components: r.components };
+          if (tiposCsv.length) pk.definition = { types: tiposCsv };
+          setFileInfo({ name: f.name, pack: pk, tipo: 'CSV de componentes'
+            + (tiposCsv.length ? ' (+' + tiposCsv.length + ' tipo(s) nuevo(s))' : ''), n: r.components.length });
+          return;
+        }
+        const pack = JSON.parse(text);
+        const nc = (pack.components || []).length;
+        const np = (pack.productos || pack.equipos || []).length;
+        setFileInfo({ name: f.name, pack, tipo: 'JSON' + (pack.format === DATA_FORMAT ? ' de ProductLab' : ' (formato externo: se traducirá)'), n: nc + np });
+      } catch (e) { setLog('✕ No se pudo leer el archivo: ' + ((e && e.message) || 'error')); }
+    };
+    const importar = async () => {
+      if (!fileInfo) return;
+      setBusy('imp'); setLog('');
+      const res = await importData(fileInfo.pack, opts);
+      setBusy('');
+      setLog((res.errors.length ? '⚠ ' : '✔ ') + importSummary(res));
+      shell.notify({ level: res.errors.length ? 'warn' : 'success', text: 'Importación: ' + importSummary(res) });
+      setFileInfo(null);
+    };
+
+    return h('div', null, [
+      // ── Migrar desde otra app instalada ──
+      h('div', { key: 'mig', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'MIGRAR'), 'Traer datos desde otra app (Computadores u otro catálogo)']),
+        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Lee la instancia elegida con TUS permisos y copia su catálogo aquí: componentes, productos (con sus pasos y ficha), reglas de precio y tipos. Los identificadores se conservan, así que los pasos siguen apuntando a sus componentes sin re-enlazar nada. Es seguro repetirlo: lo que ya existe se actualiza en vez de duplicarse.'),
+        h('div', { key: 'l', className: 'gp-compline', style: { borderBottom: 0 } }, [
+          insts == null
+            ? h('button', { key: 'ld', className: 'gp-btn gp-btn-dark', disabled: busy === 'list', onClick: cargarInstancias }, busy === 'list' ? 'Buscando…' : 'Buscar catálogos disponibles')
+            : h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 460 }, value: sel, onChange: (e) => { setSel(e.target.value); setPrev(null); setLog(''); } },
+                [h('option', { key: '', value: '' }, insts.length ? 'Elige la instancia de origen…' : 'No hay otras instancias visibles')].concat(
+                  insts.map((i) => h('option', { key: i.id, value: i.id }, (i.name || i.id) + ' — ' + (i.templateId || '?'))))),
+          insts != null ? h('button', { key: 'rl', className: 'gp-btn gp-btn-sm', title: 'Volver a buscar', onClick: cargarInstancias }, '⟳') : null,
+          sel ? h('button', { key: 'an', className: 'gp-btn gp-btn-sm', disabled: busy === 'scan', onClick: analizar }, busy === 'scan' ? 'Analizando…' : 'Analizar origen') : null,
+        ]),
+        instErr ? h('div', { key: 'e', className: 'gp-errbox' }, instErr) : null,
+        prev ? h('div', { key: 'p', className: 'gp-warnbox', style: { background: 'var(--gp-plata)', border: '1px solid var(--gp-gris-claro)', color: 'var(--gp-negro)' } },
+          'Ese catálogo tiene ' + prev.components + ' componente(s) y ' + prev.productos + ' producto(s)' + (prev.rules ? ', más sus reglas de precio y tipos' : '') + '.') : null,
+        h('div', { key: 'o', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 6 } }, [
+          h('label', { key: 'r', className: 'gp-switch', style: { margin: 0 } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: opts.rules !== false, onChange: (e) => upOpts({ rules: e.target.checked }) }),
+            h('span', { key: 's' }, 'Traer reglas de precio y tipos de componente'),
+          ]),
+          h('label', { key: 'p', className: 'gp-switch', style: { margin: 0 } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: opts.productos !== false, onChange: (e) => upOpts({ productos: e.target.checked }) }),
+            h('span', { key: 's' }, 'Traer productos (pasos y ficha)'),
+          ]),
+          h('label', { key: 'k', className: 'gp-switch', style: { margin: 0 }, title: 'Mantiene el enlace de cada producto con su producto de la tienda. Desactívalo si migras a OTRO proyecto (allí esos enlaces no existen).' }, [
+            h('input', { key: 'c', type: 'checkbox', checked: opts.keepStoreLinks !== false, onChange: (e) => upOpts({ keepStoreLinks: e.target.checked }) }),
+            h('span', { key: 's' }, 'Mantener enlaces con la tienda'),
+          ]),
+          h('label', { key: 'm', className: 'gp-switch', style: { margin: 0 }, title: 'Con "no tocar lo existente" solo se crean los que faltan.' }, [
+            h('input', { key: 'c', type: 'checkbox', checked: opts.mode === 'skip', onChange: (e) => upOpts({ mode: e.target.checked ? 'skip' : 'merge' }) }),
+            h('span', { key: 's' }, 'No tocar lo que ya existe aquí'),
+          ]),
+        ]),
+        h('div', { key: 'a', className: 'gp-actions' }, [
+          h('button', { key: 'go', className: 'gp-btn gp-btn-primary', disabled: !sel || busy === 'mig', onClick: migrar }, busy === 'mig' ? 'Migrando…' : 'Migrar a este catálogo'),
+        ]),
+      ]),
+      // ── Exportar ──
+      h('div', { key: 'exp', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'EXPORTAR'), 'Respaldo y traslado']),
+        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+          'El CSV de componentes se edita en cualquier planilla (Excel, Sheets) y vuelve por "Importar" sin perder nada: es la vía rápida para cargar o corregir muchos costos de una vez. El JSON completo sirve de respaldo y para trasladar el catálogo a otro proyecto.'),
+        h('div', { key: 'b', className: 'gp-compline', style: { borderBottom: 0, flexWrap: 'wrap' } }, [
+          h('button', { key: 'csv', className: 'gp-btn gp-btn-dark', disabled: !state.components.length,
+            onClick: () => downloadText('componentes-' + stamp() + '.csv', componentsCsv(), 'text/csv') },
+            'Componentes (CSV) · ' + state.components.length),
+          h('button', { key: 'jc', className: 'gp-btn', disabled: !state.components.length,
+            onClick: () => downloadText('componentes-' + stamp() + '.json', JSON.stringify(exportData({ productos: false }), null, 2), 'application/json') },
+            'Componentes + reglas (JSON)'),
+          h('button', { key: 'all', className: 'gp-btn',
+            onClick: () => downloadText('productlab-' + stamp() + '.json', JSON.stringify(exportData({ productos: true, keepStoreLinks: true }), null, 2), 'application/json') },
+            'Todo el catálogo (JSON)'),
+          h('button', { key: 'port', className: 'gp-btn', title: 'Sin enlaces a la tienda: para llevarlo a otro proyecto o tenant',
+            onClick: () => downloadText('productlab-portable-' + stamp() + '.json', JSON.stringify(exportData({ productos: true, keepStoreLinks: false }), null, 2), 'application/json') },
+            'Todo, portable (sin enlaces)'),
+        ]),
+      ]),
+      // ── Importar ──
+      h('div', { key: 'imp', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'IMPORTAR'), 'Desde archivo (CSV o JSON)']),
+        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Acepta el CSV de componentes (con la columna "nombre"; si trae "id" se actualizan los existentes) y el JSON exportado aquí o por otra app de la familia. Los tipos de componente que no existan se crean solos.'),
+        h('div', { key: 'b', className: 'gp-compline', style: { borderBottom: 0 } }, [
+          h('label', { key: 'f', className: 'gp-btn gp-btn-dark', style: { cursor: 'pointer' } }, [
+            h('span', { key: 's' }, 'Elegir archivo…'),
+            h('input', { key: 'i', type: 'file', accept: '.json,.csv,application/json,text/csv', style: { display: 'none' },
+              onChange: (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; void leerArchivo(f); } }),
+          ]),
+          fileInfo ? h('span', { key: 'n', className: 'gp-muted' }, fileInfo.name + ' — ' + fileInfo.tipo + ' · ' + fileInfo.n + ' registro(s)') : null,
+          fileInfo ? h('button', { key: 'go', className: 'gp-btn gp-btn-primary', disabled: busy === 'imp', onClick: importar }, busy === 'imp' ? 'Importando…' : 'Importar ahora') : null,
+          fileInfo ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => setFileInfo(null) }, 'Cancelar') : null,
+        ]),
+      ]),
+      log ? h('div', { key: 'log', className: log.indexOf('✕') === 0 ? 'gp-errbox' : 'gp-warnbox' }, log) : null,
+    ]);
+  }
+
   // ── Raíz ──────────────────────────────────────────────────────────────────
   function Component() {
     const [state, setState] = useState(model);
@@ -4550,6 +5138,7 @@ export default function mount(shell) {
       ['componentes', 'Componentes' + (state.components.length ? ' (' + state.components.length + ')' : '') + (staleCount ? ' · ⚠' + staleCount + ' por verificar' : '')],
       ['precios', 'Precios'],
       ['publicacion', 'Publicación'],
+      ['datos', 'Datos'],
     ];
     return h('div', { className: 'kimos-productlab' + (cfg && cfg.denseTables ? ' gp-dense' : ''), style: rootStyle }, [
       h('div', { key: 'top', className: 'gp-top' }, [
@@ -4573,6 +5162,7 @@ export default function mount(shell) {
           : tab === 'componentes' ? h(ComponentesTab, { key: 'c', state })
           : tab === 'productos' ? h(ProductosTab, { key: 'e', state })
           : tab === 'precios' ? h(PreciosTab, { key: 'pr', state })
+          : tab === 'datos' ? h(DatosTab, { key: 'dat', state })
           : h(PublicacionTab, { key: 'pub', state }),
       ]),
     ]);

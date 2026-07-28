@@ -24,6 +24,31 @@ productsStore.set('prod-1', {
     values: [{ name: 'Algodón', sourceValueId: '901' }] }],
   variants: [],
 });
+// Catálogo de la app de computadores (esquema legacy: kind 'equipo',
+// productRef, rules con ivaPct/usdRate/assemblyDays y roundMode 'end990').
+const uploads = new Map();   // URL pública → contenido (export/import)
+const legacyStore = new Map();
+legacyStore.set('definition', {
+  id: 'definition', kind: 'definition',
+  types: [{ id: 'cpu', label: 'Procesador' }, { id: 'ram', label: 'Memoria RAM' }],
+  rules: { ivaPct: 19, usdRate: 950, marginBasis: 'cost', marginDefaultPct: 25, marginBasePct: 25,
+    marginByType: { cpu: 20 }, roundMode: 'end990', deltaRoundTo: 100, assemblyDays: 3, staleDays: 30 },
+  storeBaseUrl: 'https://hubpro.cl',
+});
+legacyStore.set('cmp-r5', { id: 'cmp-r5', kind: 'component', name: 'Ryzen 5 8500G', type: 'cpu',
+  cost: 110000, currency: 'CLP', specs: '6 núcleos', supplierName: 'PC Factory', supplierUrl: 'https://p/1',
+  deliveryDays: 2, stock: 4, tags: ['socket:am5'], active: true, verifiedAt: '2026-07-01T10:00:00.000Z' });
+legacyStore.set('cmp-ram', { id: 'cmp-ram', kind: 'component', name: 'RAM Kingston 16GB', type: 'ram',
+  cost: 45000, currency: 'CLP', requires: ['ddr5'], deliveryDays: 3, stock: null, active: true });
+legacyStore.set('eq-pc', { id: 'eq-pc', kind: 'equipo', name: 'PC Gamer N1', sku: 'PPRO-N1', status: 'active',
+  baseComponentIds: ['cmp-r5'], extraCosts: [{ id: 'ec1', label: 'Armado', cost: 80000, currency: 'CLP' }],
+  groups: [{ id: 'g-ram', typeId: 'ram', label: 'Memoria', defaultValueId: 'v-16',
+    values: [{ id: 'v-16', label: '16GB DDR5', componentIds: ['cmp-ram'] }] }],
+  productRef: { instanceId: 'p-inst', itemId: 'prod-1', sourceId: '424242', sku: 'PPRO-N1', name: 'PC Gamer N1' },
+  storefront: { specs: [{ id: 'sp1', group: '', label: 'Gabinete', value: 'ATX' }], photosNote: 'Fotos referenciales' },
+  deliveryMode: 'max', price: 345990,
+});
+
 let agentReg = null;
 const shell = {
   app: { appId: 'productlab', instanceId: 'inst-1', teamId: 'team-1' },
@@ -58,11 +83,35 @@ const shell = {
         results: { [iid]: { ok: true, results: { jumpseller: { ok: true } }, itemPatch: patched } },
         syncStatusByItem: { [iid]: 'synced' } }) };
     }
+    // Instancia AJENA (app de computadores) para probar la migración: se lee
+    // con authFetch y el RBAC del usuario, igual que en producción.
+    if (method === 'GET' && url.endsWith('/api/app-instances')) {
+      return { ok: true, json: async () => ({ instances: [
+        { id: 'inst-1', name: 'ProductLab', templateId: 'productlab' },
+        { id: 'old-pc', name: 'Computadores HubPro', templateId: 'hubpro.computadores' },
+      ] }) };
+    }
+    if (method === 'GET' && url.includes('/api/app-instances/old-pc/items')) {
+      return { ok: true, json: async () => ({ items: Array.from(legacyStore.values()) }) };
+    }
+    if (method === 'GET' && url.includes('/api/app-instances/sin-acceso/items')) {
+      return { ok: false, status: 403, json: async () => ({ detail: 'Sin acceso a la instancia.' }) };
+    }
     if (method === 'GET' && url.includes('/api/storage/teams/team-1/files/download')) {
       return { ok: true, blob: async () => new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }) };
     }
     if (method === 'POST' && url.includes('/api/v2/files')) {
+      // Guarda el contenido subido para poder releerlo por su URL pública
+      // (export → import de ida y vuelta).
+      try {
+        const path = opts.body.get('path');
+        const file = opts.body.get('file');
+        uploads.set('http://kimos.local/api/public/files/' + path, await file.text());
+      } catch (e) { /* FormData simulado */ }
       return { ok: true, json: async () => ({ ok: true }) };
+    }
+    if (method === 'GET' && uploads.has(url)) {
+      return { ok: true, text: async () => uploads.get(url), json: async () => JSON.parse(uploads.get(url)) };
     }
     return { ok: true, json: async () => ({}) };
   },
@@ -817,6 +866,95 @@ if (sfMod.style.accentColor !== '#0FA36B' || sfMod.style.radius !== 8 || sfMod.s
 const badImg = await agentReg.dispatchAction({ type: 'SET_STOREFRONT', payload: { producto: 'Mesa Modular', pageSections: [{ kind: 'imagen' }] } });
 if (badImg.success || badImg.error.indexOf('imageUrl') === -1) throw new Error('sección imagen sin URL no rechazada: ' + JSON.stringify(badImg));
 console.log('ProductLab: secciones imagen, tamaños auto y estilo por producto OK');
+
+// ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────
+// LIST_SOURCES ve la instancia ajena (y no la propia).
+const src = await act('LIST_SOURCES', {});
+if (src.message.indexOf('old-pc') === -1 || src.message.indexOf('hubpro.computadores') === -1) {
+  throw new Error('LIST_SOURCES no listó la instancia de computadores: ' + src.message);
+}
+if (src.message.indexOf('inst-1') !== -1) throw new Error('LIST_SOURCES no debe listar la instancia propia');
+
+// dryRun: informa sin escribir nada.
+const antesComps = agentReg.getSnapshot().components.length;
+const dry = await act('MIGRATE_FROM', { origen: 'old-pc', dryRun: true });
+if (dry.message.indexOf('2 componente(s)') === -1 || dry.message.indexOf('1 producto(s)') === -1) {
+  throw new Error('dryRun con conteo incorrecto: ' + dry.message);
+}
+expectEq('dryRun no escribe', agentReg.getSnapshot().components.length, antesComps);
+
+// Migración real: traduce kind equipo→producto, productRef→storeRef y
+// PRESERVA los ids (el paso sigue apuntando a su componente).
+const mig = await act('MIGRATE_FROM', { origen: 'old-pc' });
+if (mig.message.indexOf('2 nuevos') === -1) throw new Error('migración sin componentes nuevos: ' + mig.message);
+const snapMig = agentReg.getSnapshot();
+const migR5 = snapMig.components.find((c) => c.id === 'cmp-r5');
+if (!migR5 || migR5.name !== 'Ryzen 5 8500G') throw new Error('el componente migrado no conservó su id');
+expectEq('costo migrado', migR5.cost, 110000);
+expectEq('verificado migrado', migR5.verifiedAt, '2026-07-01T10:00:00.000Z');
+const migProd = snapMig.productos.find((e) => e.id === 'eq-pc');
+if (!migProd) throw new Error('el equipo no se migró como producto');
+if (!migProd.linked) throw new Error('productRef no se tradujo a storeRef (el producto quedó sin enlace)');
+expectEq('paso migrado con su componente', migProd.steps[0].values[0].alternatives[0], 'RAM Kingston 16GB');
+const itemProd = store.get('eq-pc');
+if (itemProd.kind !== 'producto') throw new Error('el item migrado debe guardarse con kind "producto"');
+if (itemProd.productRef) throw new Error('productRef debía eliminarse tras traducirlo a storeRef');
+expectEq('priceMode del migrado', itemProd.priceMode, 'auto');
+// Reglas legacy traducidas por los alias (ivaPct/usdRate/assemblyDays/end990).
+const rMig = agentReg.getSnapshot().rules;
+expectEq('impuesto desde ivaPct', rMig.salesTaxPct, 19);
+expectEq('USD desde usdRate', rMig.fx.USD, 950);
+expectEq('días desde assemblyDays', rMig.leadTimeDays, 3);
+expectEq('redondeo desde end990', rMig.roundMode, 'ending');
+if (!agentReg.getSnapshot().types.some((t) => t.id === 'cpu')) throw new Error('los tipos del origen no se trajeron');
+
+// Idempotente: repetir no duplica.
+const n1 = agentReg.getSnapshot().components.length;
+const mig2 = await act('MIGRATE_FROM', { origen: 'old-pc' });
+expectEq('migrar de nuevo no duplica', agentReg.getSnapshot().components.length, n1);
+if (mig2.message.indexOf('2 actualizados') === -1) throw new Error('la segunda pasada debía actualizar: ' + mig2.message);
+
+// Origen inaccesible → error didáctico.
+const bad = await agentReg.dispatchAction({ type: 'MIGRATE_FROM', payload: { origen: 'sin-acceso' } });
+if (bad.success || bad.error.indexOf('LIST_SOURCES') === -1) throw new Error('origen inválido sin error didáctico: ' + JSON.stringify(bad));
+
+// Exportar → importar (ida y vuelta por URL, con el CSV de componentes).
+const expCsv = await act('EXPORT_DATA', { formato: 'csv' });
+const csvUrl = expCsv.message.match(/https?:\/\/[^ ]+\.csv/)[0];
+if (uploads.get(csvUrl) == null) throw new Error('el CSV no se subió');
+const csvText = uploads.get(csvUrl);
+if (csvText.split('\n')[0].indexOf('nombre') === -1) throw new Error('CSV sin encabezado "nombre"');
+if (csvText.indexOf('Ryzen 5 8500G') === -1) throw new Error('CSV sin los componentes');
+// Editar el CSV como en una planilla: cambio de costo y componente nuevo.
+const editado = csvText.split('\r\n')
+  .map((ln) => (ln.indexOf('cmp-r5') === 0 ? ln.replace('110000', '125000') : ln))
+  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,0,7,4,PC Factory,https://p/9,,,,,si,,'])
+  .join('\r\n');
+uploads.set(csvUrl, editado);
+const impCsv = await act('IMPORT_DATA', { url: csvUrl });
+if (impCsv.message.indexOf('1 nuevos') === -1) throw new Error('el componente nuevo del CSV no se creó: ' + impCsv.message);
+const snapCsv = agentReg.getSnapshot();
+expectEq('costo editado en la planilla', snapCsv.components.find((c) => c.id === 'cmp-r5').cost, 125000);
+const nuevoCsv = snapCsv.components.find((c) => c.name === 'Gabinete NZXT');
+if (!nuevoCsv) throw new Error('el componente agregado en el CSV no llegó');
+expectEq('stock del componente nuevo (columna stock)', nuevoCsv.stock, 7);
+expectEq('días de entrega del componente nuevo', nuevoCsv.deliveryDays, 4);
+expectEq('costo del componente nuevo', nuevoCsv.cost, 39990);
+if (!agentReg.getSnapshot().types.some((t) => t.label === 'Chasis')) throw new Error('el tipo nuevo del CSV debía crearse solo');
+
+// Export JSON completo y reimportación en modo "skip" (no toca lo existente).
+const expJson = await act('EXPORT_DATA', { formato: 'json' });
+const jsonUrl = expJson.message.match(/https?:\/\/[^ ]+\.json/)[0];
+const packExp = JSON.parse(uploads.get(jsonUrl));
+if (packExp.format !== 'kimos.productlab.data' || !packExp.components.length || !packExp.productos.length) {
+  throw new Error('export JSON incompleto: ' + JSON.stringify(Object.keys(packExp)));
+}
+if (!packExp.definition || !packExp.definition.rules) throw new Error('export JSON sin reglas');
+const nAntes = agentReg.getSnapshot().components.length;
+const impSkip = await act('IMPORT_DATA', { url: jsonUrl, mode: 'skip' });
+expectEq('modo skip no crea duplicados', agentReg.getSnapshot().components.length, nAntes);
+if (impSkip.message.indexOf('omitidos') === -1) throw new Error('modo skip no informó omisiones: ' + impSkip.message);
+console.log('ProductLab: migración desde otra app, export/import JSON y CSV (ida y vuelta) OK');
 
 console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen y estilo por producto válidos');
 cleanups.forEach((c) => c());
