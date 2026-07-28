@@ -247,9 +247,15 @@
       var base = src.replace(/[^/]*$/, '');
       var query = (src.match(/\?.*$/) || [''])[0];
       var min = /\.min\.js(\?|$)/.test(src);
-      var a = base + 'kimos-engine3d.min.js' + query;
-      var b = base + 'kimos-engine3d.js' + query;
-      return min ? [a, b] : [b, a];
+      // Jumpseller quita los guiones al subir (kimos-engine3d.js →
+      // kimosengine3d.js) y además minifica: se prueban las cuatro variantes.
+      var out = [];
+      ['kimos-engine3d', 'kimosengine3d'].forEach(function (n) {
+        var a = base + n + '.min.js' + query;
+        var b = base + n + '.js' + query;
+        if (min) { out.push(a, b); } else { out.push(b, a); }
+      });
+      return out;
     }
 
     function loadEngine() {

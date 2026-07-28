@@ -19,6 +19,24 @@ producto del `<script class="product-json">` que el theme ya imprime.
 El arranque va en `assets/custom.js`, que el theme ya carga en todas las
 páginas — así que **no se toca ningún `.liquid`**.
 
+## Jumpseller renombra los assets (importante)
+
+Al subir un archivo a **Assets**, Jumpseller **sanea el nombre y le quita los
+guiones**: `kimos-configurador.js` queda servido como `kimosconfigurador.js`
+(y además puede minificar: `custom.js` → `custom.min.js?<ts>`). Los tres
+scripts del kit lo contemplan y prueban todas las variantes del nombre antes
+de rendirse, así que **sube los archivos con su nombre original** y no hace
+falta renombrar nada.
+
+Síntoma cuando esto falla (kits anteriores a jul-2026):
+
+```
+[kimos3d] no se pudo cargar kimos-configurador.js desde https://assets.jumpseller.com/... 
+```
+
+Comprueba en Assets con qué nombre quedaron; si ves `kimosconfigurador.js`,
+actualiza los tres scripts del kit a la versión actual.
+
 ## Dos modos
 
 | Modo | Qué hace | Cómo se activa |

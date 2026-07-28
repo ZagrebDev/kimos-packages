@@ -634,9 +634,16 @@
     var base = src.replace(/[^/]*$/, '');
     var q = (src.match(/\?.*$/) || [''])[0];
     var min = /\.min\.js(\?|$)/.test(src);
-    var a = base + 'kimos-engine3d.min.js' + q;
-    var b = base + 'kimos-engine3d.js' + q;
-    return min ? [a, b] : [b, a];
+    // Jumpseller quita los guiones del nombre al subirlo
+    // (kimos-engine3d.js → kimosengine3d.js) y además minifica: se prueban
+    // las cuatro variantes hasta que una carga.
+    var out = [];
+    ['kimos-engine3d', 'kimosengine3d'].forEach(function (n) {
+      var a = base + n + '.min.js' + q;
+      var b = base + n + '.js' + q;
+      if (min) { out.push(a, b); } else { out.push(b, a); }
+    });
+    return out;
   }
   function loadEngine() {
     if (window.KimosEngine3D) return Promise.resolve(window.KimosEngine3D);

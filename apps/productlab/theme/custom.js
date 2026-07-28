@@ -94,10 +94,22 @@ window.KIMOS_FULL = true;
   // define KIMOS_ASSET_V con cualquier valor distinto al anterior.
   var hoy = new Date();
   var bust = '?kv=' + (window.KIMOS_ASSET_V || (hoy.getFullYear() * 10000 + (hoy.getMonth() + 1) * 100 + hoy.getDate()));
+  // Jumpseller SANEA el nombre al subir el archivo y, entre otras cosas, le
+  // QUITA LOS GUIONES: `kimos-configurador.js` termina servido como
+  // `kimosconfigurador.js`. Además minifica (`custom.js` → `custom.min.js`).
+  // Por eso se prueban todas las variantes: pedir la que no existe devuelve
+  // 404 y ese archivo simplemente no llega a ejecutarse.
   var candidatos = function (nombre, ext) {
-    var a = base + nombre + '.min.' + ext + bust;
-    var b = base + nombre + '.' + ext + bust;
-    return min ? [a, b] : [b, a];
+    var nombres = [nombre];
+    var plano = nombre.replace(/-/g, '');
+    if (plano !== nombre) nombres.push(plano);
+    var out = [];
+    for (var n = 0; n < nombres.length; n++) {
+      var a = base + nombres[n] + '.min.' + ext + bust;
+      var b = base + nombres[n] + '.' + ext + bust;
+      if (min) { out.push(a, b); } else { out.push(b, a); }
+    }
+    return out;
   };
 
   // CSS: se intenta el primero y, si falla, el segundo.
