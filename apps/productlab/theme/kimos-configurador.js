@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.5.0';
+  var VERSION = '5.5.1';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1661,8 +1661,40 @@
       } finally { enforcing = false; }
     }
 
+    /**
+     * El botón de carro REAL del theme.
+     *
+     * Antes se cogía «el primer <button> del formulario», y en los themes de
+     * Jumpseller ese primer botón es el «−» del selector de cantidad: aparece
+     * deshabilitado con cantidad 1, así que el panel enseñaba "esta
+     * combinación no está disponible" siempre, y pulsar "Añadir al carro"
+     * pulsaba el menos. De ahí que no llegara nada al carro.
+     *
+     * Se busca por orden de certeza, y se descarta cualquier control de
+     * cantidad. `type="submit"` no vale como pista: según la configuración del
+     * theme, el mismo botón se imprime como submit o como button.
+     */
+    var SEL_CARRO = ['#add-to-cart', '[data-add-to-cart]', 'button[name="add"]',
+      '.add-to-cart', '.product-form__button', '.product-form__submit',
+      'form[action*="cart"] button[type=submit]', 'form[name="buy"] button[type=submit]',
+      'button[type=submit]'];
+    function esDeCantidad(n) {
+      if (!n) return true;
+      if (n.closest && n.closest('.product-form__quantity, .quantity, [class*="qty"]')) return true;
+      if (/quantity-(up|down)|product-form__handler/.test(n.className || '')) return true;
+      var t = (n.textContent || '').trim();
+      return t === '' ? false : /^[+\-−–]$/.test(t);
+    }
     function botonCarro() {
-      return document.querySelector('.kc-hidden-native button[type=submit], .kc-hidden-native .product-form button, .kc-hidden-native form button');
+      var caja = document.querySelector('.kc-hidden-native') || document;
+      for (var i = 0; i < SEL_CARRO.length; i++) {
+        var nodos;
+        try { nodos = caja.querySelectorAll(SEL_CARRO[i]); } catch (e) { continue; }
+        for (var j = 0; j < nodos.length; j++) {
+          if (!esDeCantidad(nodos[j])) return nodos[j];
+        }
+      }
+      return null;
     }
     function alCarro() {
       // Se pulsa el botón REAL del theme: su AJAX, su validación, su carro.
@@ -1988,6 +2020,20 @@
       new MutationObserver(function () { pintarPanel(); }).observe(real, {
         attributes: true, attributeFilter: ['disabled', 'class'],
       });
+    })();
+
+    // Qué botón de carro se está usando: si se elige el equivocado, todo lo
+    // que cuelga de él (disponibilidad y "Añadir al carro") queda mal.
+    (function revisarCarro() {
+      var real = botonCarro();
+      if (!real) {
+        console.warn(LOG, 'no encuentro el botón de carro del theme: el panel no podrá añadir al carro. '
+          + 'Si tu theme usa otro marcado, dímelo y lo añado a la lista.');
+        return;
+      }
+      console.info(LOG, 'botón de carro del theme: '
+        + real.tagName.toLowerCase() + (real.id ? '#' + real.id : '') + (real.className ? '.' + String(real.className).split(/\s+/)[0] : '')
+        + (real.disabled ? ' (deshabilitado ahora mismo)' : ''));
     })();
 
     // Radiografía de los pasos: qué tiene la TIENDA (que es lo que se puede

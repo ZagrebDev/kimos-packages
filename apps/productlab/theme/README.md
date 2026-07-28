@@ -123,6 +123,32 @@ es lo primero que hay**: recorre hacia arriba mientras siga siendo el primer
 hijo y anula ahí el `padding-top`/`margin-top`. Si encima queda algo del theme
 (migas de pan, un aviso), su espacio no se toca.
 
+## El botón de carro del theme
+
+Todo lo que la ficha dice sobre disponibilidad —y el propio "Añadir al carro"—
+cuelga del **botón real** del theme: es quien sabe de stock, variantes y AJAX.
+Encontrarlo tiene trampa, y aquí se pagó cara:
+
+- El primer `<button>` del formulario de Jumpseller es el **`−` del selector de
+  cantidad**, que llega deshabilitado con cantidad 1. Cogerlo dejaba el aviso
+  *"esta combinación no está disponible"* puesto para siempre y mandaba el clic
+  de "Añadir al carro" al menos: al carro no llegaba nada.
+- `type="submit"` **no** sirve como pista: el mismo botón se imprime como
+  `submit` o como `button` según la configuración del theme
+  (`display_cart_notification`).
+
+Se busca por orden de certeza —`#add-to-cart`, `[data-add-to-cart]`,
+`[name=add]`, `.add-to-cart`, `.product-form__button`, y ya al final un
+`button[type=submit]` dentro del formulario— descartando siempre los controles
+de cantidad. Al montar, la consola dice cuál se está usando:
+
+```
+[kimos-cfg] botón de carro del theme: button#add-to-cart.button
+```
+
+Si tu theme usa otro marcado y ahí aparece "no encuentro el botón de carro",
+ese es el dato que hay que añadir a la lista.
+
 ## Cuando la tienda y ProductLab no coinciden
 
 La ficha **solo puede ofrecer lo que la tienda tiene**: los valores salen de
@@ -254,7 +280,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.5.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.5.1**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.
