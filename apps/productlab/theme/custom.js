@@ -26,7 +26,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
 // solos al día siguiente.
-window.KIMOS_ASSET_V = '24';
+window.KIMOS_ASSET_V = '25';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
@@ -83,18 +83,56 @@ window.KIMOS_FULL = true;
   }
   var base = src.replace(/[^/]*$/, '');
 
-  // Velo anti-parpadeo: si vamos a reemplazar la ficha, se oculta la original
-  // YA, antes de que el navegador la pinte, y el configurador la destapa (o
-  // la retira solo tras 4 s si algo falla, para no dejar la página en blanco).
+  // ── Arranque: velo + spinner hasta que la ficha esté LISTA ───────────────
+  // Sin esto se veía la ficha del theme unos segundos (mientras se pide el
+  // JSON), luego el cambiazo a la de KIMOS, y encima el hero sin su foto. El
+  // velo tapa desde el primer instante y el configurador lo retira cuando ya
+  // ha pintado Y sus imágenes han cargado. Todo va aquí, en línea: el CSS del
+  // kit llega por su cuenta y puede tardar más que esto.
   if (window.KIMOS_FULL === true) {
     var veil = document.createElement('style');
     veil.id = 'kc-veil';
-    veil.textContent = '.product-page__wrapper,.product-page__info{visibility:hidden}';
+    veil.textContent = '.product-page__wrapper,.product-page__info{visibility:hidden}'
+      + '#kc-boot{position:fixed;left:0;right:0;bottom:0;top:var(--kc-boot-top,0px);'
+      + 'z-index:2147483000;background:var(--kc-boot-bg,#fff);'
+      + 'display:flex;align-items:center;justify-content:center;'
+      + 'transition:opacity .3s ease}'
+      + '#kc-boot.kc-boot-out{opacity:0;pointer-events:none}'
+      + '#kc-boot i{display:block;width:34px;height:34px;border-radius:50%;'
+      + 'border:3px solid rgba(128,128,128,.28);border-top-color:var(--kc-boot-accent,#19ACB1);'
+      + 'animation:kc-boot-rot .8s linear infinite}'
+      + '@keyframes kc-boot-rot{to{transform:rotate(360deg)}}';
     document.head.appendChild(veil);
+
+    // Solo en fichas de producto: en el resto del sitio no hay nada que tapar.
+    var esFicha = function () {
+      return !!document.querySelector('.product-form-json, .product-json, .prod-options, .product-page, [id^="product-template"]');
+    };
+    var ponerVelo = function () {
+      if (document.getElementById('kc-boot') || !document.body || !esFicha()) return;
+      var caja = document.createElement('div');
+      caja.id = 'kc-boot';
+      caja.appendChild(document.createElement('i'));
+      // El fondo real de la página: un velo blanco en una tienda oscura es
+      // otro parpadeo, solo que al revés.
+      try {
+        var fondo = getComputedStyle(document.body).backgroundColor;
+        if (fondo && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fondo)) caja.style.setProperty('--kc-boot-bg', fondo);
+      } catch (e) { /* da igual: queda el blanco */ }
+      document.body.appendChild(caja);
+    };
+    if (document.body) ponerVelo();
+    document.addEventListener('DOMContentLoaded', ponerVelo);
+
+    // Red de seguridad: si el configurador no llega a destaparlo (no carga, la
+    // tienda no responde…), el velo se va solo. Antes eran 4 s y se levantaba
+    // ANTES de que la ficha estuviera lista — de ahí el cambiazo a la vista.
     setTimeout(function () {
       var v = document.getElementById('kc-veil');
       if (v && v.parentNode) v.parentNode.removeChild(v);
-    }, 4000);
+      var b = document.getElementById('kc-boot');
+      if (b && b.parentNode) b.parentNode.removeChild(b);
+    }, 9000);
   }
 
   // Jumpseller MINIFICA y RENOMBRA los assets: la plantilla pide `custom.js` y

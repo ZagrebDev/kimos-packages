@@ -31,9 +31,12 @@
     // vivo; quedan los visores del sistema (Scene Viewer / Quick Look).
     xr8: window.KIMOS_XR8_URL || '',
     xrextras: window.KIMOS_XREXTRAS_URL || '',
+    // Tope de espera del velo de arranque: pasado ese tiempo se destapa
+    // aunque alguna foto siga sin llegar (nunca dejar la tienda tapada).
+    bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.3.1';
+  var VERSION = '5.4.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1467,6 +1470,15 @@
       console.info(LOG, 'la barra se montó en <body>: un ancestro del theme rompía position:fixed.');
     }
 
+    // El velo de arranque adopta el estilo del producto y deja ver el menú del
+    // sitio: se espera con la marca de la tienda, no con una pantalla en blanco.
+    var boot = document.getElementById('kc-boot');
+    if (boot) {
+      boot.style.setProperty('--kc-boot-top', medirTop() + 'px');
+      if (String(style.accentColor || '').trim()) boot.style.setProperty('--kc-boot-accent', String(style.accentColor).trim());
+      if (String(style.bgColor || '').trim()) boot.style.setProperty('--kc-boot-bg', String(style.bgColor).trim());
+    }
+
     var reencajar = encajarConTheme(root, page, style.width);
     // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
     // recalcula porque cambia con el contenido (precio largo, dos líneas en
@@ -1942,20 +1954,61 @@
   // Velo anti-parpadeo puesto por custom.js: se retira en cuanto se sabe si
   // esta ficha se reemplaza o no. Sin esto la página original se ve un instante
   // y da sensación de parche.
-  function destapar() {
+  function destapar(inmediato) {
     var v = document.getElementById('kc-veil');
     if (v && v.parentNode) v.parentNode.removeChild(v);
+    var b = document.getElementById('kc-boot');
+    if (!b) return;
+    if (inmediato) { if (b.parentNode) b.parentNode.removeChild(b); return; }
+    b.classList.add('kc-boot-out');   // se funde, no desaparece de golpe
+    setTimeout(function () { if (b.parentNode) b.parentNode.removeChild(b); }, 350);
+  }
+
+  /**
+   * Espera a que la ficha esté MIRABLE: sus imágenes ya cargadas (incluidos
+   * los fondos de los heros, que no son <img> y nadie espera). Con un tope,
+   * porque una foto que no llega no puede dejar la tienda tapada para siempre.
+   */
+  function esperarImagenes(raiz, tope) {
+    var pendientes = [];
+    var espera = function (n) {
+      return new Promise(function (listo) {
+        n.addEventListener('load', listo, { once: true });
+        n.addEventListener('error', listo, { once: true });
+      });
+    };
+    var imgs = raiz.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+      if (imgs[i].src && !imgs[i].complete) pendientes.push(espera(imgs[i]));
+    }
+    // Fondos de hero: se precargan en un <img> suelto, que es lo que permite
+    // saber cuándo están listos. Es la foto grande que aparecía a destiempo.
+    var fondos = raiz.querySelectorAll('.kc-hero-bg');
+    for (var j = 0; j < fondos.length; j++) {
+      var url = (getComputedStyle(fondos[j]).backgroundImage || '').match(/url\(["']?(.*?)["']?\)/);
+      if (!url || !url[1] || url[1] === 'none') continue;
+      var pre = new Image();
+      pendientes.push(espera(pre));
+      pre.src = url[1];
+    }
+    if (!pendientes.length) return Promise.resolve();
+    return Promise.race([
+      Promise.all(pendientes),
+      new Promise(function (listo) { setTimeout(listo, tope || 4000); }),
+    ]);
   }
 
   function start() {
     var prod = currentProduct();
-    if (!prod) { destapar(); return; }
+    // Cuando NO se va a reemplazar nada, el velo sobra: fuera de inmediato,
+    // sin fundido, que la ficha del theme ya está lista debajo.
+    if (!prod) { destapar(true); return; }
     loadDefinition().then(function (def) {
       var entry = findEntry(def, prod);
-      if (!entry) { destapar(); return; }
+      if (!entry) { destapar(true); return; }
       // Sin ficha ni 3D no hay nada que reemplazar: se deja el theme como está.
       var sf = entry.storefront || {};
-      if (!(sf.pageSections || []).length && !(entry.model3d && entry.model3d.url)) { destapar(); return; }
+      if (!(sf.pageSections || []).length && !(entry.model3d && entry.model3d.url)) { destapar(true); return; }
       // `version` 1 o 2: el contrato v2 (ProductLab) añade campos que aquí se
       // tratan como opcionales, así que ambos se montan por la misma vía.
       // Si el montaje falla, la ficha del theme TIENE que volver a verse: sin
@@ -1967,8 +2020,13 @@
         if (roto && roto.parentNode) roto.parentNode.removeChild(roto);
         var oculto = document.querySelector('.kc-hidden-native');
         if (oculto) oculto.classList.remove('kc-hidden-native');
+        destapar(true);
+        return;
       }
-      destapar();
+      // Se destapa cuando la ficha está pintada Y sus fotos han cargado: así
+      // no se ve ni la ficha vieja ni el hero sin su imagen.
+      var raiz = document.querySelector('.kimos-cfg') || document;
+      esperarImagenes(raiz, CFG.bootMax).then(function () { destapar(); });
     }).catch(function (e) { destapar(); console.warn(LOG, 'no se pudo leer la definición:', e.message); });
   }
 

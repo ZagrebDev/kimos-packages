@@ -89,6 +89,31 @@ este kit:
 2. Deja `components/product-template.liquid` con su rama estándar (sin la
    vista personalizada). Este kit no necesita tocar ningún `.liquid`.
 
+## Arranque: velo con spinner hasta que la ficha está lista
+
+Al entrar en un producto se veían, en este orden: la ficha del theme unos
+segundos, el cambiazo a la de KIMOS y el hero sin su foto hasta que cargaba.
+Ahora `custom.js` pinta desde el primer instante un velo a pantalla completa
+con un spinner (estilos en línea: el CSS del kit llega después) y el
+configurador lo retira **cuando ya ha pintado Y sus imágenes han cargado** —
+las de la ficha y los fondos de los heros, que se precargan aparte porque no
+son `<img>` y nadie los espera. Se va fundiéndose, no de golpe.
+
+Detalles que importan:
+
+- El velo solo aparece en fichas de producto, y se retira **al instante** (sin
+  fundido) si no hay nada que reemplazar: producto sin ficha KIMOS, JSON
+  inaccesible o error al montar.
+- Adopta el color de fondo real de la página y, en cuanto el configurador
+  mide el menú del sitio, se coloca por debajo de él: se espera con la tienda
+  a la vista, no con una pantalla en blanco. El spinner toma el acento del
+  producto.
+- Topes: la espera de imágenes es de 4 s (`window.KIMOS_BOOT_MAX` para
+  cambiarlo) y `custom.js` retira el velo pase lo que pase a los 9 s. Una foto
+  que no llega nunca puede dejar la tienda tapada.
+- El visor 3D **no** se espera: se carga solo al entrar en *Configurar*, y
+  bloquear la ficha por él sería peor que el problema que arregla.
+
 ## Configurar: pasos a la izquierda, panel de compra a la derecha
 
 La vista *Configurar* es la de la ficha de computadores: los pasos ocupan la
@@ -190,7 +215,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.3.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.4.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

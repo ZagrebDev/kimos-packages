@@ -53,6 +53,7 @@ const prodInfo = {
   variant: { id: 1, price: 100000 },
 };
 const pagina = () => `<!doctype html><html lang="es"><body>
+<div id="kc-boot"><i></i></div>
 <section class="product-page">
   <div class="product-page__wrapper">
     <script type="application/json" class="product-form-json">${JSON.stringify({ options: {}, info: prodInfo })}</script>
@@ -96,10 +97,11 @@ async function montar(def, prep) {
   w.scrollTo = function () {};
   w.KIMOS_3D_URL = 'https://kimos.local/api/public/app/i1/definition';
   w.KIMOS_FULL = true;
+  w.KIMOS_BOOT_MAX = 10;   // el tope real son 4 s; aquí no hay imágenes que cargar
   w.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ data: def }) });
   if (prep) prep(w);   // estado previo de la página (selecciones del theme)
   w.eval(SRC);
-  await new Promise((r) => setTimeout(r, 80));   // loadDefinition es async
+  await new Promise((r) => setTimeout(r, 250));  // loadDefinition + espera de imágenes + fundido
   return w;
 }
 
@@ -149,6 +151,10 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   // blanco sobre blanco dentro de un hero con texto claro.
   const acento = w.getComputedStyle(root).getPropertyValue('--kc-accent').trim();
   t('acento nunca es currentColor', acento !== 'currentColor');
+  // Velo de arranque: tapa hasta que la ficha está pintada y con sus fotos, y
+  // se retira fundiéndose (nunca de golpe, que es lo que se veía como cambiazo).
+  const boot = d.getElementById('kc-boot');
+  t('el velo de arranque se retira al estar lista la ficha', !boot || boot.classList.contains('kc-boot-out'));
   // Iconos destacados: se veían como texto suelto y centrado en la tienda
   // mientras el previsualizador de la app los dibujaba con filete de acento.
   const iconos = d.querySelector('.kc-b-icons');
