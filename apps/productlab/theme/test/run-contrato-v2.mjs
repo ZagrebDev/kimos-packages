@@ -54,7 +54,7 @@ const prodInfo = {
 };
 const pagina = () => `<!doctype html><html lang="es"><body>
 <div id="kc-boot"><i></i></div>
-<section class="product-page">
+<section class="product-page" style="padding-top:40px;margin-top:24px">
   <div class="product-page__wrapper">
     <script type="application/json" class="product-form-json">${JSON.stringify({ options: {}, info: prodInfo })}</script>
     <div class="product-options">${selectsHtml}</div>
@@ -155,6 +155,10 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   // se retira fundiéndose (nunca de golpe, que es lo que se veía como cambiazo).
   const boot = d.getElementById('kc-boot');
   t('el velo de arranque se retira al estar lista la ficha', !boot || boot.classList.contains('kc-boot-out'));
+  // La ficha arranca pegada a la barra: el aire que el theme deja encima de la
+  // sección de producto se veía como un hueco entre la barra fija y el hero.
+  const seccion = d.querySelector('.product-page');
+  t('sin hueco entre la barra y el hero', seccion.style.paddingTop === '0px' && seccion.style.marginTop === '0px');
   // Iconos destacados: se veían como texto suelto y centrado en la tienda
   // mientras el previsualizador de la app los dibujaba con filete de acento.
   const iconos = d.querySelector('.kc-b-icons');

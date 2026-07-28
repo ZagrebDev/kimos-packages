@@ -114,6 +114,15 @@ Detalles que importan:
 - El visor 3D **no** se espera: se carga solo al entrar en *Configurar*, y
   bloquear la ficha por él sería peor que el problema que arregla.
 
+## La ficha arranca pegada a la barra
+
+Los themes dejan aire encima de la sección de producto (padding o margen, para
+separarla del menú). Como nuestra barra va fija, ese aire quedaba como un hueco
+entre la barra y el hero. El kit lo quita al montar, pero **solo donde la ficha
+es lo primero que hay**: recorre hacia arriba mientras siga siendo el primer
+hijo y anula ahí el `padding-top`/`margin-top`. Si encima queda algo del theme
+(migas de pan, un aviso), su espacio no se toca.
+
 ## Configurar: pasos a la izquierda, panel de compra a la derecha
 
 La vista *Configurar* es la de la ficha de computadores: los pasos ocupan la
@@ -215,7 +224,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.4.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.4.1**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

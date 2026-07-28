@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.4.0';
+  var VERSION = '5.4.1';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1469,6 +1469,22 @@
       document.body.appendChild(barHost);
       console.info(LOG, 'la barra se montó en <body>: un ancestro del theme rompía position:fixed.');
     }
+
+    // La ficha arranca PEGADA a la barra. El theme suele dejar aire encima de
+    // la sección de producto (padding/margen para separarla del menú), y como
+    // nuestra barra va fija ese aire se veía como un hueco entre la barra y el
+    // hero. Se quita SOLO donde la ficha es lo primero que hay: si encima
+    // queda algo del theme (migas, avisos), su espacio no se toca.
+    (function pegarArriba() {
+      if (parseFloat(getComputedStyle(root).marginTop) > 0) root.style.marginTop = '0px';
+      var n = root;
+      for (var p2 = n.parentElement; p2 && p2 !== document.body; n = p2, p2 = p2.parentElement) {
+        if (p2.firstElementChild !== n) break;
+        var cs2 = getComputedStyle(p2);
+        if (parseFloat(cs2.paddingTop) > 0) p2.style.paddingTop = '0px';
+        if (parseFloat(cs2.marginTop) > 0) p2.style.marginTop = '0px';
+      }
+    })();
 
     // El velo de arranque adopta el estilo del producto y deja ver el menú del
     // sitio: se espera con la marca de la tienda, no con una pantalla en blanco.
