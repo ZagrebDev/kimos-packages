@@ -121,11 +121,25 @@ Dos cosas que ningún theme expone y el kit **mide del DOM real** (y recalcula
 en scroll/resize, porque muchos headers encogen al bajar):
 
 - **Tope de la barra.** La barra de pestañas va fija; si el theme tiene su
-  propio header fijo/sticky, con `top: 0` quedaría tapada. El kit mide el alto
-  del header y lo expone en `--kc-top` (y guarda el hueco de la barra en el
-  flujo con `--kc-bar-h`, medido también). Si tu header no se detecta bien:
-  `window.KIMOS_TOP_OFFSET = 66` (px fijos) o
+  propio header fijo/sticky, con `top: 0` quedaría tapada. El kit mide **dónde
+  termina** ese header (`header, .theme-header, #header`) y lo escribe en píxeles
+  sobre la barra — no en variables CSS, que dejan de llegar si la barra tiene
+  que mudarse a `<body>`. Medir el *final* y no el principio es lo que hace que
+  funcione con una franja de avisos fija encima del menú: ahí el header no
+  empieza en 0 y la barra terminaba escondida detrás de él. Si tu header no se
+  detecta bien: `window.KIMOS_TOP_OFFSET = 66` (px fijos) o
   `window.KIMOS_HEADER_SELECTOR = '.mi-header'`.
+
+  **`style.bar.offset` se SUMA a esa medida.** Déjalo en 0 salvo que quieras
+  separación extra: si lo usas para compensar el alto del menú, acabas con la
+  barra el doble de abajo.
+
+- **Si la barra no aparece, el kit lo dice.** Metro y medio después de montar
+  comprueba su propio sitio con `elementFromPoint`; si algo la tapa, lo escribe
+  en consola con el elemento y su `z-index`, y si ese elemento declara uno, la
+  barra se pone justo por encima. También avisa cuando un ancestro del theme
+  rompe `position: fixed` (transform/filter/will-change/contain) y la barra se
+  monta en `<body>` para escaparse.
 - **Ancho.** Casi todos los themes centran el contenido en un contenedor
   (~1200px); ocupar el 100% se ve desalineado con el resto del sitio. El kit
   mide ese contenedor (`--kc-maxw` + clase `kc-w-container`) y alinea el
@@ -176,7 +190,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.3.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.3.1**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

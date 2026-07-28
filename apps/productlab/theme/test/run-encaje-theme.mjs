@@ -55,6 +55,13 @@ api.encajarConTheme(root2, document.querySelector('#product-template-1'), 'full'
 ok('full: sin clase de contenedor', root2.classList.contains('kc-w-container'), false);
 ok('full: tope igual respetado', root2.style.getPropertyValue('--kc-top'), '66px');
 
+// Franja de avisos fija ENCIMA del menú: el header no empieza en 0, pero sigue
+// tapando hasta su borde inferior. Exigir que empezara pegado arriba dejaba el
+// tope en 0 y la barra terminaba escondida detrás del menú.
+header.getBoundingClientRect = () => ({ top: 30, bottom: 96, height: 66, left: 0, right: 1600, width: 1600 });
+ok('header bajo una franja de avisos', api.medirTop(), 96);
+header.getBoundingClientRect = () => ({ top: 0, bottom: 66, height: 66, left: 0, right: 1600, width: 1600 });
+
 // Un envoltorio pegajoso que NO es el header no debe empujar la barra: ese
 // era el "la barra queda unos centímetros más abajo del menú" con offset 0.
 header.style.position = 'sticky';

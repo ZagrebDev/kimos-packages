@@ -33,7 +33,7 @@
     xrextras: window.KIMOS_XREXTRAS_URL || '',
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.3.0';
+  var VERSION = '5.3.1';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1245,7 +1245,11 @@
     // Solo descuenta lo que TAPA: si el header se va con el scroll, no estorba.
     if (cs.position !== 'fixed' && cs.position !== 'sticky') return 0;
     var r = n.getBoundingClientRect();
-    if (r.height <= 0 || r.top > 4 || r.bottom <= 0) return 0;
+    // Lo que cuenta es DÓNDE TERMINA, no dónde empieza. Exigir que empezara
+    // pegado al borde (top <= 4) dejaba el tope en 0 en cuanto el theme tenía
+    // una franja de avisos fija encima del menú: la barra se iba a y=0, justo
+    // detrás del menú, y no se veía. `bottom` ya incluye esa franja.
+    if (r.height <= 0 || r.bottom <= 0) return 0;
     // Un header desmedido casi siempre es una medición equivocada (un
     // contenedor entero marcado como sticky): mejor 0 que romper la página.
     return r.bottom > window.innerHeight * 0.4 ? 0 : Math.round(r.bottom);
@@ -1469,9 +1473,67 @@
     // móvil) y con el ancho de la ventana.
     function medirBarra() {
       sincronizarHost();
+      colocarBarra();
       var alto = bar.getBoundingClientRect().height || bar.offsetHeight;
       if (alto) root.style.setProperty('--kc-bar-h', Math.round(alto) + 'px');
       ajustarPanel();
+    }
+    /**
+     * Colocación de la barra ESCRITA EN NÚMEROS, no en variables CSS.
+     * Cuando la barra se muda a <body> deja de heredar el ámbito de la ficha y
+     * cualquier variable que no llegue la deja sin sitio (o fuera de pantalla).
+     * Calcularlo aquí quita del medio toda esa cadena: top, izquierda y ancho
+     * salen de medidas reales del DOM.
+     */
+    function colocarBarra() {
+      if (barCfg.sticky === false) return;      // barra en el flujo: no se toca
+      var top = medirTop() + (isFinite(Number(barCfg.offset)) ? Number(barCfg.offset) : 0);
+      bar.style.position = 'fixed';
+      bar.style.top = Math.max(0, Math.round(top)) + 'px';
+      var ancho = 0;
+      if (barCfg.width === 'container' || (barCfg.width !== 'full' && root.classList.contains('kc-w-container'))) {
+        ancho = parseFloat(root.style.getPropertyValue('--kc-maxw')) || 0;
+      }
+      if (ancho > 0 && ancho < window.innerWidth) {
+        bar.style.left = Math.round((window.innerWidth - ancho) / 2) + 'px';
+        bar.style.right = 'auto';
+        bar.style.width = Math.round(ancho) + 'px';
+        bar.style.transform = 'none';
+      } else {
+        bar.style.left = '0px'; bar.style.right = '0px';
+        bar.style.width = 'auto'; bar.style.transform = 'none';
+      }
+      if (!bar.style.zIndex) bar.style.zIndex = '11';
+    }
+    /**
+     * Comprobación en voz alta: si la barra no se ve, decir POR QUÉ.
+     * Se mira lo que hay en su sitio con elementFromPoint; si algo la tapa y
+     * ese algo declara un z-index, la barra se pone justo por encima (una vez).
+     * Sin esto el síntoma era mudo: "no aparece" y a adivinar.
+     */
+    function revisarBarra() {
+      var r = bar.getBoundingClientRect();
+      var cs = getComputedStyle(bar);
+      var estado = 'pos=' + cs.position + ' top=' + cs.top + ' z=' + cs.zIndex
+        + ' rect=' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.width) + '×' + Math.round(r.height)
+        + ' display=' + cs.display + ' vis=' + cs.visibility + ' opacidad=' + cs.opacity
+        + (barHost ? ' (en <body>)' : '');
+      if (r.width < 2 || r.height < 2) {
+        console.warn(LOG, 'la barra no ocupa sitio — ' + estado);
+        return;
+      }
+      var x = Math.round(r.left + r.width / 2);
+      var y = Math.round(r.top + r.height / 2);
+      var enPunto = document.elementFromPoint(x, y);
+      if (!enPunto || bar === enPunto || bar.contains(enPunto)) return;   // se ve
+      var z = parseInt(getComputedStyle(enPunto).zIndex, 10);
+      var quien = (enPunto.tagName || '?').toLowerCase() + '.' + (enPunto.className || '').toString().slice(0, 60);
+      if (isFinite(z) && z >= Number(bar.style.zIndex || 11)) {
+        bar.style.zIndex = String(z + 1);
+        console.warn(LOG, 'algo tapaba la barra (' + quien + ', z=' + z + '): se sube por encima. ' + estado);
+      } else {
+        console.warn(LOG, 'algo tapaba la barra: ' + quien + ' — ' + estado);
+      }
     }
     // Al hacer scroll cambian el tope de la barra (headers que encogen) y el
     // sitio del panel; se recalculan en el mismo fotograma que pinta el navegador.
@@ -1483,6 +1545,8 @@
     window.addEventListener('scroll', alVueloBarra, { passive: true });
     window.addEventListener('resize', alVueloBarra);
     [0, 120, 400, 1200].forEach(function (ms) { setTimeout(medirBarra, ms); });
+    // Una sola revisión, con la página ya asentada.
+    setTimeout(revisarBarra, 1500);
 
     var has3d = !!(entry.model3d && entry.model3d.url);
     var secs = (sf.pageSections || []).filter(function (s) { return s.kind !== 'hero' ? s.show !== false : true; });
