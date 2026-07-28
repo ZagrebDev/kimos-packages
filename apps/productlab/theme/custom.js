@@ -1,5 +1,5 @@
 /**
- * custom.js del theme + arranque de Kimos 3D.
+ * custom.js del theme + arranque de ProductLab (Kimos 3D).
  *
  * Este archivo ya lo carga el theme en todas las páginas
  * (templates/layout.liquid), así que se usa como punto de entrada: desde aquí
@@ -12,7 +12,7 @@
 
 /* ─────────────── Kimos 3D — configuración ─────────────── */
 
-// URL pública del configurador (app Gestión Avanzada de Productos → Publicación).
+// URL pública del configurador (app ProductLab → pestaña Publicación).
 window.KIMOS_3D_URL = 'https://TU-KIMOS.kimos.dev/api/public/app/TU-INSTANCIA/definition';
 
 // Texto del botón que abre el visor.

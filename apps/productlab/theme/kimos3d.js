@@ -2,7 +2,7 @@
  * Kimos 3D para Jumpseller — visor 3D del producto en la tienda.
  *
  * Muestra en la ficha de producto el modelo 3D configurado en la app
- * "Gestión Avanzada de Productos", y lo repinta EN VIVO cuando el cliente
+ * ProductLab, y lo repinta EN VIVO cuando el cliente
  * cambia las opciones (acabado, color, etc.).
  *
  * Diseñado para no tocar las plantillas del theme:
