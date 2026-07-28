@@ -265,6 +265,19 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('select nativo de Refrigeración re-forzado a Estándar (cadena)', selRef.value === '9201');
   const nota = d.querySelector('.kc-notice');
   t('aviso del ajuste automático visible', !!nota && /Tarjeta/.test(nota.textContent));
+
+  // ── Configurar: pasos a la izquierda, panel de compra a la derecha ──
+  d.querySelector('.kc-bar-cta').click();
+  const panel = d.querySelector('.kc-conf .kc-panel');
+  t('el configurador abre con su panel a la derecha', !!panel
+    && d.querySelector('.kc-conf').children[0].classList.contains('kc-conf-steps'));
+  t('el panel trae foto, precio y carro', !!panel.querySelector('.kc-panel-foto')
+    && !!panel.querySelector('.kc-price') && !!panel.querySelector('.kc-btn'));
+  t('el panel resume lo elegido', (panel.querySelector('.kc-summary').textContent || '').indexOf('Modelo') !== -1);
+  // En Configurar la barra no repite el título ni la foto/precio del panel.
+  t('sin botón "volver" que duplique el título', !d.querySelector('.kc-bar-back'));
+  t('la barra no repite foto ni precio en Configurar',
+    !d.querySelector('.kc-bar-thumb') && d.querySelector('.kc-bar-price').textContent === '');
   w.close();
 }
 

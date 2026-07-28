@@ -55,6 +55,17 @@ api.encajarConTheme(root2, document.querySelector('#product-template-1'), 'full'
 ok('full: sin clase de contenedor', root2.classList.contains('kc-w-container'), false);
 ok('full: tope igual respetado', root2.style.getPropertyValue('--kc-top'), '66px');
 
+// Un envoltorio pegajoso que NO es el header no debe empujar la barra: ese
+// era el "la barra queda unos centímetros más abajo del menú" con offset 0.
+header.style.position = 'sticky';
+const faja = document.createElement('div');
+faja.className = 'topbar';
+faja.style.position = 'sticky';
+faja.getBoundingClientRect = () => ({ top: 0, bottom: 180, height: 180, left: 0, right: 1600, width: 1600 });
+document.body.insertBefore(faja, document.body.firstChild);
+ok('un envoltorio pegajoso no suma al tope', api.medirTop(), 66);
+faja.remove();
+
 // Header NO sticky (estático) → no tapa, tope 0
 header.style.position = 'static';
 ok('header estático no descuenta', api.medirTop(), 0);

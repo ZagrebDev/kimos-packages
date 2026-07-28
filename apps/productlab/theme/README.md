@@ -89,6 +89,24 @@ este kit:
 2. Deja `components/product-template.liquid` con su rama estándar (sin la
    vista personalizada). Este kit no necesita tocar ningún `.liquid`.
 
+## Configurar: pasos a la izquierda, panel de compra a la derecha
+
+La vista *Configurar* es la de la ficha de computadores: los pasos ocupan la
+columna ancha y a su lado va una caja con la foto del producto (o el visor 3D),
+el precio, la entrega estimada, el resumen de lo elegido y el botón de carro.
+Esa caja **acompaña al scroll** —se fija con `position: fixed` calculando su
+sitio, no con `sticky`— y frena en el borde inferior de la sección para no
+invadir el pie. En móvil baja a una barra flotante compacta que se despliega.
+
+El precio del panel se **copia** del theme, no se calcula: la fuente de verdad
+sigue siendo la variante de Jumpseller. La entrega sí se calcula, con los días
+que publica cada valor (`deliveryMode` decide si suman o van en paralelo) más
+los días de preparación.
+
+Dentro de *Configurar* la barra superior no repite la foto ni el precio (ya
+están en el panel) y no lleva botón de "volver": para eso está la pestaña del
+producto, que es la primera de la barra y lleva su nombre.
+
 ## Ancho por sección
 
 Cada sección de la ficha (hero, imagen, especificaciones, fotos, nota, visor
@@ -158,7 +176,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.2.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.3.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

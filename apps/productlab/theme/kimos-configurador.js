@@ -33,7 +33,7 @@
     xrextras: window.KIMOS_XREXTRAS_URL || '',
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.2.0';
+  var VERSION = '5.3.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1230,24 +1230,25 @@
   // Alto ocupado por lo que está FIJO en la parte superior de la ventana.
   function medirTop() {
     if (LAYOUT.topFijo != null) return Math.max(0, LAYOUT.topFijo);
-    var nodos;
-    try { nodos = document.querySelectorAll(LAYOUT.headerSel || HEADER_CANDIDATOS); }
-    catch (e) { nodos = document.querySelectorAll(HEADER_CANDIDATOS); }
-    var top = 0;
-    for (var i = 0; i < nodos.length; i++) {
-      var n = nodos[i];
-      if (n.closest && n.closest('.kimos-cfg')) continue;     // no medirnos a nosotros
-      var cs = getComputedStyle(n);
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-      // Solo cuenta lo que TAPA: fijo o pegajoso y anclado arriba del todo.
-      if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
-      var r = n.getBoundingClientRect();
-      if (r.height <= 0 || r.top > 4 || r.bottom <= 0) continue;
-      if (r.bottom > top) top = r.bottom;
-    }
+    // Se mide EL header del sitio, no "todo lo que esté fijo arriba". Mirar
+    // muchos candidatos y quedarse con el más bajo sonaba más seguro y era lo
+    // contrario: cualquier envoltorio pegajoso (una barra de anuncios, un
+    // contenedor con position:sticky) empujaba la barra centímetros hacia
+    // abajo. Este es el criterio de la ficha de computadores, que llevaba
+    // meses funcionando en tienda.
+    var n = null;
+    try { n = document.querySelector(LAYOUT.headerSel || 'header, .theme-header, #header, .site-header, .main-header'); }
+    catch (e) { n = document.querySelector('header, .theme-header, #header'); }
+    if (!n || (n.closest && n.closest('.kimos-cfg'))) return 0;
+    var cs = getComputedStyle(n);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return 0;
+    // Solo descuenta lo que TAPA: si el header se va con el scroll, no estorba.
+    if (cs.position !== 'fixed' && cs.position !== 'sticky') return 0;
+    var r = n.getBoundingClientRect();
+    if (r.height <= 0 || r.top > 4 || r.bottom <= 0) return 0;
     // Un header desmedido casi siempre es una medición equivocada (un
     // contenedor entero marcado como sticky): mejor 0 que romper la página.
-    return top > window.innerHeight * 0.4 ? 0 : Math.round(top);
+    return r.bottom > window.innerHeight * 0.4 ? 0 : Math.round(r.bottom);
   }
 
   // Ancho útil del contenedor del theme (sin sus paddings) y su posición.
@@ -1336,6 +1337,9 @@
     var desc = String(entry.description || '');
     var viewer = null;
     var confPanel = null, confView = null, confSteps = null;
+    // Panel derecho del configurador (foto + precio + entrega + resumen + carro)
+    var panelBox = null, panelImg = null, panelPrecio = null, panelEntrega = null;
+    var panelResumen = null, panelStock = null, panelCta = null;
 
     // El bloque original del theme queda oculto pero VIVO en el DOM: sus
     // controles nativos y su botón de carro siguen siendo los que operan.
@@ -1427,15 +1431,57 @@
     // Encaje con el theme: tope de la barra (header fijo del sitio) y ancho
     // del contenido. El producto manda (storefront.style.width) sobre el
     // ajuste global de custom.js (window.KIMOS_WIDTH).
+    // `position: fixed` se mide contra el VIEWPORT… salvo que algún ancestro
+    // cree un bloque contenedor (transform, filter, perspective, will-change o
+    // contain). Ahí la barra se queda pegada a esa caja y vuelve a irse con el
+    // scroll. Cuando pasa, la barra se muda a <body> dentro de un anfitrión que
+    // copia el estilo de la ficha: fija de verdad, pase lo que pase.
+    function rompeFixed(n) {
+      for (var p = n.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+        var cs = getComputedStyle(p);
+        if ((cs.transform && cs.transform !== 'none')
+          || (cs.filter && cs.filter !== 'none')
+          || (cs.perspective && cs.perspective !== 'none')
+          || /transform|filter|perspective/.test(cs.willChange || '')
+          || /paint|layout/.test(cs.contain || '')) return p;
+      }
+      return null;
+    }
+    var barHost = null;
+    function sincronizarHost() {
+      if (!barHost) return;
+      barHost.setAttribute('style', root.getAttribute('style') || '');
+      barHost.className = 'kimos-cfg kc-bar-host'
+        + (root.classList.contains('kc-w-container') ? ' kc-w-container' : '')
+        + (root.classList.contains('kc-dark') ? ' kc-dark' : '')
+        + (root.classList.contains('kc-bar-mtabs') ? ' kc-bar-mtabs' : '');
+    }
+    if (barCfg.sticky !== false && rompeFixed(root)) {
+      barHost = el('div', 'kimos-cfg kc-bar-host');
+      barHost.appendChild(bar);
+      document.body.appendChild(barHost);
+      console.info(LOG, 'la barra se montó en <body>: un ancestro del theme rompía position:fixed.');
+    }
+
     var reencajar = encajarConTheme(root, page, style.width);
     // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
     // recalcula porque cambia con el contenido (precio largo, dos líneas en
     // móvil) y con el ancho de la ventana.
     function medirBarra() {
-      var alto = bar.getBoundingClientRect().height;
+      sincronizarHost();
+      var alto = bar.getBoundingClientRect().height || bar.offsetHeight;
       if (alto) root.style.setProperty('--kc-bar-h', Math.round(alto) + 'px');
+      ajustarPanel();
     }
-    window.addEventListener('resize', medirBarra);
+    // Al hacer scroll cambian el tope de la barra (headers que encogen) y el
+    // sitio del panel; se recalculan en el mismo fotograma que pinta el navegador.
+    var pedidoBarra = 0;
+    function alVueloBarra() {
+      if (pedidoBarra) return;
+      pedidoBarra = requestAnimationFrame(function () { pedidoBarra = 0; medirBarra(); });
+    }
+    window.addEventListener('scroll', alVueloBarra, { passive: true });
+    window.addEventListener('resize', alVueloBarra);
     [0, 120, 400, 1200].forEach(function (ms) { setTimeout(medirBarra, ms); });
 
     var has3d = !!(entry.model3d && entry.model3d.url);
@@ -1457,7 +1503,9 @@
       ['specs', 'fotos'].forEach(function (k) { if (o.indexOf(k) === -1) o.push(k); });
       return o;
     })();
-    var TABS = [['explorar', tabsCfg.explorar || 'Explorar', null]];
+    // La primera pestaña es el PRODUCTO (como en computadores): si no le pones
+    // título propio, lleva su nombre — no un genérico "Explorar".
+    var TABS = [['explorar', tabsCfg.explorar || entry.name || prod.name || 'Explorar', null]];
     ORDEN.forEach(function (k) {
       if (k === 'specs' && hasSpecs) TABS.push(['explorar', tabsCfg.specs || 'Especificaciones', 'specs']);
       if (k === 'fotos' && hasFotos) TABS.push(['explorar', tabsCfg.fotos || 'Fotos', 'fotos']);
@@ -1528,6 +1576,119 @@
       }, 30);
     }
 
+    // ── Panel derecho del configurador ───────────────────────────────────────
+    // Todo lo que lleva sale del JSON publicado y de la selección actual; el
+    // PRECIO se copia del theme, nunca se calcula aquí (fuente única de verdad).
+    var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+      'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    function sumarHabiles(desde, n) {
+      var d = new Date(desde.getTime());
+      var quedan = Math.max(0, n);
+      while (quedan > 0) {
+        d.setDate(d.getDate() + 1);
+        var dia = d.getDay();
+        if (dia !== 0 && dia !== 6) quedan--;
+      }
+      return d;
+    }
+    // Valor KIMOS elegido en un paso (o null si el theme manda otro).
+    function valorElegido(g, sel) {
+      var kg = kimosOf(entry, g);
+      var nat = g.values.filter(function (v) { return String(v.id) === String(sel[g.id]); })[0];
+      if (!kg || !nat) return null;
+      return (kg.values || []).filter(function (x) { return norm(x.name) === norm(nat.name); })[0] || null;
+    }
+    // Foto del producto según los pasos que la cambian (affectsPhoto).
+    function fotoSeleccion() {
+      var sel = readSelection(groups);
+      var url = '';
+      groups.forEach(function (g) {
+        var kg = kimosOf(entry, g);
+        if (!kg || kg.affectsPhoto !== true) return;
+        var kv = valorElegido(g, sel);
+        if (kv && kv.imageUrl) url = kv.imageUrl;
+      });
+      return url || images[0] || entry.imageUrl || '';
+    }
+    // Entrega: días de los componentes elegidos (en paralelo o en serie, según
+    // deliveryMode) + los días propios de preparación.
+    function textoEntrega() {
+      var sel = readSelection(groups);
+      var serie = entry.deliveryMode === 'sum';
+      var dias = Number(entry.baseDeliveryDays) || 0;
+      groups.forEach(function (g) {
+        var kv = valorElegido(g, sel);
+        var d = kv ? Number(kv.deliveryDays) || 0 : 0;
+        dias = serie ? dias + d : Math.max(dias, d);
+      });
+      dias += Number(entry.leadTimeDays != null ? entry.leadTimeDays : entry.assemblyDays) || 0;
+      if (!dias) return '';
+      var eta = sumarHabiles(new Date(), dias);
+      return 'Entrega estimada: ' + dias + ' días hábiles (aprox. ' + eta.getDate() + ' de ' + MESES[eta.getMonth()] + ')';
+    }
+    function pintarPanel() {
+      if (!panelBox) return;
+      if (panelImg) panelImg.src = fotoSeleccion();
+      var mini = bar.querySelector('[data-kc-photo]');
+      if (mini) mini.src = fotoSeleccion();
+      if (panelPrecio) panelPrecio.textContent = themePriceText() || '—';
+      if (panelEntrega) panelEntrega.textContent = textoEntrega();
+      if (panelResumen) {
+        var sel = readSelection(groups);
+        var selMap = kimosSelection(entry, groups);
+        panelResumen.innerHTML = '';
+        groups.forEach(function (g) {
+          var kg = kimosOf(entry, g);
+          if (kg && !isGroupVisible(entry, kg, selMap)) return;   // paso oculto por dependencia
+          var nat = g.values.filter(function (v) { return String(v.id) === String(sel[g.id]); })[0];
+          panelResumen.appendChild(el('div', null, '· ' + (kg ? kg.label : g.name) + ': ' + (nat ? nat.name : '—')));
+        });
+      }
+      // Disponibilidad: la dice el botón REAL del theme, que es quien sabe de
+      // stock y de variantes. Aquí solo se refleja.
+      var real = botonCarro();
+      var noHay = !!(real && real.disabled);
+      if (panelCta) {
+        panelCta.textContent = (real && (real.textContent || '').trim()) || 'Añadir al carro';
+        panelCta.disabled = noHay;
+      }
+      if (panelStock) panelStock.textContent = noHay ? 'Esta combinación no está disponible por ahora.' : '';
+    }
+    /**
+     * El panel acompaña al scroll dentro del configurador. Es la misma
+     * mecánica de la ficha de computadores: se fija con position:fixed
+     * calculando su sitio, en vez de confiar en position:sticky (que muere si
+     * cualquier ancestro del theme tiene overflow) y frenando en el borde
+     * inferior de la sección para no invadir el pie de página.
+     */
+    function ajustarPanel() {
+      if (!panelBox || !confPanel) return;
+      var quita = function () {
+        panelBox.style.position = ''; panelBox.style.top = ''; panelBox.style.left = '';
+        panelBox.style.width = ''; panelBox.style.maxHeight = ''; panelBox.style.overflowY = '';
+        confPanel.style.minHeight = '';
+      };
+      if (window.innerWidth < 992 || current !== 'configurar') { quita(); return; }
+      var barBottom = bar.getBoundingClientRect().bottom;
+      if (barBottom < 0) barBottom = 0;
+      var maxH = window.innerHeight - barBottom - 24;
+      if (maxH < 200) { quita(); return; }
+      panelBox.style.maxHeight = maxH + 'px';
+      panelBox.style.overflowY = 'auto';
+      var altoPanel = Math.min(panelBox.offsetHeight, maxH);
+      // La sección nunca es más corta que el panel (p. ej. con todos los pasos
+      // plegados): así el panel jamás se sale por abajo.
+      confPanel.style.minHeight = (altoPanel + 60) + 'px';
+      var caja = confPanel.getBoundingClientRect();
+      var top = barBottom + 12;
+      var techo = caja.bottom - altoPanel - 12;
+      if (top > techo) top = techo;
+      panelBox.style.position = 'fixed';
+      panelBox.style.top = Math.round(top) + 'px';
+      panelBox.style.left = Math.round(caja.right - 20 - 320) + 'px';
+      panelBox.style.width = '320px';
+    }
+
     function paintBar() {
       bar.innerHTML = '';
       var nav = el('div', 'kc-tabs');
@@ -1548,7 +1709,10 @@
       // fuera del configurador el precio es un "desde" (la combinación más
       // barata la elige el cliente); dentro, el precio de lo que lleva puesto.
       var info = el('div', 'kc-bar-info');
-      var mini = barCfg.showThumb === false ? '' : (images[0] || entry.imageUrl || '');
+      // Dentro del configurador el panel derecho ya muestra foto y precio:
+      // repetirlos arriba solo engorda la barra (igual que en computadores).
+      var enConf = current === 'configurar';
+      var mini = (barCfg.showThumb === false || enConf) ? '' : (images[0] || entry.imageUrl || '');
       if (mini) {
         var im = el('img', 'kc-bar-thumb');
         im.src = mini; im.alt = '';
@@ -1557,7 +1721,7 @@
       }
       var precioBox = el('div', 'kc-bar-precio');
       // Precio: se COPIA del theme, no se calcula. Fuente única de verdad.
-      var texto = barCfg.showPrice === false ? '' : themePriceText();
+      var texto = (barCfg.showPrice === false || enConf) ? '' : themePriceText();
       if (current !== 'configurar' && conPasos && texto) {
         precioBox.appendChild(el('span', 'kc-bar-desde', tabsCfg.desde || 'desde'));
       }
@@ -1579,18 +1743,13 @@
         else setTab('configurar');
       });
       bar.appendChild(cta);
-      // Volver a Explorar desde el configurador, si hay algo a lo que volver.
-      if (enConfig && (hasHero || hasSpecs || hasFotos)) {
-        var atras = el('button', 'kc-btn kc-bar-back', '← ' + (tabsCfg.explorar || 'Explorar'));
-        atras.type = 'button';
-        atras.addEventListener('click', function () { setTab('explorar'); });
-        nav.insertBefore(atras, nav.firstChild);
-      }
+      // Para volver a Explorar está su propia pestaña, que sigue ahí. Antes se
+      // añadía además un "← <nombre del producto>" y el título salía DOS veces
+      // en la barra, uno al lado del otro.
     }
 
     function paint() {
       paintBar();
-      if (typeof medirBarra === 'function') medirBarra();
       body.innerHTML = '';
       if (current === 'explorar') {
         // Specs y Fotos van AQUÍ DENTRO, en el orden del builder, y las
@@ -1613,11 +1772,13 @@
         // dejaba el anterior colgando. Ahora solo se vuelven a pintar los
         // pasos; el visor (y con él la sesión de AR) sobrevive.
         if (!confPanel) {
+          // Disposición de la ficha de computadores: los PASOS a la izquierda
+          // y a la derecha una caja con la foto del producto, el precio, la
+          // entrega, el resumen de lo elegido y el botón de carro.
           confPanel = el('div', 'kc-conf');
-          confView = el('div', 'kc-conf-view');
           confSteps = el('div', 'kc-conf-steps');
-          confPanel.appendChild(confView);
-          confPanel.appendChild(confSteps);
+          panelBox = el('div', 'kc-panel');
+          confView = el('div', 'kc-panel-foto');
           if (has3d) {
             var cv = el('canvas', 'kc-canvas');
             confView.appendChild(cv);
@@ -1636,19 +1797,55 @@
               });
             }).catch(function (e) { msg.textContent = 'No se pudo mostrar el 3D.'; console.warn(LOG, e); });
           } else {
-            var im = el('img', 'kc-conf-img');
-            im.src = images[0] || ''; im.alt = prod.name || '';
-            confView.appendChild(im);
+            panelImg = el('img', 'kc-panel-img');
+            panelImg.alt = prod.name || '';
+            confView.appendChild(panelImg);
           }
+          var cab = el('div', 'kc-panel-head');
+          cab.appendChild(el('div', 'kc-panel-name', entry.name || prod.name || ''));
+          if (ctx.sku) cab.appendChild(el('div', 'kc-panel-sku', 'SKU · ' + ctx.sku));
+          var cuerpo = el('div', 'kc-panel-body');
+          cuerpo.appendChild(el('div', 'kc-price-label', 'Precio'));
+          panelPrecio = el('div', 'kc-price');
+          panelEntrega = el('div', 'kc-delivery');
+          panelResumen = el('div', 'kc-summary');
+          panelStock = el('div', 'kc-stockmsg');
+          panelCta = el('button', 'kc-btn kc-btn-primary');
+          panelCta.type = 'button';
+          panelCta.addEventListener('click', alCarro);
+          cuerpo.appendChild(panelPrecio);
+          cuerpo.appendChild(panelEntrega);
+          cuerpo.appendChild(panelResumen);
+          cuerpo.appendChild(panelStock);
+          cuerpo.appendChild(panelCta);
+          panelBox.appendChild(confView);
+          panelBox.appendChild(cab);
+          panelBox.appendChild(cuerpo);
+          // Móvil: el panel se convierte en una barra flotante abajo y este
+          // botón despliega el detalle hacia arriba.
+          var expandir = el('button', 'kc-panel-exp', '▲');
+          expandir.type = 'button';
+          expandir.setAttribute('aria-label', 'Ver el detalle de la configuración');
+          expandir.addEventListener('click', function () {
+            var abierto = panelBox.classList.toggle('kc-open');
+            expandir.textContent = abierto ? '▼' : '▲';
+          });
+          panelBox.appendChild(expandir);
+          confPanel.appendChild(confSteps);
+          confPanel.appendChild(panelBox);
         }
         confSteps.innerHTML = '';
         confSteps.appendChild(renderSteps(entry, groups, ctx));
         body.appendChild(confPanel);
+        pintarPanel();
       }
       if (viewer && current === 'configurar') {
         viewer.setState(build3dState(entry, groups));
         viewer.resize();
       }
+      // El alto de la barra y el anclaje del panel dependen de lo que se acaba
+      // de pintar: se recalculan al final, nunca antes.
+      medirBarra();
     }
 
     // Si el theme cambia la selección por su cuenta (o el usuario usa los
@@ -1663,6 +1860,7 @@
       if (current === 'configurar' && confSteps) {
         confSteps.innerHTML = '';
         confSteps.appendChild(renderSteps(entry, groups, ctx));
+        pintarPanel();
       }
       paintBar();
     });

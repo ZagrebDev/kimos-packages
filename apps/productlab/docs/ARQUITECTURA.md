@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.6.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.7.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -205,6 +205,20 @@ deduce nombres), cache-busting con `?kv=` propio, velo anti-parpadeo con
 auto-retirada, `diagnostico.js` para revisar la cadena completa. El kit v5
 suma: dependsOn (con forzado de defaults en selects nativos), style por
 producto, secciones imagen, tamaños auto y qty.
+
+**Anclajes (v5.3, aprendido en tienda).** La barra y el panel de compra van
+con `position: fixed` calculado, NUNCA con `sticky`: basta un ancestro con
+`overflow` para que sticky se vaya con el scroll. Y si algún ancestro crea
+bloque contenedor (transform/filter/perspective/will-change/contain), `fixed`
+también se rompe: en ese caso la barra se muda a `<body>` dentro de un
+anfitrión que copia el estilo de la ficha. El tope se mide del header del
+sitio (`header, .theme-header, #header`), no del elemento fijo más bajo:
+cualquier envoltorio pegajoso empujaba la barra centímetros hacia abajo.
+
+**Configurar = computadores.** Pasos a la izquierda; a la derecha el panel con
+foto (o visor 3D), precio copiado del theme, entrega calculada
+(`deliveryMode` suma o paraleliza), resumen y carro. En móvil, barra flotante
+desplegable.
 
 ## 8. Agentes
 
