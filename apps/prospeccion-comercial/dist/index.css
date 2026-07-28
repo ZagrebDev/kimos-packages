@@ -134,6 +134,12 @@
 .kimos-prospeccion .kp-thead { background: var(--kp-panel2); font-size: 11.5px; color: var(--kp-mut); text-transform: uppercase; letter-spacing: .4px; }
 .kimos-prospeccion .kp-trow { border-top: 1px solid var(--kp-line); cursor: pointer; }
 .kimos-prospeccion .kp-trow:hover { background: #15273f; }
+/* Contacto adicional del mismo prospecto (fila agrupada bajo su empresa) */
+.kimos-prospeccion .kp-trow-cont { border-top: 1px dashed rgba(36, 56, 90, .6); background: rgba(14, 28, 48, .35); }
+.kimos-prospeccion .kp-cmp-cont { color: var(--kp-mut); font-weight: 400; }
+.kimos-prospeccion .kp-cont-arrow { color: var(--kp-teal); font-size: 15px; margin-left: 18px; }
+.kimos-prospeccion .kp-cont-emp { font-size: 12px; color: var(--kp-mut); }
+.kimos-prospeccion .kp-cmp-cont small { font-size: 10.5px; font-style: italic; }
 .kimos-prospeccion .kp-cmp { font-weight: 600; display: flex; align-items: center; gap: 9px; }
 .kimos-prospeccion .kp-cd2 { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
 .kimos-prospeccion .kp-cmp small { display: block; color: var(--kp-mut); font-weight: 400; font-size: 11px; }

@@ -143,6 +143,13 @@ cada respuesta** · 8. 🔍 Qué evaluará la contraparte técnica ·
 
 ## Notas de versión
 
+- **2.4.0** — **SERMECOOP** agregado a la base (SALUD) con sus 2 contactos:
+  Mauricio Cárcamo (visión de negocio/innovación) y Leonardo Contreras (Jefe de
+  Desarrollo y Soporte), con sus LinkedIn. La tabla ahora **agrupa por empresa**:
+  los contactos de un mismo prospecto quedan contiguos y los adicionales se
+  muestran como fila de continuación (↳ contacto adicional). El dossier perfila
+  también a los demás contactos de la empresa, y la bitácora es compartida por
+  empresa.
 - **2.3.0** — **Dossier Ejecutivo por prospecto** (estructura SERMECOOP):
   generación automática adaptada al rubro, 17 respuestas técnicas editables,
   export HTML editable/imprimible, regeneración que conserva respuestas y tools
