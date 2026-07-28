@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.8.0';
+  var VERSION = '5.9.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1556,11 +1556,26 @@
         + (root.classList.contains('kc-dark') ? ' kc-dark' : '')
         + (root.classList.contains('kc-bar-mtabs') ? ' kc-bar-mtabs' : '');
     }
-    if (barCfg.sticky !== false && rompeFixed(root)) {
+    var fixedRoto = !!rompeFixed(root);
+    if (barCfg.sticky !== false && fixedRoto) {
       barHost = el('div', 'kimos-cfg kc-bar-host');
       barHost.appendChild(bar);
       document.body.appendChild(barHost);
       console.info(LOG, 'la barra se montó en <body>: un ancestro del theme rompía position:fixed.');
+    }
+    /**
+     * El panel de compra necesita lo mismo: con un ancestro que rompe `fixed`,
+     * se quedaba pegado al borde inferior de la SECCIÓN del configurador (y en
+     * móvil, tapando los últimos pasos) en vez de al borde de la pantalla.
+     * Se muda al mismo anfitrión de <body>, donde `fixed` sí es el viewport.
+     */
+    function hostearPanel() {
+      if (!panelBox || !fixedRoto) return;
+      if (!barHost) {
+        barHost = el('div', 'kimos-cfg kc-bar-host');
+        document.body.appendChild(barHost);
+      }
+      if (panelBox.parentNode !== barHost) barHost.appendChild(panelBox);
     }
 
     // La ficha arranca PEGADA a la barra. El theme suele dejar aire encima de
@@ -2091,12 +2106,16 @@
         confSteps.innerHTML = '';
         confSteps.appendChild(renderSteps(entry, groups, ctx));
         body.appendChild(confPanel);
+        hostearPanel();
         pintarPanel();
       }
       if (viewer && current === 'configurar') {
         viewer.setState(build3dState(entry, groups));
         viewer.resize();
       }
+      // Vive en <body> cuando el theme rompe `fixed`: al salir del configurador
+      // hay que esconderlo a mano, que el repintado del cuerpo no lo alcanza.
+      if (panelBox) panelBox.style.display = current === 'configurar' ? '' : 'none';
       // El alto de la barra y el anclaje del panel dependen de lo que se acaba
       // de pintar: se recalculan al final, nunca antes.
       medirBarra();

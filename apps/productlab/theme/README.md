@@ -144,11 +144,24 @@ lo que hacía al entrar en Configurar— el título quedaba detrás de la barra.
 
 ## El panel de compra en móvil
 
-Baja a una barra flotante **al ras del borde inferior** (respetando el área
-segura del teléfono) y se queda fija ahí. Para que no tape el último valor del
-último paso, el hueco al pie de los pasos es el **alto real del panel**, que el
-JS mide y expone en `--kc-panel-h`: con un número fijo, el panel se comía las
-últimas opciones en cuanto crecía (precio largo, aviso de stock, desplegado).
+Baja a una barra fija **al ras del borde inferior de la PANTALLA** (respetando
+el área segura del teléfono), esté el scroll donde esté — también sobre el pie
+de página. Reparto: la foto a la izquierda y, a su derecha, nombre, precio y
+entrega; el botón de carro debajo, a todo el ancho. La flecha lo despliega
+hacia arriba y muestra la foto grande y **todo lo elegido, paso por paso**.
+
+Dos cosas que hacen que eso funcione de verdad:
+
+- **El panel también se muda a `<body>`** cuando un ancestro del theme rompe
+  `position: fixed` (transform/filter/will-change/contain). Sin eso quedaba
+  pegado al borde inferior de la SECCIÓN del configurador — flotando a media
+  pantalla y tapando los pasos, que es exactamente lo que se veía.
+- **El hueco al pie de los pasos es el alto REAL del panel**, medido por el JS
+  y expuesto en `--kc-panel-h`. Con un número fijo, el panel se comía las
+  últimas opciones en cuanto crecía (precio largo, aviso de stock, desplegado).
+
+Con el panel viviendo en `<body>`, fuera de la vista *Configurar* se esconde a
+mano: el repintado del cuerpo de la ficha ya no lo alcanza.
 
 ## El precio: de la VARIANTE elegida
 
@@ -324,7 +337,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.8.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.9.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

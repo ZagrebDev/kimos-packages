@@ -104,8 +104,8 @@ const producto = (extra) => Object.assign({
   storefront: { specs: [], photosNote: '', pageSections: [], tabs: {} },
 }, extra);
 
-async function montar(def, prep) {
-  const dom = new JSDOM(pagina(), {
+async function montar(def, prep, retocar) {
+  const dom = new JSDOM(retocar ? retocar(pagina()) : pagina(), {
     url: 'https://tienda.local/pc-gamer',
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -368,6 +368,37 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('sin botón "volver" que duplique el título', !d.querySelector('.kc-bar-back'));
   t('la barra no repite foto ni precio en Configurar',
     !d.querySelector('.kc-bar-thumb') && d.querySelector('.kc-bar-price').textContent === '');
+  w.close();
+}
+
+// ═══ Escenario 4: un ancestro del theme rompe position:fixed ══════════════
+// Es el caso real de la tienda: un contenedor con `transform` convierte
+// `position: fixed` en "fijo a ESA caja", así que la barra y el panel se
+// quedaban pegados a la sección en vez de a la pantalla.
+console.log('\n— ancestro con transform: barra y panel se mudan a <body> —');
+{
+  const def = {
+    version: 2, currency: 'CLP', store: 'i1',
+    productos: [producto({ storefront: { specs: [], photosNote: '', tabs: { showFotos: false },
+      pageSections: [{ id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [{ type: 'title' }] } }] } })],
+  };
+  const w = await montar(def, null, (html) => html.replace(
+    '<section class="product-page"', '<div style="transform: translateZ(0)"><section class="product-page"')
+    .replace('</section></body>', '</section></div></body>'));
+  const d = w.document;
+  const bar = d.querySelector('.kc-bar');
+  t('la barra se muda a <body>', bar.parentNode.classList.contains('kc-bar-host')
+    && bar.parentNode.parentNode === d.body);
+  d.querySelector('.kc-bar-cta').click();
+  await new Promise((r) => setTimeout(r, 20));
+  const panel = d.querySelector('.kc-panel');
+  t('el panel también (o se quedaría al borde de la sección)',
+    panel.parentNode.classList.contains('kc-bar-host') && panel.parentNode.parentNode === d.body);
+  t('el hueco al pie de los pasos es el alto real del panel',
+    d.querySelector('.kimos-cfg').style.getPropertyValue('--kc-panel-h') !== '' || panel.offsetHeight === 0);
+  d.querySelector('.kc-tab').click();
+  await new Promise((r) => setTimeout(r, 20));
+  t('fuera de Configurar el panel no se ve', panel.style.display === 'none');
   w.close();
 }
 
