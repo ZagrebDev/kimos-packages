@@ -318,8 +318,157 @@ function xlsxToRows(arrayBuffer) {
   return out;
 }
 
+// ============================================================================
+// Dossier ejecutivo por prospecto (estructura basada en el enfoque SERMECOOP).
+// ============================================================================
+const QA_QUESTIONS = [
+  "¿Con qué sistemas se integra KIMOS?",
+  "¿Cómo consumen la información? (API, bases de datos, archivos, etc.)",
+  "¿Dónde se aloja la solución? (Cloud, on-premise o híbrida)",
+  "¿Cómo manejan la autenticación y los permisos?",
+  "¿Qué medidas de seguridad tienen?",
+  "¿Cómo protegen la información sensible?",
+  "¿Qué tan compleja es la implementación?",
+  "¿Cómo se mantiene y actualiza la plataforma?",
+  "¿Cómo se integra KIMOS con sistemas existentes?",
+  "¿Qué LLM utilizan?",
+  "¿Es posible trabajar con modelos locales?",
+  "¿Qué ocurre si no hay Internet?",
+  "¿Cómo manejan los permisos por usuario?",
+  "¿Cómo evitan que la IA invente respuestas?",
+  "¿Cómo entrenan el conocimiento?",
+  "¿Cuánto demora una implementación?",
+  "¿Cómo se licencia la plataforma?",
+];
+const DOSSIER_SECTIONS = [
+  ["objetivo", "🎯 Objetivo de la reunión"],
+  ["perfil", "👤 Perfil del tomador de decisión"],
+  ["necesidades", "🗺️ Mapa de necesidades"],
+  ["propuesta", "💡 Propuesta de valor KIMOS + FIGIT"],
+  ["mensajes", "💬 Mensajes clave"],
+  ["casos", "🧩 Casos de uso relevantes"],
+  ["evaluando", "🔍 Qué estará evaluando la contraparte técnica"],
+  ["estrategia", "⏱️ Estrategia de conversación (30 min)"],
+  ["cierre", "✅ Plan de cierre / siguiente paso"],
+];
+// Genera el dossier pre-llenado con la ficha del prospecto y adaptado a su
+// rubro: suma dolores de empresas pares del mismo rubro (investigación sobre
+// la propia base). Todo el contenido queda editable.
+function buildDossier(p, allProspectos) {
+  const peers = allProspectos
+    .filter((x) => x.rubro === p.rubro && x.id !== p.id && x.problematica)
+    .slice(0, 3)
+    .map((x) => "• " + x.problematica)
+    .join("\n");
+  const sec = {
+    objetivo:
+      "Reunión inicial con " + p.empresa + " (" + p.rubro + "). Meta: entender sus desafíos, " +
+      "presentar KIMOS + FIGIT aplicado a su realidad y cerrar un siguiente paso concreto " +
+      "(piloto o workshop de levantamiento).",
+    perfil:
+      (p.persona || "Tomador de decisión por identificar") + (p.cargo ? " — " + p.cargo : "") + ".\n\n" +
+      "Perfil de negocio — hablará de: mejor experiencia para sus clientes/usuarios, transformación " +
+      "digital con foco en las personas, inteligencia organizacional, eficiencia operativa e innovación " +
+      "alineada con su misión. Pensará en: valor para la organización, impacto, crecimiento y diferenciación.\n\n" +
+      "Contraparte técnica (si participa) — evaluará: arquitectura, integraciones, seguridad, " +
+      "mantenimiento, implementación y viabilidad técnica." +
+      (p.linkedin_url ? "\n\nLinkedIn: " + p.linkedin_url : ""),
+    necesidades:
+      "Problemática detectada en " + p.empresa + ":\n• " + (p.problematica || "(completar tras investigación)") +
+      (peers ? "\n\nDolores frecuentes del rubro " + p.rubro + " (según la base de prospección):\n" + peers : ""),
+    propuesta:
+      (p.propuesta || "(completar propuesta específica)") + "\n\n" +
+      "Adaptar el discurso a sus dolores concretos: mostrar cómo KIMOS orquesta la información y " +
+      "FIGIT la acerca a las personas en el contexto de " + p.rubro + ".",
+    mensajes:
+      "“KIMOS es el cerebro que conecta información, personas y procesos.”\n\n" +
+      "“KIMOS es una capa de inteligencia que se integra con los sistemas existentes para que la " +
+      "organización pueda conversar con su información, automatizar procesos y entregar mejores " +
+      "experiencias a las personas.”\n\n" +
+      "“FIGIT es una de las interfaces mediante las cuales las personas interactúan con esa " +
+      "inteligencia, junto con canales como WhatsApp, la web o aplicaciones.”\n\n" +
+      "“No queremos cambiar el ecosistema tecnológico de nuestros clientes; queremos aprovecharlo mejor.”\n\n" +
+      "Tres ideas clave a transmitir:\n" +
+      "1. KIMOS no reemplaza sistemas; los integra y los hace más inteligentes.\n" +
+      "2. FIGIT es una interfaz para acercar esa inteligencia a las personas, pero no la única.\n" +
+      "3. Antes de proponer una solución, queremos entender los desafíos de " + p.empresa +
+      " para construir algo que genere valor real.",
+    casos:
+      "Caso 1 — Asistente interno: un colaborador pregunta por un procedimiento y KIMOS responde " +
+      "usando manuales, procedimientos, documentos internos y políticas, sin buscar en múltiples carpetas.\n\n" +
+      "Caso 2 — Integración: no reemplazamos, integramos (ERP, CRM, plataformas internas, SharePoint, " +
+      "bases SQL, APIs). KIMOS simplemente los conecta.\n\n" +
+      "Caso 3 — Automatización: correo → KIMOS → clasificación → creación de ticket → respuesta → registro.\n\n" +
+      "Aplicado a " + p.empresa + ": " + (p.propuesta || "(adaptar el caso al levantamiento)"),
+    evaluando:
+      "• ¿Esta solución realmente resuelve un problema?\n" +
+      "• ¿Se integra con nuestros sistemas?\n" +
+      "• ¿Qué tan compleja será la implementación?\n" +
+      "• ¿Es escalable?\n" +
+      "• ¿Cómo manejan la seguridad?\n" +
+      "• ¿Qué dependencia genera?\n" +
+      "• ¿Qué arquitectura tiene?",
+    estrategia:
+      "0–5 min · Apertura: presentación breve, objetivo de la reunión y caso real en producción " +
+      "(widget KIMOS en triatlonantofagasta.cl).\n" +
+      "5–12 min · Descubrimiento: preguntas sobre sus dolores en " + p.rubro + ": dónde pierden tiempo, " +
+      "qué información cuesta encontrar, qué procesos se repiten.\n" +
+      "12–22 min · Demostración dirigida: KIMOS + FIGIT aplicado a sus problemáticas (casos de uso de este dossier).\n" +
+      "22–27 min · Objeciones y preguntas técnicas (ver respuestas preparadas más abajo).\n" +
+      "27–30 min · Cierre: acordar siguiente paso con fecha (piloto o workshop de levantamiento).",
+    cierre:
+      "Proponer un siguiente paso concreto y con fecha:\n" +
+      "• Piloto acotado sobre un caso de uso de alto impacto en " + p.empresa + ", o\n" +
+      "• Workshop de levantamiento para mapear procesos, sistemas e información.\n" +
+      "Dejar agendada la próxima reunión antes de terminar esta.",
+  };
+  return { sec, qa: {}, createdAt: new Date().toISOString().slice(0, 10) };
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+// HTML standalone del dossier (editable: secciones con contenteditable).
+function dossierToHtml(p, d) {
+  const secHtml = DOSSIER_SECTIONS.map(([key, label]) =>
+    '<section><h2>' + esc(label) + '</h2><div class="body" contenteditable="true">' + esc(d.sec[key] || "") + "</div></section>"
+  ).join("\n");
+  const qaHtml = QA_QUESTIONS.map((q, i) =>
+    '<div class="qa"><div class="q">' + (i + 1) + ". " + esc(q) + '</div><div class="a body" contenteditable="true">' + esc(d.qa[i] || "") + "</div></div>"
+  ).join("\n");
+  return '<!doctype html>\n<html lang="es">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    "<title>Dossier — " + esc(p.empresa) + "</title>\n<style>\n" +
+    ":root{--teal:#18b9ad;--navy:#0c1726;--panel:#13233b;--line:#24385a;--txt:#e8eef7;--mut:#9fb2cc}\n" +
+    "*{box-sizing:border-box}body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(160deg,#0a1422,#0c1726 40%,#0b1a2e);color:var(--txt);padding:32px 16px}\n" +
+    ".wrap{max-width:860px;margin:0 auto}\n" +
+    "header{background:linear-gradient(90deg,rgba(24,185,173,.18),rgba(46,117,182,.10));border:1px solid var(--teal);border-radius:16px;padding:22px 26px;margin-bottom:18px}\n" +
+    "header h1{margin:0 0 4px;font-size:24px}header .sub{color:var(--mut);font-size:14px}\n" +
+    ".badge{display:inline-block;background:var(--teal);color:#04201d;font-weight:700;padding:3px 12px;border-radius:20px;font-size:11px;letter-spacing:.5px;margin-bottom:10px}\n" +
+    ".contact{margin-top:10px;font-size:14px;color:var(--mut)}\n" +
+    "section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-bottom:14px}\n" +
+    "h2{margin:0 0 10px;font-size:15px;color:var(--teal)}\n" +
+    ".body{white-space:pre-wrap;line-height:1.55;font-size:14px;min-height:24px;border-radius:8px;padding:6px}\n" +
+    ".body:focus{outline:2px solid var(--teal);background:#0e1c30}\n" +
+    ".qa{margin-bottom:12px}.q{font-weight:600;font-size:13.5px;margin-bottom:4px}\n" +
+    ".a{background:#0e1c30;border:1px dashed var(--line);min-height:40px}\n" +
+    ".a:empty:before{content:'Escribe aquí la respuesta preparada…';color:var(--mut);font-style:italic}\n" +
+    "footer{text-align:center;color:var(--mut);font-size:12px;margin-top:22px}\n" +
+    ".hint{color:var(--mut);font-size:12px;margin:0 0 16px;text-align:center}\n" +
+    "@media print{body{background:#fff;color:#111}section,header{border-color:#bbb;background:#fff}h2{color:#0e8f86}.a{background:#f6f6f6}.hint{display:none}}\n" +
+    "</style>\n</head>\n<body>\n<div class=\"wrap\">\n" +
+    '<header><span class="badge">DOSSIER EJECUTIVO · KIMOS + FIGIT</span>' +
+    "<h1>" + esc(p.empresa) + "</h1>" +
+    '<div class="sub">' + esc(p.rubro) + " · Generado el " + esc(d.createdAt) + "</div>" +
+    '<div class="contact">👤 ' + esc(p.persona || "—") + (p.cargo ? " · " + esc(p.cargo) : "") +
+    (p.correo ? " · ✉️ " + esc(p.correo) : "") + (p.telefono ? " · 📞 " + esc(p.telefono) : "") + "</div></header>\n" +
+    '<p class="hint">Este documento es editable: haz clic sobre cualquier texto para modificarlo y usa Guardar/Imprimir del navegador.</p>\n' +
+    secHtml + "\n" +
+    "<section><h2>❓ Preguntas técnicas probables — respuestas preparadas</h2>\n" + qaHtml + "</section>\n" +
+    "<footer>Powered by <b>KIMOS</b> · FIGIT — Dossier de prospección comercial</footer>\n" +
+    "</div>\n</body>\n</html>";
+}
+
 function freshStore() {
-  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [], overrides: {} };
+  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [], overrides: {}, dossiers: {} };
 }
 // Lista efectiva de prospectos: SEED + añadidos, con overrides (ediciones del
 // usuario/agente sobre cualquier prospecto, incluidos los 59 base) aplicados.
@@ -351,7 +500,7 @@ function loadLocal() {
 function saveLocal(s) {
   try {
     const ls = globalThis.localStorage;
-    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {} }));
+    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {} }));
   } catch { /* storage lleno o bloqueado */ }
 }
 function normalizeStore(s) {
@@ -362,6 +511,7 @@ function normalizeStore(s) {
     if (Array.isArray(s.equipo) && s.equipo.length) out.equipo = s.equipo;
     if (Array.isArray(s.custom)) out.custom = s.custom;
     if (s.overrides && typeof s.overrides === "object") out.overrides = s.overrides;
+    if (s.dossiers && typeof s.dossiers === "object") out.dossiers = s.dossiers;
   }
   return out;
 }
@@ -418,6 +568,10 @@ export default function mount(shell) {
             inputSchema: { type: "object", properties: { id: { type: "number" }, nota: { type: "string" } }, required: ["id", "nota"] } },
           { name: "ADD_BITACORA", description: "Registra una interacción en la bitácora (fecha YYYY-MM-DD, canal: Telefono|Correo|LinkedIn|WhatsApp|Reunion presencial|Reunion online|Otro, resumen, proximo seguimiento opcional).",
             inputSchema: { type: "object", properties: { id: { type: "number" }, fecha: { type: "string" }, canal: { type: "string" }, resumen: { type: "string" }, proximo: { type: "string" } }, required: ["id", "resumen"] } },
+          { name: "GENERATE_DOSSIER", description: "Genera (si no existe) el dossier ejecutivo del prospecto, pre-llenado con su ficha y su rubro. Luego investiga a la empresa en la web y afínalo con UPDATE_DOSSIER: adapta necesidades, propuesta y casos de uso a sus problemáticas reales, y prepara las respuestas técnicas.",
+            inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
+          { name: "UPDATE_DOSSIER", description: "Edita una sección del dossier (seccion: objetivo|perfil|necesidades|propuesta|mensajes|casos|evaluando|estrategia|cierre) o la respuesta a una pregunta técnica (seccion:'qa' + pregunta: índice 0-16 de QA). contenido reemplaza el texto.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, seccion: { type: "string" }, pregunta: { type: "number" }, contenido: { type: "string" } }, required: ["id", "seccion", "contenido"] } },
         ],
         getSnapshot: () => {
           if (!bridge.getStore) return { ready: false };
@@ -431,6 +585,7 @@ export default function mount(shell) {
               return { id: p.id, empresa: p.empresa, rubro: p.rubro, persona: p.persona, cargo: p.cargo,
                 telefono: p.telefono, correo: p.correo, linkedin_url: p.linkedin_url,
                 foto: p.foto ? (String(p.foto).startsWith("data:") ? "(foto subida manualmente)" : p.foto) : "",
+                dossier: !!(s.dossiers && s.dossiers[p.id]),
                 estado: m.estado || "Por Contactar", resultado: m.resultado || "", responsable: m.responsable || "Sin asignar", notas: m.notas || "" };
             }),
           };
@@ -487,6 +642,29 @@ export default function mount(shell) {
               bridge.setStore((s) => ({ ...s, bit: s.bit.concat([{ empresa: p.empresa, fecha: String(pl.fecha || new Date().toISOString().slice(0, 10)), canal, resumen: String(pl.resumen || ""), proximo: String(pl.proximo || "") }]) }));
               return { success: true };
             }
+            if (t === "GENERATE_DOSSIER") {
+              const p = effProspectos(bridge.getStore()).find((x) => x.id === id);
+              if (!p) return { success: false, error: "id no encontrado" };
+              const existed = !!(bridge.getStore().dossiers || {})[id];
+              if (!existed) bridge.setStore((s) => ({ ...s, dossiers: { ...(s.dossiers || {}), [id]: buildDossier(p, effProspectos(s)) } }));
+              return { success: true, message: existed ? "El dossier ya existía; edítalo con UPDATE_DOSSIER." : "Dossier generado. Investiga la empresa y afínalo con UPDATE_DOSSIER. Secciones: " + DOSSIER_SECTIONS.map((x) => x[0]).join("|") + "; preguntas QA 0-" + (QA_QUESTIONS.length - 1) + "." };
+            }
+            if (t === "UPDATE_DOSSIER") {
+              const cur = (bridge.getStore().dossiers || {})[id];
+              if (!cur) return { success: false, error: "El prospecto no tiene dossier: llama GENERATE_DOSSIER primero." };
+              const secKeys = DOSSIER_SECTIONS.map((x) => x[0]);
+              const seccion = String(pl.seccion || "");
+              const contenido = String(pl.contenido || "");
+              if (seccion === "qa") {
+                const qi = Number(pl.pregunta);
+                if (!isFinite(qi) || qi < 0 || qi >= QA_QUESTIONS.length) return { success: false, error: "pregunta debe ser un índice 0-" + (QA_QUESTIONS.length - 1) };
+                bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, qa: { ...d.qa, [qi]: contenido } } } }; });
+                return { success: true, message: "Respuesta " + qi + " actualizada." };
+              }
+              if (secKeys.indexOf(seccion) < 0) return { success: false, error: "seccion inválida: " + secKeys.join("|") + " o 'qa'" };
+              bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, sec: { ...d.sec, [seccion]: contenido } } } }; });
+              return { success: true, message: "Sección '" + seccion + "' actualizada." };
+            }
             return { success: false, error: "Acción desconocida: " + t };
           } catch (err) {
             return { success: false, error: (err && err.message) || "error interno" };
@@ -510,6 +688,7 @@ export default function mount(shell) {
     const [addDraft, setAddDraft] = useState(null); // prospecto en edición (alta manual)
     const [editId, setEditId] = useState(null);     // prospecto en edición (✏️ ficha)
     const [editDraft, setEditDraft] = useState(null);
+    const [dossierId, setDossierId] = useState(null); // dossier abierto (modal)
     const [forms, setForms] = useState({}); // bitácora en edición por id
     const fileRef = useRef(null); // importar respaldo (estado)
     const bdRef = useRef(null);   // importar base de datos de prospectos
@@ -658,6 +837,53 @@ export default function mount(shell) {
         }) : null);
     }
 
+    // ---------- Dossier ejecutivo ----------
+    const openDossier = useCallback((p) => {
+      setStore((s) => {
+        if (s.dossiers && s.dossiers[p.id]) return s;
+        const d = buildDossier(p, effProspectos(s));
+        return { ...s, dossiers: { ...(s.dossiers || {}), [p.id]: d } };
+      });
+      setDossierId(p.id);
+    }, []);
+    const setDossierSec = useCallback((id, key, value) => {
+      setStore((s) => {
+        const d = (s.dossiers || {})[id];
+        if (!d) return s;
+        return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, sec: { ...d.sec, [key]: value } } } };
+      });
+    }, []);
+    const setDossierQa = useCallback((id, idx, value) => {
+      setStore((s) => {
+        const d = (s.dossiers || {})[id];
+        if (!d) return s;
+        return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, qa: { ...d.qa, [idx]: value } } } };
+      });
+    }, []);
+    const regenDossier = useCallback((p) => {
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Regenerar el dossier de " + p.empresa + "? Se reescriben las secciones automáticas (las respuestas a preguntas técnicas se conservan).")) return;
+      setStore((s) => {
+        const prev = (s.dossiers || {})[p.id];
+        const d = buildDossier(p, effProspectos(s));
+        if (prev) d.qa = prev.qa; // conserva las respuestas preparadas
+        return { ...s, dossiers: { ...(s.dossiers || {}), [p.id]: d } };
+      });
+      notify("success", "Dossier regenerado con la ficha actual.");
+    }, []);
+    const downloadDossier = useCallback((p) => {
+      const d = storeRef.current.dossiers && storeRef.current.dossiers[p.id];
+      if (!d) return;
+      try {
+        const blob = new Blob([dossierToHtml(p, d)], { type: "text/html;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "dossier-" + p.empresa.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + ".html";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        notify("success", "Dossier HTML descargado (editable e imprimible).");
+      } catch { notify("error", "No se pudo descargar el dossier."); }
+    }, []);
+
     // ---------- Enlaces de investigación por prospecto ----------
     function researchLinks(p) {
       const emp = encodeURIComponent(p.empresa);
@@ -729,7 +955,7 @@ export default function mount(shell) {
     // ---------- Export / Import / Reset ----------
     const exportJSON = useCallback(() => {
       try {
-        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {} }, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {}, dossiers: store.dossiers || {} }, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "kimos_prospeccion_estado.json";
@@ -750,7 +976,7 @@ export default function mount(shell) {
     }, []);
     const resetAll = useCallback(() => {
       if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar estados, asignaciones y bitácora? (Se conservan los prospectos añadidos y los datos de contacto editados)")) return;
-      setStore((s) => ({ ...freshStore(), custom: s.custom || [], overrides: s.overrides || {} }));
+      setStore((s) => ({ ...freshStore(), custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {} }));
       notify("info", "Avance reiniciado.");
     }, []);
 
@@ -993,7 +1219,51 @@ export default function mount(shell) {
           EArea("Notas base", "notas"),
           h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
             h("button", { className: "kp-btn", onClick: () => setEditId(null) }, "Cancelar"),
-            h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios"))))
+            h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios")))),
+
+      // Modal Dossier ejecutivo
+      dossierId != null && (() => {
+        const p = P.find((x) => x.id === dossierId);
+        const d = store.dossiers && store.dossiers[dossierId];
+        if (!p || !d) return null;
+        return h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setDossierId(null); } },
+          h("div", { className: "kp-box kp-box-xl" },
+            h("div", { className: "kp-dossier-head" },
+              Avatar(p, 46),
+              h("div", { style: { flex: 1, minWidth: 0 } },
+                h("h3", { style: { margin: 0 } }, "\u{1F4CB} Dossier Ejecutivo — " + p.empresa),
+                h("div", { className: "kp-tag" }, p.rubro + " · generado el " + d.createdAt + " · todo el contenido es editable y se guarda solo")),
+              h("div", { className: "kp-dossier-actions" },
+                h("button", { className: "kp-btn kp-primary", onClick: () => downloadDossier(p) }, "⬇️ Descargar HTML"),
+                h("button", { className: "kp-btn", onClick: () => regenDossier(p) }, "↻ Regenerar"),
+                h("button", { className: "kp-btn", onClick: () => setDossierId(null) }, "✕"))),
+            h("div", { className: "kp-dossier-body" },
+              DOSSIER_SECTIONS.map(([key, label]) => h("div", { className: "kp-dsec", key },
+                h("h4", null, label),
+                h("textarea", {
+                  className: "kp-dta", value: d.sec[key] || "",
+                  rows: Math.min(14, Math.max(3, ((d.sec[key] || "").match(/\n/g) || []).length + 2)),
+                  onChange: (e) => setDossierSec(dossierId, key, e.target.value),
+                }))),
+              h("div", { className: "kp-dsec" },
+                h("h4", null, "❓ Preguntas técnicas probables — prepara tus respuestas"),
+                h("p", { className: "kp-tag", style: { margin: "0 0 10px" } },
+                  "Las preguntas que probablemente hará la contraparte técnica. Escribe la respuesta preparada bajo cada una; queda guardada y sale en el HTML."),
+                QA_QUESTIONS.map((q, i) => h("div", { className: "kp-qa", key: i },
+                  h("div", { className: "kp-qa-q" }, (i + 1) + ". " + q),
+                  h("textarea", {
+                    className: "kp-dta kp-qa-a", placeholder: "Escribe aquí la respuesta preparada…",
+                    value: d.qa[i] || "",
+                    rows: Math.min(8, Math.max(2, ((d.qa[i] || "").match(/\n/g) || []).length + 2)),
+                    onChange: (e) => setDossierQa(dossierId, i, e.target.value),
+                  })))),
+              h("div", { className: "kp-dsec" },
+                h("h4", null, "\u{1F50E} Investigación para afinar este dossier"),
+                h("p", { className: "kp-tag", style: { margin: "0 0 10px" } },
+                  "Usa estos enlaces para investigar a " + p.empresa + " y ajustar necesidades, propuesta y casos de uso a su realidad. Si el agente KIMOS está autorizado, también puede investigar y completar este dossier automáticamente."),
+                h("div", { className: "kp-fotobtns" },
+                  researchLinks(p).map((l, j) => h("a", { key: j, className: "kp-btn kp-mini2", href: l.href, target: "_blank", rel: "noreferrer" }, l.label)))))));
+      })()
     );
 
     // Helpers de formulario (edición de ficha)
@@ -1098,6 +1368,8 @@ export default function mount(shell) {
           h("div", { className: "kp-rowactions", onClick: (e) => e.stopPropagation() },
             h("span", { className: "kp-tag", style: { marginRight: "auto" } }, "\u{1F50E} Investigar:"),
             researchLinks(p).map((l, j) => h("a", { key: j, className: "kp-btn kp-mini2", href: l.href, target: "_blank", rel: "noreferrer" }, l.label)),
+            h("button", { className: "kp-btn kp-primary", onClick: () => openDossier(p) },
+              (store.dossiers && store.dossiers[p.id]) ? "\u{1F4CB} Abrir dossier" : "\u{1F4CB} Generar dossier"),
             h("button", { className: "kp-btn", onClick: () => openEdit(p) }, "✏️ Editar ficha"),
             isCustom ? h("button", { className: "kp-btn kp-danger", onClick: () => delProspecto(p.id) }, "\u{1F5D1} Eliminar") : null)));
       }

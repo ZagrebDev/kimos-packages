@@ -116,8 +116,37 @@ modal ✏️, con tres vías:
 viaja en Exportar/Importar. Las fotos subidas a mano se reportan al snapshot
 del agente como `"(foto subida manualmente)"` (el data URI no se filtra).
 
+## Dossier Ejecutivo por prospecto (📋)
+
+Botón **📋 Generar dossier** en la ficha expandida de cada prospecto. Crea un
+dossier con la estructura del enfoque SERMECOOP, **pre-llenado automáticamente**
+con la ficha del prospecto y **adaptado a su rubro** (suma dolores de empresas
+pares del mismo rubro de la base):
+
+1. 🎯 Objetivo de la reunión · 2. 👤 Perfil del tomador de decisión ·
+3. 🗺️ Mapa de necesidades · 4. 💡 Propuesta de valor · 5. 💬 Mensajes clave
+("KIMOS es el cerebro…", las 3 ideas clave) · 6. 🧩 Casos de uso (asistente
+interno / integración / automatización, aplicados al prospecto) ·
+7. ❓ **Las 17 preguntas técnicas probables con espacio editable para preparar
+cada respuesta** · 8. 🔍 Qué evaluará la contraparte técnica ·
+9. ⏱️ Estrategia de conversación (30 min) · 10. ✅ Plan de cierre (piloto/workshop).
+
+- **Todo editable** en la app; se guarda solo (localStorage) y viaja en
+  Exportar/Importar. **↻ Regenerar** reescribe lo automático conservando las
+  respuestas técnicas ya preparadas.
+- **⬇️ Descargar HTML**: documento standalone con estilo KIMOS, también
+  **editable** (contenteditable) e imprimible.
+- **Investigación**: enlaces 🔎 dentro del dossier para afinar la propuesta, y
+  tools de agente `GENERATE_DOSSIER` / `UPDATE_DOSSIER` (secciones y respuestas
+  QA por índice) para que el agente KIMOS investigue la empresa y adapte el
+  dossier automáticamente. El snapshot marca qué prospectos ya tienen dossier.
+
 ## Notas de versión
 
+- **2.3.0** — **Dossier Ejecutivo por prospecto** (estructura SERMECOOP):
+  generación automática adaptada al rubro, 17 respuestas técnicas editables,
+  export HTML editable/imprimible, regeneración que conserva respuestas y tools
+  de agente `GENERATE_DOSSIER`/`UPDATE_DOSSIER`.
 - **2.2.0** — Campo **foto del contacto**: avatar con iniciales, subida manual
   (recorte cuadrado en canvas), URL de LinkedIn pegada, columna `foto` en BD y
   `campos.foto` en `UPDATE_PROSPECTO` para el agente.
