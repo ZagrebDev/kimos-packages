@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.4.1';
+  var VERSION = '5.5.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1227,6 +1227,15 @@
     // 'auto' | 'container' | 'full' (lo global del theme; el producto puede pisarlo).
     width: String(window.KIMOS_WIDTH || 'auto').toLowerCase(),
   };
+  var SEL_HEADER = 'header, .theme-header, #header, .site-header, .main-header';
+  // z-index declarado por el menú del sitio (null = no declara ninguno).
+  function zHeader() {
+    var h = null;
+    try { h = document.querySelector(LAYOUT.headerSel || SEL_HEADER); } catch (e) { h = null; }
+    if (!h) return null;
+    var z = parseInt(getComputedStyle(h).zIndex, 10);
+    return isFinite(z) ? z : null;
+  }
   var HEADER_CANDIDATOS = 'header, .header, #header, .theme-header, .site-header, .main-header, .navbar, .nav-bar, .topbar, .top-bar, [class*="header"][class*="fixed"], [class*="header"][class*="sticky"]';
   var CONT_CANDIDATOS = '.container, .page-width, .site-width, .wrapper, .site-container, .page-container, .content-wrapper, main > .container, .shopify-section > .container';
 
@@ -1531,7 +1540,12 @@
         bar.style.left = '0px'; bar.style.right = '0px';
         bar.style.width = 'auto'; bar.style.transform = 'none';
       }
-      if (!bar.style.zIndex) bar.style.zIndex = '11';
+      // La barra va SOBRE el contenido pero SIEMPRE BAJO el menú del sitio: sus
+      // desplegables caen justo encima de ella y no pueden quedar tapados.
+      var zh = zHeader();
+      var z = 11;
+      if (zh != null && zh <= z) z = Math.max(1, zh - 1);
+      bar.style.zIndex = String(z);
     }
     /**
      * Comprobación en voz alta: si la barra no se ve, decir POR QUÉ.
@@ -1556,11 +1570,16 @@
       if (!enPunto || bar === enPunto || bar.contains(enPunto)) return;   // se ve
       var z = parseInt(getComputedStyle(enPunto).zIndex, 10);
       var quien = (enPunto.tagName || '?').toLowerCase() + '.' + (enPunto.className || '').toString().slice(0, 60);
-      if (isFinite(z) && z >= Number(bar.style.zIndex || 11)) {
+      var zh2 = zHeader();
+      var esMenu = !!(enPunto.closest && enPunto.closest(SEL_HEADER));
+      // Subir por encima del menú del sitio NO es arreglarlo: sus desplegables
+      // quedarían debajo de nuestra barra. Ahí solo se avisa.
+      var techo = zh2 == null ? Infinity : zh2 - 1;
+      if (!esMenu && isFinite(z) && z >= Number(bar.style.zIndex || 11) && z + 1 <= techo) {
         bar.style.zIndex = String(z + 1);
         console.warn(LOG, 'algo tapaba la barra (' + quien + ', z=' + z + '): se sube por encima. ' + estado);
       } else {
-        console.warn(LOG, 'algo tapaba la barra: ' + quien + ' — ' + estado);
+        console.warn(LOG, 'algo tapaba la barra: ' + quien + (esMenu ? ' (el menú del sitio: la barra se queda debajo a propósito)' : '') + ' — ' + estado);
       }
     }
     // Al hacer scroll cambian el tope de la barra (headers que encogen) y el
@@ -1739,6 +1758,8 @@
       // Disponibilidad: la dice el botón REAL del theme, que es quien sabe de
       // stock y de variantes. Aquí solo se refleja.
       var real = botonCarro();
+      // `disabled` es la única señal fiable de que la combinación no se puede
+      // comprar; si el theme no expone su botón, no se inventa un aviso.
       var noHay = !!(real && real.disabled);
       if (panelCta) {
         panelCta.textContent = (real && (real.textContent || '').trim()) || 'Añadir al carro';
@@ -1956,6 +1977,38 @@
       }
       paintBar();
     });
+
+    // El botón de carro del theme se habilita/deshabilita por su cuenta y a su
+    // ritmo (resuelve la variante después de que nosotros hayamos pintado). Si
+    // solo se mira al pintar, el panel se queda con la foto de un instante y
+    // enseña "no disponible" para siempre. Se vigila su atributo.
+    (function vigilarCarro() {
+      var real = botonCarro();
+      if (!real || typeof MutationObserver !== 'function') return;
+      new MutationObserver(function () { pintarPanel(); }).observe(real, {
+        attributes: true, attributeFilter: ['disabled', 'class'],
+      });
+    })();
+
+    // Radiografía de los pasos: qué tiene la TIENDA (que es lo que se puede
+    // comprar) frente a lo que publica KIMOS. Cuando no cuadran, la ficha se
+    // ve "a medias" —falta un valor, o la combinación no existe— y hasta ahora
+    // había que adivinarlo.
+    (function revisarPasos() {
+      var faltan = [];
+      (entry.groups || []).forEach(function (kg) {
+        var g = nativeOf(groups, kg);
+        if (!g) { faltan.push('el paso "' + kg.label + '" no existe como opción en la tienda'); return; }
+        var sinTienda = (kg.values || []).filter(function (v) {
+          return !g.values.some(function (n) { return norm(n.name) === norm(v.name); });
+        }).map(function (v) { return v.name; });
+        if (sinTienda.length) faltan.push('"' + kg.label + '" sin ' + sinTienda.join(', ') + ' en la tienda');
+      });
+      if (!faltan.length) return;
+      console.warn(LOG, 'la tienda y ProductLab no coinciden — ' + faltan.join(' · ')
+        + '. La ficha solo puede ofrecer lo que la tienda tiene (es lo que se cobra): '
+        + 'abre el producto en ProductLab y pulsa "Guardar y aplicar a la tienda" para crear las opciones y variantes que faltan.');
+    })();
 
     // Al cargar, los pasos ocultos por dependencia quedan ya en su default
     // (sin aviso: nadie eligió nada todavía; solo se sincroniza la variante).

@@ -123,6 +123,31 @@ es lo primero que hay**: recorre hacia arriba mientras siga siendo el primer
 hijo y anula ahí el `padding-top`/`margin-top`. Si encima queda algo del theme
 (migas de pan, un aviso), su espacio no se toca.
 
+## Cuando la tienda y ProductLab no coinciden
+
+La ficha **solo puede ofrecer lo que la tienda tiene**: los valores salen de
+las opciones nativas de Jumpseller, porque son las que resuelven la variante y
+el precio que se cobra. Si en ProductLab agregas un valor (o un paso) y no
+aplicas el producto a la tienda, ese valor no aparece en la ficha y las
+combinaciones que lo usan no existen — el theme deshabilita su botón de carro y
+el panel dice *"Esta combinación no está disponible por ahora"*.
+
+Al montar, el kit compara ambos lados y, si no cuadran, lo escribe en consola
+con nombre y apellido:
+
+```
+[kimos-cfg] la tienda y ProductLab no coinciden — "Color" sin Negro en la tienda.
+La ficha solo puede ofrecer lo que la tienda tiene…
+```
+
+La solución es siempre la misma: abrir el producto en ProductLab y pulsar
+**Guardar y aplicar a la tienda**, que crea las opciones y variantes que faltan.
+
+El aviso de disponibilidad es un espejo del botón real del theme, y ese botón
+se habilita a su ritmo (resuelve la variante después de que la ficha pinte):
+por eso se vigila con un observador y el mensaje se retira en cuanto el theme
+puede vender la combinación.
+
 ## Configurar: pasos a la izquierda, panel de compra a la derecha
 
 La vista *Configurar* es la de la ficha de computadores: los pasos ocupan la
@@ -167,6 +192,11 @@ en scroll/resize, porque muchos headers encogen al bajar):
   **`style.bar.offset` se SUMA a esa medida.** Déjalo en 0 salvo que quieras
   separación extra: si lo usas para compensar el alto del menú, acabas con la
   barra el doble de abajo.
+
+- **La barra va SIEMPRE bajo el menú del sitio.** Su `z-index` se calcula: 11
+  por defecto y, si el menú declara uno menor, justo por debajo de él. Los
+  desplegables del menú caen encima de la barra, que es lo correcto; si algo
+  la tapa, el auto-arreglo la sube — pero nunca por encima del menú.
 
 - **Si la barra no aparece, el kit lo dice.** Metro y medio después de montar
   comprueba su propio sitio con `elementFromPoint`; si algo la tapa, lo escribe
@@ -224,7 +254,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.4.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.5.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

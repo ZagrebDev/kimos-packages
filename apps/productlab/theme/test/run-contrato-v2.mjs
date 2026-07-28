@@ -58,6 +58,7 @@ const pagina = () => `<!doctype html><html lang="es"><body>
   <div class="product-page__wrapper">
     <script type="application/json" class="product-form-json">${JSON.stringify({ options: {}, info: prodInfo })}</script>
     <div class="product-options">${selectsHtml}</div>
+    <button type="submit" id="add-to-cart" disabled>Añadir al carro</button>
   </div>
 </section></body></html>`;
 
@@ -284,6 +285,14 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('el panel trae foto, precio y carro', !!panel.querySelector('.kc-panel-foto')
     && !!panel.querySelector('.kc-price') && !!panel.querySelector('.kc-btn'));
   t('el panel resume lo elegido', (panel.querySelector('.kc-summary').textContent || '').indexOf('Modelo') !== -1);
+  // El botón del theme resuelve la variante a su ritmo: el panel tiene que
+  // seguirlo, o el aviso de "no disponible" se queda puesto para siempre.
+  t('avisa mientras el theme no puede vender la combinación',
+    /no está disponible/.test(panel.querySelector('.kc-stockmsg').textContent));
+  d.querySelector('#add-to-cart').disabled = false;
+  await new Promise((r) => setTimeout(r, 30));
+  t('el aviso se va cuando el theme habilita el carro',
+    panel.querySelector('.kc-stockmsg').textContent === '' && !panel.querySelector('.kc-btn').disabled);
   // En Configurar la barra no repite el título ni la foto/precio del panel.
   t('sin botón "volver" que duplique el título', !d.querySelector('.kc-bar-back'));
   t('la barra no repite foto ni precio en Configurar',
