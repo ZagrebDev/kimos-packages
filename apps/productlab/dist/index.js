@@ -905,6 +905,7 @@ export default function mount(shell) {
       url: s(b.url).trim(),
     });
     if (b.type === 'icons') return Object.assign(base, {
+      color: s(b.color).trim(),
       items: (Array.isArray(b.items) ? b.items : []).map((it) => ({
         id: it.id || newId('ic'), icon: s(it.icon).trim(), title: s(it.title).trim(), text: s(it.text).trim(),
       })).filter((it) => it.title || it.icon),
@@ -2353,7 +2354,7 @@ export default function mount(shell) {
             text: '{"type":"text","text":"…","size":"xl|l|m|s","color":"#hex opcional","align":"left|center|right"}',
             items: '{"type":"items","items":[{"title":"…","text":"…"},…],"float":true,"align":"left|center|right"} — features/beneficios; title obligatorio en cada item',
             cta: '{"type":"cta","label":"…","style":"primary|dark|ghost","action":"configurar|url","url":"solo si action=url","align":"left|center|right"} — botón',
-            icons: '{"type":"icons","items":[{"icon":"⚡ (emoji o carácter)","title":"…","text":"…"},…],"align":"left|center|right"}',
+            icons: '{"type":"icons","items":[{"icon":"⚡ (emoji o carácter)","title":"…","text":"…"},…],"color":"#hex opcional","align":"left|center|right"} — destaques con filete de acento a la izquierda',
             specs: '{"type":"specs","count":4,"align":"left|center|right"} — resumen de las primeras N filas de la tabla de especificaciones (1-12)',
             gallery: '{"type":"gallery","index":1,"size":"s|m|l|xl|auto","align":"left|center|right"} — foto Nº index de la galería del producto (auto = alto natural)',
             description: '{"type":"description","size":"xl|l|m|s","max":0,"align":"left|center|right"} — la descripción que el producto ya tiene en la tienda, en vivo; max = recorte a N caracteres (0 = completa)',
@@ -4186,7 +4187,10 @@ export default function mount(shell) {
               background: b.style === 'dark' ? '#1D1D1B' : b.style === 'ghost' ? 'rgba(255,255,255,.12)' : 'var(--gp-fucsia)',
               color: '#fff', border: b.style === 'ghost' ? '1px solid rgba(255,255,255,.5)' : '0',
             } }, b.label || 'Configurar'));
-            if (b.type === 'icons') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, { display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }) }),
+            if (b.type === 'icons') return h('div', Object.assign({}, common, { style: Object.assign({}, common.style, {
+              display: 'flex', flexWrap: 'wrap', gap: 10, color: b.color || undefined,
+              justifyContent: b.align === 'left' ? 'flex-start' : b.align === 'right' ? 'flex-end' : 'center',
+            }) }),
               (b.items || []).map((it) => h('div', { key: it.id, style: { borderLeft: '2px solid var(--gp-fucsia)', paddingLeft: 6, fontSize: 10, textAlign: 'left' } }, [
                 it.icon ? h('div', { key: 'i4', style: { fontSize: 14 } }, it.icon) : null,
                 h('b', { key: 't5', style: { display: 'block', fontSize: 11 } }, it.title || '—'),
@@ -4347,6 +4351,7 @@ export default function mount(shell) {
                     b.action === 'url' && h(TextInput, { key: 'u11', mono: true, value: b.url || '', placeholder: 'https://…', style: { flex: 1, minWidth: 160 }, onChange: (e) => upBlock(b.id, { url: e.target.value }) }),
                   ]),
                   b.type === 'icons' && h('div', { key: 'f' }, [
+                    h(ColorField, { key: 'c12', label: null, value: b.color || '', onChange: (v) => upBlock(b.id, { color: v }), placeholder: 'color del texto (vacío = del hero)' }),
                     h(React.Fragment, { key: 'its' }, (b.items || []).map((it) => h('div', { key: it.id, className: 'gp-compline' }, [
                       h(TextInput, { key: 'i12', value: it.icon, placeholder: '❄️', title: 'Icono (emoji o carácter)', style: { width: 60, textAlign: 'center' }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { icon: e.target.value }) : x)) }) }),
                       h(TextInput, { key: 't12', value: it.title, placeholder: 'Destaque (ej: Roble macizo)', style: { width: 180 }, onChange: (e) => upBlock(b.id, { items: b.items.map((x) => (x.id === it.id ? Object.assign({}, x, { title: e.target.value }) : x)) }) }),

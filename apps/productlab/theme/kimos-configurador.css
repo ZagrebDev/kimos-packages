@@ -134,6 +134,9 @@
    Paridad con la ficha de computadores: cuadrado de acento con "+", que gira
    45° al abrir, y el texto desplegado con filete de acento. */
 .kimos-cfg .kc-b-items { display: flex; flex-direction: column; gap: 10px; align-items: inherit; }
+.kimos-cfg .kc-b-items[data-align="left"]   { align-items: flex-start; }
+.kimos-cfg .kc-b-items[data-align="center"] { align-items: center; }
+.kimos-cfg .kc-b-items[data-align="right"]  { align-items: flex-end; }
 .kimos-cfg .kc-item { position: relative; max-width: 420px; }
 .kimos-cfg .kc-item.open { z-index: 8; }
 .kimos-cfg .kc-item-btn {
@@ -175,11 +178,29 @@
 @media (prefers-reduced-motion: reduce) {
   .kimos-cfg .kc-b-items[data-float="1"] .kc-item { animation: none; }
 }
-.kimos-cfg .kc-b-icons { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
-.kimos-cfg .kc-icon { flex: 1 1 120px; }
-.kimos-cfg .kc-icon-i { font-size: 26px; }
-.kimos-cfg .kc-icon-t { font-weight: 600; font-size: 14px; }
-.kimos-cfg .kc-icon-x { font-size: 12px; opacity: .8; }
+/* ── Iconos destacados ──
+   Mismo dibujo que el previsualizador de la app: filete de acento a la
+   izquierda, icono grande, título en negrita y detalle atenuado. El texto va
+   siempre alineado a la izquierda dentro de cada destaque (lo que se alinea
+   con `align` es el reparto del bloque completo, no el contenido). */
+.kimos-cfg .kc-b-icons {
+  display: flex; gap: 22px 26px; flex-wrap: wrap; justify-content: center;
+}
+.kimos-cfg .kc-b-icons[data-align="left"]  { justify-content: flex-start; }
+.kimos-cfg .kc-b-icons[data-align="right"] { justify-content: flex-end; }
+.kimos-cfg .kc-icon {
+  flex: 0 1 auto; min-width: 130px; max-width: 260px;
+  text-align: left;
+  border-left: 2px solid var(--kc-accent);
+  padding-left: 12px;
+}
+.kimos-cfg .kc-icon-i { font-size: 26px; line-height: 1.1; margin-bottom: 4px; }
+.kimos-cfg .kc-icon-t { font-weight: 700; font-size: 14px; line-height: 1.3; }
+.kimos-cfg .kc-icon-x { font-size: 12px; line-height: 1.5; opacity: .78; margin-top: 3px; }
+@media (max-width: 720px) {
+  .kimos-cfg .kc-b-icons { gap: 16px 18px; }
+  .kimos-cfg .kc-icon { min-width: 44%; }
+}
 .kimos-cfg .kc-spec-min { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; }
 .kimos-cfg .kc-spec-l { opacity: .7; }
 

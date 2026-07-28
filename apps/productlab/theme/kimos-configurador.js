@@ -33,7 +33,7 @@
     xrextras: window.KIMOS_XREXTRAS_URL || '',
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.0.0';
+  var VERSION = '5.0.1';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -418,7 +418,10 @@
       });
       n.appendChild(btn);
     } else if (b.type === 'icons') {
+      // Destaques: cada uno con su filete de acento a la izquierda, igual que
+      // en el previsualizador de la app (no es un bloque de texto suelto).
       n = el('div', 'kc-b kc-b-icons');
+      if (b.color) n.style.color = b.color;
       (b.items || []).forEach(function (it) {
         var w = el('div', 'kc-icon');
         if (it.icon) w.appendChild(el('div', 'kc-icon-i', it.icon));
@@ -457,6 +460,9 @@
     }
     if (b.align === 'left') n.style.textAlign = 'left';
     else if (b.align === 'right') n.style.textAlign = 'right';
+    // Los bloques que son flex por dentro (items, iconos) no se alinean con
+    // text-align: el CSS los reparte leyendo este atributo.
+    if (b.align) n.setAttribute('data-align', b.align);
     return n;
   }
 

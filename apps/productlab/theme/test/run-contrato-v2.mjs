@@ -28,6 +28,9 @@ catch (e) {
 }
 
 const SRC = fs.readFileSync(new URL('../kimos-configurador.js', import.meta.url), 'utf8');
+// jsdom no resuelve var() en el cascade, así que el estilo que no se puede
+// comprobar computado se comprueba sobre la hoja tal cual se publica.
+const CSS_SRC = fs.readFileSync(new URL('../kimos-configurador.css', import.meta.url), 'utf8');
 
 let fallos = 0;
 const t = (nombre, cond) => { console.log((cond ? '✔ ' : '✘ ') + nombre); if (!cond) fallos++; };
@@ -110,7 +113,13 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
       storefront: {
         specs: [], photosNote: '',
         pageSections: [
-          { id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [{ type: 'cta', label: 'Comprar', style: 'primary' }] } },
+          { id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [
+            { type: 'cta', label: 'Comprar', style: 'primary' },
+            { type: 'icons', align: 'left', color: '#223344', items: [
+              { id: 'ic1', icon: '❄️', title: 'Refrigeración líquida', text: 'Silencioso bajo carga' },
+              { id: 'ic2', icon: '⚡', title: 'Fuente 80+', text: '' },
+            ] },
+          ] } },
           { id: 'f1', kind: 'fotos', show: true },
         ],
         tabs: { showSpecs: true, showFotos: true, order: ['explorar', 'specs', 'fotos'] },
@@ -140,6 +149,16 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   // blanco sobre blanco dentro de un hero con texto claro.
   const acento = w.getComputedStyle(root).getPropertyValue('--kc-accent').trim();
   t('acento nunca es currentColor', acento !== 'currentColor');
+  // Iconos destacados: se veían como texto suelto y centrado en la tienda
+  // mientras el previsualizador de la app los dibujaba con filete de acento.
+  const iconos = d.querySelector('.kc-b-icons');
+  t('bloque de iconos renderizado', !!iconos && iconos.querySelectorAll('.kc-icon').length === 2);
+  t('iconos: alineación en atributo (el flex no lee text-align)', iconos.getAttribute('data-align') === 'left');
+  t('iconos: color del bloque aplicado', iconos.style.color !== '');
+  t('iconos: icono, título y detalle', !!iconos.querySelector('.kc-icon-i')
+    && iconos.querySelectorAll('.kc-icon-t').length === 2
+    && iconos.querySelectorAll('.kc-icon-x').length === 1);
+  t('iconos: el CSS les da el filete de acento', /\.kc-icon\s*\{[^}]*border-left:[^;]*var\(--kc-accent\)/.test(CSS_SRC));
 }
 
 // ═══ Escenario 1: JSON v2 completo (deps + style + imagen + hero auto) ═════
