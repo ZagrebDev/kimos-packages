@@ -32,7 +32,8 @@ Todo lo visible se decide en ProductLab (Ficha → Estilo) y viaja en
 | Separación extra bajo el menú del sitio | `style.bar.offset` (px; **deja 0**: el alto del menú se mide solo y este valor se SUMA encima) |
 | Pestañas secundarias en móvil | `style.bar.mobileTabs` (por defecto **ocultas**: se amontonaban con el precio y engordaban la barra) |
 | Precio y miniatura en la barra | `style.bar.showPrice` / `bar.showThumb` |
-| Tamaño de la galería en Explorar | `style.photos.size` (`s`/`m`/`l`/`xl`) y `photos.cols` |
+| Galería en Explorar | `style.photos`: `layout` (`visor`/`lado`/`mosaico`), `size` (ancho del bloque), `mainSize` (alto de la foto grande, incluido `auto`), `thumbSize`, `cols`, `fit` (`contain`/`cover`) y `frame` |
+| Color del spinner de arranque | `style.spinnerColor` (vacío = el acento). Para el primer fotograma, antes de que llegue nada de KIMOS: `window.KIMOS_SPINNER_COLOR` y `window.KIMOS_BOOT_BG` en `custom.js` |
 | Texto del botón que lleva al configurador | `style.buyLabel` (vacío = "Configurar"); va en el ESTILO para cambiarlo de una vez en todos los productos de una plantilla, y `storefront.tabs.comprar` lo pisa para un producto suelto |
 
 **Contraste garantizado:** `--kc-accent` tiene un valor sólido por defecto y
@@ -134,10 +135,20 @@ raspado del DOM queda solo de respaldo, para cuando no hay galería publicada.
 
 ## Bajar a una sección sin que la barra tape el título
 
-Las pestañas *Fotos* y *Especificaciones* bajan hasta su sección. Lo que hay
-que descontar no es el ALTO de la barra sino **dónde termina**: va fija bajo el
+Las pestañas *Fotos* y *Especificaciones* bajan hasta su sección, y entrar en
+*Configurar* sube al principio de la ficha. En los dos casos lo que hay que
+descontar no es el ALTO de la barra sino **dónde termina**: va fija bajo el
 menú del sitio, así que su borde inferior incluye ese menú y la separación
-extra del producto. Con el alto a secas, el título quedaba detrás de la barra.
+extra del producto. Con el alto a secas —o con `scrollIntoView` a secas, que es
+lo que hacía al entrar en Configurar— el título quedaba detrás de la barra.
+
+## El panel de compra en móvil
+
+Baja a una barra flotante **al ras del borde inferior** (respetando el área
+segura del teléfono) y se queda fija ahí. Para que no tape el último valor del
+último paso, el hueco al pie de los pasos es el **alto real del panel**, que el
+JS mide y expone en `--kc-panel-h`: con un número fijo, el panel se comía las
+últimas opciones en cuanto crecía (precio largo, aviso de stock, desplegado).
 
 ## El precio: de la VARIANTE elegida
 
@@ -313,7 +324,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.7.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.8.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

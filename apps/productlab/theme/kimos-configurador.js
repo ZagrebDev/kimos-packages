@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.7.0';
+  var VERSION = '5.8.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -592,6 +592,17 @@
     var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
     wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
+    // Disposición: 'visor' (foto grande + miniaturas debajo), 'lado'
+    // (miniaturas en columna a la izquierda) o 'mosaico' (solo la grilla, sin
+    // visor: para catálogos con muchas fotos del mismo tamaño).
+    wrap.setAttribute('data-layout', ['lado', 'mosaico'].indexOf(pc.layout) !== -1 ? pc.layout : 'visor');
+    // Alto de la foto grande y tamaño de las miniaturas, por separado.
+    wrap.setAttribute('data-main', ['s', 'l', 'xl', 'auto'].indexOf(pc.mainSize) !== -1 ? pc.mainSize : 'm');
+    wrap.setAttribute('data-thumb', ['s', 'l'].indexOf(pc.thumbSize) !== -1 ? pc.thumbSize : 'm');
+    // Encaje: 'contain' respeta la foto entera; 'cover' recorta para que todas
+    // se vean iguales (catálogos con fotos de proporciones distintas).
+    wrap.setAttribute('data-fit', pc.fit === 'cover' ? 'cover' : 'contain');
+    if (pc.frame === false) wrap.setAttribute('data-frame', 'no');
     if (pc.cols > 0) {
       wrap.setAttribute('data-cols', String(pc.cols));
       wrap.style.setProperty('--kc-foto-cols', String(pc.cols));
@@ -627,7 +638,7 @@
       count = el('div', 'kc-foto-count', '1 / ' + images.length);
       main.appendChild(prev); main.appendChild(next); main.appendChild(count);
     }
-    wrap.appendChild(main);
+    if (pc.layout !== 'mosaico') wrap.appendChild(main);
     if (thumbs) {
       images.forEach(function (u, i) {
         var t = el('img', 'kc-foto-th' + (i === 0 ? ' on' : ''));
@@ -1573,7 +1584,8 @@
     var boot = document.getElementById('kc-boot');
     if (boot) {
       boot.style.setProperty('--kc-boot-top', medirTop() + 'px');
-      if (String(style.accentColor || '').trim()) boot.style.setProperty('--kc-boot-accent', String(style.accentColor).trim());
+      var giro = String(style.spinnerColor || '').trim() || String(style.accentColor || '').trim();
+      if (giro) boot.style.setProperty('--kc-boot-accent', giro);
       if (String(style.bgColor || '').trim()) boot.style.setProperty('--kc-boot-bg', String(style.bgColor).trim());
     }
 
@@ -1586,6 +1598,12 @@
       colocarBarra();
       var alto = bar.getBoundingClientRect().height || bar.offsetHeight;
       if (alto) root.style.setProperty('--kc-bar-h', Math.round(alto) + 'px');
+      // En móvil el panel flota abajo: los pasos necesitan ESE hueco al pie o
+      // el último valor queda debajo del panel y no se puede ni ver ni elegir.
+      if (panelBox) {
+        var ap = panelBox.getBoundingClientRect().height || panelBox.offsetHeight;
+        if (ap) root.style.setProperty('--kc-panel-h', Math.round(ap) + 'px');
+      }
       ajustarPanel();
     }
     /**
@@ -1780,7 +1798,17 @@
     function setTab(t, ancla) {
       current = t;
       paint();
-      if (!ancla) { root.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+      if (!ancla) {
+        // Subir al principio de la ficha DESCONTANDO la barra fija (y con ella
+        // el menú del sitio): con scrollIntoView a secas, el título del paso 01
+        // quedaba detrás de la barra al entrar en Configurar.
+        setTimeout(function () {
+          var tapa = bar.getBoundingClientRect().bottom + 12;
+          var y = root.getBoundingClientRect().top + (window.pageYOffset || 0) - tapa;
+          window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+        }, 30);
+        return;
+      }
       var destino = anclas[ancla];
       if (!destino) return;
       // Lo que tapa no es el ALTO de la barra, sino dónde TERMINA: va fija

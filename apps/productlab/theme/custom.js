@@ -26,7 +26,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
 // solos al día siguiente.
-window.KIMOS_ASSET_V = '30';
+window.KIMOS_ASSET_V = '31';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
@@ -51,6 +51,13 @@ window.KIMOS_WIDTH = 'auto';
 //   window.KIMOS_TOP_OFFSET = 66;               // px fijos
 //   window.KIMOS_HEADER_SELECTOR = '.mi-header'; // o dile cuál es
 //   window.KIMOS_CONTAINER_SELECTOR = '.mi-container';
+
+// COLOR DEL SPINNER DE ARRANQUE. Se ve antes de que llegue nada de KIMOS, así
+// que si lo quieres con la marca desde el primer fotograma, ponlo aquí. Cada
+// producto puede pisarlo (ProductLab → Estilos → color del spinner) y el fondo
+// del velo se toma del fondo real de la página si no lo fijas.
+window.KIMOS_SPINNER_COLOR = '';
+window.KIMOS_BOOT_BG = '';
 
 // FICHA COMPLETA: true reemplaza la ficha del theme por la de KIMOS (barra con
 // pestañas, heros del builder, configurador con 3D, specs y fotos). En false
@@ -115,10 +122,16 @@ window.KIMOS_FULL = true;
       caja.appendChild(document.createElement('i'));
       // El fondo real de la página: un velo blanco en una tienda oscura es
       // otro parpadeo, solo que al revés.
-      try {
-        var fondo = getComputedStyle(document.body).backgroundColor;
-        if (fondo && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fondo)) caja.style.setProperty('--kc-boot-bg', fondo);
-      } catch (e) { /* da igual: queda el blanco */ }
+      var fondoFijo = String(window.KIMOS_BOOT_BG || '').trim();
+      if (fondoFijo) caja.style.setProperty('--kc-boot-bg', fondoFijo);
+      else {
+        try {
+          var fondo = getComputedStyle(document.body).backgroundColor;
+          if (fondo && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fondo)) caja.style.setProperty('--kc-boot-bg', fondo);
+        } catch (e) { /* da igual: queda el blanco */ }
+      }
+      var giro = String(window.KIMOS_SPINNER_COLOR || '').trim();
+      if (giro) caja.style.setProperty('--kc-boot-accent', giro);
       document.body.appendChild(caja);
     };
     if (document.body) ponerVelo();

@@ -145,8 +145,9 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
         tabs: { showSpecs: true, showFotos: true, order: ['explorar', 'specs', 'fotos'] },
         style: {
           bar: { bgColor: '#101418', textColor: '', width: 'full', sticky: false, offset: 12, showThumb: false },
-          photos: { size: 'l', cols: 3 },
+          photos: { size: 'l', cols: 3, layout: 'lado', mainSize: 'xl', thumbSize: 's', fit: 'cover', frame: false },
           buyLabel: 'Personalizar',
+          spinnerColor: '#FF00AA',
         },
       },
     })],
@@ -163,6 +164,7 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   t('miniatura oculta (showThumb:false)', !d.querySelector('.kc-bar-thumb'));
   t('pestañas secundarias marcadas para móvil', d.querySelectorAll('.kc-tab.kc-tab-sec').length >= 1);
   t('sin la clase de pestañas en móvil (default)', !root.classList.contains('kc-bar-mtabs'));
+  const boot = d.getElementById('kc-boot');
   const fotos = d.querySelector('.kc-fotos');
   // Solo la galería publicada del producto: nada de fotos de variantes.
   t('la galería es la del producto, sin fotos de variantes',
@@ -170,6 +172,13 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
     && !fotos.innerHTML.indexOf('variante-') !== -1);
   t('fotos con tamaño configurado', fotos && fotos.getAttribute('data-size') === 'l');
   t('fotos por fila configuradas', fotos && fotos.style.getPropertyValue('--kc-foto-cols') === '3');
+  // Disposición, altos, miniaturas, encaje y marco: cinco ejes independientes.
+  t('galería: disposición, altos, miniaturas, encaje y marco',
+    fotos.getAttribute('data-layout') === 'lado' && fotos.getAttribute('data-main') === 'xl'
+    && fotos.getAttribute('data-thumb') === 's' && fotos.getAttribute('data-fit') === 'cover'
+    && fotos.getAttribute('data-frame') === 'no');
+  t('el spinner de arranque toma su color del estilo',
+    !boot || boot.style.getPropertyValue('--kc-boot-accent') === '#FF00AA');
   // El acento SIEMPRE resuelve a un color sólido: sin esto el botón quedaba
   // blanco sobre blanco dentro de un hero con texto claro.
   const acento = w.getComputedStyle(root).getPropertyValue('--kc-accent').trim();
@@ -179,7 +188,6 @@ console.log('— v2: barra (style.bar), fotos (style.photos) y contraste —');
   t('botón de la barra con el texto del estilo', d.querySelector('.kc-bar-cta').textContent === 'Personalizar');
   // Velo de arranque: tapa hasta que la ficha está pintada y con sus fotos, y
   // se retira fundiéndose (nunca de golpe, que es lo que se veía como cambiazo).
-  const boot = d.getElementById('kc-boot');
   t('el velo de arranque se retira al estar lista la ficha', !boot || boot.classList.contains('kc-boot-out'));
   // La ficha arranca pegada a la barra: el aire que el theme deja encima de la
   // sección de producto se veía como un hueco entre la barra fija y el hero.

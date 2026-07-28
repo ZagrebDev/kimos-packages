@@ -398,11 +398,18 @@
 .kimos-cfg .kc-panel-exp { display: none; }
 /* Móvil: el panel baja a una barra flotante compacta que se despliega. */
 @media (max-width: 991px) {
-  .kimos-cfg .kc-conf { grid-template-columns: 1fr; padding-bottom: 170px; }
+  /* El hueco al pie es el ALTO REAL del panel (lo mide el JS): con un número
+     fijo, el último valor del último paso quedaba debajo del panel flotante. */
+  .kimos-cfg .kc-conf {
+    grid-template-columns: 1fr;
+    padding-bottom: calc(var(--kc-panel-h, 150px) + 32px);
+  }
   .kimos-cfg .kc-panel {
-    position: fixed !important; left: 10px; right: 10px; bottom: 10px; top: auto !important;
+    position: fixed !important; left: 0; right: 0; top: auto !important;
+    bottom: env(safe-area-inset-bottom, 0px);
     width: auto !important; max-height: none !important; overflow: visible !important;
-    z-index: 12; box-shadow: 0 10px 28px rgba(0,0,0,.22);
+    z-index: 12; box-shadow: 0 -6px 24px rgba(0,0,0,.22);
+    border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
   }
   .kimos-cfg .kc-panel-head { background: none; color: inherit; padding: 6px 48px 0 8px; }
   .kimos-cfg .kc-panel-name { font-size: 13px; }
@@ -626,18 +633,50 @@
 }
 .kimos-cfg .kc-bar-container { max-width: var(--kc-maxw, 1200px); margin-left: auto; margin-right: auto; }
 
-/* ── Fotos: tamaño configurable (storefront.style.photos) ── */
+/* ── Fotos: cómo se ve la galería (storefront.style.photos) ──
+   Tres ejes independientes: el ANCHO del bloque (data-size), el ALTO de la
+   foto grande (data-main) y el TAMAÑO de las miniaturas (data-thumb), más la
+   disposición (data-layout) y el encaje (data-fit). */
 .kimos-cfg .kc-fotos[data-size="s"]  { max-width: 560px; }
 .kimos-cfg .kc-fotos[data-size="m"]  { max-width: 900px; }
 .kimos-cfg .kc-fotos[data-size="l"]  { max-width: 1200px; }
 .kimos-cfg .kc-fotos[data-size="xl"] { max-width: none; }
-.kimos-cfg .kc-fotos[data-size="s"] .kc-foto-main img  { max-height: 300px; }
-.kimos-cfg .kc-fotos[data-size="l"] .kc-foto-main img  { max-height: 620px; }
-.kimos-cfg .kc-fotos[data-size="xl"] .kc-foto-main img { max-height: 80vh; }
+/* Alto de la foto grande */
+.kimos-cfg .kc-fotos[data-main="s"]    .kc-foto-main img { max-height: 300px; }
+.kimos-cfg .kc-fotos[data-main="m"]    .kc-foto-main img { max-height: 460px; }
+.kimos-cfg .kc-fotos[data-main="l"]    .kc-foto-main img { max-height: 620px; }
+.kimos-cfg .kc-fotos[data-main="xl"]   .kc-foto-main img { max-height: 80vh; }
+.kimos-cfg .kc-fotos[data-main="auto"] .kc-foto-main img { max-height: none; }
+/* Tamaño de las miniaturas */
+.kimos-cfg .kc-fotos[data-thumb="s"] .kc-foto-th { width: 92px;  height: 80px; }
+.kimos-cfg .kc-fotos[data-thumb="l"] .kc-foto-th { width: 210px; height: 180px; }
+/* Encaje de las fotos: entera o recortada a un formato común */
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-main img,
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-th { object-fit: cover; padding: 0; }
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-main img { width: 100%; }
+/* Sin marco: fotos limpias, sin fondo ni filete */
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-main,
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-th { background: none; border-color: transparent; }
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-th.on { border-color: var(--kc-accent); }
+/* Miniaturas en columna, a la izquierda del visor */
+.kimos-cfg .kc-fotos[data-layout="lado"] {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start;
+}
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-main { order: 2; margin: 0; }
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-thumbs {
+  order: 1; display: flex; flex-direction: column; flex-wrap: nowrap;
+  max-height: 620px; overflow-y: auto; scrollbar-width: thin;
+}
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-note { grid-column: 1 / -1; }
+/* Mosaico: sin visor, solo la grilla (el JS ya no pinta la foto grande) */
+.kimos-cfg .kc-fotos[data-layout="mosaico"] .kc-foto-thumbs { gap: 12px; }
+.kimos-cfg .kc-fotos[data-layout="mosaico"] .kc-foto-th { cursor: default; }
+/* Fotos por fila (0 = automático) */
 .kimos-cfg .kc-fotos[data-cols] .kc-foto-thumbs {
   display: grid; grid-template-columns: repeat(var(--kc-foto-cols, 4), 1fr);
 }
 .kimos-cfg .kc-fotos[data-cols] .kc-foto-th { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+.kimos-cfg .kc-fotos[data-layout="lado"][data-cols] .kc-foto-thumbs { display: flex; }
 
 /* ══ Móvil ══ */
 @media (max-width: 767px) {

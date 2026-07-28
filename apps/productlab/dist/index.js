@@ -825,12 +825,22 @@ export default function mount(shell) {
           showThumb: b.showThumb !== false,
         };
       })(),
-      // Fotos del producto dentro de Explorar (sección "fotos").
+      // Fotos del producto dentro de Explorar (sección "fotos"). Cinco ejes
+      // independientes: ancho del bloque, disposición, alto de la foto grande,
+      // tamaño de las miniaturas y encaje.
       photos: (function () {
         const f = (st.photos && typeof st.photos === 'object') ? st.photos : {};
         return {
           size: ['s', 'm', 'l', 'xl'].indexOf(f.size) !== -1 ? f.size : 'm',
           cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
+          // visor = foto grande + miniaturas debajo · lado = miniaturas en
+          // columna a la izquierda · mosaico = solo la grilla, sin visor
+          layout: ['lado', 'mosaico'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          mainSize: ['s', 'l', 'xl', 'auto'].indexOf(f.mainSize) !== -1 ? f.mainSize : 'm',
+          thumbSize: ['s', 'l'].indexOf(f.thumbSize) !== -1 ? f.thumbSize : 'm',
+          // contain = la foto entera · cover = recortada a un formato común
+          fit: f.fit === 'cover' ? 'cover' : 'contain',
+          frame: f.frame !== false,   // caja gris con filete alrededor
         };
       })(),
       showDeltas: ['total', 'none'].indexOf(st.showDeltas) !== -1 ? st.showDeltas : 'delta',
@@ -840,6 +850,9 @@ export default function mount(shell) {
       // de una vez en todos los productos que comparten plantilla; cada
       // producto puede pisarlo con storefront.tabs.comprar.
       buyLabel: s(st.buyLabel).trim(),
+      // Color del spinner de carga (vacío = el acento). Se ve antes que nada
+      // en la tienda, así que merece poder fijarse aparte.
+      spinnerColor: s(st.spinnerColor).trim(),
     };
   }
 
@@ -2286,7 +2299,7 @@ export default function mount(shell) {
             specs: { type: 'array', items: { type: 'object' }, description: 'filas {group?, label, value}' },
             photosNote: { type: 'string' },
             tabs: { type: 'object', description: '{explorar?, specs?, fotos?, comprar?, showSpecs?, showFotos?, order?}' },
-            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, buyLabel? "texto del botón de la barra que lleva al configurador (vacío = Comprar); va en el estilo para cambiarlo de una vez en todos los productos que comparten plantilla", width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl", cols? 0-6}} — vacío = theme del sitio' },
+            style: { type: 'object', description: 'estilo del configurador en la tienda: {accentColor? "#hex", bgColor? "#hex", radius? 0-24, cardStyle? "cards|list|compact", showDeltas? "delta|total|none", stepsCollapsed? bool, buyLabel? "texto del botón de la barra que lleva al configurador (vacío = Comprar); va en el estilo para cambiarlo de una vez en todos los productos que comparten plantilla", width? "auto|container|full" (auto = se alinea al ancho del contenedor del theme; full = borde a borde), bar? {bgColor?, textColor?, width? "auto|container|full", sticky? bool, offset? px bajo el menú del sitio, mobileTabs? bool, showPrice? bool, showThumb? bool}, photos? {size? "s|m|l|xl" (ancho del bloque), layout? "visor|lado|mosaico", mainSize? "s|m|l|xl|auto" (alto de la foto grande), thumbSize? "s|m|l", cols? 0-6, fit? "contain|cover", frame? bool}, spinnerColor? "#hex del spinner de carga"} — vacío = theme del sitio' },
             styleId: { type: 'string', description: 'qué estilo rige en la tienda: "" = el del catálogo (su plantilla por defecto), "own" = el style propio de este producto, o el id/nombre de una plantilla (snapshot.styleTemplates)' },
           }, required: ['producto'] } },
         { name: 'SET_STYLE_TEMPLATE', description: 'Crea o edita una PLANTILLA de estilo del catálogo: un mismo look (colores, barra, fotos, anchos) reutilizable en muchos productos. Sin id crea una nueva; con id (o el nombre de una existente) la actualiza y el cambio alcanza de golpe a todos los productos que la usan. Con setDefault:true pasa a regir en todo el catálogo (los productos que no elijan otra cosa). El estado está en snapshot.styleTemplates.',
@@ -3621,6 +3634,8 @@ export default function mount(shell) {
             h('option', { key: 't', value: 'total' }, 'Precio total resultante'),
             h('option', { key: 'n', value: 'none' }, 'Sin precio en las cards'),
           ])),
+        h(Row, { key: 'sp', label: 'Color del spinner de carga' },
+          h(ColorField, { label: null, value: e.spinnerColor || '', onChange: (v) => onChange({ spinnerColor: v }), placeholder: 'vacío = color de acento' })),
         h(Row, { key: 'bl', label: 'Texto del botón de la barra (lleva al configurador)' },
           h(TextInput, { value: e.buyLabel || '', placeholder: 'Comprar',
             title: 'Se aplica a todos los productos que usen este estilo. Cada producto puede pisarlo en Ficha → Pestañas.',
@@ -3670,16 +3685,45 @@ export default function mount(shell) {
       h('div', { key: 'ph', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 10 } }, [
         h('div', { key: 't', className: 'gp-label', style: { marginBottom: 6 } }, 'GALERÍA DE FOTOS (sección Explorar)'),
         h('div', { key: 'g', className: 'gp-grid3' }, [
-          h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
+          h(Row, { key: 'lay', label: 'Disposición' },
+            h('select', { className: 'gp-select', value: ph.layout || 'visor', onChange: (ev) => upPh({ layout: ev.target.value }) }, [
+              h('option', { key: 'v', value: 'visor' }, 'Foto grande + miniaturas debajo'),
+              h('option', { key: 'l', value: 'lado' }, 'Miniaturas en columna a la izquierda'),
+              h('option', { key: 'm', value: 'mosaico' }, 'Mosaico (solo la grilla, sin foto grande)'),
+            ])),
+          h(Row, { key: 'sz', label: 'Ancho del bloque' },
             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (ev) => upPh({ size: ev.target.value }) }, [
-              h('option', { key: 's', value: 's' }, 'Pequeñas (miniaturas)'),
+              h('option', { key: 's', value: 's' }, 'Estrecho (560 px)'),
+              h('option', { key: 'm', value: 'm' }, 'Medio (900 px)'),
+              h('option', { key: 'l', value: 'l' }, 'Ancho (1200 px)'),
+              h('option', { key: 'xl', value: 'xl' }, 'Sin límite'),
+            ])),
+          h(Row, { key: 'ms', label: 'Alto de la foto grande' },
+            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, [
+              h('option', { key: 's', value: 's' }, 'Baja (300 px)'),
+              h('option', { key: 'm', value: 'm' }, 'Media (460 px)'),
+              h('option', { key: 'l', value: 'l' }, 'Alta (620 px)'),
+              h('option', { key: 'xl', value: 'xl' }, 'Muy alta (80% de la pantalla)'),
+              h('option', { key: 'a', value: 'auto' }, 'Natural (según la foto)'),
+            ])),
+          h(Row, { key: 'ts', label: 'Tamaño de las miniaturas' },
+            h('select', { className: 'gp-select', value: ph.thumbSize || 'm', onChange: (ev) => upPh({ thumbSize: ev.target.value }) }, [
+              h('option', { key: 's', value: 's' }, 'Pequeñas'),
               h('option', { key: 'm', value: 'm' }, 'Medianas'),
               h('option', { key: 'l', value: 'l' }, 'Grandes'),
-              h('option', { key: 'xl', value: 'xl' }, 'Extra grandes'),
             ])),
           h(Row, { key: 'co', label: 'Fotos por fila (0 = automático)' },
             h(TextInput, { mono: true, type: 'number', min: 0, max: 6, value: ph.cols == null ? 0 : ph.cols,
               onChange: (ev) => upPh({ cols: ev.target.value === '' ? 0 : num(ev.target.value) }) })),
+          h(Row, { key: 'fit', label: 'Encaje de las fotos' },
+            h('select', { className: 'gp-select', value: ph.fit || 'contain', onChange: (ev) => upPh({ fit: ev.target.value }) }, [
+              h('option', { key: 'c', value: 'contain' }, 'Completa (se ve entera)'),
+              h('option', { key: 'v', value: 'cover' }, 'Recortada (todas del mismo formato)'),
+            ])),
+          h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+            h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
+            h('span', { key: 's' }, 'Marco alrededor de las fotos'),
+          ]),
         ]),
       ]),
     ]);
