@@ -278,9 +278,9 @@
     {
       "id": "prospeccion-comercial",
       "name": "Prospección Comercial",
-      "description": "Dashboard comercial FIGIT + KIMOS integrado a la plataforma: los responsables son los usuarios del equipo KIMOS (leídos con shell.authFetch; no se administran en la app). 61 prospectos por rubro (incluye SERMECOOP con 2 contactos) agrupados por empresa, con embudo, KPIs, gráficos, filtros y bitácora. Trazabilidad de origen: cada prospecto asociado a su base de datos de importación (renombrable, filtro multi-selección). Dossiers Ejecutivos por prospecto (formato SERMECOOP, 17 respuestas técnicas) editables y exportables a HTML. Ficha 100% editable con foto y control por agente KIMOS (agent.control). Carga masiva por Excel .xlsx, CSV o JSON.",
+      "description": "Dashboard comercial FIGIT + KIMOS integrado a la plataforma: los responsables son los usuarios del equipo KIMOS (leídos con shell.authFetch; no se administran en la app). 61 prospectos por rubro (incluye SERMECOOP con 2 contactos) agrupados por empresa, con embudo, KPIs, gráficos, filtros y bitácora. Trazabilidad de origen: cada prospecto asociado a su base de datos de importación (renombrable, filtro multi-selección). Dossiers Ejecutivos por prospecto (formato SERMECOOP) con las 17 preguntas técnicas precargadas con las respuestas oficiales de KIMOS —editables— más preguntas propias por prospecto, exportables a HTML. Ficha 100% editable con foto y control por agente KIMOS (agent.control). Carga masiva por Excel .xlsx, CSV o JSON.",
       "icon": "🎯",
-      "version": "2.6.0",
+      "version": "2.7.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": false,

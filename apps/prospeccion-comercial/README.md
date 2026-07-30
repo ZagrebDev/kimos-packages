@@ -127,19 +127,44 @@ pares del mismo rubro de la base):
 3. 🗺️ Mapa de necesidades · 4. 💡 Propuesta de valor · 5. 💬 Mensajes clave
 ("KIMOS es el cerebro…", las 3 ideas clave) · 6. 🧩 Casos de uso (asistente
 interno / integración / automatización, aplicados al prospecto) ·
-7. ❓ **Las 17 preguntas técnicas probables con espacio editable para preparar
-cada respuesta** · 8. 🔍 Qué evaluará la contraparte técnica ·
+7. ❓ **Las 17 preguntas técnicas probables, precargadas con la respuesta
+oficial de KIMOS** · 8. 🔍 Qué evaluará la contraparte técnica ·
 9. ⏱️ Estrategia de conversación (30 min) · 10. ✅ Plan de cierre (piloto/workshop).
 
+### Respuestas oficiales KIMOS (❓)
+
+Las 17 preguntas técnicas **ya vienen respondidas con el contenido oficial de
+KIMOS** (integraciones, consumo de información, alojamiento en GCP, RBAC y
+seguridad, checker→maker, implementación, mantención, LLM y modelos locales,
+operación sin Internet, conocimiento no entrenado, plazos y licenciamiento).
+Constan en `QA_OFICIALES` dentro del bundle, de modo que **todo dossier nuevo
+las trae listas**.
+
+- **Editables por prospecto**: cada respuesta se puede adaptar al caso; el
+  distintivo **✔ Oficial** indica que sigue igual al texto oficial y el botón
+  **↺ Oficial** restaura el original cuando fue modificada.
+- **Migración**: los dossiers ya creados se completan al abrir la app —las
+  respuestas que ya habías escrito se conservan y sólo se rellenan las vacías.
+- **↻ Regenerar** conserva tanto las respuestas adaptadas como las oficiales.
+
+### Preguntas propias del prospecto (➕)
+
+Como las preguntas **varían y aumentan** según los intereses de cada prospecto,
+cada dossier puede sumar las suyas (**➕ Agregar pregunta**) con su respuesta
+preparada. Se numeran a continuación de las 17 oficiales, se guardan por
+prospecto y se exportan al HTML en su propia sección.
+
 - **Todo editable** en la app; se guarda solo (localStorage) y viaja en
-  Exportar/Importar. **↻ Regenerar** reescribe lo automático conservando las
-  respuestas técnicas ya preparadas.
+  Exportar/Importar.
 - **⬇️ Descargar HTML**: documento standalone con estilo KIMOS, también
-  **editable** (contenteditable) e imprimible.
+  **editable** (contenteditable) e imprimible, con las respuestas oficiales y
+  las preguntas propias incluidas.
 - **Investigación**: enlaces 🔎 dentro del dossier para afinar la propuesta, y
-  tools de agente `GENERATE_DOSSIER` / `UPDATE_DOSSIER` (secciones y respuestas
-  QA por índice) para que el agente KIMOS investigue la empresa y adapte el
-  dossier automáticamente. El snapshot marca qué prospectos ya tienen dossier.
+  tools de agente `GENERATE_DOSSIER` / `UPDATE_DOSSIER` (secciones, respuestas
+  QA por índice y `qa-extra`) más `ADD_PREGUNTA_DOSSIER` para que el agente
+  KIMOS investigue la empresa, adapte el dossier y registre nuevas preguntas.
+  El agente recibe el contenido oficial como fuente de verdad. El snapshot
+  marca qué prospectos ya tienen dossier.
 
 ## Bases de datos de origen (🗃️)
 
@@ -190,6 +215,11 @@ crean ni se editan aquí.
 
 ## Notas de versión
 
+- **2.7.0** — **Respuestas oficiales KIMOS en el dossier**: las 17 preguntas
+  técnicas se precargan con el contenido oficial (`QA_OFICIALES`), editable por
+  prospecto con distintivo ✔ Oficial y restauración ↺ Oficial; migración de los
+  dossiers ya creados; **preguntas propias por prospecto** (➕) exportadas al
+  HTML; nueva tool `ADD_PREGUNTA_DOSSIER` y `UPDATE_DOSSIER` con `qa-extra`.
 - **2.6.0** — **Equipo integrado a KIMOS**: los responsables son los usuarios
   del equipo (`shell.authFetch` a los endpoints de identidad), vista de equipo
   de sólo lectura con sincronización, validación en `SET_RESPONSABLE`, nueva

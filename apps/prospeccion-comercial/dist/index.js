@@ -422,6 +422,68 @@ const QA_QUESTIONS = [
   "¿Cuánto demora una implementación?",
   "¿Cómo se licencia la plataforma?",
 ];
+// Respuestas OFICIALES de KIMOS a las preguntas técnicas. Se precargan en todo
+// dossier generado (mismo índice que QA_QUESTIONS) y son editables por
+// prospecto: cada ejecutivo puede adaptarlas sin perder el texto oficial, que
+// siempre se puede restaurar con “↺ Oficial”.
+const QA_OFICIALES = [
+  // 1. ¿Con qué sistemas se integra KIMOS?
+  "Ecommerce (hoy Jumpseller; se pueden agregar Shopify y WordPress), Odoo, Mail, MercadoPago, entre otros.",
+  // 2. ¿Cómo consumen la información?
+  "Base de datos interna + API para fuentes externas + Cloud Storage para almacenamiento de archivos. MCP para acciones de agentes.",
+  // 3. ¿Dónde se aloja la solución?
+  "Cloud, en GCP (Google Cloud Platform).",
+  // 4. ¿Cómo manejan la autenticación y los permisos?
+  "RBAC, con granularidad a través de equipos.",
+  // 5. ¿Qué medidas de seguridad tienen?
+  "Aislamiento por proyecto, claves encriptadas en Secret Manager, RBAC para accesos y respaldos de datos.",
+  // 6. ¿Cómo protegen la información sensible?
+  "Lo mismo del punto anterior (aislamiento por proyecto, claves encriptadas en Secret Manager, RBAC y respaldos) + modelo checker → maker: un agente verificador que filtra según reglas.",
+  // 7. ¿Qué tan compleja es la implementación?
+  "Sistema modular y adaptable al cliente. Se implementan sobre todo reglas de negocio y gobernanza; no se requieren ediciones de código duras.",
+  // 8. ¿Cómo se mantiene y actualiza la plataforma?
+  "Tenemos un sistema de gestión de proyectos que nos permite gestionar y monitorear a todos los clientes y la versión de plataforma de cada uno.",
+  // 9. ¿Cómo se integra KIMOS con sistemas existentes?
+  "A través de API y de MCP (para la IA).",
+  // 10. ¿Qué LLM utilizan?
+  "Desplegado en la nube se usa Gemini, pero soporta otros modelos: el framework es agnóstico a la plataforma (hemos hecho usos con IA local, por ejemplo).",
+  // 11. ¿Es posible trabajar con modelos locales?
+  "Sí, pero requiere hardware adecuado.",
+  // 12. ¿Qué ocurre si no hay Internet?
+  "El sistema en GCP depende de Internet, pero hay una forma de resiliencia en desarrollo para funcionar 100 % en local, salvo los LLM, que por temas técnicos requieren hardware adecuado.",
+  // 13. ¿Cómo manejan los permisos por usuario?
+  "Sistema RBAC, con equipos y permisos.",
+  // 14. ¿Cómo evitan que la IA invente respuestas?
+  "Modelo maker → checker: toda respuesta debe pasar el filtro de un segundo agente que verifica reglas y concordancia con el tema.",
+  // 15. ¿Cómo entrenan el conocimiento?
+  "El modelo NO SE ENTRENA: tiene acceso al conocimiento en la sección adecuada, diferenciado por equipos, además de las reglas de negocio configuradas.",
+  // 16. ¿Cuánto demora una implementación?
+  "Depende del alcance: puede ir desde un par de semanas hasta 1 mes (sin contar hardware).",
+  // 17. ¿Cómo se licencia la plataforma?
+  "Estamos paquetizando los planes.",
+];
+// Respuestas oficiales precargadas ({0: "...", 1: "..."}) para un dossier nuevo.
+function qaOficialesIniciales() {
+  const qa = {};
+  QA_OFICIALES.forEach((a, i) => { qa[i] = a; });
+  return qa;
+}
+// Completa un mapa de respuestas existente con las oficiales donde esté vacío
+// (no pisa lo que el usuario o el agente ya escribieron).
+function conRespuestasOficiales(qa) {
+  const out = { ...(qa || {}) };
+  QA_OFICIALES.forEach((a, i) => { if (!String(out[i] == null ? "" : out[i]).trim()) out[i] = a; });
+  return out;
+}
+// Preguntas adicionales del prospecto: las preguntas varían y aumentan según
+// sus intereses; cada dossier puede sumar las suyas con su respuesta.
+function normalizaExtraQa(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((x) => x && typeof x === "object")
+    .map((x) => ({ q: String(x.q == null ? "" : x.q), a: String(x.a == null ? "" : x.a) }))
+    .filter((x) => x.q.trim());
+}
 const DOSSIER_SECTIONS = [
   ["objetivo", "🎯 Objetivo de la reunión"],
   ["perfil", "👤 Perfil del tomador de decisión"],
@@ -510,7 +572,7 @@ function buildDossier(p, allProspectos) {
       "• Workshop de levantamiento para mapear procesos, sistemas e información.\n" +
       "Dejar agendada la próxima reunión antes de terminar esta.",
   };
-  return { sec, qa: {}, createdAt: new Date().toISOString().slice(0, 10) };
+  return { sec, qa: qaOficialesIniciales(), extraQa: [], createdAt: new Date().toISOString().slice(0, 10) };
 }
 function esc(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -523,6 +585,13 @@ function dossierToHtml(p, d) {
   const qaHtml = QA_QUESTIONS.map((q, i) =>
     '<div class="qa"><div class="q">' + (i + 1) + ". " + esc(q) + '</div><div class="a body" contenteditable="true">' + esc(d.qa[i] || "") + "</div></div>"
   ).join("\n");
+  const extras = normalizaExtraQa(d.extraQa);
+  const extraHtml = extras.length
+    ? "<section><h2>➕ Preguntas propias de " + esc(p.empresa) + "</h2>\n" +
+      extras.map((x, i) =>
+        '<div class="qa"><div class="q">' + (QA_QUESTIONS.length + i + 1) + ". " + esc(x.q) + '</div><div class="a body" contenteditable="true">' + esc(x.a) + "</div></div>"
+      ).join("\n") + "</section>\n"
+    : "";
   return '<!doctype html>\n<html lang="es">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     "<title>Dossier — " + esc(p.empresa) + "</title>\n<style>\n" +
     ":root{--teal:#18b9ad;--navy:#0c1726;--panel:#13233b;--line:#24385a;--txt:#e8eef7;--mut:#9fb2cc}\n" +
@@ -550,7 +619,9 @@ function dossierToHtml(p, d) {
     (p.correo ? " · ✉️ " + esc(p.correo) : "") + (p.telefono ? " · 📞 " + esc(p.telefono) : "") + "</div></header>\n" +
     '<p class="hint">Este documento es editable: haz clic sobre cualquier texto para modificarlo y usa Guardar/Imprimir del navegador.</p>\n' +
     secHtml + "\n" +
-    "<section><h2>❓ Preguntas técnicas probables — respuestas preparadas</h2>\n" + qaHtml + "</section>\n" +
+    "<section><h2>❓ Preguntas técnicas probables — respuestas oficiales KIMOS</h2>\n" +
+    '<p class="hint" style="text-align:left;margin:0 0 12px">Respuestas oficiales de KIMOS, editables para adaptarlas a este prospecto.</p>\n' +
+    qaHtml + "</section>\n" + extraHtml +
     "<footer>Powered by <b>KIMOS</b> · FIGIT — Dossier de prospección comercial</footer>\n" +
     "</div>\n</body>\n</html>";
 }
@@ -592,6 +663,17 @@ function saveLocal(s) {
     if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {}, fuentes: s.fuentes || {} }));
   } catch { /* storage lleno o bloqueado */ }
 }
+// Dossiers guardados antes de existir las respuestas oficiales: se completan
+// las respuestas vacías con el texto oficial y se asegura extraQa.
+function migraDossiers(dossiers) {
+  const out = {};
+  Object.keys(dossiers || {}).forEach((k) => {
+    const d = dossiers[k];
+    if (!d || typeof d !== "object") return;
+    out[k] = { ...d, qa: conRespuestasOficiales(d.qa), extraQa: normalizaExtraQa(d.extraQa) };
+  });
+  return out;
+}
 function normalizeStore(s) {
   const out = freshStore();
   if (s && typeof s === "object") {
@@ -600,7 +682,7 @@ function normalizeStore(s) {
     if (Array.isArray(s.equipo) && s.equipo.length) out.equipo = s.equipo;
     if (Array.isArray(s.custom)) out.custom = s.custom;
     if (s.overrides && typeof s.overrides === "object") out.overrides = s.overrides;
-    if (s.dossiers && typeof s.dossiers === "object") out.dossiers = s.dossiers;
+    if (s.dossiers && typeof s.dossiers === "object") out.dossiers = migraDossiers(s.dossiers);
     if (s.fuentes && typeof s.fuentes === "object") out.fuentes = s.fuentes;
   }
   return out;
@@ -642,7 +724,7 @@ export default function mount(shell) {
     try {
       unregisterAgent = shell.agent.register({
         label: "Prospección Comercial",
-        description: "Pipeline de prospección FIGIT+KIMOS. Puedes investigar en la web la información de contacto de los prospectos (nombre del tomador de decisión, cargo, teléfono, correo, LinkedIn, rubro) y actualizarla con UPDATE_PROSPECTO; sumar prospectos nuevos; y llevar el avance comercial (estado, resultado, responsable, notas y bitácora de contactos). Usa getSnapshot para conocer los ids antes de actuar.",
+        description: "Pipeline de prospección FIGIT+KIMOS. Puedes investigar en la web la información de contacto de los prospectos (nombre del tomador de decisión, cargo, teléfono, correo, LinkedIn, rubro) y actualizarla con UPDATE_PROSPECTO; sumar prospectos nuevos; y llevar el avance comercial (estado, resultado, responsable, notas y bitácora de contactos). Los dossiers traen precargadas las respuestas OFICIALES de KIMOS a las 17 preguntas técnicas: al responder dudas de un prospecto usa ese contenido oficial como fuente de verdad, adaptándolo a su rubro sin contradecirlo. Usa getSnapshot para conocer los ids antes de actuar.",
         tools: [
           { name: "UPDATE_PROSPECTO", description: "Actualiza campos de contacto/ficha de un prospecto (tras investigarlos): empresa, rubro, persona, cargo, telefono, correo, linkedin_url, descripcion, problematica, propuesta, notas, foto (URL de imagen del contacto, p.ej. su foto de perfil de LinkedIn — verifica que corresponda a la persona real antes de asignarla).",
             inputSchema: { type: "object", properties: { id: { type: "number" }, campos: { type: "object" } }, required: ["id", "campos"] } },
@@ -662,8 +744,10 @@ export default function mount(shell) {
             inputSchema: { type: "object", properties: { id: { type: "number" }, fecha: { type: "string" }, canal: { type: "string" }, resumen: { type: "string" }, proximo: { type: "string" } }, required: ["id", "resumen"] } },
           { name: "GENERATE_DOSSIER", description: "Genera (si no existe) el dossier ejecutivo del prospecto, pre-llenado con su ficha y su rubro. Luego investiga a la empresa en la web y afínalo con UPDATE_DOSSIER: adapta necesidades, propuesta y casos de uso a sus problemáticas reales, y prepara las respuestas técnicas.",
             inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
-          { name: "UPDATE_DOSSIER", description: "Edita una sección del dossier (seccion: objetivo|perfil|necesidades|propuesta|mensajes|casos|evaluando|estrategia|cierre) o la respuesta a una pregunta técnica (seccion:'qa' + pregunta: índice 0-16 de QA). contenido reemplaza el texto.",
+          { name: "UPDATE_DOSSIER", description: "Edita una sección del dossier (seccion: objetivo|perfil|necesidades|propuesta|mensajes|casos|evaluando|estrategia|cierre), la respuesta a una pregunta técnica oficial (seccion:'qa' + pregunta: índice 0-16) o la respuesta a una pregunta propia del prospecto (seccion:'qa-extra' + pregunta: índice en extraQa). Las respuestas 'qa' vienen con el texto OFICIAL de KIMOS: adáptalo al prospecto sin contradecirlo.",
             inputSchema: { type: "object", properties: { id: { type: "number" }, seccion: { type: "string" }, pregunta: { type: "number" }, contenido: { type: "string" } }, required: ["id", "seccion", "contenido"] } },
+          { name: "ADD_PREGUNTA_DOSSIER", description: "Agrega al dossier una pregunta propia del prospecto (además de las 17 técnicas) con su respuesta preparada. Úsala cuando el prospecto plantee dudas específicas de su rubro o interés.",
+            inputSchema: { type: "object", properties: { id: { type: "number" }, pregunta: { type: "string" }, respuesta: { type: "string" } }, required: ["id", "pregunta"] } },
           { name: "RENAME_BASE_DATOS", description: "Renombra una base de datos de origen (ver basesDatos en el snapshot). No altera los prospectos asociados.",
             inputSchema: { type: "object", properties: { fuente: { type: "string" }, nombre: { type: "string" } }, required: ["fuente", "nombre"] } },
         ],
@@ -758,7 +842,7 @@ export default function mount(shell) {
               if (!p) return { success: false, error: "id no encontrado" };
               const existed = !!(bridge.getStore().dossiers || {})[id];
               if (!existed) bridge.setStore((s) => ({ ...s, dossiers: { ...(s.dossiers || {}), [id]: buildDossier(p, effProspectos(s)) } }));
-              return { success: true, message: existed ? "El dossier ya existía; edítalo con UPDATE_DOSSIER." : "Dossier generado. Investiga la empresa y afínalo con UPDATE_DOSSIER. Secciones: " + DOSSIER_SECTIONS.map((x) => x[0]).join("|") + "; preguntas QA 0-" + (QA_QUESTIONS.length - 1) + "." };
+              return { success: true, message: (existed ? "El dossier ya existía; edítalo con UPDATE_DOSSIER." : "Dossier generado con las respuestas OFICIALES de KIMOS ya cargadas en las 17 preguntas técnicas. Investiga la empresa y afínalo con UPDATE_DOSSIER. Secciones: " + DOSSIER_SECTIONS.map((x) => x[0]).join("|") + "; preguntas QA 0-" + (QA_QUESTIONS.length - 1) + ".") + " Para dudas propias del prospecto usa ADD_PREGUNTA_DOSSIER." };
             }
             if (t === "UPDATE_DOSSIER") {
               const cur = (bridge.getStore().dossiers || {})[id];
@@ -770,11 +854,27 @@ export default function mount(shell) {
                 const qi = Number(pl.pregunta);
                 if (!isFinite(qi) || qi < 0 || qi >= QA_QUESTIONS.length) return { success: false, error: "pregunta debe ser un índice 0-" + (QA_QUESTIONS.length - 1) };
                 bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, qa: { ...d.qa, [qi]: contenido } } } }; });
-                return { success: true, message: "Respuesta " + qi + " actualizada." };
+                return { success: true, message: "Respuesta " + qi + " actualizada (reemplaza la oficial en este dossier)." };
               }
-              if (secKeys.indexOf(seccion) < 0) return { success: false, error: "seccion inválida: " + secKeys.join("|") + " o 'qa'" };
+              if (seccion === "qa-extra") {
+                const xi = Number(pl.pregunta);
+                const ex = normalizaExtraQa(cur.extraQa);
+                if (!isFinite(xi) || xi < 0 || xi >= ex.length) return { success: false, error: "pregunta debe ser un índice 0-" + (ex.length - 1) + " de las preguntas propias; usa ADD_PREGUNTA_DOSSIER para crear una nueva" };
+                bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, extraQa: normalizaExtraQa(d.extraQa).map((x, i) => (i === xi ? { ...x, a: contenido } : x)) } } }; });
+                return { success: true, message: "Respuesta a la pregunta propia " + xi + " actualizada." };
+              }
+              if (secKeys.indexOf(seccion) < 0) return { success: false, error: "seccion inválida: " + secKeys.join("|") + ", 'qa' o 'qa-extra'" };
               bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, sec: { ...d.sec, [seccion]: contenido } } } }; });
               return { success: true, message: "Sección '" + seccion + "' actualizada." };
+            }
+            if (t === "ADD_PREGUNTA_DOSSIER") {
+              const cur = (bridge.getStore().dossiers || {})[id];
+              if (!cur) return { success: false, error: "El prospecto no tiene dossier: llama GENERATE_DOSSIER primero." };
+              const q = String(pl.pregunta || "").trim();
+              if (!q) return { success: false, error: "pregunta requerida" };
+              const a = String(pl.respuesta || "");
+              bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, extraQa: normalizaExtraQa(d.extraQa).concat([{ q, a }]) } } }; });
+              return { success: true, message: "Pregunta propia agregada (índice " + normalizaExtraQa(cur.extraQa).length + ")." };
             }
             if (t === "RENAME_BASE_DATOS") {
               const fid = String(pl.fuente || "");
@@ -1013,12 +1113,34 @@ export default function mount(shell) {
         return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, qa: { ...d.qa, [idx]: value } } } };
       });
     }, []);
+    const setDossierExtra = useCallback((id, idx, campo, value) => {
+      setStore((s) => {
+        const d = (s.dossiers || {})[id];
+        if (!d) return s;
+        const ex = (d.extraQa || []).map((x, i) => (i === idx ? { ...x, [campo]: value } : x));
+        return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, extraQa: ex } } };
+      });
+    }, []);
+    const addDossierExtra = useCallback((id) => {
+      setStore((s) => {
+        const d = (s.dossiers || {})[id];
+        if (!d) return s;
+        return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, extraQa: (d.extraQa || []).concat([{ q: "", a: "" }]) } } };
+      });
+    }, []);
+    const delDossierExtra = useCallback((id, idx) => {
+      setStore((s) => {
+        const d = (s.dossiers || {})[id];
+        if (!d) return s;
+        return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, extraQa: (d.extraQa || []).filter((_, i) => i !== idx) } } };
+      });
+    }, []);
     const regenDossier = useCallback((p) => {
       if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Regenerar el dossier de " + p.empresa + "? Se reescriben las secciones automáticas (las respuestas a preguntas técnicas se conservan).")) return;
       setStore((s) => {
         const prev = (s.dossiers || {})[p.id];
         const d = buildDossier(p, effProspectos(s));
-        if (prev) d.qa = prev.qa; // conserva las respuestas preparadas
+        if (prev) { d.qa = conRespuestasOficiales(prev.qa); d.extraQa = normalizaExtraQa(prev.extraQa); } // conserva respuestas y preguntas propias
         return { ...s, dossiers: { ...(s.dossiers || {}), [p.id]: d } };
       });
       notify("success", "Dossier regenerado con la ficha actual.");
@@ -1504,17 +1626,43 @@ export default function mount(shell) {
                   onChange: (e) => setDossierSec(dossierId, key, e.target.value),
                 }))),
               h("div", { className: "kp-dsec" },
-                h("h4", null, "❓ Preguntas técnicas probables — prepara tus respuestas"),
+                h("h4", null, "❓ Preguntas técnicas probables — respuestas oficiales KIMOS"),
                 h("p", { className: "kp-tag", style: { margin: "0 0 10px" } },
-                  "Las preguntas que probablemente hará la contraparte técnica. Escribe la respuesta preparada bajo cada una; queda guardada y sale en el HTML."),
-                QA_QUESTIONS.map((q, i) => h("div", { className: "kp-qa", key: i },
-                  h("div", { className: "kp-qa-q" }, (i + 1) + ". " + q),
+                  "Vienen precargadas con la respuesta oficial de KIMOS. Puedes adaptarlas a este prospecto; con ↺ Oficial recuperas el texto original. Todo sale en el HTML."),
+                QA_QUESTIONS.map((q, i) => {
+                  const val = d.qa[i] || "";
+                  const esOficial = val === QA_OFICIALES[i];
+                  return h("div", { className: "kp-qa", key: i },
+                    h("div", { className: "kp-qa-head" },
+                      h("div", { className: "kp-qa-q" }, (i + 1) + ". " + q),
+                      esOficial
+                        ? h("span", { className: "kp-oficial" }, "✔ Oficial")
+                        : h("button", { className: "kp-btn kp-mini2", title: "Restaurar la respuesta oficial de KIMOS", onClick: () => setDossierQa(dossierId, i, QA_OFICIALES[i]) }, "↺ Oficial")),
+                    h("textarea", {
+                      className: "kp-dta kp-qa-a", placeholder: "Escribe aquí la respuesta preparada…",
+                      value: val,
+                      rows: Math.min(8, Math.max(2, (val.match(/\n/g) || []).length + 2)),
+                      onChange: (e) => setDossierQa(dossierId, i, e.target.value),
+                    }));
+                })),
+              h("div", { className: "kp-dsec" },
+                h("h4", null, "➕ Preguntas propias de este prospecto"),
+                h("p", { className: "kp-tag", style: { margin: "0 0 10px" } },
+                  "Las preguntas varían y aumentan según los intereses de cada prospecto. Agrega aquí las suyas con la respuesta preparada; también se exportan al HTML."),
+                (d.extraQa || []).map((x, i) => h("div", { className: "kp-qa", key: "x" + i },
+                  h("div", { className: "kp-qa-head" },
+                    h("input", {
+                      className: "kp-qa-qin", placeholder: "Pregunta " + (QA_QUESTIONS.length + i + 1) + "…",
+                      value: x.q, onChange: (e) => setDossierExtra(dossierId, i, "q", e.target.value),
+                    }),
+                    h("button", { className: "kp-btn kp-mini2 kp-danger", onClick: () => delDossierExtra(dossierId, i) }, "\u{1F5D1}")),
                   h("textarea", {
-                    className: "kp-dta kp-qa-a", placeholder: "Escribe aquí la respuesta preparada…",
-                    value: d.qa[i] || "",
-                    rows: Math.min(8, Math.max(2, ((d.qa[i] || "").match(/\n/g) || []).length + 2)),
-                    onChange: (e) => setDossierQa(dossierId, i, e.target.value),
-                  })))),
+                    className: "kp-dta kp-qa-a", placeholder: "Respuesta preparada…",
+                    value: x.a,
+                    rows: Math.min(8, Math.max(2, ((x.a || "").match(/\n/g) || []).length + 2)),
+                    onChange: (e) => setDossierExtra(dossierId, i, "a", e.target.value),
+                  }))),
+                h("button", { className: "kp-btn", onClick: () => addDossierExtra(dossierId) }, "➕ Agregar pregunta")),
               h("div", { className: "kp-dsec" },
                 h("h4", null, "\u{1F50E} Investigación para afinar este dossier"),
                 h("p", { className: "kp-tag", style: { margin: "0 0 10px" } },
