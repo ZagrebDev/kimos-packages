@@ -163,8 +163,37 @@ origen:
   Exportar/Importar y el agente ve `basesDatos` en el snapshot, con la tool
   `RENAME_BASE_DATOS`.
 
+## Equipo = usuarios de KIMOS (👥)
+
+Los **responsables** de la app **son los usuarios del equipo en KIMOS**: no se
+crean ni se editan aquí.
+
+- Al montar, la app lee los usuarios del equipo de la ventana
+  (`shell.app.teamId`) con **`shell.authFetch`** contra los endpoints de
+  identidad de la plataforma — el mismo patrón que la app `web-agents`, con la
+  base derivada de `shell.assetUrl`. Se prueban en orden
+  `/api/identity/teams/{teamId}/members`, `/api/teams/{teamId}/members`,
+  `/api/identity/users?teamId=…`, `/api/identity/users`, `/api/identity/members`,
+  `/api/users`, y se normalizan las formas de respuesta habituales
+  (`members`/`users`/`items`/array; `displayName`/`name`/`firstName+lastName`/`email`).
+- El botón **👥 Equipo KIMOS** abre una vista **de sólo lectura** con los
+  usuarios (nombre, correo, rol y carga de prospectos) y un botón
+  **↻ Sincronizar con KIMOS**. La administración de usuarios y equipos vive en
+  KIMOS (Administración → Usuarios/Equipos).
+- El selector *Responsable* de cada prospecto y el filtro por responsable sólo
+  ofrecen usuarios reales del equipo. El agente valida lo mismo:
+  `SET_RESPONSABLE` rechaza nombres que no sean usuarios del equipo y
+  `SYNC_EQUIPO` permite a KIMOS empujar su lista de usuarios.
+- El equipo **ya no se exporta ni se guarda como dato de la app** (proviene de
+  KIMOS en cada sesión). Si el host no expone `authFetch`, la app sigue
+  funcionando y los prospectos quedan “Sin asignar”.
+
 ## Notas de versión
 
+- **2.6.0** — **Equipo integrado a KIMOS**: los responsables son los usuarios
+  del equipo (`shell.authFetch` a los endpoints de identidad), vista de equipo
+  de sólo lectura con sincronización, validación en `SET_RESPONSABLE`, nueva
+  tool `SYNC_EQUIPO` y eliminación del editor local de responsables.
 - **2.5.0** — **Gestión de bases de datos de origen**: campo `fuente` permanente
   por prospecto, una base lógica por importación (nombre editable), filtro
   multi-selección integrado, modal 🗃️ de administración y tool de agente

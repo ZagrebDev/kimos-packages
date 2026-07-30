@@ -225,3 +225,7 @@
 .kimos-prospeccion .kp-bdmain { flex: 1; min-width: 190px; display: flex; flex-direction: column; gap: 4px; }
 .kimos-prospeccion .kp-bdmain input { width: 100%; font-weight: 600; }
 .kimos-prospeccion .kp-bdactions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+
+/* Equipo: usuarios de KIMOS (sólo lectura, se administran en la plataforma) */
+.kimos-prospeccion .kp-userlist { display: flex; flex-direction: column; gap: 7px; max-height: 46vh; overflow-y: auto; }
+.kimos-prospeccion .kp-useritem { display: flex; gap: 10px; align-items: center; background: #0e1c30; border: 1px solid var(--kp-line); border-radius: 11px; padding: 8px 12px; }

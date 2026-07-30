@@ -32,7 +32,46 @@ const CANAL_ICON = {
 };
 const ESTADOS = ["Por Contactar", "Contactado", "Reunion Agendada"];
 const RESULTADOS = ["", "Aceptada", "Esperando Confirmacion", "Rechazo"];
-const DEFAULT_EQUIPO = ["Sin asignar", "Responsable 1", "Responsable 2", "Responsable 3"];
+const SIN_ASIGNAR = "Sin asignar";
+// El equipo NO se administra en la app: son los usuarios del equipo KIMOS.
+// Este valor sólo cubre el caso "aún no cargan los usuarios".
+const DEFAULT_EQUIPO = [SIN_ASIGNAR];
+
+// Endpoints de identidad de KIMOS probados en orden (el primero que responda
+// gana). Se consultan con shell.authFetch, igual que la app web-agents.
+function usuariosEndpoints(teamId) {
+  const eps = [];
+  if (teamId) {
+    eps.push("/api/identity/teams/" + encodeURIComponent(teamId) + "/members");
+    eps.push("/api/teams/" + encodeURIComponent(teamId) + "/members");
+    eps.push("/api/identity/users?teamId=" + encodeURIComponent(teamId));
+  }
+  eps.push("/api/identity/users", "/api/identity/members", "/api/users");
+  return eps;
+}
+// Normaliza cualquiera de las formas de respuesta a [{id, nombre, email, rol}].
+function normalizaUsuarios(data) {
+  const arr = Array.isArray(data) ? data
+    : (data && (data.members || data.users || data.items || data.results || data.data)) || [];
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  arr.forEach((u) => {
+    if (!u) return;
+    if (typeof u === "string") { out.push({ id: u, nombre: u, email: "", rol: "" }); return; }
+    const nombre = u.displayName || u.name || u.nombre || u.fullName ||
+      [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.uid || u.id;
+    if (!nombre) return;
+    out.push({
+      id: String(u.id || u.uid || u.userId || u.email || nombre),
+      nombre: String(nombre),
+      email: String(u.email || u.mail || ""),
+      rol: String(u.role || u.rol || u.type || ""),
+    });
+  });
+  // Dedupe por nombre visible (es lo que se guarda en meta.responsable).
+  const seen = new Set();
+  return out.filter((u) => (seen.has(u.nombre) ? false : (seen.add(u.nombre), true)));
+}
 
 const LS_KEY = "kimos_prospeccion_v1";
 
@@ -613,8 +652,10 @@ export default function mount(shell) {
             inputSchema: { type: "object", properties: { id: { type: "number" }, estado: { type: "string" } }, required: ["id", "estado"] } },
           { name: "SET_RESULTADO", description: "Fija el resultado: 'Aceptada' | 'Esperando Confirmacion' | 'Rechazo' | '' (sin resultado).",
             inputSchema: { type: "object", properties: { id: { type: "number" }, resultado: { type: "string" } }, required: ["id", "resultado"] } },
-          { name: "SET_RESPONSABLE", description: "Asigna el prospecto a un responsable del equipo.",
+          { name: "SET_RESPONSABLE", description: "Asigna el prospecto a un usuario del equipo KIMOS (ver 'equipo' en el snapshot; los responsables son usuarios de KIMOS, no se crean en la app). Usa 'Sin asignar' para quitar la asignación.",
             inputSchema: { type: "object", properties: { id: { type: "number" }, responsable: { type: "string" } }, required: ["id", "responsable"] } },
+          { name: "SYNC_EQUIPO", description: "Sincroniza la lista de responsables con los usuarios del equipo en KIMOS. Pasa 'usuarios' (nombres visibles de los usuarios del equipo); la app los usa como únicos responsables asignables.",
+            inputSchema: { type: "object", properties: { usuarios: { type: "array", items: { type: "string" } } }, required: ["usuarios"] } },
           { name: "ADD_NOTA", description: "Agrega/actualiza la nota de seguimiento del usuario sobre un prospecto.",
             inputSchema: { type: "object", properties: { id: { type: "number" }, nota: { type: "string" } }, required: ["id", "nota"] } },
           { name: "ADD_BITACORA", description: "Registra una interacción en la bitácora (fecha YYYY-MM-DD, canal: Telefono|Correo|LinkedIn|WhatsApp|Reunion presencial|Reunion online|Otro, resumen, proximo seguimiento opcional).",
@@ -688,7 +729,19 @@ export default function mount(shell) {
               return setMeta("resultado", pl.resultado) ? { success: true } : { success: false, error: "id no encontrado" };
             }
             if (t === "SET_RESPONSABLE") {
-              return setMeta("responsable", String(pl.responsable || "Sin asignar")) ? { success: true } : { success: false, error: "id no encontrado" };
+              const resp = String(pl.responsable || SIN_ASIGNAR);
+              const equipo = bridge.getStore().equipo || [];
+              if (resp !== SIN_ASIGNAR && equipo.indexOf(resp) < 0) {
+                return { success: false, error: "“" + resp + "” no es un usuario del equipo KIMOS. Usuarios disponibles: " + equipo.join(" | ") + ". Sincroniza con SYNC_EQUIPO si falta alguien." };
+              }
+              return setMeta("responsable", resp) ? { success: true } : { success: false, error: "id no encontrado" };
+            }
+            if (t === "SYNC_EQUIPO") {
+              const us = Array.isArray(pl.usuarios) ? pl.usuarios.map((x) => String(x || "").trim()).filter(Boolean) : [];
+              if (!us.length) return { success: false, error: "usuarios debe ser un array no vacío con los nombres de los usuarios del equipo KIMOS" };
+              const seen = new Set(); const limpio = us.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+              bridge.setStore((s) => ({ ...s, equipo: [SIN_ASIGNAR].concat(limpio.filter((x) => x !== SIN_ASIGNAR)) }));
+              return { success: true, message: limpio.length + " usuario(s) sincronizados como responsables." };
             }
             if (t === "ADD_NOTA") {
               return setMeta("notas", String(pl.nota || "")) ? { success: true } : { success: false, error: "id no encontrado" };
@@ -753,7 +806,8 @@ export default function mount(shell) {
     const [activeRubros, setActiveRubros] = useState([]);
     const [expanded, setExpanded] = useState([]);
     const [equipoOpen, setEquipoOpen] = useState(false);
-    const [equipoDraft, setEquipoDraft] = useState([]);
+    const [usuarios, setUsuarios] = useState([]);      // usuarios del equipo KIMOS
+    const [usrEstado, setUsrEstado] = useState("idle"); // idle|cargando|ok|no-disponible
     const [addOpen, setAddOpen] = useState(false);
     const [addDraft, setAddDraft] = useState(null); // prospecto en edición (alta manual)
     const [editId, setEditId] = useState(null);     // prospecto en edición (✏️ ficha)
@@ -831,12 +885,37 @@ export default function mount(shell) {
     }, []);
 
     // ---------- Equipo ----------
-    const openEquipo = useCallback(() => { setEquipoDraft(store.equipo.slice()); setEquipoOpen(true); }, [store.equipo]);
-    const saveEquipo = useCallback(() => {
-      const out = equipoDraft.map((t) => (t || "").trim()).filter(Boolean);
-      setStore((s) => ({ ...s, equipo: out.length ? out : ["Sin asignar"] }));
-      setEquipoOpen(false);
-    }, [equipoDraft]);
+    // El equipo son los USUARIOS DE KIMOS del equipo de la ventana: se leen de
+    // la plataforma con shell.authFetch (mismo patrón que la app web-agents) y
+    // no se administran aquí.
+    const apiBase = useCallback(() => {
+      try {
+        const raw = typeof shell.assetUrl === "function" ? shell.assetUrl("x").split("/api/apps/")[0] : "";
+        return new URL(raw || "/", globalThis.location ? globalThis.location.href : "http://localhost/").toString().replace(/\/$/, "");
+      } catch { return (globalThis.location && globalThis.location.origin) || ""; }
+    }, []);
+    const cargarUsuarios = useCallback(async () => {
+      if (typeof shell.authFetch !== "function") { setUsrEstado("no-disponible"); return; }
+      setUsrEstado("cargando");
+      const base = apiBase();
+      const teamId = (shell.app && shell.app.teamId) || "";
+      for (const ep of usuariosEndpoints(teamId)) {
+        try {
+          const res = await shell.authFetch(base + ep);
+          if (!res || !res.ok) continue;
+          const lista = normalizaUsuarios(await res.json());
+          if (!lista.length) continue;
+          setUsuarios(lista);
+          setStore((s) => ({ ...s, equipo: [SIN_ASIGNAR].concat(lista.map((u) => u.nombre)) }));
+          setUsrEstado("ok");
+          return;
+        } catch { /* probar el siguiente endpoint */ }
+      }
+      setUsrEstado("no-disponible");
+    }, []);
+    // Carga al montar y sincroniza el listado de responsables con KIMOS.
+    useEffect(() => { cargarUsuarios(); }, []);
+    const openEquipo = useCallback(() => { setEquipoOpen(true); if (usrEstado !== "ok") cargarUsuarios(); }, [usrEstado]);
 
     // ---------- Alta manual de prospecto ----------
     const setField = useCallback((k, v) => setAddDraft((d) => ({ ...(d || blankProspecto()), [k]: v })), []);
@@ -1040,7 +1119,7 @@ export default function mount(shell) {
     // ---------- Export / Import / Reset ----------
     const exportJSON = useCallback(() => {
       try {
-        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {}, dossiers: store.dossiers || {}, fuentes: store.fuentes || {} }, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, custom: store.custom || [], overrides: store.overrides || {}, dossiers: store.dossiers || {}, fuentes: store.fuentes || {} }, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "kimos_prospeccion_estado.json";
@@ -1176,7 +1255,7 @@ export default function mount(shell) {
             h("input", { type: "file", ref: bdRef, accept: ".csv,.tsv,.txt,.json,.xlsx,.xls,text/csv,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", style: { display: "none" }, onChange: importBD }),
             h("button", { className: "kp-btn", onClick: downloadTemplate, title: "Descargar plantilla CSV con las columnas" }, "\u{1F4C4} Plantilla"),
             h("button", { className: "kp-btn", onClick: () => setBdsOpen(true), title: "Administrar bases de datos de origen" }, "\u{1F5C3}️ Bases (" + fuentes.length + ")"),
-            h("button", { className: "kp-btn", onClick: openEquipo }, "\u{1F465} Equipo"),
+            h("button", { className: "kp-btn", onClick: openEquipo, title: "Usuarios del equipo en KIMOS (se administran en KIMOS)" }, "\u{1F465} Equipo KIMOS"),
             h("button", { className: "kp-btn", onClick: exportJSON, title: "Descargar respaldo completo (avance + prospectos añadidos)" }, "⬇️ Exportar"),
             h("button", { className: "kp-btn", onClick: () => fileRef.current && fileRef.current.click(), title: "Restaurar un respaldo exportado" }, "⬆️ Importar"),
             h("input", { type: "file", ref: fileRef, accept: "application/json", style: { display: "none" }, onChange: importJSON }),
@@ -1239,7 +1318,7 @@ export default function mount(shell) {
               h("option", { value: "" }, "Todos los estados"),
               ESTADOS.map((e) => h("option", { key: e, value: e }, e))),
             h("select", { value: fResp, onChange: (e) => setFResp(e.target.value) },
-              h("option", { value: "" }, "Todos los responsables"),
+              h("option", { value: "" }, "Todos los responsables (usuarios KIMOS)"),
               store.equipo.map((t) => h("option", { key: t, value: t }, t))),
             h("select", { value: fRes, onChange: (e) => setFRes(e.target.value) },
               h("option", { value: "" }, "Todo resultado"),
@@ -1278,16 +1357,35 @@ export default function mount(shell) {
       ),
 
       // Modal Equipo
-      equipoOpen && h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setEquipoOpen(false); } },
-        h("div", { className: "kp-box" },
-          h("h3", null, "\u{1F465} Equipo (editable)"),
-          equipoDraft.map((t, i) => h("div", { className: "kp-erow", key: i },
-            h("input", { value: t, onChange: (e) => setEquipoDraft((xs) => xs.map((v, j) => (j === i ? e.target.value : v))) }),
-            h("button", { className: "kp-btn", onClick: () => setEquipoDraft((xs) => (xs.length <= 1 ? xs : xs.filter((_, j) => j !== i))) }, "✕"))),
-          h("button", { className: "kp-btn", onClick: () => setEquipoDraft((xs) => xs.concat(["Nuevo responsable"])) }, "+ Agregar responsable"),
+      equipoOpen && h("div", { className: "kp-modal open kp-modal-equipo", onClick: (e) => { if (e.target === e.currentTarget) setEquipoOpen(false); } },
+        h("div", { className: "kp-box kp-box-lg" },
+          h("h3", null, "\u{1F465} Equipo — usuarios de KIMOS"),
+          h("p", { className: "kp-modal-sub" },
+            "Los responsables son los usuarios del equipo en KIMOS" +
+            ((shell.app && shell.app.teamId) ? " (equipo: " + shell.app.teamId + ")" : "") +
+            ". Se administran en KIMOS (Administración → Usuarios/Equipos), no en esta app."),
+          usrEstado === "cargando"
+            ? h("div", { className: "kp-tag" }, "Cargando usuarios de KIMOS…")
+            : usrEstado === "ok"
+              ? h("div", { className: "kp-userlist" },
+                  usuarios.map((u) => {
+                    const carga = P.reduce((acc, p) => acc + (metaOf(store, p.id).responsable === u.nombre ? 1 : 0), 0);
+                    return h("div", { className: "kp-useritem", key: u.id },
+                      h("div", { className: "kp-avatar", style: { width: "30px", height: "30px", fontSize: "11.5px" } },
+                        h("span", { className: "kp-avatar-ini" }, initialsOf({ persona: u.nombre, empresa: u.nombre }))),
+                      h("div", { style: { flex: 1, minWidth: 0 } },
+                        h("div", { style: { fontSize: "13px", fontWeight: 600 } }, u.nombre),
+                        h("div", { className: "kp-tag" }, (u.email || "—") + (u.rol ? " · " + u.rol : ""))),
+                      h("span", { className: "kp-tag" }, carga + " prospecto(s)"));
+                  }))
+              : h("div", { className: "kp-tag" },
+                  "No fue posible leer los usuarios desde KIMOS en esta ventana. " +
+                  "Verifica que la app esté instalada en KIMOS y que tu usuario tenga acceso al equipo; " +
+                  "mientras tanto, los prospectos quedan “" + SIN_ASIGNAR + "”. El agente KIMOS también puede " +
+                  "sincronizarlos con SYNC_EQUIPO."),
           h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" } },
-            h("button", { className: "kp-btn", onClick: () => setEquipoOpen(false) }, "Cerrar"),
-            h("button", { className: "kp-btn kp-primary", onClick: saveEquipo }, "Guardar")))),
+            h("button", { className: "kp-btn", onClick: cargarUsuarios }, "↻ Sincronizar con KIMOS"),
+            h("button", { className: "kp-btn kp-primary", onClick: () => setEquipoOpen(false) }, "Cerrar")))),
 
       // Modal Alta manual de prospecto
       addOpen && h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setAddOpen(false); } },
