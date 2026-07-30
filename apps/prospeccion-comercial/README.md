@@ -141,8 +141,34 @@ cada respuesta** · 8. 🔍 Qué evaluará la contraparte técnica ·
   QA por índice) para que el agente KIMOS investigue la empresa y adapte el
   dossier automáticamente. El snapshot marca qué prospectos ya tienen dossier.
 
+## Bases de datos de origen (🗃️)
+
+Cada prospecto queda asociado de forma **permanente** a la base de datos desde
+la que fue importado o creado (campo `fuente`), lo que da trazabilidad total del
+origen:
+
+- **Asignación automática**: cada **importación** (🗄️ Cargar BD) crea su propia
+  base lógica, tomando el nombre del archivo, y **todos** los registros de esa
+  importación comparten su identificador. Las altas ➕ manuales van a la base
+  *Altas manuales*; los 61 prospectos incluidos, a *Base KIMOS (incluida)*.
+- **Administración** (botón **🗃️ Bases**): lista todas las bases con su conteo,
+  tipo, archivo y fecha; permite **renombrarlas** (el nombre es editable y no
+  afecta a los prospectos asociados) y eliminar una base importada con sus
+  registros.
+- **Filtro por base**: chips de **multi-selección** sobre la tabla ("Todas" o
+  una/varias bases), integrado con los filtros existentes (búsqueda, estado,
+  responsable, resultado y rubro). Cada fila muestra su base de origen.
+- **Escalabilidad**: soporta múltiples bases simultáneas, con los registros
+  completamente separados por procedencia. `fuentes` viaja en
+  Exportar/Importar y el agente ve `basesDatos` en el snapshot, con la tool
+  `RENAME_BASE_DATOS`.
+
 ## Notas de versión
 
+- **2.5.0** — **Gestión de bases de datos de origen**: campo `fuente` permanente
+  por prospecto, una base lógica por importación (nombre editable), filtro
+  multi-selección integrado, modal 🗃️ de administración y tool de agente
+  `RENAME_BASE_DATOS`.
 - **2.4.0** — **SERMECOOP** agregado a la base (SALUD) con sus 2 contactos:
   Mauricio Cárcamo (visión de negocio/innovación) y Leonardo Contreras (Jefe de
   Desarrollo y Soporte), con sus LinkedIn. La tabla ahora **agrupa por empresa**:

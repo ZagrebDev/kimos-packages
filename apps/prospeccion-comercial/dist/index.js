@@ -39,6 +39,49 @@ const LS_KEY = "kimos_prospeccion_v1";
 // Campos de un prospecto (los mismos que trae SEED). Los prospectos añadidos
 // por el usuario (manual o importados) viven en store.custom con estos campos.
 const PROSPECTO_FIELDS = ["rubro", "empresa", "descripcion", "persona", "cargo", "telefono", "correo", "linkedin_url", "linkedin_q", "problematica", "propuesta", "notas", "foto"];
+
+// ============================================================================
+// Bases de datos de origen (trazabilidad de procedencia de cada prospecto).
+// Cada prospecto lleva `fuente` = id de su base de origen, asignado al crearse
+// o importarse y permanente. store.fuentes guarda los metadatos (nombre
+// editable, tipo, fecha), de modo que renombrar no toca los prospectos.
+// ============================================================================
+const FUENTE_BASE = "base-kimos"; // los 61 prospectos embebidos en el bundle
+const FUENTE_MANUAL = "manual";   // altas individuales (➕ Prospecto)
+const FUENTES_SISTEMA = {
+  [FUENTE_BASE]: { id: FUENTE_BASE, nombre: "Base KIMOS (incluida)", tipo: "sistema", sistema: true },
+  [FUENTE_MANUAL]: { id: FUENTE_MANUAL, nombre: "Altas manuales", tipo: "manual", sistema: true },
+};
+function slugify(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "bd";
+}
+// Genera un id único de fuente a partir del nombre del archivo/etiqueta.
+function nuevaFuenteId(existentes, base) {
+  const root = slugify(base);
+  let id = root, n = 2;
+  while (existentes[id]) { id = root + "-" + n; n++; }
+  return id;
+}
+// Nombre visible de una fuente (con respaldo si ya no existe el metadato).
+function fuenteNombre(store, id) {
+  if (!id) return FUENTES_SISTEMA[FUENTE_BASE].nombre;
+  const f = (store.fuentes || {})[id] || FUENTES_SISTEMA[id];
+  return f ? f.nombre : id;
+}
+// Todas las fuentes conocidas: las del sistema + las importadas por el usuario.
+function todasFuentes(store) {
+  const out = [];
+  Object.keys(FUENTES_SISTEMA).forEach((k) => out.push((store.fuentes || {})[k] || FUENTES_SISTEMA[k]));
+  Object.keys(store.fuentes || {}).forEach((k) => { if (!FUENTES_SISTEMA[k]) out.push(store.fuentes[k]); });
+  return out;
+}
+// Cuántos prospectos hay por fuente (sobre la lista efectiva).
+function conteoPorFuente(list) {
+  const m = {};
+  list.forEach((p) => { const k = p.fuente || FUENTE_BASE; m[k] = (m[k] || 0) + 1; });
+  return m;
+}
 function blankProspecto() { const o = {}; PROSPECTO_FIELDS.forEach((k) => (o[k] = "")); return o; }
 function nextId(list) { let mx = 0; list.forEach((p) => { const n = Number(p && p.id); if (isFinite(n) && n > mx) mx = n; }); return mx + 1; }
 
@@ -474,13 +517,14 @@ function dossierToHtml(p, d) {
 }
 
 function freshStore() {
-  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [], overrides: {}, dossiers: {} };
+  return { meta: {}, bit: [], equipo: DEFAULT_EQUIPO.slice(), custom: [], overrides: {}, dossiers: {}, fuentes: {} };
 }
 // Lista efectiva de prospectos: SEED + añadidos, con overrides (ediciones del
 // usuario/agente sobre cualquier prospecto, incluidos los 59 base) aplicados.
 function effProspectos(s) {
   const ov = (s && s.overrides) || {};
-  return SEED.prospectos.concat((s && s.custom) || []).map((p) => (ov[p.id] ? { ...p, ...ov[p.id] } : p));
+  const base = SEED.prospectos.map((p) => (p.fuente ? p : { ...p, fuente: FUENTE_BASE }));
+  return base.concat((s && s.custom) || []).map((p) => (ov[p.id] ? { ...p, ...ov[p.id] } : p));
 }
 // Aplica un parche de campos a un prospecto: si es añadido se edita directo;
 // si es de SEED se guarda como override (SEED es inmutable en el bundle).
@@ -506,7 +550,7 @@ function loadLocal() {
 function saveLocal(s) {
   try {
     const ls = globalThis.localStorage;
-    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {} }));
+    if (ls) ls.setItem(LS_KEY, JSON.stringify({ meta: s.meta, bit: s.bit, equipo: s.equipo, custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {}, fuentes: s.fuentes || {} }));
   } catch { /* storage lleno o bloqueado */ }
 }
 function normalizeStore(s) {
@@ -518,6 +562,7 @@ function normalizeStore(s) {
     if (Array.isArray(s.custom)) out.custom = s.custom;
     if (s.overrides && typeof s.overrides === "object") out.overrides = s.overrides;
     if (s.dossiers && typeof s.dossiers === "object") out.dossiers = s.dossiers;
+    if (s.fuentes && typeof s.fuentes === "object") out.fuentes = s.fuentes;
   }
   return out;
 }
@@ -578,6 +623,8 @@ export default function mount(shell) {
             inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
           { name: "UPDATE_DOSSIER", description: "Edita una sección del dossier (seccion: objetivo|perfil|necesidades|propuesta|mensajes|casos|evaluando|estrategia|cierre) o la respuesta a una pregunta técnica (seccion:'qa' + pregunta: índice 0-16 de QA). contenido reemplaza el texto.",
             inputSchema: { type: "object", properties: { id: { type: "number" }, seccion: { type: "string" }, pregunta: { type: "number" }, contenido: { type: "string" } }, required: ["id", "seccion", "contenido"] } },
+          { name: "RENAME_BASE_DATOS", description: "Renombra una base de datos de origen (ver basesDatos en el snapshot). No altera los prospectos asociados.",
+            inputSchema: { type: "object", properties: { fuente: { type: "string" }, nombre: { type: "string" } }, required: ["fuente", "nombre"] } },
         ],
         getSnapshot: () => {
           if (!bridge.getStore) return { ready: false };
@@ -586,12 +633,14 @@ export default function mount(shell) {
             ready: true,
             equipo: s.equipo,
             rubros: SEED.rubros,
+            basesDatos: todasFuentes(s).map((fu) => ({ id: fu.id, nombre: fu.nombre, registros: conteoPorFuente(effProspectos(s))[fu.id] || 0 })),
             prospectos: effProspectos(s).map((p) => {
               const m = s.meta[p.id] || {};
               return { id: p.id, empresa: p.empresa, rubro: p.rubro, persona: p.persona, cargo: p.cargo,
                 telefono: p.telefono, correo: p.correo, linkedin_url: p.linkedin_url,
                 foto: p.foto ? (String(p.foto).startsWith("data:") ? "(foto subida manualmente)" : p.foto) : "",
                 dossier: !!(s.dossiers && s.dossiers[p.id]),
+                fuente: p.fuente || FUENTE_BASE, fuenteNombre: fuenteNombre(s, p.fuente),
                 estado: m.estado || "Por Contactar", resultado: m.resultado || "", responsable: m.responsable || "Sin asignar", notas: m.notas || "" };
             }),
           };
@@ -623,7 +672,10 @@ export default function mount(shell) {
                 const p = { ...blankProspecto(), id: nextId(effProspectos(s)) };
                 PROSPECTO_FIELDS.forEach((k) => { if (pl[k] !== undefined) p[k] = String(pl[k]); });
                 p.empresa = empresa; if (!p.rubro) p.rubro = "SIN RUBRO";
-                return { ...s, custom: (s.custom || []).concat([p]) };
+                p.fuente = FUENTE_MANUAL; // origen: alta por agente/manual
+                const fuentes = { ...(s.fuentes || {}) };
+                if (!fuentes[FUENTE_MANUAL]) fuentes[FUENTE_MANUAL] = { ...FUENTES_SISTEMA[FUENTE_MANUAL], creada: new Date().toISOString().slice(0, 10) };
+                return { ...s, fuentes, custom: (s.custom || []).concat([p]) };
               });
               return { success: true, message: "Prospecto creado (id aprox. " + newId + "; confirma con getSnapshot)." };
             }
@@ -671,6 +723,18 @@ export default function mount(shell) {
               bridge.setStore((s) => { const d = s.dossiers[id]; return { ...s, dossiers: { ...s.dossiers, [id]: { ...d, sec: { ...d.sec, [seccion]: contenido } } } }; });
               return { success: true, message: "Sección '" + seccion + "' actualizada." };
             }
+            if (t === "RENAME_BASE_DATOS") {
+              const fid = String(pl.fuente || "");
+              const nombre = String(pl.nombre || "").trim();
+              if (!nombre) return { success: false, error: "nombre requerido" };
+              const s0 = bridge.getStore();
+              if (!(s0.fuentes || {})[fid] && !FUENTES_SISTEMA[fid]) return { success: false, error: "base de datos no encontrada: " + fid };
+              bridge.setStore((s) => {
+                const cur = (s.fuentes || {})[fid] || FUENTES_SISTEMA[fid] || { id: fid };
+                return { ...s, fuentes: { ...(s.fuentes || {}), [fid]: { ...cur, nombre } } };
+              });
+              return { success: true, message: "Base “" + fid + "” renombrada a “" + nombre + "”." };
+            }
             return { success: false, error: "Acción desconocida: " + t };
           } catch (err) {
             return { success: false, error: (err && err.message) || "error interno" };
@@ -695,6 +759,8 @@ export default function mount(shell) {
     const [editId, setEditId] = useState(null);     // prospecto en edición (✏️ ficha)
     const [editDraft, setEditDraft] = useState(null);
     const [dossierId, setDossierId] = useState(null); // dossier abierto (modal)
+    const [activeFuentes, setActiveFuentes] = useState([]); // filtro multi-selección por base de origen
+    const [bdsOpen, setBdsOpen] = useState(false);          // modal administrar bases
     const [forms, setForms] = useState({}); // bitácora en edición por id
     const fileRef = useRef(null); // importar respaldo (estado)
     const bdRef = useRef(null);   // importar base de datos de prospectos
@@ -779,11 +845,13 @@ export default function mount(shell) {
       const d = addDraft || {};
       if (!(d.empresa && d.empresa.trim())) { notify("warn", "Indica al menos el nombre de la empresa."); return; }
       setStore((s) => {
-        const all = SEED.prospectos.concat(s.custom || []);
-        const p = { ...blankProspecto(), ...d, id: nextId(all) };
+        const p = { ...blankProspecto(), ...d, id: nextId(effProspectos(s)) };
         p.empresa = p.empresa.trim();
         if (!p.rubro) p.rubro = "SIN RUBRO";
-        return { ...s, custom: (s.custom || []).concat([p]) };
+        p.fuente = FUENTE_MANUAL; // origen permanente: alta manual
+        const fuentes = { ...(s.fuentes || {}) };
+        if (!fuentes[FUENTE_MANUAL]) fuentes[FUENTE_MANUAL] = { ...FUENTES_SISTEMA[FUENTE_MANUAL], creada: new Date().toISOString().slice(0, 10) };
+        return { ...s, fuentes, custom: (s.custom || []).concat([p]) };
       });
       setAddOpen(false);
       notify("success", "Prospecto agregado.");
@@ -926,18 +994,29 @@ export default function mount(shell) {
           }
           const mapped = raw.map(rowToProspecto).filter(Boolean);
           if (!mapped.length) { notify("warn", "No se reconocieron prospectos. Revisa las columnas (empresa, rubro, persona, correo…)."); return; }
+          let nombreFuente = "";
           setStore((s) => {
-            let all = SEED.prospectos.concat(s.custom || []);
+            // Cada importación crea su propia base de datos lógica.
+            const fuentes = { ...(s.fuentes || {}) };
+            const etiqueta = String(f.name || "Importación").replace(/\.(csv|tsv|txt|json|xlsx|xls)$/i, "");
+            const fid = nuevaFuenteId(fuentes, etiqueta);
+            nombreFuente = etiqueta;
+            fuentes[fid] = {
+              id: fid, nombre: etiqueta, tipo: isXlsx ? "xlsx" : (name.endsWith(".json") ? "json" : "csv"),
+              archivo: f.name || "", creada: new Date().toISOString().slice(0, 10), registros: mapped.length,
+            };
+            let all = effProspectos(s);
             const added = mapped.map((p) => {
               const np = { ...blankProspecto(), ...p, id: nextId(all) };
               np.empresa = (np.empresa || "").trim() || "(sin nombre)";
               if (!np.rubro) np.rubro = "SIN RUBRO";
+              np.fuente = fid; // origen permanente de todos los de esta importación
               all = all.concat([np]);
               return np;
             });
-            return { ...s, custom: (s.custom || []).concat(added) };
+            return { ...s, fuentes, custom: (s.custom || []).concat(added) };
           });
-          notify("success", mapped.length + " prospecto(s) importado(s).");
+          notify("success", mapped.length + " prospecto(s) importado(s) en la base “" + nombreFuente + "”.");
         } catch (err) { notify("error", "Archivo inválido: " + ((err && err.message) || "formato no reconocido")); }
       };
       if (isXlsx) rd.readAsArrayBuffer(f); else rd.readAsText(f);
@@ -961,7 +1040,7 @@ export default function mount(shell) {
     // ---------- Export / Import / Reset ----------
     const exportJSON = useCallback(() => {
       try {
-        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {}, dossiers: store.dossiers || {} }, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify({ meta: store.meta, bit: store.bit, equipo: store.equipo, custom: store.custom || [], overrides: store.overrides || {}, dossiers: store.dossiers || {}, fuentes: store.fuentes || {} }, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = "kimos_prospeccion_estado.json";
@@ -982,7 +1061,7 @@ export default function mount(shell) {
     }, []);
     const resetAll = useCallback(() => {
       if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Borrar estados, asignaciones y bitácora? (Se conservan los prospectos añadidos y los datos de contacto editados)")) return;
-      setStore((s) => ({ ...freshStore(), custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {} }));
+      setStore((s) => ({ ...freshStore(), custom: s.custom || [], overrides: s.overrides || {}, dossiers: s.dossiers || {}, fuentes: s.fuentes || {} }));
       notify("info", "Avance reiniciado.");
     }, []);
 
@@ -1019,6 +1098,7 @@ export default function mount(shell) {
       const qq = q.toLowerCase();
       const xs = P.filter((p) => {
         const m = metaOf(store, p.id);
+        if (activeFuentes.length && activeFuentes.indexOf(p.fuente || FUENTE_BASE) < 0) return false;
         if (activeRubros.length && activeRubros.indexOf(p.rubro) < 0) return false;
         if (fEstado && m.estado !== fEstado) return false;
         if (fResp && m.responsable !== fResp) return false;
@@ -1032,7 +1112,34 @@ export default function mount(shell) {
       const firstAt = new Map();
       xs.forEach((p, i) => { if (!firstAt.has(p.empresa)) firstAt.set(p.empresa, i); });
       return xs.slice().sort((a, b) => (firstAt.get(a.empresa) - firstAt.get(b.empresa)) || (a.id - b.id));
-    }, [store, q, fEstado, fResp, fRes, activeRubros]);
+    }, [store, q, fEstado, fResp, fRes, activeRubros, activeFuentes]);
+
+    // Bases de datos de origen + conteos (para filtro y administración)
+    const fuentes = useMemo(() => todasFuentes(store), [store.fuentes]);
+    const fuenteCounts = useMemo(() => conteoPorFuente(P), [store]);
+    const toggleFuente = useCallback((id) => {
+      setActiveFuentes((xs) => (xs.indexOf(id) >= 0 ? xs.filter((x) => x !== id) : xs.concat([id])));
+    }, []);
+    const renameFuente = useCallback((id, nombre) => {
+      setStore((s) => {
+        const cur = (s.fuentes || {})[id] || FUENTES_SISTEMA[id] || { id };
+        return { ...s, fuentes: { ...(s.fuentes || {}), [id]: { ...cur, nombre } } };
+      });
+    }, []);
+    const delFuente = useCallback((id) => {
+      if (FUENTES_SISTEMA[id]) { notify("warn", "Las bases del sistema no se pueden eliminar."); return; }
+      const n = fuenteCounts[id] || 0;
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("¿Eliminar la base “" + fuenteNombre(store, id) + "” y sus " + n + " prospecto(s) importado(s)? El avance de esos prospectos también se borra.")) return;
+      setStore((s) => {
+        const quitar = new Set((s.custom || []).filter((p) => p.fuente === id).map((p) => p.id));
+        const meta = { ...s.meta }, dossiers = { ...(s.dossiers || {}) }, overrides = { ...(s.overrides || {}) };
+        quitar.forEach((pid) => { delete meta[pid]; delete dossiers[pid]; delete overrides[pid]; });
+        const fuentes = { ...(s.fuentes || {}) }; delete fuentes[id];
+        return { ...s, meta, dossiers, overrides, fuentes, custom: (s.custom || []).filter((p) => p.fuente !== id) };
+      });
+      setActiveFuentes((xs) => xs.filter((x) => x !== id));
+      notify("info", "Base de datos eliminada.");
+    }, [fuenteCounts, store]);
 
     // ============ RENDER ============
     const kpiCards = [
@@ -1068,6 +1175,7 @@ export default function mount(shell) {
             h("button", { className: "kp-btn", onClick: () => bdRef.current && bdRef.current.click(), title: "Importar prospectos desde Excel (.xlsx), CSV o JSON" }, "\u{1F5C4}️ Cargar BD"),
             h("input", { type: "file", ref: bdRef, accept: ".csv,.tsv,.txt,.json,.xlsx,.xls,text/csv,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", style: { display: "none" }, onChange: importBD }),
             h("button", { className: "kp-btn", onClick: downloadTemplate, title: "Descargar plantilla CSV con las columnas" }, "\u{1F4C4} Plantilla"),
+            h("button", { className: "kp-btn", onClick: () => setBdsOpen(true), title: "Administrar bases de datos de origen" }, "\u{1F5C3}️ Bases (" + fuentes.length + ")"),
             h("button", { className: "kp-btn", onClick: openEquipo }, "\u{1F465} Equipo"),
             h("button", { className: "kp-btn", onClick: exportJSON, title: "Descargar respaldo completo (avance + prospectos añadidos)" }, "⬇️ Exportar"),
             h("button", { className: "kp-btn", onClick: () => fileRef.current && fileRef.current.click(), title: "Restaurar un respaldo exportado" }, "⬆️ Importar"),
@@ -1139,6 +1247,15 @@ export default function mount(shell) {
               h("option", { value: "Esperando Confirmacion" }, "Esperando Confirmacion"),
               h("option", { value: "Rechazo" }, "Rechazo"),
               h("option", { value: "__none" }, "Sin resultado"))),
+          // Filtro por base de datos de origen (multi-selección)
+          h("div", { className: "kp-fuenterow" },
+            h("span", { className: "kp-tag" }, "\u{1F5C3}️ Base de datos:"),
+            h("div", { className: "kp-chips", style: { marginTop: 0 } },
+              h("div", { className: "kp-chip" + (activeFuentes.length === 0 ? " on" : ""), onClick: () => setActiveFuentes([]) }, "Todas (" + P.length + ")"),
+              fuentes.map((fu) => h("div", {
+                key: fu.id, className: "kp-chip" + (activeFuentes.indexOf(fu.id) >= 0 ? " on" : ""),
+                onClick: () => toggleFuente(fu.id), title: (fu.archivo ? "Archivo: " + fu.archivo + " · " : "") + (fu.creada ? "Importada el " + fu.creada : "Base incluida en la app"),
+              }, fu.nombre + " (" + (fuenteCounts[fu.id] || 0) + ")")))),
           h("div", { className: "kp-chips" },
             SEED.rubros.map((r) => {
               const on = activeRubros.indexOf(r) >= 0;
@@ -1232,6 +1349,38 @@ export default function mount(shell) {
             h("button", { className: "kp-btn", onClick: () => setEditId(null) }, "Cancelar"),
             h("button", { className: "kp-btn kp-primary", onClick: saveEdit }, "Guardar cambios")))),
 
+      // Modal Administrar bases de datos de origen
+      bdsOpen && h("div", { className: "kp-modal open", onClick: (e) => { if (e.target === e.currentTarget) setBdsOpen(false); } },
+        h("div", { className: "kp-box kp-box-lg" },
+          h("h3", null, "\u{1F5C3}️ Bases de datos de origen"),
+          h("p", { className: "kp-modal-sub" }, "Cada prospecto queda asociado de forma permanente a la base desde la que fue importado o creado. Puedes renombrar una base sin afectar sus prospectos."),
+          h("div", { className: "kp-bdlist" },
+            fuentes.map((fu) => h("div", { className: "kp-bditem", key: fu.id },
+              h("div", { className: "kp-bdmain" },
+                h("input", {
+                  value: fu.nombre, title: "Nombre de la base (editable)",
+                  onChange: (e) => renameFuente(fu.id, e.target.value),
+                }),
+                h("div", { className: "kp-tag" },
+                  (fuenteCounts[fu.id] || 0) + " prospecto(s) · id: " + fu.id +
+                  (fu.tipo && fu.tipo !== "sistema" ? " · " + String(fu.tipo).toUpperCase() : "") +
+                  (fu.creada ? " · " + fu.creada : "") + (fu.archivo ? " · " + fu.archivo : ""))),
+              h("div", { className: "kp-bdactions" },
+                h("button", {
+                  className: "kp-btn kp-mini2" + (activeFuentes.indexOf(fu.id) >= 0 ? " kp-primary" : ""),
+                  onClick: () => toggleFuente(fu.id),
+                }, activeFuentes.indexOf(fu.id) >= 0 ? "✓ Filtrando" : "\u{1F50D} Filtrar"),
+                fu.sistema || FUENTES_SISTEMA[fu.id]
+                  ? h("span", { className: "kp-tag" }, "del sistema")
+                  : h("button", { className: "kp-btn kp-mini2 kp-danger", onClick: () => delFuente(fu.id) }, "\u{1F5D1} Eliminar")))),
+            !fuentes.length ? h("span", { className: "kp-tag" }, "Aún no hay bases importadas.") : null),
+          h("div", { style: { marginTop: "14px", display: "flex", gap: "8px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" } },
+            h("span", { className: "kp-tag" }, "Cada nueva importación (🗄️ Cargar BD) crea automáticamente su propia base."),
+            h("div", { style: { display: "flex", gap: "8px" } },
+              activeFuentes.length ? h("button", { className: "kp-btn", onClick: () => setActiveFuentes([]) }, "Quitar filtros") : null,
+              h("button", { className: "kp-btn kp-primary", onClick: () => setBdsOpen(false) }, "Cerrar")))))
+      ,
+
       // Modal Dossier ejecutivo
       dossierId != null && (() => {
         const p = P.find((x) => x.id === dossierId);
@@ -1323,7 +1472,8 @@ export default function mount(shell) {
                 h("span", { className: "kp-cd2", style: { background: fill } }),
                 h("div", null, p.empresa,
                   isCustom ? h("span", { className: "kp-added" }, "añadido") : null,
-                  h("small", null, p.rubro + (nb ? " · " + nb + " interacc." : "")))),
+                  h("small", null, p.rubro + (nb ? " · " + nb + " interacc." : ""),
+                    h("span", { className: "kp-src", title: "Base de datos de origen" }, " \u{1F5C3}️ " + fuenteNombre(store, p.fuente))))),
           h("div", { className: "kp-per kp-per-av" },
             Avatar(p, 30),
             h("div", null, p.persona, h("small", null, p.cargo))),
