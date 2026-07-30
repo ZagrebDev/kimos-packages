@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.9.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.10.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -271,6 +271,29 @@ tipos creados al vuelo). Detalle operativo en `docs/MIGRACION.md`.
 | JSON v2 con fallback v1 en el theme | Migración suave de instalaciones gestion-productos/hubpro. |
 | Migración preservando ids (no regenerarlos) | Los pasos referencian componentes por id: regenerarlos obligaría a re-armar cada producto a mano. |
 | Import idempotente (match por id, luego por nombre) | Permite repetir la migración sin duplicar y usar el CSV como fuente de actualización masiva. |
+
+## 9.b Pasos dependientes: el default SIEMPRE se cobra (2.10)
+
+Jumpseller exige **un valor de cada opción en cada variante**: no existe la
+combinación "sin este paso". Por eso un paso oculto por `dependsOn` sigue
+aportando su valor por defecto a la variante — y si ese valor cuesta, el
+cliente paga algo que no ve. No es un caso raro: es lo que pasa al modelar
+"Procesador AMD" / "Procesador Intel" dependientes de la placa.
+
+La solución es un valor **"No aplica"** sin componentes ni recargo, marcado
+como default de ese paso. El aviso del producto lo explica con nombres
+(qué paso, de cuál depende, qué default y cuánto cuesta) y la cabecera del paso
+ofrece el botón **⚠ Añadir default sin costo**, que lo crea y lo deja por
+defecto de un clic.
+
+## 9.c Cuando la tienda no responde (2.10)
+
+Las escrituras a la tienda pasan por la caché de Jumpseller (Varnish), que ante
+una subida larga corta con `503 Timed out while waiting`. El PUT del producto y
+el `sync-push` se reintentan solos (3 intentos, espera 1,2 s → 2,4 s) y la
+respuesta HTML de la caché se traduce a un mensaje legible en vez de volcarse
+en pantalla. Cuantas más combinaciones tenga el producto, más fácil es toparse
+con ese corte: es el argumento práctico para no pasarse de variantes.
 
 ## 10. Deuda conocida y roadmap corto
 

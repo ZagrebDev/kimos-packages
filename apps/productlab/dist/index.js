@@ -289,6 +289,43 @@ export default function mount(shell) {
     }
   }
 
+  /**
+   * Llamada al backend con REINTENTOS. La cadena hasta la tienda pasa por la
+   * caché de Jumpseller (Varnish), que ante una subida larga —muchas variantes—
+   * corta con 503 "Timed out while waiting". No es un fallo de datos: casi
+   * siempre basta con volver a intentarlo, así que se hace solo.
+   */
+  const REINTENTABLE = [408, 429, 500, 502, 503, 504];
+  async function fetchReintento(url, opts, intentos) {
+    const veces = Math.max(1, intentos || 3);
+    let ultimo = null;
+    for (let i = 0; i < veces; i++) {
+      try {
+        const res = await shell.authFetch(url, opts);
+        if (res.ok || REINTENTABLE.indexOf(res.status) === -1) return res;
+        ultimo = res;
+      } catch (e) {
+        ultimo = null;                       // caída de red: también se reintenta
+        if (i === veces - 1) throw e;
+      }
+      if (i < veces - 1) await new Promise((r) => setTimeout(r, 1200 * Math.pow(2, i)));
+    }
+    return ultimo;
+  }
+  /**
+   * Mensaje legible de un error de la tienda. Jumpseller responde con la página
+   * HTML de su caché, y volcarla entera en pantalla no le dice nada a nadie.
+   */
+  function errorTienda(texto, status) {
+    const t = s(texto);
+    if (/varnish|timed out while waiting|<html/i.test(t)) {
+      return 'La tienda no respondió a tiempo (' + (status || 503) + ' de la caché de Jumpseller). '
+        + 'No es un problema de tus datos: se reintentó y siguió sin responder. '
+        + 'Vuelve a aplicar en un minuto; si el producto tiene muchas variantes, considera reducir alternativas por paso — cuantas más combinaciones, más tarda la subida y más fácil es que Jumpseller corte.';
+    }
+    return t || ('HTTP ' + (status || '?') + ' al hablar con la tienda.');
+  }
+
   async function saveDefinition(next) {
     const def = Object.assign({}, next, { id: 'definition', kind: 'definition' });
     const existed = model.defExists;
@@ -643,7 +680,15 @@ export default function mount(shell) {
         if (!target) warns.push('El paso dependiente "' + label + '" apunta a un paso que ya no existe (la dependencia se descartará al guardar).');
         else {
           const dvg = dv ? valueGross(dv) : null;
-          if (dvg != null && dvg > 0) warns.push('El paso dependiente "' + label + '" tiene un default con precio: cuando quede oculto en la tienda igual se cobrará. Usa como default un valor sin costo (sin componentes ni recargo), ej. "Sin ' + label.toLowerCase() + '".');
+          const nOrden = (eq.groups || []).indexOf(g) + 1;
+          const nombreDe = (x) => (x.label || typeLabel(x.typeId));
+          if (dvg != null && dvg > 0) {
+            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '" (depende de "' + nombreDe(target) + '"): '
+              + 'su valor por defecto es "' + dv.label + '", que cuesta ' + fmtMoney(dvg) + '. '
+              + 'Jumpseller exige un valor de CADA opción en cada combinación, así que cuando este paso quede oculto la variante seguirá llevando —y cobrando— ese valor. '
+              + 'No se trata de que los ' + label.toLowerCase() + ' sean gratis: hace falta un valor "No aplica" sin componentes ni recargo, marcado como default, para las combinaciones donde este paso no se muestra. '
+              + 'El botón "⚠ Añadir default sin costo" de la cabecera del paso lo crea.');
+          }
         }
       }
     });
@@ -1546,7 +1591,7 @@ export default function mount(shell) {
     }
     try {
       // 1) Persistir en el item del producto (merge; auto-push de campos base).
-      const putRes = await shell.authFetch(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
+      const putRes = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         // customFields: parametrizable — es la marca que le dice al theme que
         // este producto usa la vista de configurador (default diseno=personalizado).
@@ -1557,21 +1602,22 @@ export default function mount(shell) {
       });
       if (!putRes.ok) {
         const d = await putRes.json().catch(() => ({}));
-        return { success: false, error: s(d.detail) || 'HTTP ' + putRes.status + ' al escribir el producto.' };
+        return { success: false, error: errorTienda(d.detail, putRes.status) };
       }
       // 2) sync-push: empuja opciones y variantes a Jumpseller y persiste ids.
-      const pushRes = await shell.authFetch(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
+      const pushRes = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemIds: [ref.itemId] }),
       });
       const data = await pushRes.json().catch(() => ({}));
-      if (!pushRes.ok) return { success: false, error: s(data.detail) || 'HTTP ' + pushRes.status + ' en sync-push.' };
+      if (!pushRes.ok) return { success: false, error: errorTienda(data.detail, pushRes.status) };
       const itemRes = (data.results || {})[ref.itemId] || {};
       const js = ((itemRes.results || {}).jumpseller) || {};
       // Los avisos de custom field NO bloquean (se puede poner a mano):
       // solo los errores de producto/opciones/variantes marcan sync_error.
       const cfWarns = js.customFieldErrors || [];
-      const errs = [].concat(js.optionErrors || [], js.variantErrors || [], js.ok === false && js.error ? [js.error] : []);
+      const errs = [].concat(js.optionErrors || [], js.variantErrors || [], js.ok === false && js.error ? [js.error] : [])
+        .map((x) => errorTienda(x));
       const status = errs.length ? ((data.syncStatusByItem || {})[ref.itemId] || 'sync_error') : 'synced';
       const updated = Object.assign({}, eq, {
         price,
@@ -4103,9 +4149,32 @@ export default function mount(shell) {
             }, [h('option', { key: '', value: '' }, 'siempre visible')].concat(
               d.groups.slice(0, gi).map((x, xi) => h('option', { key: x.id, value: x.id }, 'depende del PASO ' + String(xi + 1).padStart(2, '0') + ' · ' + (x.label || typeLabel(x.typeId)))))) : null,
             h('span', { key: 'sp', style: { flex: 1 } }),
-            gi > 0 && h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
+            // Orden de los pasos. Cambiarlo también cambia qué pasos pueden
+            // depender de cuál: una dependencia solo puede apuntar hacia atrás.
+            gi > 0 && h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir este paso', onClick: () => {
               const gs = d.groups.slice(); const t = gs[gi - 1]; gs[gi - 1] = gs[gi]; gs[gi] = t; up({ groups: gs });
             } }, '↑'),
+            gi < d.groups.length - 1 && h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar este paso', onClick: () => {
+              const gs = d.groups.slice(); const t = gs[gi + 1]; gs[gi + 1] = gs[gi]; gs[gi] = t; up({ groups: gs });
+            } }, '↓'),
+            // Un paso dependiente que se oculta SIGUE aportando su valor por
+            // defecto a la variante (Jumpseller exige un valor por opción en
+            // cada combinación). Si ese default cuesta, el cliente paga algo
+            // que no ve. Aquí se arregla de un clic: un valor "No aplica" sin
+            // costo, puesto por defecto.
+            (function () {
+              if (!groupDependsOn(g)) return null;
+              const def = groupDefaultValue(g);
+              if (!def || !(valueGross(def) > 0)) return null;
+              return h('button', {
+                key: 'fix', className: 'gp-btn gp-btn-sm', style: { borderColor: 'var(--gp-err)', color: 'var(--gp-err)' },
+                title: 'Al ocultarse este paso, la tienda cobra igual su valor por defecto. Con este botón se agrega un valor sin costo y se deja como default.',
+                onClick: () => {
+                  const nuevo = { id: newId('val'), label: 'No aplica', componentIds: [], priceDelta: 0, qty: 1 };
+                  upGroup(g.id, { values: [nuevo].concat(vals), defaultValueId: nuevo.id });
+                },
+              }, '⚠ Añadir default sin costo');
+            })(),
             h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
           ]),
           h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -4131,7 +4200,7 @@ export default function mount(shell) {
             })(),
             vals.length === 0 && h('div', { key: 'e', className: 'gp-muted' },
               'Sin valores aún. Agrega los que verá el cliente (ej: "Roble natural", "Nogal oscuro") y márcale a cada uno sus alternativas. Un valor sin componentes es una opción sin costo (cobra con "recargo" si quieres).'),
-            h(React.Fragment, { key: 'vals' }, vals.map((v) => {
+            h(React.Fragment, { key: 'vals' }, vals.map((v, vi) => {
               const alts = valueAlts(v);
               const chosen = valueChosen(v);
               const delta = deltaFor(g, v, d);
@@ -4160,6 +4229,14 @@ export default function mount(shell) {
                   isDef
                     ? h('span', { key: 'd', className: 'gp-chip fuc' }, 'incluido')
                     : h('span', { key: 'd', className: 'gp-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
+                  // Orden de los valores DENTRO del paso: es el orden en que el
+                  // cliente los ve en la tienda y en el previsualizador.
+                  vi > 0 && h('button', { key: 'vu', className: 'gp-btn gp-btn-sm', title: 'Subir este valor', onClick: () => {
+                    const xs = vals.slice(); const t = xs[vi - 1]; xs[vi - 1] = xs[vi]; xs[vi] = t; upGroup(g.id, { values: xs });
+                  } }, '↑'),
+                  vi < vals.length - 1 && h('button', { key: 'vd', className: 'gp-btn gp-btn-sm', title: 'Bajar este valor', onClick: () => {
+                    const xs = vals.slice(); const t = xs[vi + 1]; xs[vi + 1] = xs[vi]; xs[vi] = t; upGroup(g.id, { values: xs });
+                  } }, '↓'),
                   h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar valor', onClick: () => upGroup(g.id, { values: vals.filter((y) => y.id !== v.id), defaultValueId: g.defaultValueId === v.id ? null : g.defaultValueId }) }, '✕'),
                 ]),
                 h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },

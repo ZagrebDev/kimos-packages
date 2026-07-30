@@ -952,6 +952,42 @@ expectEq('sin plantilla vuelve el estilo propio',
   store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD').storefront.style.accentColor, '#0FA36B');
 console.log('ProductLab: plantillas de estilo (crear, aplicar, editar, por defecto y borrar) OK');
 
+// ── Aviso del paso dependiente con default de pago ────────────────────────
+// Un paso oculto SIGUE aportando su default a la variante (Jumpseller exige un
+// valor por opción en cada combinación): si ese default cuesta, se cobra sin
+// verse. El aviso tiene que decirlo con nombres y con el importe.
+await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
+  { label: 'Plataforma', type: 'tela', values: [
+    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
+    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
+  ] },
+  { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] }, values: [
+    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
+  ] },
+] });
+const avisosDep = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').warnings || [];
+const avisoDep = avisosDep.filter((w) => /Procesador AMD/.test(w))[0] || '';
+if (!/depende de "Plataforma"/.test(avisoDep) || !/Jumpseller exige/.test(avisoDep) || !/No aplica/.test(avisoDep)) {
+  throw new Error('el aviso del paso dependiente no explica el caso: ' + avisoDep);
+}
+console.log('aviso del paso dependiente:', avisoDep.slice(0, 80) + '…');
+// Con un default sin costo, el aviso desaparece.
+await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
+  { label: 'Plataforma', type: 'tela', values: [
+    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
+    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
+  ] },
+  { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] },
+    default: 'No aplica', values: [
+    { label: 'No aplica', components: [] },
+    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
+  ] },
+] });
+const sinAviso = (agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').warnings || [])
+  .filter((w) => /default con precio|cuesta/.test(w) && /Procesador AMD/.test(w));
+expectEq('con un default "No aplica" el aviso desaparece', sinAviso.length, 0);
+console.log('ProductLab: aviso del paso dependiente explicado y resuelto OK');
+
 // ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────
 // LIST_SOURCES ve la instancia ajena (y no la propia).
 const src = await act('LIST_SOURCES', {});
