@@ -388,6 +388,52 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   w.close();
 }
 
+// ═══ Escenario 3.b: valor de RELLENO en un paso dependiente ═══════════════
+// El "No aplica" existe para las variantes en las que el paso está oculto
+// (Jumpseller exige un valor por opción). Cuando el paso SE VE, la ficha no lo
+// ofrece y la selección salta sola a un valor real: nadie compra sin procesador
+// habiendo elegido plataforma.
+console.log('\n— relleno: sostiene las variantes ocultas, pero no se vende —');
+{
+  const gruposFB = [
+    { id: 'g-plat', label: 'Modelo', type: 'other', affectsPhoto: false, dependsOn: null, values: [
+      { id: 'v-base', name: 'Base', qty: 1, delta: 0, isDefault: true },
+      { id: 'v-pro', name: 'Pro', qty: 2, delta: 200000, isDefault: false },
+    ] },
+    { id: 'g-cpu', label: 'Tarjeta de video', type: 'other', affectsPhoto: false,
+      dependsOn: { groupId: 'g-plat', valueIds: ['v-pro'] }, values: [
+      // 'Sin tarjeta' hace de relleno: es el default y va marcado.
+      { id: 'v-nogpu', name: 'Sin tarjeta', qty: 1, delta: 0, isDefault: true, fallback: true },
+      { id: 'v-rtx', name: 'RTX 4060', qty: 1, delta: 350000, isDefault: false },
+    ] },
+  ];
+  const def = {
+    version: 2, currency: 'CLP', store: 'i1',
+    productos: [producto({ groups: gruposFB, imageUrl: '', images: [],
+      storefront: { specs: [], photosNote: '', tabs: { showFotos: false },
+        pageSections: [{ id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [{ type: 'title' }] } }] } })],
+  };
+  const w = await montar(def);
+  const d = w.document;
+  const selGpu = d.querySelector('select[data-optionid="910"]');
+  // La réplica tiene un tercer control nativo sin paso KIMOS (Refrigeración):
+  // se muestra siempre, así que el recuento va contra él.
+  t('con el paso oculto, la variante lleva el relleno', selGpu.value === '9102');
+  d.querySelector('.kc-bar-cta').click();   // entrar en Configurar
+  await new Promise((r) => setTimeout(r, 20));
+  t('el paso oculto ni se pinta', d.querySelectorAll('.kc-step').length === 2);
+  // Al elegir Pro el paso aparece: ni se ofrece el relleno ni se queda elegido.
+  Array.prototype.slice.call(d.querySelectorAll('.kc-card'))
+    .filter((c) => /Pro/.test(c.textContent))[0].click();
+  await new Promise((r) => setTimeout(r, 20));
+  const pasoCpu = d.querySelectorAll('.kc-step')[1];
+  t('el paso dependiente aparece', d.querySelectorAll('.kc-step').length === 3);
+  t('el paso visible no ofrece el relleno',
+    !!pasoCpu && !/Sin tarjeta/.test(pasoCpu.textContent) && pasoCpu.querySelectorAll('.kc-card').length === 1);
+  t('y la variante salta sola a un valor real', selGpu.value === '9101');
+  w.close();
+}
+
 // ═══ Escenario 4: un ancestro del theme rompe position:fixed ══════════════
 // Es el caso real de la tienda: un contenedor con `transform` convierte
 // `position: fixed` en "fijo a ESA caja", así que la barra y el panel se

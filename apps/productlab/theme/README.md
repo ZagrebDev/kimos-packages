@@ -231,6 +231,22 @@ se habilita a su ritmo (resuelve la variante después de que la ficha pinte):
 por eso se vigila con un observador y el mensaje se retira en cuanto el theme
 puede vender la combinación.
 
+## Valores de relleno en pasos dependientes
+
+Jumpseller exige **un valor de cada opción en cada variante**, así que un paso
+oculto por `dependsOn` sigue aportando su valor por defecto. Ese default tiene
+que ser un "No aplica" sin costo… y ahí aparece el problema evidente: si además
+se pudiera elegir, el cliente que SÍ ve el paso podría comprar sin procesador.
+
+Por eso el contrato v2 marca esos valores con **`fallback: true`**. El kit los
+trata así:
+
+- no pinta su card cuando el paso se ve;
+- si el paso se abre y el relleno estaba elegido, escribe en el select nativo
+  el primer valor real (sin anunciarlo como "ajuste": es lo esperable);
+- cuando el paso vuelve a ocultarse, fuerza otra vez el relleno, que es lo que
+  mantiene la variante coherente y a precio cero por ese paso.
+
 ## Configurar: pasos a la izquierda, panel de compra a la derecha
 
 La vista *Configurar* es la de la ficha de computadores: los pasos ocupan la
@@ -337,7 +353,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.9.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.10.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

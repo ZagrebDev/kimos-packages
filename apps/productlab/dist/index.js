@@ -682,12 +682,25 @@ export default function mount(shell) {
           const dvg = dv ? valueGross(dv) : null;
           const nOrden = (eq.groups || []).indexOf(g) + 1;
           const nombreDe = (x) => (x.label || typeLabel(x.typeId));
+          // Un relleno que no es el default no sirve de nada: el paso oculto
+          // seguirá usando (y cobrando) el default de verdad.
+          const rellenos = vals.filter((v) => v.fallback === true);
+          if (rellenos.length && !(dv && dv.fallback === true)) {
+            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '": el valor de relleno "'
+              + rellenos[0].label + '" no está marcado como INCLUIDO (default), así que el paso oculto seguirá usando "'
+              + (dv ? dv.label : '—') + '". Marca el relleno como incluido.');
+          }
+          if (rellenos.length === vals.length) {
+            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '": todos sus valores son de relleno, '
+              + 'así que cuando el paso se muestre no habrá nada que elegir.');
+          }
           if (dvg != null && dvg > 0) {
             warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '" (depende de "' + nombreDe(target) + '"): '
               + 'su valor por defecto es "' + dv.label + '", que cuesta ' + fmtMoney(dvg) + '. '
               + 'Jumpseller exige un valor de CADA opción en cada combinación, así que cuando este paso quede oculto la variante seguirá llevando —y cobrando— ese valor. '
               + 'No se trata de que los ' + label.toLowerCase() + ' sean gratis: hace falta un valor "No aplica" sin componentes ni recargo, marcado como default, para las combinaciones donde este paso no se muestra. '
-              + 'El botón "⚠ Añadir default sin costo" de la cabecera del paso lo crea.');
+              + 'Ese valor va marcado como SOLO RELLENO, así que la tienda no se lo ofrece a quien sí ve el paso: nadie podrá comprar sin ' + label.toLowerCase() + '. '
+              + 'El botón "⚠ Añadir default sin costo" de la cabecera del paso lo crea ya marcado.');
           }
         }
       }
@@ -1318,6 +1331,12 @@ export default function mount(shell) {
           // Recargo manual de venta: permite "precios por paso" sin modelar
           // el costo en detalle. Se suma tal cual al precio.
           priceDelta: num(v.priceDelta, 0),
+          // RELLENO: valor que solo existe para las combinaciones en las que
+          // este paso está OCULTO (Jumpseller exige un valor de cada opción en
+          // cada variante). Cuando el paso se ve, la tienda no lo ofrece: sin
+          // esto, marcar "No aplica" como default dejaba comprar un PC sin
+          // procesador a quien sí eligió plataforma.
+          fallback: v.fallback === true,
           // Efectos sobre el visor 3D al elegir este valor (opcional: si el
           // producto no tiene modelo, queda vacío y no molesta).
           model3d: normalizeEffects(v.model3d),
@@ -1765,6 +1784,9 @@ export default function mount(shell) {
                   requires: alt ? alt.requires || [] : [],
                   excludes: alt ? alt.excludes || [] : [],
                   isDefault: !!(dv && dv.id === v.id),
+                  // Relleno: la ficha NO lo ofrece cuando el paso se ve; solo
+                  // sostiene las variantes en las que el paso está oculto.
+                  fallback: v.fallback === true,
                   // Efectos 3D del valor: solo viajan si el producto publica
                   // su modelo (si no, el theme no tendría qué hacer con ellos).
                   model3d: pubModel3d ? (v.model3d || []) : undefined,
@@ -2209,6 +2231,12 @@ export default function mount(shell) {
           swatchColor: s(pick(vo, ['swatchColor', 'color'])).trim(),
           qty: Math.max(1, Math.round(num(pick(vo, ['qty', 'cantidad']), exv ? num(exv.qty, 1) : 1)) || 1),
           priceDelta: num(pick(vo, ['priceDelta', 'recargo', 'extra']), exv ? num(exv.priceDelta, 0) : 0),
+          // Valor de RELLENO: sostiene las variantes en las que su paso queda
+          // oculto, y la tienda no lo ofrece cuando el paso se ve.
+          fallback: (function () {
+            const f = pick(vo, ['fallback', 'relleno', 'soloRelleno']);
+            return f === undefined ? (exv ? exv.fallback === true : false) : f === true;
+          })(),
           componentIds: comps.map((c) => c.id),
           // Efectos 3D: si no se envían, se conservan los que ya tenía el
           // valor (editar los pasos no debe borrar el vínculo con el 3D).
@@ -2314,7 +2342,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple (oculto usa su default — hazlo sin costo). Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -3786,13 +3814,25 @@ export default function mount(shell) {
     const compact = st.cardStyle === 'compact';
     const asList = st.cardStyle === 'list';
     const fixed = isFixedPrice(draft);
-    const groups = (draft.groups || []).map((g) => ({ g, vals: groupValues(g).filter(valueAvailable) })).filter((x) => x.vals.length);
+    // Los valores de RELLENO no se ofrecen (solo sostienen las variantes en las
+    // que el paso está oculto): el previsualizador enseña lo que verá el cliente.
+    const groups = (draft.groups || []).map((g) => ({
+      g, vals: groupValues(g).filter((v) => valueAvailable(v) && v.fallback !== true),
+    })).filter((x) => x.vals.length);
     const selMap = {};
     groups.forEach(({ g }) => {
       const vals = groupValues(g).filter(valueAvailable);
       selMap[g.id] = vals.some((v) => v.id === sel[g.id]) ? sel[g.id] : (groupDefaultValue(g) || {}).id;
     });
     const visibleOf = (g) => groupVisibleFor(draft, g, selMap);
+    // Un paso que se hace VISIBLE no puede quedarse con el valor de relleno
+    // (el "No aplica" que solo sostiene las variantes ocultas): pasa al primero
+    // real, que es lo que hace la tienda.
+    groups.forEach(({ g, vals }) => {
+      if (!visibleOf(g)) return;
+      const actual = groupValues(g).find((v) => v.id === selMap[g.id]);
+      if (actual && actual.fallback === true && vals[0]) selMap[g.id] = vals[0].id;
+    });
     // Precio: mismas reglas que buildStoreVariants (oculto = default del paso).
     let gross = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
     const sumMode = deliveryModeOf(draft) === 'sum';
@@ -4170,7 +4210,7 @@ export default function mount(shell) {
                 key: 'fix', className: 'gp-btn gp-btn-sm', style: { borderColor: 'var(--gp-err)', color: 'var(--gp-err)' },
                 title: 'Al ocultarse este paso, la tienda cobra igual su valor por defecto. Con este botón se agrega un valor sin costo y se deja como default.',
                 onClick: () => {
-                  const nuevo = { id: newId('val'), label: 'No aplica', componentIds: [], priceDelta: 0, qty: 1 };
+                  const nuevo = { id: newId('val'), label: 'No aplica', componentIds: [], priceDelta: 0, qty: 1, fallback: true };
                   upGroup(g.id, { values: [nuevo].concat(vals), defaultValueId: nuevo.id });
                 },
               }, '⚠ Añadir default sin costo');
@@ -4229,6 +4269,12 @@ export default function mount(shell) {
                   isDef
                     ? h('span', { key: 'd', className: 'gp-chip fuc' }, 'incluido')
                     : h('span', { key: 'd', className: 'gp-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
+                  groupDependsOn(g) ? h('label', { key: 'fb', className: 'gp-switch', style: { margin: 0 },
+                    title: 'Valor de RELLENO: solo sostiene las combinaciones en las que este paso queda oculto. Cuando el paso se ve, la tienda no lo ofrece — así nadie compra "sin procesador" habiendo elegido plataforma.' }, [
+                    h('input', { key: 'c', type: 'checkbox', checked: v.fallback === true,
+                      onChange: (e) => upValue(v.id, { fallback: e.target.checked }) }),
+                    h('span', { key: 's' }, 'solo relleno'),
+                  ]) : null,
                   // Orden de los valores DENTRO del paso: es el orden en que el
                   // cliente los ve en la tienda y en el previsualizador.
                   vi > 0 && h('button', { key: 'vu', className: 'gp-btn gp-btn-sm', title: 'Subir este valor', onClick: () => {

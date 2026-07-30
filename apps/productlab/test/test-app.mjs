@@ -986,6 +986,25 @@ await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
 const sinAviso = (agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').warnings || [])
   .filter((w) => /default con precio|cuesta/.test(w) && /Procesador AMD/.test(w));
 expectEq('con un default "No aplica" el aviso desaparece', sinAviso.length, 0);
+// El relleno NO se vende: marcarlo como tal es lo que impide que alguien que sí
+// eligió plataforma pueda comprar "sin procesador". El JSON lo publica.
+await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
+  { label: 'Plataforma', type: 'tela', values: [
+    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
+    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
+  ] },
+  { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] },
+    default: 'No aplica', values: [
+    { label: 'No aplica', components: [], fallback: true },
+    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
+  ] },
+] });
+await act('PUBLISH_CONFIG', { enabled: true });
+const pubPackFB = store.get('definition').public.data.productos.find((e) => e.name === 'Pack 2 Pisos');
+const gPub = (pubPackFB.groups || []).find((g) => g.label === 'Procesador AMD') || { values: [] };
+const relleno = gPub.values.filter((v) => v.fallback === true);
+expectEq('el relleno viaja marcado en el JSON', relleno.length, 1);
+expectEq('y es el valor por defecto del paso', relleno[0].isDefault, true);
 console.log('ProductLab: aviso del paso dependiente explicado y resuelto OK');
 
 // ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────

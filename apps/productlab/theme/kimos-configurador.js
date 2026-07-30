@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.9.1';
+  var VERSION = '5.10.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -214,6 +214,18 @@
     var vs = (kg && kg.values) || [];
     return vs.filter(function (v) { return v.isDefault; })[0] || vs[0] || null;
   }
+  // Valor de RELLENO (contrato v2): existe solo para las variantes en las que
+  // su paso está oculto. Cuando el paso se ve, la ficha ni lo pinta ni lo elige.
+  function esRelleno(v) { return !!(v && v.fallback === true); }
+  function valorPorId(kg, id) {
+    return ((kg && kg.values) || []).filter(function (v) { return String(v.id) === String(id); })[0] || null;
+  }
+  // Primer valor de verdad del paso: el default si no es relleno, y si no, el
+  // primero que no lo sea.
+  function primerElegible(kg) {
+    var vs = ((kg && kg.values) || []).filter(function (v) { return !esRelleno(v); });
+    return vs.filter(function (v) { return v.isDefault; })[0] || vs[0] || null;
+  }
   function nativeOf(groups, kg) {
     return groups.filter(function (x) { return norm(x.name) === norm(kg.label); })[0] || null;
   }
@@ -262,8 +274,13 @@
     for (var pass = 0; pass <= kgs.length; pass++) {
       var changed = false;
       kgs.forEach(function (kg) {
-        if (isGroupVisible(entry, kg, selMap)) return;
-        var dv = kimosDefault(kg);
+        var visible = isGroupVisible(entry, kg, selMap);
+        // OCULTO → su valor por defecto (que debería ser el de relleno).
+        // VISIBLE → nunca el relleno: ese valor solo existe para sostener las
+        // variantes en las que el paso no se muestra. Sin esto, el "No aplica"
+        // que hace falta para las combinaciones ocultas se podía comprar.
+        var dv = visible ? primerElegible(kg) : kimosDefault(kg);
+        if (visible && !esRelleno(valorPorId(kg, selMap[kg.id]))) return;
         if (!dv || String(selMap[kg.id]) === String(dv.id)) return;
         selMap[kg.id] = dv.id;
         changed = true;
@@ -272,7 +289,9 @@
           var nat = g.values.filter(function (v) { return norm(v.name) === norm(dv.name); })[0];
           if (nat && String(readSelection(groups)[g.id]) !== String(nat.id)) {
             applyNative(g, nat.id);
-            cambios.push((kg.label || '') + ' → ' + (dv.name || ''));
+            // Pasar del relleno a un valor real al abrirse el paso no es un
+            // "ajuste" que haya que anunciar: es lo esperable.
+            if (!visible) cambios.push((kg.label || '') + ' → ' + (dv.name || ''));
           }
         }
       });
@@ -736,6 +755,7 @@
       var cards = el('div', 'kc-cards');
       g.values.forEach(function (v) {
         var kv = kg ? (kg.values || []).filter(function (x) { return norm(x.name) === norm(v.name); })[0] : null;
+        if (esRelleno(kv)) return;   // relleno: no se ofrece cuando el paso se ve
         var on = String(selId) === String(v.id);
         var c = el('button', 'kc-card' + (on ? ' on' : ''));
         c.type = 'button';

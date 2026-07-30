@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.10.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.11.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -281,10 +281,23 @@ cliente paga algo que no ve. No es un caso raro: es lo que pasa al modelar
 "Procesador AMD" / "Procesador Intel" dependientes de la placa.
 
 La solución es un valor **"No aplica"** sin componentes ni recargo, marcado
-como default de ese paso. El aviso del producto lo explica con nombres
-(qué paso, de cuál depende, qué default y cuánto cuesta) y la cabecera del paso
-ofrece el botón **⚠ Añadir default sin costo**, que lo crea y lo deja por
-defecto de un clic.
+como default de ese paso **y como `fallback: true`** (*solo relleno*). Ese
+segundo marcado es el que hace que la solución no abra un agujero: sin él, el
+"No aplica" quedaría a la venta también cuando el paso SÍ se muestra, y quien
+eligiera AMD podría comprar sin procesador.
+
+Con `fallback`, el valor:
+
+- **sostiene** las combinaciones en las que el paso está oculto (que es para lo
+  único que existe) y sigue entrando en la matriz de variantes;
+- **no se pinta** como opción en la ficha ni en el previsualizador;
+- y si el paso pasa a ser visible con el relleno elegido, la selección **salta
+  sola** al primer valor real (en la tienda, escribiendo en el select nativo).
+
+El aviso del producto lo explica con nombres (qué paso, de cuál depende, qué
+default y cuánto cuesta) y la cabecera del paso ofrece el botón **⚠ Añadir
+default sin costo**, que crea el valor ya marcado como relleno y por defecto.
+`SET_PRODUCTO_STEPS` acepta `fallback` (alias `relleno`) por valor.
 
 ## 9.c Cuando la tienda no responde (2.10)
 
