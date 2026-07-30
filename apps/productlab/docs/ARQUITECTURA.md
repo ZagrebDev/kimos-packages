@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.11.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.12.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -271,6 +271,32 @@ tipos creados al vuelo). Detalle operativo en `docs/MIGRACION.md`.
 | JSON v2 con fallback v1 en el theme | Migración suave de instalaciones gestion-productos/hubpro. |
 | Migración preservando ids (no regenerarlos) | Los pasos referencian componentes por id: regenerarlos obligaría a re-armar cada producto a mano. |
 | Import idempotente (match por id, luego por nombre) | Permite repetir la migración sin duplicar y usar el CSV como fuente de actualización masiva. |
+
+## 9.a Solo se publican las combinaciones ALCANZABLES (2.12)
+
+**El problema.** Publicar el producto cartesiano de todos los pasos genera
+variantes que nadie puede comprar. Con "Plataforma (AMD/Intel)" + "CPU AMD" +
+"CPU Intel", el cartesiano es 2×3×3 = 18 y solo 4 existen de verdad: las otras
+14 son «Intel × un procesador AMD» y similares. Jumpseller las crea, las
+guarda y las recorre en cada carga de ficha — es lo que arrastra la tienda y lo
+que reventó al aplicar un catálogo real.
+
+**La solución.** `enumerarCombos(eq)` recorre los pasos EN ORDEN llevando la
+selección parcial (las dependencias solo apuntan hacia atrás, así que al llegar
+a un paso ya se sabe si se ve):
+
+- paso **visible** → una rama por cada valor elegible (los `fallback` no lo son);
+- paso **oculto** → UNA sola rama, con su valor de relleno.
+
+De ahí salen las variantes que se publican y el conteo de `comboCount`. Las
+que ya estaban de más en la tienda se borran solas al reaplicar: el push va con
+`prune=True`. `comboCartesiano(eq)` se conserva solo para poder decir cuántas
+se está ahorrando (la app lo muestra y el snapshot lo expone en
+`variantCombosSinDependencias`).
+
+El tope `MAX_COMBOS` pasa a medir lo que de verdad se publica, así que encadenar
+pasos con dependencias deja de ser un lujo: es la manera de que un catálogo
+grande quepa.
 
 ## 9.b Pasos dependientes: el default SIEMPRE se cobra (2.10)
 

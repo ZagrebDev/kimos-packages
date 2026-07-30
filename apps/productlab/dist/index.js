@@ -707,7 +707,10 @@ export default function mount(shell) {
     });
     // Aviso heredado de computadores (mantenimiento pesado sobre 150 variantes).
     const n = comboCount(eq);
-    if (n > WARN_COMBOS && n <= MAX_COMBOS) warns.push('El producto genera ' + n + ' variantes (aviso sobre ' + WARN_COMBOS + '): la sincronización con la tienda se vuelve pesada. Considera reducir alternativas por paso o dividir el producto.');
+    if (n > WARN_COMBOS && n <= MAX_COMBOS) {
+      warns.push('El producto publica ' + n + ' variantes (aviso sobre ' + WARN_COMBOS + '): la sincronización con la tienda se vuelve pesada y la ficha carga más lento. '
+        + 'Considera reducir alternativas por paso, dividir el producto o usar pasos dependientes — las combinaciones imposibles ya no se publican.');
+    }
     return warns.concat(checkSet(chosenSet));
   }
 
@@ -1490,9 +1493,73 @@ export default function mount(shell) {
   // ── Aplicar a la tienda: options + variants escritos en la app products ───
   const WARN_COMBOS = 150;   // sobre esto, avisar (mantenimiento pesado en JS)
   const MAX_COMBOS = 400;    // sobre esto, no aplicar (riesgo de límites/timeout)
+  /**
+   * COMBINACIONES ALCANZABLES — el corazón del asunto.
+   *
+   * El producto cartesiano de todos los pasos genera montañas de variantes que
+   * NADIE puede comprar: si "Procesador AMD" solo se ve cuando la plataforma es
+   * AMD, todas las combinaciones «Intel × cada procesador AMD» no existen para
+   * ningún cliente… pero Jumpseller las crea, las guarda y las recorre en cada
+   * carga de la ficha. Con dos plataformas y dos familias de procesador eso es
+   * 2×4×4 = 32 variantes de las que solo 6 son reales; con un catálogo de
+   * verdad, miles — y ahí es donde la tienda se arrastra.
+   *
+   * Se recorren los pasos EN ORDEN llevando la selección parcial (las
+   * dependencias solo apuntan hacia atrás, así que al llegar a un paso ya se
+   * sabe si se ve):
+   *   · paso VISIBLE → una rama por cada valor elegible (los de relleno no son
+   *     elegibles: solo existen para el caso contrario);
+   *   · paso OCULTO  → UNA sola rama, con su valor de relleno (o su default).
+   *
+   * `tope` corta la exploración: sirve para contar sin quedarse colgado en un
+   * producto desmedido, y quien llama sabe que el número viene truncado.
+   */
+  function enumerarCombos(eq, tope) {
+    const limite = Math.max(1, tope || (MAX_COMBOS * 4));
+    const pasos = (eq.groups || [])
+      .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
+      .filter((x) => x.vals.length > 0);
+    if (!pasos.length) return { combos: [], truncado: false };
+    const out = [];
+    let truncado = false;
+    const baja = (i, sel, opts, extra) => {
+      if (truncado) return;
+      if (i >= pasos.length) {
+        if (out.length >= limite) { truncado = true; return; }
+        out.push({ opts, extra, sel });
+        return;
+      }
+      const paso = pasos[i];
+      const visible = groupVisibleFor(eq, paso.g, sel);
+      let ramas;
+      if (visible) {
+        // Los rellenos NO se ofrecen; si por lo que fuera todos lo son, se
+        // usan igualmente antes que dejar el paso sin ninguna rama.
+        ramas = paso.vals.filter((v) => v.fallback !== true);
+        if (!ramas.length) ramas = paso.vals;
+      } else {
+        const relleno = paso.vals.find((v) => v.fallback === true)
+          || (groupDefaultValue(paso.g) && paso.vals.find((v) => v.id === groupDefaultValue(paso.g).id))
+          || paso.vals[0];
+        ramas = [relleno];
+      }
+      ramas.forEach((v) => {
+        if (truncado) return;
+        const sel2 = Object.assign({}, sel); sel2[paso.g.id] = v.id;
+        const opts2 = Object.assign({}, opts); opts2[paso.label] = v.label;
+        baja(i + 1, sel2, opts2, extra + valueExtra(eq, paso.g, v));
+      });
+    };
+    baja(0, {}, {}, 0);
+    return { combos: out, truncado };
+  }
   function comboCount(eq) {
-    const groups = (eq.groups || []).map((g) => groupValues(g).filter(valueAvailable).length).filter((n) => n > 0);
-    return groups.length ? groups.reduce((a, b) => a * b, 1) : 0;
+    return enumerarCombos(eq).combos.length;
+  }
+  // Cuántas variantes ahorra no publicar lo imposible (para decirlo en la app).
+  function comboCartesiano(eq) {
+    const ns = (eq.groups || []).map((g) => groupValues(g).filter(valueAvailable).length).filter((n) => n > 0);
+    return ns.length ? ns.reduce((a, b) => a * b, 1) : 0;
   }
   async function fetchProductItem(ref) {
     // Estado actual del item de producto: preserva sourceOptionId/sourceValueId/
@@ -1538,18 +1605,10 @@ export default function mount(shell) {
     const sig = (opts) => JSON.stringify(Object.keys(opts || {}).sort().map((k) => [norm(k), norm(opts[k])]));
     const exBySig = new Map();
     (((existing || {}).variants) || []).forEach((v) => { if (v && v.options) exBySig.set(sig(v.options), v); });
-    // Producto cartesiano de valores; el costo de cada valor es SIEMPRE el de
-    // su alternativa más económica disponible en este momento.
-    let combos = [{ opts: {}, gross: baseGross }];
-    groups.forEach((x) => {
-      const next = [];
-      combos.forEach((c) => x.vals.forEach((v) => {
-        const opts = Object.assign({}, c.opts);
-        opts[x.label] = v.label;
-        next.push({ opts, gross: c.gross + valueExtra(eq, x.g, v) });
-      }));
-      combos = next;
-    });
+    // Solo las combinaciones que un cliente puede llegar a elegir (ver
+    // enumerarCombos): las imposibles no se publican. El costo de cada valor es
+    // SIEMPRE el de su alternativa más económica disponible en este momento.
+    const combos = enumerarCombos(eq).combos.map((c) => ({ opts: c.opts, gross: baseGross + c.extra }));
     return combos.map((c) => {
       const ex = exBySig.get(sig(c.opts));
       // El precio fijo no se redondea: vale exactamente lo que se definió.
@@ -1567,7 +1626,10 @@ export default function mount(shell) {
     const hasSteps = (eq.groups || []).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
-    if (n > MAX_COMBOS) return { success: false, error: 'Demasiadas combinaciones (' + n + ' variantes; máximo ' + MAX_COMBOS + '). Reduce alternativas por paso o divide el producto.' };
+    if (n > MAX_COMBOS) {
+      return { success: false, error: 'Demasiadas combinaciones ALCANZABLES (' + n + ' variantes; máximo ' + MAX_COMBOS + '). '
+        + 'Reduce alternativas por paso, divide el producto o encadena pasos con dependencias: lo que no se puede elegir ya no se publica.' };
+    }
     const existing = await fetchProductItem(ref);
     // Sin el estado actual del item NO se aplica: se regenerarían opciones y
     // variantes sin sourceIds y el push las recrearía en Jumpseller (ids
@@ -2476,7 +2538,11 @@ export default function mount(shell) {
           priceMode: priceModeOf(eq), fixedPrice: num(eq.fixedPrice, 0),
           storePrice: (function () { const it = productItemFor(eq); return it && it.price != null ? num(it.price) : null; })(),
           storeCost: (function () { const it = productItemFor(eq); return it && it.costPerItem != null ? num(it.costPerItem) : null; })(),
-          linked: !!storeRefOf(eq), variantCombos: comboCount(eq), deliveryDays: productoDelivery(eq),
+          linked: !!storeRefOf(eq),
+          // Variantes que de verdad se publican y las que se ahorran por no
+          // generar lo imposible (ver enumerarCombos).
+          variantCombos: comboCount(eq), variantCombosSinDependencias: comboCartesiano(eq),
+          deliveryDays: productoDelivery(eq),
           deliveryMode: deliveryModeOf(eq),
           storeUrl: productoStoreUrl(eq) || null,
           productImages: productImagesFor(eq),
@@ -5141,7 +5207,9 @@ export default function mount(shell) {
           h('span', { key: 'l', className: 'gp-label' }, 'Precio configuración base'),
           h('div', { key: 'p', className: 'gp-price gp-price-big' }, fmtMoney(price)),
           h('div', { key: 'm', className: 'gp-muted', style: { fontSize: 11 } },
-            combos + ' variante(s) · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
+            combos + ' variante(s)'
+            + (comboCartesiano(d) > combos ? ' (de ' + comboCartesiano(d) + ' sin dependencias: ' + (comboCartesiano(d) - combos) + ' imposibles que NO se publican)' : '')
+            + ' · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
             (initial && num(initial.price) !== price ? ' · guardado: ' + fmtMoney(initial.price) + ' →' : '') +
             (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s) arriba' : '')),
         ]),

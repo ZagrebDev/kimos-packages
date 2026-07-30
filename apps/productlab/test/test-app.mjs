@@ -1007,6 +1007,40 @@ expectEq('el relleno viaja marcado en el JSON', relleno.length, 1);
 expectEq('y es el valor por defecto del paso', relleno[0].isDefault, true);
 console.log('ProductLab: aviso del paso dependiente explicado y resuelto OK');
 
+// ── Solo se publican las combinaciones ALCANZABLES ────────────────────────
+// El caso real: dos plataformas y una familia de procesador por cada una. El
+// cartesiano crea combinaciones que nadie puede comprar (Intel × procesador
+// AMD) y son las que hunden a Jumpseller.
+await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
+  { label: 'Plataforma', type: 'tela', values: [
+    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
+    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
+  ] },
+  { label: 'CPU AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] }, default: 'No aplica', values: [
+    { label: 'No aplica', components: [], fallback: true },
+    { label: 'Ryzen 5', components: [], priceDelta: 120000 },
+    { label: 'Ryzen 7', components: [], priceDelta: 200000 },
+  ] },
+  { label: 'CPU Intel', type: 'acabado', dependsOn: { step: 'Plataforma', values: ['Intel'] }, default: 'No aplica', values: [
+    { label: 'No aplica', components: [], fallback: true },
+    { label: 'Core i5', components: [], priceDelta: 90000 },
+    { label: 'Core i7', components: [], priceDelta: 150000 },
+  ] },
+] });
+const snapCombo = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');
+// Cartesiano: 2 × 3 × 3 = 18. Alcanzables: AMD × 2 CPU AMD + Intel × 2 CPU Intel = 4.
+expectEq('cartesiano (lo que se publicaba antes)', snapCombo.variantCombosSinDependencias, 18);
+expectEq('alcanzables (lo que se publica ahora)', snapCombo.variantCombos, 4);
+await act('PUBLISH_CONFIG', { enabled: true });
+// Y ninguna variante mezcla plataformas: no existe "Intel + Ryzen".
+await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos' });
+const variantes = productsStore.get('prod-1').variants;
+const imposibles = variantes.filter((v) => (v.options['Plataforma'] === 'Intel' && /Ryzen/.test(v.options['CPU AMD'] || ''))
+  || (v.options['Plataforma'] === 'AMD' && /Core/.test(v.options['CPU Intel'] || '')));
+expectEq('sin variantes imposibles', imposibles.length, 0);
+expectEq('el paso oculto lleva su relleno', variantes.filter((v) => v.options['CPU AMD'] === 'No aplica').length, 2);
+console.log('ProductLab: solo se publican combinaciones alcanzables OK');
+
 // ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────
 // LIST_SOURCES ve la instancia ajena (y no la propia).
 const src = await act('LIST_SOURCES', {});
