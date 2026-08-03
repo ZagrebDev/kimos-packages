@@ -24,7 +24,7 @@
  *   ┌─ Adaptadores + UI (dentro de mount(shell), con React del host) ────────┐
  *   │  puertos: persistencia (saveData/items), archivos (/api/v2/files),     │
  *   │  notificación, config, documentos · registro de tools para el AGENTE   │
- *   │  DE KIMOS (que es el orquestador externo) · 16 vistas de estudio.      │
+ *   │  DE KIMOS (que es el orquestador externo) · 19 vistas de estudio.      │
  *   └───────────────────────────────────────────────────────────────────────┘
  *
  * PROVEEDORES REEMPLAZABLES (requisito central): ningún agente conoce a un

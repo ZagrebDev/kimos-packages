@@ -425,9 +425,76 @@ r = await call('GET_PROMPTS', { kind: 'video', limit: 3, providerId: 'sora' });
 check('GET_PROMPTS reescribe a otro proveedor sin cambiar ajustes', r.success && r.data.length === 3, JSON.stringify(r).slice(0, 120));
 eq('los ajustes no cambiaron', (await state()).settings.providers.video, 'runway');
 
-// El componente raíz se renderiza sin lanzar.
-try { app.Component(); check('el componente raíz renderiza', true); }
-catch (e) { check('el componente raíz renderiza', false, e.message); }
+// ── Renderizado real de todas las vistas ─────────────────────────────────
+// `createElement` del mock NO invoca los componentes, así que renderizar la
+// raíz sin más no ejecutaría ni una vista. Hay que recorrer el árbol llamando
+// a cada componente función, y navegar pulsando los botones del menú de
+// verdad — si no, esta comprobación no comprueba nada.
+let renderErrors = [];
+function renderDeep(node, depth) {
+  if (node == null || typeof node !== 'object' || depth > 60) return [];
+  if (Array.isArray(node)) return node.flatMap((n) => renderDeep(n, depth + 1));
+  let out = [node];
+  if (typeof node.t === 'function') {
+    // Un componente que lanza se anota y se sigue: así el informe dice QUÉ
+    // vista rompió, en vez de tumbar el proceso en el primer fallo.
+    try {
+      const props = Object.assign({}, node.p, { children: node.c });
+      out = out.concat(renderDeep(node.t(props), depth + 1));
+    } catch (e) {
+      renderErrors.push((node.t.name || 'anónimo') + ': ' + ((e && e.message) || 'error'));
+    }
+  }
+  if (node.p && node.p.children) out = out.concat(renderDeep(node.p.children, depth + 1));
+  return out.concat(renderDeep(node.c, depth + 1));
+}
+const navButtons = () => renderDeep(app.Component(), 0)
+  .filter((n) => n && n.p && typeof n.p.onClick === 'function'
+    && typeof n.p.className === 'string' && n.p.className.indexOf('ks-navitem') >= 0);
+
+let tree = [];
+try { tree = renderDeep(app.Component(), 0); check('el componente raíz renderiza en profundidad', tree.length > 50, tree.length + ' nodos'); }
+catch (e) { check('el componente raíz renderiza en profundidad', false, e.message); }
+
+{
+  const nav = navButtons();
+  eq('el menú expone las 19 vistas', nav.length, 19);
+  const broken = [];
+  for (let i = 0; i < nav.length; i++) {
+    const btn = navButtons()[i];            // el árbol se reconstruye tras navegar
+    let label = 'vista ' + i;
+    const lbl = renderDeep(btn, 0).find((n) => n && n.p && n.p.className === 'ks-navitem-label');
+    if (lbl) label = String(lbl.c);
+    renderErrors = [];
+    try {
+      btn.p.onClick();
+      const painted = renderDeep(app.Component(), 0);
+      if (painted.length < 20) broken.push(label + ': árbol vacío (' + painted.length + ' nodos)');
+    } catch (e) { broken.push(label + ': ' + ((e && e.message) || 'error')); }
+    for (const err of renderErrors) broken.push(label + ' → ' + err);
+  }
+  check('ninguna de las 19 vistas rompe al renderizarse', broken.length === 0, broken.join(' · '));
+}
+
+// La Guía debe decir explícitamente lo que la app NO hace: es el punto que
+// más confunde y no se deduce de la interfaz.
+{
+  const guide = navButtons().find((b) => {
+    const l = renderDeep(b, 0).find((n) => n && n.p && n.p.className === 'ks-navitem-label');
+    return l && String(l.c) === 'Guía';
+  });
+  check('la Guía está en el menú', !!guide);
+  if (guide) {
+    guide.p.onClick();
+    const txt = renderDeep(app.Component(), 0)
+      .map((n) => (typeof n.c === 'string' ? n.c : Array.isArray(n.c) ? n.c.filter((x) => typeof x === 'string').join(' ') : ''))
+      .join(' ');
+    check('la Guía advierte que la app no llama a los modelos', /No llama a los modelos generativos/.test(txt));
+    check('la Guía advierte que no renderiza el vídeo', /No renderiza el vídeo/.test(txt));
+    check('la Guía advierte que las cifras son proyecciones', /No promete resultados/.test(txt));
+    check('la Guía explica el flujo por pasos', /Rellena el brief/.test(txt) && /Monta y exporta/.test(txt));
+  }
+}
 
 // Snapshot para el agente.
 sp = snap();

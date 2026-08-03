@@ -241,7 +241,10 @@ export default function mount(shell) {
       else if (data && data.brief) model = migrate(data);
       await loadItems();
       if (cancelled) return;
-      setUi({ ready: true });
+      // Campaña recién creada: se abre por la Guía. Quien ya tiene trabajo
+      // hecho entra directo al Panel, que es lo que espera.
+      const virgin = !s(model.brief.productName).trim() && !model.concept && !arr(model.brief.photos).length;
+      setUi({ ready: true, view: virgin ? 'guide' : 'dashboard' });
       commit(null, { noSave: true });
     } catch (e) {
       if (!cancelled) { setUi({ ready: true, error: (e && e.message) || 'error de carga' }); }

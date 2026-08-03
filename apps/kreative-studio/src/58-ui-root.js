@@ -4,6 +4,7 @@
   // ═════════════════════════════════════════════════════════════════════════
 
   const VIEW_COMPONENTS = {
+    guide: GuideView,
     dashboard: DashboardView, brief: BriefView, research: ResearchView, concept: ConceptView,
     plan: PlanView, storyboard: StoryboardView, timeline: TimelineView, prompts: PromptsView,
     audio: AudioView, jobs: JobsView, editor: EditorView, copy: CopyView, brand: BrandView,

@@ -486,6 +486,76 @@
 .kimos-kreative .ks-version-date { font-size: 11px; color: var(--ks-txt3); font-variant-numeric: tabular-nums; }
 .kimos-kreative .ks-version-actions { display: flex; gap: 6px; }
 
+/* ── Guía ──────────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-guide-truth { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 13px; }
+.kimos-kreative .ks-guide-does, .kimos-kreative .ks-guide-doesnt {
+  padding: 15px 17px; border-radius: 12px; border: 1px solid var(--ks-line);
+  background: var(--ks-panel); display: flex; flex-direction: column; gap: 9px;
+}
+.kimos-kreative .ks-guide-does { border-left: 3px solid var(--ks-ok); }
+.kimos-kreative .ks-guide-doesnt { border-left: 3px solid var(--ks-warn); }
+.kimos-kreative .ks-guide-does h3, .kimos-kreative .ks-guide-doesnt h3 {
+  margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+}
+.kimos-kreative .ks-guide-does h3 { color: var(--ks-ok); }
+.kimos-kreative .ks-guide-doesnt h3 { color: var(--ks-warn); }
+.kimos-kreative .ks-guide-doesnt strong { color: var(--ks-txt); }
+
+.kimos-kreative .ks-guide-steps { display: flex; flex-direction: column; gap: 13px; }
+.kimos-kreative .ks-guide-step { display: flex; gap: 13px; align-items: flex-start; }
+.kimos-kreative .ks-guide-num {
+  width: 27px; height: 27px; border-radius: 9px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--ks-accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ks-accent) 45%, transparent); color: var(--ks-accent);
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;
+}
+.kimos-kreative .ks-guide-stepbody { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; min-width: 0; }
+.kimos-kreative .ks-guide-stepbody strong { font-size: 13.5px; }
+.kimos-kreative .ks-guide-stepbody p { margin: 0; color: var(--ks-txt2); max-width: 84ch; }
+.kimos-kreative .ks-guide-tip { color: var(--ks-txt3) !important; font-size: 12px; font-style: italic; }
+
+.kimos-kreative .ks-guide-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-guide-card {
+  padding: 12px; border-radius: 10px; border: 1px solid var(--ks-line); background: var(--ks-panel2);
+  display: flex; flex-direction: column; gap: 5px; cursor: pointer;
+}
+.kimos-kreative .ks-guide-card:hover { border-color: var(--ks-accent); }
+.kimos-kreative .ks-guide-icon { font-size: 15px; color: var(--ks-accent); }
+.kimos-kreative .ks-guide-card p { margin: 0; font-size: 12px; color: var(--ks-txt3); line-height: 1.45; }
+
+.kimos-kreative .ks-guide-cycle { display: flex; flex-wrap: wrap; gap: 10px; }
+.kimos-kreative .ks-guide-cyclestep {
+  position: relative; flex: 1 1 176px; padding: 11px 13px; border-radius: 10px;
+  background: var(--ks-panel2); border: 1px solid var(--ks-line);
+}
+.kimos-kreative .ks-guide-cyclestep p { margin: 3px 0 0; font-size: 12px; color: var(--ks-txt3); }
+.kimos-kreative .ks-guide-arrow {
+  position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+  color: var(--ks-accent); font-size: 15px; z-index: 1;
+}
+
+.kimos-kreative .ks-guide-pitfalls { display: grid; grid-template-columns: repeat(auto-fill, minmax(288px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-guide-pitfall {
+  padding: 11px 13px; border-radius: 9px; background: var(--ks-panel2);
+  border-left: 3px solid var(--ks-bad); border-top: 1px solid var(--ks-line);
+  border-right: 1px solid var(--ks-line); border-bottom: 1px solid var(--ks-line);
+}
+.kimos-kreative .ks-guide-pitfall strong { font-size: 12.5px; }
+.kimos-kreative .ks-guide-pitfall p { margin: 3px 0 0; font-size: 12px; color: var(--ks-txt3); line-height: 1.45; }
+
+.kimos-kreative .ks-guide-says { display: flex; flex-direction: column; gap: 7px; }
+.kimos-kreative .ks-guide-say { display: flex; gap: 11px; align-items: baseline; flex-wrap: wrap; }
+.kimos-kreative .ks-guide-say code {
+  font-family: inherit; font-size: 12.5px; color: var(--ks-txt); background: var(--ks-panel2);
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--ks-line2); white-space: nowrap;
+}
+.kimos-kreative .ks-guide-say span { font-size: 12px; color: var(--ks-txt3); }
+
+.kimos-kreative .ks-guide-provs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-guide-prov { display: flex; flex-direction: column; gap: 3px; }
+.kimos-kreative .ks-guide-prov strong { font-size: 12.5px; }
+.kimos-kreative .ks-guide-prov span { font-size: 11.5px; color: var(--ks-txt3); line-height: 1.45; }
+
 /* ── Adaptación a ventanas estrechas ───────────────────────────────────── */
 @media (max-width: 980px) {
   .kimos-kreative .ks-sbgrid { grid-template-columns: 1fr; }
@@ -498,4 +568,5 @@
   .kimos-kreative .ks-view { padding: 14px; }
   .kimos-kreative .ks-barrow { grid-template-columns: 1fr; gap: 3px; }
   .kimos-kreative .ks-barrow-value { text-align: left; }
+  .kimos-kreative .ks-guide-arrow { display: none; }
 }

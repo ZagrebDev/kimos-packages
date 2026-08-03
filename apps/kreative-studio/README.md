@@ -20,6 +20,10 @@ Producto ──► Kreative Studio ──► Campaña completa
 
 ## Empezar
 
+Una campaña nueva se abre por la vista **Guía**, que explica dentro de la propia
+app qué hace, **qué no hace**, el flujo en cinco pasos y los errores que salen
+caros. Está siempre disponible en el menú.
+
 1. **Tienda → Kreative Studio → Instalar.** La app es `multiInstance`: cada
    documento es una campaña.
 2. **Brief** → nombre del producto + fotos (frontal, tres cuartos, detalle).
@@ -97,7 +101,7 @@ el real. Lista completa en [`docs/AGENTES.md`](docs/AGENTES.md).
 
 ```bash
 node apps/kreative-studio/build.mjs           # src/*.js → dist/index.js
-node apps/kreative-studio/test/test-app.mjs   # 170 comprobaciones
+node apps/kreative-studio/test/test-app.mjs   # 177 comprobaciones
 node tools/pack.mjs apps/kreative-studio      # → kreative-studio-1.0.0.kapp
 ```
 

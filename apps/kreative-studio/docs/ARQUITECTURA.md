@@ -55,7 +55,7 @@ documentos, versiones y agente sin escribir una línea de infraestructura.
 │  40-mount       estado por ventana, puertos (persistencia, archivos,   │
 │                 notificación, config, documentos), carga y guardado    │
 │  42-agent       tools del agente de KIMOS y su despachador             │
-│  50-58          16 vistas de estudio                                    │
+│  50-58          19 vistas de estudio (la primera es la Guía)            │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
