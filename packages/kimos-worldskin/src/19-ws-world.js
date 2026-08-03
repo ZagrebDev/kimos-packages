@@ -303,6 +303,13 @@ function wsSeedWorld(plan, opts) {
     const r = wsAddStaff(world, { name: p.name, kind: 'human', role: p.role, areaId: target.id });
     if (r.ok) world = r.world;
   });
+
+  // El mapa se ajusta a lo que hay, con dos celdas de margen para crecer. Un
+  // mapa por defecto mucho más alto que la organización se lee como si
+  // faltaran departamentos.
+  const used = wsArr(world.areas).reduce((m, a) => Math.max(m, a.y + a.h), 0);
+  const fit = wsResizeGrid(world, wsObj(world.grid).w, used + 2);
+  if (fit.ok) world = fit.world;
   return world;
 }
 
