@@ -39,7 +39,10 @@ documentos, versiones y agente sin escribir una línea de infraestructura.
 │  14-knowledge   11 categorías de mercado, 8 públicos, parser de         │
 │                 intención en lenguaje natural                           │
 │  16-providers   REGISTRO DE PROVEEDORES (Strategy + Registry)           │
+│  17-ws-core ▲   formas, modos, departamentos y estructuras              │
+│  19-ws-world ▲  mundo de la organización + mutaciones puras             │
 │  20-model       agregado raíz Campaign + migración tolerante            │
+│  21-ws-sim ▲    simulación de avatares (pura, un paso por llamada)      │
 │  22-creative    Research · Creative Director · Campaign Planner         │
 │  24-storyboard  Storyboard Generator                                    │
 │  26-prompts     Prompt Engineer · Voice Director                        │
@@ -55,16 +58,22 @@ documentos, versiones y agente sin escribir una línea de infraestructura.
 │  40-mount       estado por ventana, puertos (persistencia, archivos,   │
 │                 notificación, config, documentos), carga y guardado    │
 │  42-agent       tools del agente de KIMOS y su despachador             │
-│  18-themes      formas y modos de la interfaz (solo tokens)             │
-│  50-58          20 vistas; 55 es el Flujo, con 4 presentaciones         │
+│  50-58          21 vistas; 55 es el Flujo (4 presentaciones) y 56 la    │
+│                 Organización                                            │
+│  53-ws-ui ▲     superficie animada del mundo (3 proyecciones)          │
 └────────────────────────────────────────────────────────────────────────┘
+
+▲ = fragmentos del paquete `packages/kimos-worldskin`, intercalados por el
+build. No es una librería en tiempo de ejecución: se compilan aquí dentro.
+Ver `packages/kimos-worldskin/docs/CONTRATO.md`.
 ```
 
 El **tema** es solo tokens: dos clases y un puñado de variables CSS en la
 raíz. Ningún componente sabe en qué modo está, así que añadir una piel nueva
-no toca ninguna vista. La única excepción deliberada es el Flujo, que tiene un
-renderizador por ambientación sobre el mismo modelo (`workflowPlan`) y las
-mismas acciones.
+no toca ninguna vista. Las dos excepciones deliberadas son el Flujo, que tiene
+un renderizador por ambientación sobre el mismo modelo (`workflowPlan`) y las
+mismas acciones, y la Organización, que proyecta el mismo mundo de tres formas
+(villa cenital, hotel isométrico y territorio) sin mover una celda.
 
 **Regla de dependencia**: hacia dentro. El dominio no sabe que existen React,
 `shell` ni la red. Por eso los tests pueden ejercitar el sistema entero sin

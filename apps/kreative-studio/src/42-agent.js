@@ -77,6 +77,27 @@
         classicMode: { type: 'string', description: 'day | sunset | night | live' },
         gameMode: { type: 'string', description: 'kimoslab | jabotel | spacecraft' },
       } } },
+    { name: 'SET_ORG',
+      description: 'Edita el mapa de la organización que se recorre en la vista Organización: áreas (departamentos), '
+        + 'puestos (procesos internos de cada departamento) y personal (personas y agentes de IA). '
+        + 'Es el mismo mapa en las cuatro ambientaciones: cambiar el aspecto no lo modifica. '
+        + 'Los agentes del flujo ya están dentro como personal de IA; para apagarlos usa SET_WORKFLOW, no borres su avatar.',
+      inputSchema: { type: 'object', properties: {
+        op: { type: 'string', description: 'add_area | update_area | remove_area | add_station | update_station '
+          + '| remove_station | add_staff | update_staff | remove_staff | resize | reseed' },
+        areaId: { type: 'string', description: 'Id o nombre del área.' },
+        stationId: { type: 'string', description: 'Id o nombre del puesto.' },
+        staffId: { type: 'string', description: 'Id o nombre de la persona/agente.' },
+        name: { type: 'string' },
+        departmentId: { type: 'string', description: 'Uno de: ' + WS_DEPARTMENTS.map((d) => d.id).join(', ') },
+        structure: { type: 'string', description: 'Uno de: ' + WS_STRUCTURES.map((x) => x.id).join(', ') },
+        process: { type: 'string', description: 'Qué se hace en ese puesto.' },
+        role: { type: 'string', description: 'Rol de la persona.' },
+        kind: { type: 'string', description: 'human | ai' },
+        note: { type: 'string' },
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' },
+        gridW: { type: 'number' }, gridH: { type: 'number' },
+      }, required: ['op'] } },
     { name: 'RUN_AGENT',
       description: 'Ejecuta un agente concreto y sus dependencias. IDs: ' + AGENTS.map((a) => a.id).join(', ') + '.',
       inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
@@ -491,6 +512,45 @@
           + ' Es solo presentación: los datos y los resultados no cambian.' };
       }
 
+      // ── Mapa de la organización ─────────────────────────────────────────
+      if (type === 'SET_ORG') {
+        const op = norm(p.op).replace(/[^a-z_]/g, '');
+        // Cada operación es una mutación pura del paquete: devuelve un mundo
+        // nuevo o un motivo, nunca lanza y nunca deja el documento a medias.
+        const OPS = {
+          add_area: (w) => wsAddArea(w, { departmentId: p.departmentId, name: p.name, structure: p.structure,
+            x: p.x, y: p.y, w: p.w, h: p.h, note: p.note }),
+          update_area: (w) => wsUpdateArea(w, p.areaId, p),
+          remove_area: (w) => wsRemoveArea(w, p.areaId),
+          add_station: (w) => wsAddStation(w, p.areaId, { name: p.name, process: p.process }),
+          update_station: (w) => wsUpdateStation(w, p.areaId, p.stationId, { name: p.name, process: p.process }),
+          remove_station: (w) => wsRemoveStation(w, p.areaId, p.stationId),
+          add_staff: (w) => wsAddStaff(w, { name: p.name, role: p.role, kind: p.kind, areaId: p.areaId, stationId: p.stationId }),
+          update_staff: (w) => wsUpdateStaff(w, p.staffId, p),
+          remove_staff: (w) => wsRemoveStaff(w, p.staffId),
+          resize: (w) => wsResizeGrid(w, numOr(p.gridW, obj(w.grid).w), numOr(p.gridH, obj(w.grid).h)),
+        };
+        if (op === 'reseed') {
+          patch((m) => { m.world = seedOrgWorld(m); logLine(m, 'info', 'Organización · mapa sembrado de nuevo.'); });
+          return { success: true, message: 'Mapa sembrado de nuevo desde el flujo de agentes.',
+            data: wsWorldSummary(model.world) };
+        }
+        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['reseed']).join(', ') + '.' };
+        // Un agente del flujo no se da de baja borrando su avatar: eso dejaría
+        // el mapa mintiendo sobre quién trabaja aquí.
+        if (op === 'remove_staff') {
+          const who = arr(model.world.staff).find((x) => x.id === s(p.staffId) || norm(x.name) === norm(p.staffId));
+          if (who && who.agentId) {
+            return { success: false, error: '«' + who.name + '» es un agente del flujo. Desactívalo con '
+              + 'SET_WORKFLOW { disable: ["' + who.agentId + '"] } en vez de borrarlo del mapa.' };
+          }
+        }
+        const r = OPS[op](model.world);
+        if (!r || !r.ok) return { success: false, error: s(r && r.error) || 'No se pudo cambiar el mapa.' };
+        patch((m) => { m.world = r.world; logLine(m, 'info', 'Organización · ' + s(r.message)); });
+        return { success: true, message: s(r.message), data: wsWorldSummary(model.world) };
+      }
+
       // ── Ejecución de agentes ────────────────────────────────────────────
       if (type === 'RUN_AGENT') {
         const ag = agentById(p.agentId);
@@ -886,6 +946,16 @@
           flujo: workflowPlan(model).map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name,
             estado: x.status, desactivado: x.disabled, bloqueado: x.blocked })),
           aspecto: { forma: currentTheme().formId, modo: currentTheme().modeId, etiqueta: currentTheme().label },
+          organizacion: {
+            resumen: wsWorldSummary(model.world),
+            areas: arr(model.world.areas).map((a) => ({ id: a.id, nombre: a.name,
+              departamento: wsDepartmentById(a.departmentId).label, estructura: a.structure,
+              procesos: arr(a.stations).map((x) => x.name),
+              ocupantes: arr(model.world.staff).filter((x) => x.areaId === a.id).map((x) => x.name) })),
+            personal: arr(model.world.staff).map((x) => ({ id: x.id, nombre: x.name, tipo: x.kind,
+              rol: x.role, area: (arr(model.world.areas).find((a) => a.id === x.areaId) || {}).name || null,
+              agente: x.agentId || null })),
+          },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),
         dispatchAction: dispatch,

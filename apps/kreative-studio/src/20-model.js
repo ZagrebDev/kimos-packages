@@ -65,6 +65,10 @@ function emptyCampaign() {
     brandCheck: null,    // Agente 9
     copy: null,          // Agente 10
     analytics: null,     // Agente 12
+    // Mapa de la organización (KIMOS WorldSkin): departamentos, procesos
+    // internos y personal —agentes de IA y personas— que se recorre en la
+    // vista Organización. Se siembra en `migrate` desde el propio flujo.
+    world: wsEmptyWorld(),
     pipeline: { runs: [], stages: {} },
     versions: [],        // [{ id, label, at, summary, snapshot }]
     log: [],             // trazas de ejecución (máx LOG_MAX)
@@ -125,6 +129,11 @@ function migrate(raw) {
   out.objectiveId = objectiveById(out.objectiveId).id;
   out.audienceId = audienceById(out.audienceId).id;
   out.categoryId = categoryById(out.categoryId).id;
+  // El mundo se normaliza siempre (tolera documentos viejos o manipulados) y
+  // se siembra una sola vez: si el usuario vacía el mapa a propósito, se queda
+  // vacío en vez de resucitar solo en la siguiente carga.
+  out.world = wsMigrateWorld(d.world);
+  if (!s(out.world.seededFrom) && !arr(out.world.areas).length) out.world = seedOrgWorld(out);
   out.pipeline = Object.assign({ runs: [], stages: {} }, obj(d.pipeline));
   out.pipeline.stages = obj(out.pipeline.stages);
   out.pipeline.runs = arr(out.pipeline.runs).slice(-20);

@@ -24,8 +24,16 @@
  *   ┌─ Adaptadores + UI (dentro de mount(shell), con React del host) ────────┐
  *   │  puertos: persistencia (saveData/items), archivos (/api/v2/files),     │
  *   │  notificación, config, documentos · registro de tools para el AGENTE   │
- *   │  DE KIMOS (que es el orquestador externo) · 19 vistas de estudio.      │
+ *   │  DE KIMOS (que es el orquestador externo) · 21 vistas de estudio.      │
  *   └───────────────────────────────────────────────────────────────────────┘
+ *
+ * ASPECTO Y ORGANIZACIÓN: el paquete vendorizado `packages/kimos-worldskin`
+ * aporta las dos formas de ver el trabajo (clásica con modos de luz, y juego
+ * con tres ambientaciones) y el MAPA DE LA ORGANIZACIÓN —departamentos,
+ * procesos internos y personal, agentes de IA y personas— que se recorre en la
+ * vista Organización. No es una librería en tiempo de ejecución: sus
+ * fragmentos (`17`, `19`, `21`, `53`) se intercalan en este bundle durante el
+ * build. Ver `packages/kimos-worldskin/docs/CONTRATO.md`.
  *
  * PROVEEDORES REEMPLAZABLES (requisito central): ningún agente conoce a un
  * proveedor concreto. Los agentes producen un `PromptSpec` NEUTRAL (sujeto,
@@ -42,6 +50,8 @@
  * usuario) los ejecuta y registra el asset resultante con REGISTER_ASSET.
  *
  * Contrato: export default function mount(shell) -> { Component, unmount }.
- * Bundle generado por `node apps/kreative-studio/build.mjs` (concatena
- * src/*.js en orden). NO editar dist/index.js a mano.
+ * Bundle generado por `node apps/kreative-studio/build.mjs`, que concatena
+ * `src/*.js` con los fragmentos de `packages/kimos-worldskin/src/*.js`
+ * ordenados por su prefijo numérico, y compone `dist/index.css` a partir de
+ * `style/app.css`. NO editar nada de dist/ a mano.
  */

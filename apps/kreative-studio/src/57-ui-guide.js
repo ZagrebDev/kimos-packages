@@ -181,5 +181,23 @@
           h('span', { key: 'l' }, providersFor(cap.id).map((p) => p.label).join(' · ')),
         ]))),
       ]),
+
+      // ── Aspecto y organización ───────────────────────────────────────
+      h(Card, { key: 'skin', title: 'Dos formas de ver el mismo trabajo',
+        actions: [
+          h(Btn, { key: 'f', size: 'sm', onClick: go('flow') }, 'Ver el flujo'),
+          h(Btn, { key: 'w', size: 'sm', onClick: go('world') }, 'Ver la organización'),
+        ] }, [
+        h('p', { className: 'ks-lead', key: 'p' },
+          'La forma clásica es un estudio profesional con modos de luz —día, atardecer, noche y «vivo», '
+          + 'que sigue la hora del equipo—. La forma juego enseña lo mismo como un sitio por el que pasear: '
+          + 'una villa en píxeles (KimosLab), un hotel isométrico (JABOTEL) o un territorio de estructuras (Spacecraft).'),
+        h('ul', { className: 'ks-list', key: 'l' }, [
+          'En el Flujo se ve la cadena de agentes: qué depende de qué, qué se ha ejecutado y qué está bloqueado. Se puede reordenar, apagar agentes y ejecutarlos sueltos.',
+          'En la Organización se ve la empresa: departamentos, sus procesos internos y quién los atiende. Cada agente de IA tiene su avatar y se mueve según su estado real; junto a ellos está el personal humano que añadas.',
+          'Se pueden añadir, editar y borrar áreas, procesos y personas en cualquiera de las ambientaciones. El mapa es el mismo en las cuatro: cambiar de piel no mueve una sola celda ni toca la campaña.',
+          'El movimiento se pausa cuando la ventana no está a la vista y no arranca si tu sistema pide menos animación.',
+        ].map((x, i) => h('li', { key: i }, x))),
+      ]),
     ]);
   }

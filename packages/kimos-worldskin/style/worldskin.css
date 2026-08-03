@@ -1,0 +1,112 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   KIMOS WorldSkin · decorado del mundo
+   ---------------------------------------------------------------------------
+   `%ROOT%` es un marcador: el build de la app anfitriona lo sustituye por su
+   clase raíz (`.kimos-kreative`, `.kimos-productlab`, …). Así todo queda
+   enclaustrado y este fichero no puede pisar nada del host ni de otra app.
+
+   Reglas de la casa:
+     · ni una fuente, ni una imagen, ni un recurso externo;
+     · solo variables que la app ya define (`--ks-*`), con respaldo;
+     · ningún selector global (`body`, `:root`, `*`).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Superficie ──────────────────────────────────────────────────────────── */
+/* El suelo del SVG se escala para caber y deja franjas a los lados; el fondo
+   del marco es el mismo color para que no se vea el corte. */
+%ROOT% .ws-stage {
+  border: 1px solid var(--ks-line); border-radius: 12px; overflow: hidden;
+  background: var(--ks-ground, var(--ks-media)); position: relative;
+}
+%ROOT% .ws-scroll { overflow: auto; max-height: 62vh; }
+%ROOT% .ws-surface { display: block; user-select: none; }
+%ROOT% .ws-ground { fill: var(--ks-ground, var(--ks-media)); }
+%ROOT% .ws-grid { stroke: var(--ks-grid, var(--ks-line)); stroke-width: 1; opacity: .5; }
+
+%ROOT% .ws-struct { cursor: pointer; }
+%ROOT% .ws-struct:hover polygon:first-child,
+%ROOT% .ws-struct:hover rect:first-child { fill-opacity: .42; }
+%ROOT% .ws-struct-sel rect:first-child,
+%ROOT% .ws-struct-sel polygon:first-child { fill-opacity: .45; }
+%ROOT% .ws-struct-label {
+  font-size: 11px; font-weight: 700; fill: var(--ks-txt);
+  paint-order: stroke; stroke: var(--ks-media); stroke-width: 3px; stroke-linejoin: round;
+}
+%ROOT% .ws-struct-sub {
+  font-size: 9px; fill: var(--ks-txt3);
+  paint-order: stroke; stroke: var(--ks-media); stroke-width: 2.5px; stroke-linejoin: round;
+}
+
+/* ── Avatares ────────────────────────────────────────────────────────────── */
+%ROOT% .ws-actor { cursor: pointer; }
+%ROOT% .ws-actor-off { opacity: .55; }
+%ROOT% .ws-actor-sel rect:nth-of-type(1) { stroke: var(--ks-ink, var(--ks-accent)); stroke-width: 1.4; }
+%ROOT% .ws-actor-sel ellipse { fill: var(--ks-ink, var(--ks-accent)); opacity: .5; }
+%ROOT% .ws-bubble { font-size: 7px; font-weight: 700; fill: #1A1A1A; }
+
+/* ── Leyenda y contadores ────────────────────────────────────────────────── */
+%ROOT% .ws-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 9px 12px; border-top: 1px solid var(--ks-line); }
+%ROOT% .ws-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ks-txt3); }
+%ROOT% .ws-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; font-style: normal; }
+
+/* ── Editor: áreas, puestos y personal ──────────────────────────────────── */
+%ROOT% .ws-cols { display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; align-items: start; }
+%ROOT% .ws-list { display: flex; flex-direction: column; gap: 6px; }
+%ROOT% .ws-row {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px;
+  border: 1px solid var(--ks-line); background: var(--ks-panel2); text-align: left;
+  font: inherit; color: var(--ks-txt); cursor: pointer; width: 100%;
+}
+%ROOT% .ws-row:hover { border-color: var(--ks-line2); }
+%ROOT% .ws-row-on { border-color: var(--ks-accent); box-shadow: inset 0 0 0 1px var(--ks-accent); }
+%ROOT% .ws-row-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+%ROOT% .ws-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+%ROOT% .ws-row-body strong { font-size: 12.5px; }
+%ROOT% .ws-row-body span { font-size: 11px; color: var(--ks-txt3); }
+%ROOT% .ws-row-tag {
+  font-size: 10.5px; color: var(--ks-txt3); border: 1px solid var(--ks-line2);
+  border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+}
+%ROOT% .ws-sub { padding-left: 18px; }
+%ROOT% .ws-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+%ROOT% .ws-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 9px; }
+%ROOT% .ws-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+%ROOT% .ws-tab {
+  font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--ks-line); background: var(--ks-panel2); color: var(--ks-txt2);
+}
+%ROOT% .ws-tab-on { background: var(--ks-accent); border-color: var(--ks-accent); color: #05171A; font-weight: 600; }
+%ROOT% .ws-mini { font-size: 11.5px; color: var(--ks-txt3); margin: 0; line-height: 1.5; }
+%ROOT% .ws-subhead {
+  margin: 14px 0 4px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ks-txt3); font-weight: 700;
+}
+
+/* ── Ambientaciones ─────────────────────────────────────────────────────── */
+/* Villa en píxeles: bordes duros y tipografía monoespaciada. */
+%ROOT%.ks-mode-kimoslab .ws-surface { image-rendering: pixelated; shape-rendering: crispEdges; }
+%ROOT%.ks-mode-kimoslab .ws-struct-label,
+%ROOT%.ks-mode-kimoslab .ws-struct-sub { font-family: var(--ks-gamefont, monospace); }
+%ROOT%.ks-mode-kimoslab .ws-stage { border-width: 3px; border-color: var(--ks-line); border-radius: 4px; }
+%ROOT%.ks-mode-kimoslab .ws-grid { opacity: .35; }
+
+/* Hotel isométrico: suelo brillante y rótulos redondeados. */
+%ROOT%.ks-mode-jabotel .ws-struct-label,
+%ROOT%.ks-mode-jabotel .ws-struct-sub { font-family: var(--ks-gamefont, Verdana, sans-serif); }
+%ROOT%.ks-mode-jabotel .ws-stage { border-radius: 14px; }
+%ROOT%.ks-mode-jabotel .ws-grid { opacity: .65; }
+%ROOT%.ks-mode-jabotel .ws-struct-sel polygon:first-child { fill-opacity: .5; }
+
+/* Territorio táctico: rejilla tenue, rótulos en versalitas. */
+%ROOT%.ks-mode-spacecraft .ws-struct-label,
+%ROOT%.ks-mode-spacecraft .ws-struct-sub {
+  font-family: var(--ks-gamefont, monospace); letter-spacing: .06em; text-transform: uppercase;
+}
+%ROOT%.ks-mode-spacecraft .ws-stage { border-radius: 2px; }
+%ROOT%.ks-mode-spacecraft .ws-grid { opacity: .3; }
+%ROOT%.ks-mode-spacecraft .ws-surface { shape-rendering: geometricPrecision; }
+
+@media (max-width: 980px) {
+  %ROOT% .ws-cols { grid-template-columns: 1fr; }
+  %ROOT% .ws-scroll { max-height: 46vh; }
+}

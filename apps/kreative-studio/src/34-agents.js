@@ -10,67 +10,67 @@
 
 const AGENTS = [
   {
-    id: 'creative-director', n: 1, name: 'Creative Director', emoji: '🎯',
+    id: 'creative-director', n: 1, name: 'Creative Director', emoji: '🎯', dept: 'direccion',
     description: 'Analiza el producto, extrae atributos, ventajas y emociones, y define storytelling, estilo visual, narrativa y concepto creativo.',
     needs: ['brief'], writes: 'concept', requires: [],
     run: (c) => buildConcept(c),
   },
   {
-    id: 'research', n: 2, name: 'Research Agent', emoji: '🔍',
+    id: 'research', n: 2, name: 'Research Agent', emoji: '🔍', dept: 'marketing',
     description: 'Investiga mercado, competencia, tendencias, público objetivo, nicho y el estilo visual dominante de la categoría.',
     needs: ['brief'], writes: 'research', requires: [],
     run: (c) => buildResearch(c),
   },
   {
-    id: 'planner', n: 3, name: 'Campaign Planner', emoji: '🗺️',
+    id: 'planner', n: 3, name: 'Campaign Planner', emoji: '🗺️', dept: 'operaciones',
     description: 'Define objetivo y funnel completo (notoriedad, consideración, conversión y remarketing) con canales, presupuesto, calendario y KPIs.',
     needs: ['research'], writes: 'plan', requires: ['research'],
     run: (c) => buildPlan(c),
   },
   {
-    id: 'storyboard', n: 4, name: 'Storyboard Generator', emoji: '🎞️',
+    id: 'storyboard', n: 4, name: 'Storyboard Generator', emoji: '🎞️', dept: 'produccion',
     description: 'Genera escenas con duración, cámara, ángulo, óptica, movimiento, iluminación, etalonaje, efectos y ritmo, por cada formato y variante.',
     needs: ['concept'], writes: 'storyboard', requires: ['concept'],
     run: (c) => buildStoryboard(c),
   },
   {
-    id: 'prompt-engineer', n: 5, name: 'Prompt Engineer', emoji: '✍️',
+    id: 'prompt-engineer', n: 5, name: 'Prompt Engineer', emoji: '✍️', dept: 'ti',
     description: 'Traduce cada escena a prompts optimizados para el proveedor configurado (OpenAI, Midjourney, FLUX, SD, ComfyUI, Runway, Kling, Veo, Sora, Higgsfield).',
     needs: ['storyboard'], writes: 'prompts', requires: ['storyboard'],
     run: (c) => buildPrompts(c),
   },
   {
-    id: 'voice-director', n: 6, name: 'Voice Director', emoji: '🎙️',
+    id: 'voice-director', n: 6, name: 'Voice Director', emoji: '🎙️', dept: 'produccion',
     description: 'Escribe la locución ajustada al metraje y genera los briefs de música, ambiente y efectos para ElevenLabs, OpenAI Audio, Suno o Udio.',
     needs: ['storyboard', 'concept'], writes: 'audio', requires: ['storyboard'],
     run: (c) => buildAudio(c),
   },
   {
-    id: 'video-producer', n: 7, name: 'Video Producer', emoji: '🎬',
+    id: 'video-producer', n: 7, name: 'Video Producer', emoji: '🎬', dept: 'produccion',
     description: 'Convierte prompts en trabajos de producción ejecutables: keyframes, tomas encadenadas cuando la escena excede el modelo, audio y coste estimado.',
     needs: ['prompts', 'audio'], writes: 'production', requires: ['prompts'],
     run: (c) => buildProduction(c),
   },
   {
-    id: 'video-editor', n: 8, name: 'Video Editor', emoji: '✂️',
+    id: 'video-editor', n: 8, name: 'Video Editor', emoji: '✂️', dept: 'produccion',
     description: 'Construye el timeline, los subtítulos SRT, la lista EDL y el script FFmpeg completo: cortes, color, transiciones, títulos, logo, CTA, mezcla y exportación.',
     needs: ['storyboard', 'audio'], writes: 'edit', requires: ['storyboard'],
     run: (c) => buildEdit(c),
   },
   {
-    id: 'copywriter', n: 10, name: 'Copywriter', emoji: '🖊️',
+    id: 'copywriter', n: 10, name: 'Copywriter', emoji: '🖊️', dept: 'marketing',
     description: 'Redacta anuncios para Meta, Instagram, TikTok, LinkedIn, YouTube y Google, más landing completa y secuencia de emails, respetando los límites de cada plataforma.',
     needs: ['concept', 'research'], writes: 'copy', requires: ['concept'],
     run: (c) => buildCopy(c),
   },
   {
-    id: 'brand-consistency', n: 9, name: 'Brand Consistency', emoji: '🛡️',
+    id: 'brand-consistency', n: 9, name: 'Brand Consistency', emoji: '🛡️', dept: 'legal',
     description: 'Audita paleta, tipografía, logotipo, producto, personajes, tono y legibilidad, y devuelve hallazgos accionables con su severidad.',
     needs: ['storyboard', 'copy'], writes: 'brandCheck', requires: ['storyboard'],
     run: (c) => buildBrandCheck(c),
   },
   {
-    id: 'analytics', n: 12, name: 'Analytics', emoji: '📊',
+    id: 'analytics', n: 12, name: 'Analytics', emoji: '📊', dept: 'finanzas',
     description: 'Contabiliza costes estimados y reales, tiempo, tokens y consumo por proveedor, y proyecta CTR, CPA y ROAS por canal.',
     needs: ['production', 'plan'], writes: 'analytics', requires: ['production'],
     run: (c, ctx) => buildAnalytics(c, arr(obj(ctx).ledger)),
@@ -243,11 +243,69 @@ function workflowPlan(campaign) {
     return {
       idx: i, id, n: a ? a.n : 0, name: a ? a.name : id, emoji: a ? a.emoji : '•',
       description: a ? a.description : '', writes: a ? a.writes : '',
+      // Departamento al que pertenece: es lo que coloca a su avatar en el mapa
+      // de la organización. Ver `wsSeedWorld`.
+      departmentId: a ? a.dept : 'produccion',
       deps, disabled: off, blocked,
       status: off ? 'off' : blocked ? 'blocked' : s(obj(stages[id]).status) || 'idle',
       ms: num(obj(stages[id]).ms, 0), error: s(obj(stages[id]).error),
       hasOutput: !!campaign[a ? a.writes : ''],
     };
+  });
+}
+
+// ── La organización detrás del flujo ──────────────────────────────────────
+// El mapa de la empresa no se inventa: los departamentos son los mismos que
+// declaran los agentes, y el personal humano es el equipo real que convive con
+// ellos. Todo esto es solo la SIEMBRA inicial; a partir de ahí el usuario (o el
+// agente de KIMOS) añade, edita y borra lo que quiera.
+
+const KS_ORG_AREAS = [
+  { departmentId: 'direccion', name: 'Dirección', structure: 'hq',
+    stations: [{ name: 'Dirección creativa', process: 'Aprueba concepto y guion' },
+      { name: 'Cuentas', process: 'Relación con el cliente' }] },
+  { departmentId: 'marketing', name: 'Marketing', structure: 'office',
+    stations: [{ name: 'Investigación', process: 'Mercado, competencia y tendencias' },
+      { name: 'Copy', process: 'Anuncios, landing y emails' }] },
+  { departmentId: 'produccion', name: 'Producción', structure: 'factory',
+    stations: [{ name: 'Storyboard', process: 'Escenas, cámara y ritmo' },
+      { name: 'Rodaje virtual', process: 'Keyframes y tomas' },
+      { name: 'Sala de montaje', process: 'Timeline, subtítulos y render' },
+      { name: 'Sonido', process: 'Locución, música y efectos' }] },
+  { departmentId: 'ti', name: 'Tecnología', structure: 'lab',
+    stations: [{ name: 'Prompts', process: 'Traducción a cada proveedor' },
+      { name: 'Proveedores', process: 'Altas, claves y coste por unidad' }] },
+  { departmentId: 'operaciones', name: 'Operaciones', structure: 'office',
+    stations: [{ name: 'Planificación', process: 'Funnel, calendario y presupuesto' }] },
+  { departmentId: 'finanzas', name: 'Finanzas', structure: 'office',
+    stations: [{ name: 'Coste de campaña', process: 'Estimado contra real' }] },
+  { departmentId: 'contabilidad', name: 'Contabilidad', structure: 'office',
+    stations: [{ name: 'Facturación', process: 'Proveedores y cliente' }] },
+  { departmentId: 'ventas', name: 'Ventas', structure: 'shop',
+    stations: [{ name: 'Propuestas', process: 'Presupuesto y cierre' }] },
+  { departmentId: 'rrhh', name: 'Recursos Humanos', structure: 'training',
+    stations: [{ name: 'Formación', process: 'Onboarding y buenas prácticas' }] },
+  { departmentId: 'legal', name: 'Legal y marca', structure: 'office',
+    stations: [{ name: 'Cumplimiento', process: 'Legales, claims y uso de marca' }] },
+];
+
+const KS_ORG_PEOPLE = [
+  { name: 'Dirección', role: 'Director creativo', departmentId: 'direccion' },
+  { name: 'Cuentas', role: 'Responsable de cliente', departmentId: 'direccion' },
+  { name: 'Marketing', role: 'Estratega', departmentId: 'marketing' },
+  { name: 'Realización', role: 'Productor', departmentId: 'produccion' },
+  { name: 'Montaje', role: 'Editor', departmentId: 'produccion' },
+  { name: 'Finanzas', role: 'Controller', departmentId: 'finanzas' },
+  { name: 'Contabilidad', role: 'Contable', departmentId: 'contabilidad' },
+  { name: 'Ventas', role: 'Comercial', departmentId: 'ventas' },
+  { name: 'Personas', role: 'Responsable de RRHH', departmentId: 'rrhh' },
+  { name: 'Legal', role: 'Asesor', departmentId: 'legal' },
+];
+
+/** Mundo inicial de una campaña, sembrado desde su propio flujo de agentes. */
+function seedOrgWorld(campaign) {
+  return wsSeedWorld(workflowPlan(campaign), {
+    appId: 'kreative-studio', groups: KS_ORG_AREAS, people: KS_ORG_PEOPLE,
   });
 }
 

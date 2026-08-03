@@ -83,6 +83,7 @@ pierde el progreso.
 | `REGISTER_PROVIDER` | Da de alta un modelo nuevo en caliente con una plantilla. |
 | `SET_WORKFLOW` | Reordena y activa/desactiva agentes. Corrige el orden si rompe una dependencia. |
 | `SET_THEME` | Forma (`classic`/`game`) y modo. Solo presentación. |
+| `SET_ORG` | Edita el mapa de la organización: `add_area`, `update_area`, `remove_area`, `add_station`, `update_station`, `remove_station`, `add_staff`, `update_staff`, `remove_staff`, `resize`, `reseed`. Áreas y personas se pueden nombrar por su nombre, no solo por id. Borrar un avatar de agente se rechaza y remite a `SET_WORKFLOW`. |
 
 ### Storyboard
 

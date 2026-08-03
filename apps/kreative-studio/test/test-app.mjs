@@ -520,7 +520,7 @@ catch (e) { check('el componente raíz renderiza en profundidad', false, e.messa
 
 {
   const nav = navButtons();
-  eq('el menú expone las 20 vistas', nav.length, 20);
+  eq('el menú expone las 21 vistas', nav.length, 21);
   const broken = [];
   for (let i = 0; i < nav.length; i++) {
     const btn = navButtons()[i];            // el árbol se reconstruye tras navegar
@@ -535,7 +535,7 @@ catch (e) { check('el componente raíz renderiza en profundidad', false, e.messa
     } catch (e) { broken.push(label + ': ' + ((e && e.message) || 'error')); }
     for (const err of renderErrors) broken.push(label + ' → ' + err);
   }
-  check('ninguna de las 20 vistas rompe al renderizarse', broken.length === 0, broken.join(' · '));
+  check('ninguna de las 21 vistas rompe al renderizarse', broken.length === 0, broken.join(' · '));
 }
 
 // La Guía debe decir explícitamente lo que la app NO hace: es el punto que
@@ -837,6 +837,104 @@ check('EXPORT render_bundle funciona', r.success && r.data.length > 500, JSON.st
   check('SET_THEME rechaza formas inválidas', r.success === false, JSON.stringify(r));
   r = await call('SET_THEME', {});
   check('SET_THEME pide al menos un campo', r.success === false);
+  await call('SET_THEME', { form: 'classic', classicMode: 'night' });
+}
+
+// ── 15 bis. El mapa de la organización (KIMOS WorldSkin) ─────────────────
+{
+  const w = () => state().then((c) => c.world);
+  let world = await w();
+
+  // La organización no se inventa: sale del propio flujo de agentes.
+  check('la campaña trae un mapa de la organización', !!world && Array.isArray(world.areas), JSON.stringify(world).slice(0, 80));
+  check('el mapa cubre los departamentos de una empresa',
+    ['rrhh', 'finanzas', 'marketing', 'produccion', 'contabilidad', 'ventas']
+      .every((d) => world.areas.some((a) => a.departmentId === d)),
+    world.areas.map((a) => a.departmentId).join(', '));
+  const plan = snap().flujo;
+  check('cada agente del flujo tiene su avatar en el mapa',
+    plan.every((n) => world.staff.some((p) => p.agentId === n.id)),
+    world.staff.filter((p) => p.agentId).length + ' de ' + plan.length);
+  check('los agentes conviven con personal humano',
+    world.staff.some((p) => p.kind === 'human') && world.staff.some((p) => p.kind === 'ai'));
+  check('cada departamento declara sus procesos internos',
+    world.areas.every((a) => Array.isArray(a.stations) && a.stations.length >= 1));
+
+  // Alta, edición y baja desde el agente.
+  r = await call('SET_ORG', { op: 'add_area', departmentId: 'ti', name: 'Data', structure: 'lab' });
+  check('SET_ORG crea un área', r.success, JSON.stringify(r));
+  world = await w();
+  const data = world.areas.find((a) => a.name === 'Data');
+  check('el área nueva existe con su estructura', !!data && data.structure === 'lab', JSON.stringify(data));
+
+  r = await call('SET_ORG', { op: 'add_station', areaId: 'Data', name: 'Modelos', process: 'Entrenamiento' });
+  check('SET_ORG añade un proceso interno', r.success, JSON.stringify(r));
+  r = await call('SET_ORG', { op: 'add_staff', areaId: 'Data', name: 'Nora', role: 'Analista', kind: 'human' });
+  check('SET_ORG incorpora una persona', r.success, JSON.stringify(r));
+  world = await w();
+  eq('el área tiene dos procesos', world.areas.find((a) => a.name === 'Data').stations.length, 2);
+  check('la persona queda en su área',
+    world.staff.some((p) => p.name === 'Nora' && p.areaId === data.id));
+
+  r = await call('SET_ORG', { op: 'update_staff', staffId: 'Nora', role: 'Responsable de datos' });
+  check('SET_ORG edita a una persona', r.success, JSON.stringify(r));
+  eq('el rol cambió', (await w()).staff.find((p) => p.name === 'Nora').role, 'Responsable de datos');
+
+  // Un agente del flujo no se borra del mapa: se apaga en el flujo. Si se
+  // pudiera borrar, el mapa mentiría sobre quién trabaja aquí.
+  const agentAvatar = (await w()).staff.find((p) => p.agentId);
+  r = await call('SET_ORG', { op: 'remove_staff', staffId: agentAvatar.id });
+  check('SET_ORG no deja borrar el avatar de un agente', r.success === false, JSON.stringify(r));
+  check('y remite a SET_WORKFLOW', /SET_WORKFLOW/.test(r.error), r.error);
+
+  // Errores del usuario: se contestan, no revientan el documento.
+  const huellaMundo = JSON.stringify(await w());
+  r = await call('SET_ORG', { op: 'update_area', areaId: 'no-existe', name: 'x' });
+  check('SET_ORG rechaza un área inexistente', r.success === false, JSON.stringify(r));
+  r = await call('SET_ORG', { op: 'resize', gridW: 6, gridH: 6 });
+  check('SET_ORG rechaza encoger sobre un área ocupada', r.success === false, JSON.stringify(r));
+  r = await call('SET_ORG', { op: 'op_inventado' });
+  check('SET_ORG rechaza una operación desconocida', r.success === false && /Válidos/.test(r.error), JSON.stringify(r));
+  eq('ningún fallo dejó el mapa a medias', JSON.stringify(await w()), huellaMundo);
+
+  // Borrar un departamento no despide a nadie.
+  const antes = (await w()).staff.length;
+  r = await call('SET_ORG', { op: 'remove_area', areaId: 'Data' });
+  check('SET_ORG borra un área', r.success, JSON.stringify(r));
+  eq('y el personal se reubica en vez de desaparecer', (await w()).staff.length, antes);
+
+  // El agente ve la organización, o no podría razonar sobre ella.
+  const org = snap().organizacion;
+  check('el snapshot expone la organización', !!org && !!org.resumen && Array.isArray(org.areas));
+  check('con sus ocupantes', org.areas.some((a) => a.ocupantes.length > 0), JSON.stringify(org.resumen));
+  check('y distingue agentes de personas',
+    org.personal.some((p) => p.tipo === 'ai' && p.agente) && org.personal.some((p) => p.tipo === 'human'));
+
+  // La vista Organización debe pintarse en las cuatro ambientaciones, y el
+  // mapa NO puede cambiar al cambiar de piel.
+  const gotoWorld = () => {
+    const btn = navButtons().find((b) => {
+      const l = renderDeep(b, 0).find((n) => n && n.p && n.p.className === 'ks-navitem-label');
+      return l && String(l.c) === 'Organización';
+    });
+    if (btn) btn.p.onClick();
+    return btn;
+  };
+  check('la Organización está en el menú', !!gotoWorld());
+  const huella2 = JSON.stringify(await w());
+  const roto = [];
+  for (const skin of [{ form: 'classic', classicMode: 'day' }, { form: 'game', gameMode: 'kimoslab' },
+    { form: 'game', gameMode: 'jabotel' }, { form: 'game', gameMode: 'spacecraft' }]) {
+    await call('SET_THEME', skin);
+    gotoWorld();
+    renderErrors = [];
+    const painted = renderDeep(app.Component(), 0);
+    const surface = painted.filter((n) => n && n.p && n.p.className === 'ws-surface');
+    if (!surface.length) roto.push((skin.gameMode || skin.classicMode) + ': sin superficie');
+    for (const e of renderErrors) roto.push((skin.gameMode || skin.classicMode) + ' → ' + e);
+  }
+  check('la Organización se pinta en las cuatro ambientaciones', roto.length === 0, roto.join(' · '));
+  eq('cambiar de ambientación no mueve una sola celda', JSON.stringify(await w()), huella2);
   await call('SET_THEME', { form: 'classic', classicMode: 'night' });
 }
 

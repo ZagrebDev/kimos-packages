@@ -67,6 +67,42 @@ acciones**: seleccionar, ejecutar, activar/desactivar y reordenar. El aspecto
 no cambia nada del documento — hay una prueba que compara la huella completa
 de la campaña antes y después de cambiar de piel.
 
+---
+
+## La organización: la empresa como un sitio por el que pasear
+
+La vista **Organización** enseña lo mismo que el Flujo, contado como un lugar:
+**departamentos** (dirección, RRHH, finanzas, contabilidad, marketing, ventas,
+producción, operaciones, tecnología, legal…), los **procesos internos** de cada
+uno, y **quién los atiende**. En forma juego se recorre como una villa en
+píxeles, un hotel isométrico o un territorio de estructuras; en forma clásica es
+un plano de planta.
+
+Lo importante es que **no es un decorado**:
+
+- Cada agente de IA tiene su avatar, enlazado a su nodo del flujo. Su
+  comportamiento sale de su **estado real**: el que se está ejecutando camina a
+  su puesto y trabaja, el bloqueado se planta con un «!», el desactivado se va a
+  la zona común. Desde su ficha se le ejecuta.
+- Junto a ellos vive el **personal humano** que añadas, con su rol y su puesto.
+  Nadie los simula como agentes: están para que se vea quién acompaña a cada
+  máquina.
+- Áreas, procesos y personas se **añaden, editan y borran** en cualquiera de las
+  ambientaciones, desde la interfaz o con la tool `SET_ORG` del agente. Borrar
+  un departamento **reubica** a su gente en vez de despedirla, y el mapa no se
+  puede encoger por encima de un área ocupada.
+- El mapa es el **mismo modelo** en las cuatro pieles: cambiar de villa a hotel
+  o a territorio no mueve una sola celda.
+
+El movimiento se pausa cuando la ventana no está a la vista y no arranca si el
+sistema pide `prefers-reduced-motion`.
+
+Todo esto lo aporta [`packages/kimos-worldskin`](../../packages/kimos-worldskin),
+un **paquete de fuentes** que cualquier app de KIMOS con flujos y agentes puede
+adoptar. No es una librería en tiempo de ejecución: sus fragmentos se compilan
+dentro de este bundle. Las condiciones están en
+[`docs/CONTRATO.md`](../../packages/kimos-worldskin/docs/CONTRATO.md).
+
 Todo el decorado es CSS y SVG generados en el bundle: ni una imagen, ni una
 fuente externa, ni una petición de red.
 
@@ -158,10 +194,11 @@ No escribe nada en ProductLab.
 ## Desarrollo
 
 ```bash
-node apps/kreative-studio/build.mjs              # src/*.js → dist/index.js
-node apps/kreative-studio/test/test-app.mjs      # 256 comprobaciones, sin dependencias
-node apps/kreative-studio/test/test-render.mjs   # render REAL (requiere ffmpeg)
-node tools/pack.mjs apps/kreative-studio         # → kreative-studio-1.0.0.kapp
+node apps/kreative-studio/build.mjs                        # src/ + worldskin → dist/
+node apps/kreative-studio/test/test-app.mjs                # 283 comprobaciones, sin dependencias
+node packages/kimos-worldskin/test/test-worldskin.mjs      # 138 del paquete y su contrato
+node apps/kreative-studio/test/test-render.mjs             # render REAL (requiere ffmpeg)
+node tools/pack.mjs apps/kreative-studio                   # → kreative-studio-1.0.0.kapp
 ```
 
 `test-render.mjs` genera una campaña, fabrica los assets con FFmpeg (patrones
@@ -175,9 +212,13 @@ El `.kapp` de la versión publicada vive en la raíz del repo
 el manifest hay que regenerarlo**, o el archivo de sideload queda desfasado
 respecto al `dist/` que instala la Tienda.
 
-`dist/index.js` se **genera**: edita `src/`, nunca el bundle. Los fragmentos de
-`src/` comparten ámbito y se concatenan en orden por su prefijo numérico
-(`00`–`34` dominio y aplicación, `40`–`58` adaptadores y UI dentro de `mount`).
+Todo `dist/` se **genera**: edita `src/` y `style/app.css`, nunca el bundle. Los
+fragmentos de `src/` comparten ámbito y se concatenan en orden por su prefijo
+numérico (`00`–`34` dominio y aplicación, `40`–`58` adaptadores y UI dentro de
+`mount`); el build **intercala** en esa misma secuencia los del paquete
+`kimos-worldskin` (`17`, `19`, `21` y `53`). `dist/index.css` es
+`style/app.css` más el decorado del paquete con su marcador `%ROOT%` sustituido
+por `.kimos-kreative`.
 
 Documentación: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) ·
 [`docs/PROVIDERS.md`](docs/PROVIDERS.md) · [`docs/AGENTES.md`](docs/AGENTES.md) ·

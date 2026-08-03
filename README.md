@@ -32,7 +32,19 @@ apps/
       index.js             # bundle ESM autocontenido (usa globalThis.React)
       index.css            # estilos (usa CSS vars del tema del shell)
     README.md
+packages/
+  kimos-worldskin/         # paquete de FUENTES compartible entre apps
+    src/                   # fragmentos que cada app compila en su bundle
+    style/                 # decorado, con marcador %ROOT% para enclaustrarlo
+    test/                  # pruebas del paquete y de su contrato
+    docs/CONTRATO.md       # quién puede adoptarlo y con qué garantías
 ```
+
+`packages/` **no es código en tiempo de ejecución**. Las apps de KIMOS son
+bundles autónomos y no hay runtime compartido entre ellas: un paquete se
+*vendoriza*, es decir, sus fuentes se concatenan dentro del bundle de cada app
+que lo adopta. Así dos apps que compartan un paquete siguen sin poder romperse
+entre sí.
 
 ## Apps instalables
 

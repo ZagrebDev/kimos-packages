@@ -24,8 +24,16 @@
  *   ┌─ Adaptadores + UI (dentro de mount(shell), con React del host) ────────┐
  *   │  puertos: persistencia (saveData/items), archivos (/api/v2/files),     │
  *   │  notificación, config, documentos · registro de tools para el AGENTE   │
- *   │  DE KIMOS (que es el orquestador externo) · 19 vistas de estudio.      │
+ *   │  DE KIMOS (que es el orquestador externo) · 21 vistas de estudio.      │
  *   └───────────────────────────────────────────────────────────────────────┘
+ *
+ * ASPECTO Y ORGANIZACIÓN: el paquete vendorizado `packages/kimos-worldskin`
+ * aporta las dos formas de ver el trabajo (clásica con modos de luz, y juego
+ * con tres ambientaciones) y el MAPA DE LA ORGANIZACIÓN —departamentos,
+ * procesos internos y personal, agentes de IA y personas— que se recorre en la
+ * vista Organización. No es una librería en tiempo de ejecución: sus
+ * fragmentos (`17`, `19`, `21`, `53`) se intercalan en este bundle durante el
+ * build. Ver `packages/kimos-worldskin/docs/CONTRATO.md`.
  *
  * PROVEEDORES REEMPLAZABLES (requisito central): ningún agente conoce a un
  * proveedor concreto. Los agentes producen un `PromptSpec` NEUTRAL (sujeto,
@@ -42,8 +50,10 @@
  * usuario) los ejecuta y registra el asset resultante con REGISTER_ASSET.
  *
  * Contrato: export default function mount(shell) -> { Component, unmount }.
- * Bundle generado por `node apps/kreative-studio/build.mjs` (concatena
- * src/*.js en orden). NO editar dist/index.js a mano.
+ * Bundle generado por `node apps/kreative-studio/build.mjs`, que concatena
+ * `src/*.js` con los fragmentos de `packages/kimos-worldskin/src/*.js`
+ * ordenados por su prefijo numérico, y compone `dist/index.css` a partir de
+ * `style/app.css`. NO editar nada de dist/ a mano.
  */
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1364,88 +1374,95 @@ function billableQty(provider, job) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DOMINIO · Temas de la interfaz
+// KIMOS WorldSkin · núcleo
 //
-// Dos FORMAS de ver el mismo trabajo:
-//   · clásica — un estudio profesional, con modos de luz (día, atardecer,
-//     noche y «vivo», que sigue la hora real).
-//   · juego  — el flujo de agentes como un videojuego, con tres ambientaciones.
+// Paquete de FUENTES reutilizable: da a cualquier app de KIMOS con flujos de
+// trabajo y agentes dos formas de verse —clásica y juego— y un mundo editable
+// donde la organización se representa como áreas, estructuras y avatares.
 //
-// Un tema es SOLO tokens: colores y unos pocos parámetros de decorado. No
-// cambia ni el modelo ni lo que hacen los agentes; cambia cómo se lee. La
-// vista Flujo tiene un renderizador por ambientación, pero todos operan sobre
-// los mismos datos y con las mismas acciones.
+// NO es una librería en tiempo de ejecución: las apps de KIMOS son bundles
+// autónomos y no existe runtime compartido. Cada app incorpora estos
+// fragmentos en su propio build (ver docs/CONTRATO.md). Por eso todo aquí es
+// autosuficiente y va prefijado `ws`/`WS_`: se puede pegar en una app que no
+// comparta ninguna utilidad con esta.
+//
+// Versión del paquete: 1.0.0
 // ═══════════════════════════════════════════════════════════════════════════
 
+const WS_VERSION = '1.0.0';
+
+// ── Utilidades propias (sin depender del anfitrión) ──────────────────────
+const wsS = (v) => (v == null ? '' : String(v));
+const wsNum = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : (d || 0); };
+const wsArr = (v) => (Array.isArray(v) ? v : []);
+const wsObj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+const wsClamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const wsNorm = (v) => wsS(v).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const wsSlug = (v) => wsNorm(v).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
+const wsUniq = (a) => Array.from(new Set(wsArr(a).filter((x) => x != null && x !== '')));
+let wsCounter = 0;
+const wsId = (p) => p + '-' + Date.now().toString(36) + '-' + (wsCounter++).toString(36)
+  + Math.random().toString(36).slice(2, 5);
+/** Hash determinista: mismo nombre ⇒ mismo aspecto de avatar en toda sesión. */
+function wsHash(str) {
+  let h = 0x811c9dc5;
+  const t = wsS(str);
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; }
+  return h >>> 0;
+}
+
+// ── Formas y modos ────────────────────────────────────────────────────────
 const THEME_FORMS = [
   { id: 'classic', label: 'Clásica', emoji: '▤', help: 'Estudio profesional. La luz cambia, el trabajo no.' },
-  { id: 'game', label: 'Juego', emoji: '🕹️', help: 'El mismo flujo, jugable. Para revisarlo sin que pese.' },
+  { id: 'game', label: 'Juego', emoji: '🕹️', help: 'La organización como un mundo jugable, con avatares en movimiento.' },
 ];
 
-/** Paletas de la forma clásica. */
 const CLASSIC_MODES = [
-  {
-    id: 'day', label: 'Día', emoji: '☀️',
-    tokens: {
-      bg: '#F4F6F8', panel: '#FFFFFF', panel2: '#F0F3F6', line: '#DFE5EC', line2: '#C6D0DB',
+  { id: 'day', label: 'Día', emoji: '☀️',
+    tokens: { bg: '#F4F6F8', panel: '#FFFFFF', panel2: '#F0F3F6', line: '#DFE5EC', line2: '#C6D0DB',
       txt: '#101822', txt2: '#4A5768', txt3: '#7A8798', media: '#E8ECF1', checker: '#E2E7EE',
-      ok: '#1E9E6A', warn: '#B7791F', bad: '#C6403C', shadow: '0 1px 2px rgba(16,24,34,.07)',
-    },
-  },
-  {
-    id: 'sunset', label: 'Atardecer', emoji: '🌇',
-    tokens: {
-      bg: '#241A1B', panel: '#2E2122', panel2: '#38292A', line: '#4A3435', line2: '#5E4241',
+      ok: '#1E9E6A', warn: '#B7791F', bad: '#C6403C', shadow: '0 1px 2px rgba(16,24,34,.07)' } },
+  { id: 'sunset', label: 'Atardecer', emoji: '🌇',
+    tokens: { bg: '#241A1B', panel: '#2E2122', panel2: '#38292A', line: '#4A3435', line2: '#5E4241',
       txt: '#F6E8E0', txt2: '#C4A99E', txt3: '#94786F', media: '#1A1213', checker: '#332526',
-      ok: '#8FBF6A', warn: '#E8A33D', bad: '#E8664F', shadow: '0 1px 2px rgba(0,0,0,.35)',
-    },
-  },
-  {
-    id: 'night', label: 'Noche', emoji: '🌙',
-    tokens: {
-      bg: '#0B0D10', panel: '#12151A', panel2: '#171B21', line: '#232932', line2: '#2E3641',
+      ok: '#8FBF6A', warn: '#E8A33D', bad: '#E8664F', shadow: '0 1px 2px rgba(0,0,0,.35)' } },
+  { id: 'night', label: 'Noche', emoji: '🌙',
+    tokens: { bg: '#0B0D10', panel: '#12151A', panel2: '#171B21', line: '#232932', line2: '#2E3641',
       txt: '#E7EBF0', txt2: '#98A2B0', txt3: '#6B7684', media: '#05070A', checker: '#1A1F26',
-      ok: '#35C48A', warn: '#E5A93A', bad: '#EE5A5A', shadow: '0 1px 2px rgba(0,0,0,.4)',
-    },
-  },
-  {
-    id: 'live', label: 'Vivo', emoji: '🕰️',
-    help: 'Sigue la hora del equipo: día, atardecer y noche.',
-    tokens: null,      // se resuelve en tiempo de ejecución
-  },
+      ok: '#35C48A', warn: '#E5A93A', bad: '#EE5A5A', shadow: '0 1px 2px rgba(0,0,0,.4)' } },
+  { id: 'live', label: 'Vivo', emoji: '🕰️', help: 'Sigue la hora del equipo: día, atardecer y noche.', tokens: null },
 ];
 
-/** Ambientaciones de la forma juego. */
 const GAME_MODES = [
   {
     id: 'kimoslab', label: 'KimosLab', emoji: '🔬',
-    help: 'Ruta de laboratorio en píxeles, con caja de diálogo. Homenaje al RPG de bolsillo.',
-    tokens: {
-      bg: '#184C3C', panel: '#F8F8F0', panel2: '#E8E8D8', line: '#282828', line2: '#585858',
+    help: 'Villa en píxeles: cada departamento es un edificio de la ruta.',
+    world: { kind: 'village', tile: 64, structureLabel: 'edificio', areaLabel: 'zona' },
+    tokens: { bg: '#184C3C', panel: '#F8F8F0', panel2: '#E8E8D8', line: '#282828', line2: '#585858',
       txt: '#282828', txt2: '#484848', txt3: '#787878', media: '#103828', checker: '#D8D8C8',
-      ok: '#38A048', warn: '#E8A020', bad: '#D83830', shadow: '0 3px 0 rgba(0,0,0,.35)',
-    },
-    decor: { grid: '#1E5C48', accentInk: '#3860A8', pixel: 4, font: 'ui-monospace, "Courier New", monospace' },
+      ok: '#38A048', warn: '#E8A020', bad: '#D83830', shadow: '0 3px 0 rgba(0,0,0,.35)' },
+    decor: { grid: '#1E5C48', accentInk: '#3860A8', ground: '#2E7A54', path: '#C8B888',
+      font: 'ui-monospace, "Courier New", monospace' },
   },
   {
     id: 'jabotel', label: 'JABOTEL', emoji: '🏨',
-    help: 'Habitación isométrica: cada agente es un mueble de la sala.',
-    tokens: {
-      bg: '#1B2A3A', panel: '#26384C', panel2: '#2F455C', line: '#3E5975', line2: '#52708F',
+    help: 'Hotel isométrico: cada departamento es una sala con sus puestos.',
+    world: { kind: 'hotel', tile: 64, structureLabel: 'sala', areaLabel: 'planta' },
+    tokens: { bg: '#1B2A3A', panel: '#26384C', panel2: '#2F455C', line: '#3E5975', line2: '#52708F',
       txt: '#EAF2FA', txt2: '#A9C0D6', txt3: '#7C93AA', media: '#14212E', checker: '#223448',
-      ok: '#5BD07A', warn: '#F2B33D', bad: '#EE6A5A', shadow: '0 2px 0 rgba(0,0,0,.4)',
-    },
-    decor: { grid: '#33506D', accentInk: '#FFCC33', pixel: 3, font: 'Verdana, Geneva, sans-serif' },
+      ok: '#5BD07A', warn: '#F2B33D', bad: '#EE6A5A', shadow: '0 2px 0 rgba(0,0,0,.4)' },
+    decor: { grid: '#33506D', accentInk: '#FFCC33', ground: '#2B4055', path: '#3E5975',
+      font: 'Verdana, Geneva, sans-serif' },
   },
   {
     id: 'spacecraft', label: 'Spacecraft', emoji: '🛸',
-    help: 'Consola de mando: cola de construcción, paneles angulares y rejilla táctica.',
-    tokens: {
-      bg: '#07110E', panel: '#0E1D1A', panel2: '#132823', line: '#1E3B34', line2: '#2C554B',
+    help: 'Territorio táctico: cada departamento es una estructura desplegada en el terreno.',
+    world: { kind: 'territory', tile: 64, structureLabel: 'estructura', areaLabel: 'sector' },
+    tokens: { bg: '#07110E', panel: '#0E1D1A', panel2: '#132823', line: '#1E3B34', line2: '#2C554B',
       txt: '#D6F5E6', txt2: '#7FC4A8', txt3: '#4F8B76', media: '#040B09', checker: '#0C1916',
-      ok: '#4BE3A0', warn: '#E8C24A', bad: '#FF6B5B', shadow: '0 0 0 1px rgba(75,227,160,.12)',
-    },
-    decor: { grid: '#123029', accentInk: '#7FE3C4', pixel: 2, font: 'ui-monospace, Menlo, monospace' },
+      ok: '#4BE3A0', warn: '#E8C24A', bad: '#FF6B5B', shadow: '0 0 0 1px rgba(75,227,160,.12)' },
+    decor: { grid: '#123029', accentInk: '#7FE3C4', ground: '#0A1A16', path: '#1E3B34',
+      font: 'ui-monospace, Menlo, monospace' },
   },
 ];
 
@@ -1453,51 +1470,427 @@ const themeFormById = (id) => THEME_FORMS.find((x) => x.id === id) || THEME_FORM
 const classicModeById = (id) => CLASSIC_MODES.find((x) => x.id === id) || CLASSIC_MODES[2];
 const gameModeById = (id) => GAME_MODES.find((x) => x.id === id) || GAME_MODES[0];
 
-/** Qué luz toca según la hora local (para el modo Vivo). */
 function modeForHour(hour) {
-  const h = clamp(num(hour, 12), 0, 23);
+  const h = wsClamp(wsNum(hour, 12), 0, 23);
   if (h >= 7 && h < 18) return 'day';
   if (h >= 18 && h < 21) return 'sunset';
   return 'night';
 }
 
-/**
- * Resuelve el tema efectivo. Devuelve siempre algo utilizable, aunque los
- * ajustes vengan de un bundle antiguo o con valores inventados.
- */
 function resolveTheme(themeCfg, hour) {
-  const t = obj(themeCfg);
-  const form = themeFormById(t.form);
-  if (form.id === 'game') {
-    const mode = gameModeById(t.gameMode);
-    return { formId: 'game', modeId: mode.id, label: mode.label, emoji: mode.emoji,
-      tokens: mode.tokens, decor: obj(mode.decor), live: false };
+  const t = wsObj(themeCfg);
+  if (themeFormById(t.form).id === 'game') {
+    const m = gameModeById(t.gameMode);
+    return { formId: 'game', modeId: m.id, label: m.label, emoji: m.emoji,
+      tokens: m.tokens, decor: wsObj(m.decor), world: wsObj(m.world), live: false };
   }
   const chosen = classicModeById(t.classicMode);
   const live = chosen.id === 'live';
   const actual = live ? classicModeById(modeForHour(hour)) : chosen;
   return { formId: 'classic', modeId: chosen.id, effectiveId: actual.id,
     label: chosen.label + (live ? ' · ' + actual.label : ''), emoji: live ? chosen.emoji : actual.emoji,
-    tokens: actual.tokens, decor: {}, live };
+    tokens: actual.tokens, decor: {}, world: {}, live };
 }
 
-/** Variables CSS del tema, listas para el atributo `style` de la raíz. */
 function themeVars(theme) {
-  const tk = obj(obj(theme).tokens);
+  const tk = wsObj(wsObj(theme).tokens);
   const out = {};
   const map = { bg: '--ks-bg', panel: '--ks-panel', panel2: '--ks-panel2', line: '--ks-line',
     line2: '--ks-line2', txt: '--ks-txt', txt2: '--ks-txt2', txt3: '--ks-txt3',
     media: '--ks-media', checker: '--ks-checker', ok: '--ks-ok', warn: '--ks-warn', bad: '--ks-bad',
     shadow: '--ks-shadow' };
   for (const k of Object.keys(map)) if (tk[k]) out[map[k]] = tk[k];
-  const dc = obj(obj(theme).decor);
+  const dc = wsObj(wsObj(theme).decor);
   if (dc.grid) out['--ks-grid'] = dc.grid;
   if (dc.accentInk) out['--ks-ink'] = dc.accentInk;
+  if (dc.ground) out['--ks-ground'] = dc.ground;
+  if (dc.path) out['--ks-path'] = dc.path;
   if (dc.font) out['--ks-gamefont'] = dc.font;
   return out;
 }
 
 const emptyTheme = () => ({ form: 'classic', classicMode: 'night', gameMode: 'kimoslab' });
+
+// ── Catálogo de departamentos ─────────────────────────────────────────────
+// Genérico a cualquier empresa. Una app puede añadir los suyos con
+// `wsRegisterDepartment`; el mundo no valida contra esta lista, solo la usa
+// para sugerir y para colorear.
+const WS_DEPARTMENTS = [
+  { id: 'direccion', label: 'Dirección', emoji: '🧭', color: '#8E7B45' },
+  { id: 'rrhh', label: 'Recursos Humanos', emoji: '👥', color: '#4ECDC4' },
+  { id: 'finanzas', label: 'Finanzas', emoji: '💹', color: '#35C48A' },
+  { id: 'contabilidad', label: 'Contabilidad', emoji: '🧾', color: '#7FA36B' },
+  { id: 'marketing', label: 'Marketing', emoji: '📣', color: '#FF4FD8' },
+  { id: 'ventas', label: 'Ventas', emoji: '🤝', color: '#E5A93A' },
+  { id: 'produccion', label: 'Producción', emoji: '🏭', color: '#19ACB1' },
+  { id: 'operaciones', label: 'Operaciones', emoji: '⚙️', color: '#7B61FF' },
+  { id: 'ti', label: 'Tecnología', emoji: '💻', color: '#3860A8' },
+  { id: 'compras', label: 'Compras', emoji: '📦', color: '#C9A227' },
+  { id: 'legal', label: 'Legal', emoji: '⚖️', color: '#94786F' },
+  { id: 'atencion', label: 'Atención al cliente', emoji: '🎧', color: '#EE5A5A' },
+];
+const wsDepartmentById = (id) => WS_DEPARTMENTS.find((d) => d.id === wsS(id)) || WS_DEPARTMENTS[0];
+function wsRegisterDepartment(d) {
+  const x = wsObj(d);
+  if (!wsS(x.id).trim()) throw new Error('El departamento necesita `id`.');
+  const prev = WS_DEPARTMENTS.findIndex((y) => y.id === x.id);
+  const rec = { id: wsSlug(x.id), label: wsS(x.label) || wsS(x.id), emoji: wsS(x.emoji) || '🏷️',
+    color: /^#[0-9a-f]{6}$/i.test(wsS(x.color)) ? wsS(x.color) : '#19ACB1' };
+  if (prev >= 0) WS_DEPARTMENTS[prev] = rec; else WS_DEPARTMENTS.push(rec);
+  return rec;
+}
+
+// ── Catálogo de estructuras ───────────────────────────────────────────────
+// Cada estructura se dibuja distinto en cada ambientación, pero es la MISMA
+// entidad del modelo: cambiar de modo no cambia el mundo, solo cómo se ve.
+const WS_STRUCTURES = [
+  { id: 'hq', label: 'Sede', emoji: '🏛️', w: 3, h: 2, capacity: 6,
+    village: 'centro', hotel: 'recepción', territory: 'centro de mando' },
+  { id: 'office', label: 'Oficina', emoji: '🏢', w: 2, h: 2, capacity: 4,
+    village: 'casa', hotel: 'oficina', territory: 'puesto' },
+  { id: 'lab', label: 'Laboratorio', emoji: '🔬', w: 2, h: 2, capacity: 3,
+    village: 'laboratorio', hotel: 'sala técnica', territory: 'laboratorio' },
+  { id: 'factory', label: 'Planta', emoji: '🏭', w: 3, h: 2, capacity: 8,
+    village: 'fábrica', hotel: 'taller', territory: 'refinería' },
+  { id: 'warehouse', label: 'Almacén', emoji: '📦', w: 2, h: 2, capacity: 3,
+    village: 'granero', hotel: 'depósito', territory: 'depósito' },
+  { id: 'shop', label: 'Tienda', emoji: '🛍️', w: 2, h: 1, capacity: 2,
+    village: 'tienda', hotel: 'mostrador', territory: 'mercado' },
+  { id: 'training', label: 'Formación', emoji: '🎓', w: 2, h: 2, capacity: 4,
+    village: 'gimnasio', hotel: 'aula', territory: 'academia' },
+  { id: 'support', label: 'Soporte', emoji: '🎧', w: 2, h: 1, capacity: 3,
+    village: 'centro médico', hotel: 'conserjería', territory: 'estación de apoyo' },
+  { id: 'plaza', label: 'Zona común', emoji: '🌳', w: 2, h: 2, capacity: 6,
+    village: 'plaza', hotel: 'cafetería', territory: 'zona franca' },
+];
+const wsStructureById = (id) => WS_STRUCTURES.find((x) => x.id === wsS(id)) || WS_STRUCTURES[1];
+/** Cómo se llama esa estructura en la ambientación activa. */
+const wsStructureName = (id, worldKind) => {
+  const st = wsStructureById(id);
+  return wsS(st[wsS(worldKind) || 'village']) || st.label;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KIMOS WorldSkin · el MUNDO de la organización
+//
+// Un mundo es una rejilla con ÁREAS (departamentos y procesos internos), cada
+// una con una ESTRUCTURA y unos PUESTOS, y con PERSONAL asignado: agentes de
+// IA y personas. Es el mismo modelo en las tres ambientaciones — la villa, el
+// hotel y el territorio son solo formas de dibujarlo.
+//
+// Todas las mutaciones son puras: reciben el mundo y devuelven uno nuevo con
+// `{ world, ok, error }`. Nunca lanzan por datos del usuario.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const WS_GRID_MAX = 40;
+const WS_AREAS_MAX = 60;
+const WS_STAFF_MAX = 200;
+
+function wsEmptyWorld() {
+  return { schema: 1, wsVersion: WS_VERSION, grid: { w: 16, h: 12 }, areas: [], staff: [], seededFrom: '' };
+}
+
+/** Normaliza cualquier mundo cargado. Tolerante y sin excepciones. */
+function wsMigrateWorld(raw) {
+  const d = wsObj(raw);
+  const w = wsClamp(wsNum(wsObj(d.grid).w, 16), 6, WS_GRID_MAX);
+  const h = wsClamp(wsNum(wsObj(d.grid).h, 12), 6, WS_GRID_MAX);
+  const areas = wsArr(d.areas).slice(0, WS_AREAS_MAX).map((a, i) => {
+    const st = wsStructureById(wsObj(a).structure);
+    return {
+      id: wsS(a.id) || 'area-' + i,
+      name: wsS(a.name) || wsDepartmentById(a.departmentId).label,
+      departmentId: wsDepartmentById(wsObj(a).departmentId).id,
+      structure: st.id,
+      x: wsClamp(wsNum(a.x, 0), 0, w - 1), y: wsClamp(wsNum(a.y, 0), 0, h - 1),
+      w: wsClamp(wsNum(a.w, st.w), 1, 8), h: wsClamp(wsNum(a.h, st.h), 1, 8),
+      note: wsS(a.note),
+      stations: wsArr(a.stations).slice(0, 12).map((p, j) => ({
+        id: wsS(p.id) || 'st-' + i + '-' + j,
+        name: wsS(p.name) || 'Puesto ' + (j + 1),
+        process: wsS(p.process),
+      })),
+    };
+  });
+  const areaIds = new Set(areas.map((a) => a.id));
+  const staff = wsArr(d.staff).slice(0, WS_STAFF_MAX).map((p, i) => {
+    const areaId = areaIds.has(wsS(p.areaId)) ? wsS(p.areaId) : (areas[0] ? areas[0].id : '');
+    const area = areas.find((a) => a.id === areaId);
+    const stIds = area ? area.stations.map((x) => x.id) : [];
+    return {
+      id: wsS(p.id) || 'staff-' + i,
+      name: wsS(p.name) || 'Sin nombre',
+      kind: wsS(p.kind) === 'ai' ? 'ai' : 'human',
+      role: wsS(p.role),
+      areaId,
+      stationId: stIds.indexOf(wsS(p.stationId)) >= 0 ? wsS(p.stationId) : (stIds[0] || ''),
+      agentId: wsS(p.agentId) || null,     // enlaza con un agente del flujo
+    };
+  });
+  return { schema: 1, wsVersion: WS_VERSION, grid: { w, h }, areas, staff, seededFrom: wsS(d.seededFrom) };
+}
+
+/** ¿Cabe un área en esa posición sin salirse ni pisar a otra? */
+function wsFits(world, area, ignoreId) {
+  const g = wsObj(world.grid);
+  if (area.x < 0 || area.y < 0) return 'Fuera del mapa.';
+  if (area.x + area.w > g.w || area.y + area.h > g.h) return 'No cabe: se sale del mapa.';
+  for (const o of wsArr(world.areas)) {
+    if (o.id === ignoreId) continue;
+    const sep = area.x + area.w <= o.x || o.x + o.w <= area.x
+      || area.y + area.h <= o.y || o.y + o.h <= area.y;
+    if (!sep) return 'Se solapa con «' + o.name + '».';
+  }
+  return '';
+}
+
+/**
+ * Primer hueco libre para una estructura de w×h.
+ *
+ * Busca primero dejando una celda de separación, para que las estructuras no
+ * queden pegadas unas a otras: en un mapa hecho a topes no se distingue dónde
+ * acaba un departamento y empieza el siguiente. Si no cabe con margen, se
+ * vuelve a intentar sin él antes de rendirse.
+ */
+function wsFindSpot(world, w, h) {
+  const g = wsObj(world.grid);
+  for (const pad of [1, 0]) {
+    for (let y = 0; y + h <= g.h; y++) {
+      for (let x = 0; x + w <= g.w; x++) {
+        const probe = { x: Math.max(0, x - pad), y: Math.max(0, y - pad), w: w + pad * 2, h: h + pad * 2 };
+        probe.w = Math.min(probe.w, g.w - probe.x);
+        probe.h = Math.min(probe.h, g.h - probe.y);
+        if (!wsFits(world, probe, null)) return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
+const wsClone = (w) => JSON.parse(JSON.stringify(w));
+const wsFail = (world, error) => ({ world, ok: false, error });
+const wsDone = (world, message) => ({ world, ok: true, message });
+
+/** Alta de área (departamento o proceso interno). */
+function wsAddArea(world, spec) {
+  const w0 = wsClone(world);
+  const sp = wsObj(spec);
+  if (wsArr(w0.areas).length >= WS_AREAS_MAX) return wsFail(world, 'El mapa ya tiene ' + WS_AREAS_MAX + ' áreas.');
+  const st = wsStructureById(sp.structure);
+  const dep = wsDepartmentById(sp.departmentId);
+  const area = {
+    id: wsId('area'),
+    name: wsS(sp.name) || dep.label,
+    departmentId: dep.id,
+    structure: st.id,
+    w: wsClamp(wsNum(sp.w, st.w), 1, 8), h: wsClamp(wsNum(sp.h, st.h), 1, 8),
+    note: wsS(sp.note),
+    stations: wsArr(sp.stations).length
+      ? wsArr(sp.stations).map((x, j) => ({ id: wsId('st'), name: wsS(x.name) || 'Puesto ' + (j + 1), process: wsS(x.process) }))
+      : [{ id: wsId('st'), name: 'Puesto 1', process: '' }],
+  };
+  let pos = (sp.x != null && sp.y != null) ? { x: wsNum(sp.x, 0), y: wsNum(sp.y, 0) } : wsFindSpot(w0, area.w, area.h);
+  if (!pos) return wsFail(world, 'No queda sitio en el mapa. Amplíalo o borra un área.');
+  area.x = pos.x; area.y = pos.y;
+  const bad = wsFits(w0, area, null);
+  if (bad) {
+    const alt = wsFindSpot(w0, area.w, area.h);
+    if (!alt) return wsFail(world, bad + ' Y no queda otro hueco.');
+    area.x = alt.x; area.y = alt.y;
+  }
+  w0.areas.push(area);
+  return wsDone(w0, 'Área «' + area.name + '» creada en (' + area.x + ',' + area.y + ').');
+}
+
+/** Edición: nombre, departamento, estructura, tamaño, posición o nota. */
+function wsUpdateArea(world, areaId, patch) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const p = wsObj(patch);
+  if (p.name !== undefined) a.name = wsS(p.name) || a.name;
+  if (p.note !== undefined) a.note = wsS(p.note);
+  if (p.departmentId !== undefined) a.departmentId = wsDepartmentById(p.departmentId).id;
+  if (p.structure !== undefined) {
+    const st = wsStructureById(p.structure);
+    a.structure = st.id;
+    if (p.w === undefined) a.w = st.w;
+    if (p.h === undefined) a.h = st.h;
+  }
+  if (p.w !== undefined) a.w = wsClamp(wsNum(p.w, a.w), 1, 8);
+  if (p.h !== undefined) a.h = wsClamp(wsNum(p.h, a.h), 1, 8);
+  if (p.x !== undefined) a.x = wsNum(p.x, a.x);
+  if (p.y !== undefined) a.y = wsNum(p.y, a.y);
+  const bad = wsFits(w0, a, a.id);
+  if (bad) return wsFail(world, bad);
+  return wsDone(w0, 'Área «' + a.name + '» actualizada.');
+}
+
+/** Baja de área. El personal que la ocupaba se reubica, no desaparece. */
+function wsRemoveArea(world, areaId) {
+  const w0 = wsClone(world);
+  const i = wsArr(w0.areas).findIndex((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (i < 0) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const gone = w0.areas.splice(i, 1)[0];
+  const dest = w0.areas[0] || null;
+  let moved = 0;
+  for (const p of wsArr(w0.staff)) {
+    if (p.areaId !== gone.id) continue;
+    moved++;
+    p.areaId = dest ? dest.id : '';
+    p.stationId = dest && dest.stations[0] ? dest.stations[0].id : '';
+  }
+  return wsDone(w0, 'Área «' + gone.name + '» eliminada.'
+    + (moved ? ' ' + moved + ' persona(s) reubicadas' + (dest ? ' en «' + dest.name + '».' : ', sin área.') : ''));
+}
+
+/** Puestos dentro de un área: los procesos internos del departamento. */
+function wsAddStation(world, areaId, spec) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  if (a.stations.length >= 12) return wsFail(world, 'Un área admite hasta 12 puestos.');
+  const sp = wsObj(spec);
+  a.stations.push({ id: wsId('st'), name: wsS(sp.name) || 'Puesto ' + (a.stations.length + 1), process: wsS(sp.process) });
+  return wsDone(w0, 'Puesto añadido a «' + a.name + '».');
+}
+function wsUpdateStation(world, areaId, stationId, patch) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área.');
+  const st = wsArr(a.stations).find((x) => x.id === wsS(stationId) || wsNorm(x.name) === wsNorm(stationId));
+  if (!st) return wsFail(world, 'No existe el puesto «' + wsS(stationId) + '».');
+  const p = wsObj(patch);
+  if (p.name !== undefined) st.name = wsS(p.name) || st.name;
+  if (p.process !== undefined) st.process = wsS(p.process);
+  return wsDone(w0, 'Puesto «' + st.name + '» actualizado.');
+}
+function wsRemoveStation(world, areaId, stationId) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId));
+  if (!a) return wsFail(world, 'No existe el área.');
+  if (a.stations.length <= 1) return wsFail(world, 'Un área necesita al menos un puesto.');
+  const i = a.stations.findIndex((x) => x.id === wsS(stationId));
+  if (i < 0) return wsFail(world, 'No existe el puesto.');
+  const gone = a.stations.splice(i, 1)[0];
+  for (const p of wsArr(w0.staff)) if (p.stationId === gone.id) p.stationId = a.stations[0].id;
+  return wsDone(w0, 'Puesto «' + gone.name + '» eliminado.');
+}
+
+/** Personal: agentes de IA y personas. */
+function wsAddStaff(world, spec) {
+  const w0 = wsClone(world);
+  if (wsArr(w0.staff).length >= WS_STAFF_MAX) return wsFail(world, 'Demasiado personal en el mapa.');
+  const sp = wsObj(spec);
+  if (!wsArr(w0.areas).length) return wsFail(world, 'Crea un área antes de asignar personal.');
+  const area = wsArr(w0.areas).find((x) => x.id === wsS(sp.areaId) || wsNorm(x.name) === wsNorm(sp.areaId)) || w0.areas[0];
+  const p = {
+    id: wsId('staff'), name: wsS(sp.name) || 'Sin nombre',
+    kind: wsS(sp.kind) === 'ai' ? 'ai' : 'human',
+    role: wsS(sp.role), areaId: area.id,
+    stationId: (area.stations.find((x) => x.id === wsS(sp.stationId)) || area.stations[0] || {}).id || '',
+    agentId: wsS(sp.agentId) || null,
+  };
+  w0.staff.push(p);
+  return wsDone(w0, (p.kind === 'ai' ? 'Agente' : 'Persona') + ' «' + p.name + '» en «' + area.name + '».');
+}
+function wsUpdateStaff(world, staffId, patch) {
+  const w0 = wsClone(world);
+  const p = wsArr(w0.staff).find((x) => x.id === wsS(staffId) || wsNorm(x.name) === wsNorm(staffId));
+  if (!p) return wsFail(world, 'No existe «' + wsS(staffId) + '» en el personal.');
+  const q = wsObj(patch);
+  if (q.name !== undefined) p.name = wsS(q.name) || p.name;
+  if (q.role !== undefined) p.role = wsS(q.role);
+  if (q.kind !== undefined) p.kind = wsS(q.kind) === 'ai' ? 'ai' : 'human';
+  if (q.areaId !== undefined) {
+    const a = wsArr(w0.areas).find((x) => x.id === wsS(q.areaId) || wsNorm(x.name) === wsNorm(q.areaId));
+    if (!a) return wsFail(world, 'No existe el área destino.');
+    p.areaId = a.id;
+    p.stationId = (a.stations[0] || {}).id || '';
+  }
+  if (q.stationId !== undefined) {
+    const a = wsArr(w0.areas).find((x) => x.id === p.areaId);
+    if (a && a.stations.some((x) => x.id === wsS(q.stationId))) p.stationId = wsS(q.stationId);
+  }
+  return wsDone(w0, '«' + p.name + '» actualizado.');
+}
+function wsRemoveStaff(world, staffId) {
+  const w0 = wsClone(world);
+  const i = wsArr(w0.staff).findIndex((x) => x.id === wsS(staffId) || wsNorm(x.name) === wsNorm(staffId));
+  if (i < 0) return wsFail(world, 'No existe en el personal.');
+  const gone = w0.staff.splice(i, 1)[0];
+  return wsDone(w0, '«' + gone.name + '» dado de baja del mapa.');
+}
+function wsResizeGrid(world, w, h) {
+  const w0 = wsClone(world);
+  const nw = wsClamp(wsNum(w, w0.grid.w), 6, WS_GRID_MAX);
+  const nh = wsClamp(wsNum(h, w0.grid.h), 6, WS_GRID_MAX);
+  const out = wsArr(w0.areas).filter((a) => a.x + a.w > nw || a.y + a.h > nh);
+  if (out.length) return wsFail(world, 'No se puede encoger: ' + out.length + ' área(s) quedarían fuera ('
+    + out.map((a) => a.name).join(', ') + ').');
+  w0.grid = { w: nw, h: nh };
+  return wsDone(w0, 'Mapa de ' + nw + '×' + nh + '.');
+}
+
+/**
+ * Siembra el mundo desde el flujo de agentes de la app anfitriona.
+ *
+ * Es lo que hace que esto NO sea un juguete separado: cada agente del flujo
+ * entra como personal de IA en el área que le corresponde, y los
+ * departamentos que la app declare se convierten en edificios.
+ */
+function wsSeedWorld(plan, opts) {
+  const o = wsObj(opts);
+  let world = wsEmptyWorld();
+  world.seededFrom = wsS(o.appId) || 'app';
+  const groups = wsArr(o.groups).length ? wsArr(o.groups) : [
+    { departmentId: 'produccion', name: 'Producción', structure: 'factory' },
+  ];
+  for (const g of groups) {
+    const r = wsAddArea(world, g);
+    if (r.ok) world = r.world;
+  }
+  // Zona común: siempre viene bien un sitio donde los avatares se crucen.
+  const plaza = wsAddArea(world, { departmentId: 'direccion', name: 'Plaza', structure: 'plaza' });
+  if (plaza.ok) world = plaza.world;
+
+  const areas = wsArr(world.areas);
+  const place = (i, departmentId) => areas.find((a) => wsS(a.departmentId) === wsS(departmentId))
+    || areas[i % Math.max(1, areas.length)] || null;
+
+  wsArr(plan).forEach((node, i) => {
+    const target = place(i, node.departmentId);
+    if (!target) return;
+    const r = wsAddStaff(world, { name: node.name, kind: 'ai', role: 'Agente ' + (node.n || i + 1),
+      areaId: target.id, agentId: node.id });
+    if (r.ok) world = r.world;
+  });
+
+  // Personal humano. Sin él el mapa sería una fábrica automática, y la idea es
+  // justo la contraria: que se vea quién hace qué junto a qué agente.
+  wsArr(o.people).forEach((p, i) => {
+    const target = place(i, p.departmentId);
+    if (!target) return;
+    const r = wsAddStaff(world, { name: p.name, kind: 'human', role: p.role, areaId: target.id });
+    if (r.ok) world = r.world;
+  });
+  return world;
+}
+
+/** Resumen para la interfaz y para el snapshot del agente. */
+function wsWorldSummary(world) {
+  const w = wsObj(world);
+  const byDep = {};
+  for (const a of wsArr(w.areas)) byDep[a.departmentId] = (byDep[a.departmentId] || 0) + 1;
+  return {
+    areas: wsArr(w.areas).length,
+    puestos: wsArr(w.areas).reduce((n, a) => n + wsArr(a.stations).length, 0),
+    personas: wsArr(w.staff).filter((p) => p.kind === 'human').length,
+    agentes: wsArr(w.staff).filter((p) => p.kind === 'ai').length,
+    mapa: wsObj(w.grid).w + '×' + wsObj(w.grid).h,
+    departamentos: Object.keys(byDep).map((k) => wsDepartmentById(k).label),
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DOMINIO · Modelo de campaña (agregado raíz)
@@ -1565,6 +1958,10 @@ function emptyCampaign() {
     brandCheck: null,    // Agente 9
     copy: null,          // Agente 10
     analytics: null,     // Agente 12
+    // Mapa de la organización (KIMOS WorldSkin): departamentos, procesos
+    // internos y personal —agentes de IA y personas— que se recorre en la
+    // vista Organización. Se siembra en `migrate` desde el propio flujo.
+    world: wsEmptyWorld(),
     pipeline: { runs: [], stages: {} },
     versions: [],        // [{ id, label, at, summary, snapshot }]
     log: [],             // trazas de ejecución (máx LOG_MAX)
@@ -1625,6 +2022,11 @@ function migrate(raw) {
   out.objectiveId = objectiveById(out.objectiveId).id;
   out.audienceId = audienceById(out.audienceId).id;
   out.categoryId = categoryById(out.categoryId).id;
+  // El mundo se normaliza siempre (tolera documentos viejos o manipulados) y
+  // se siembra una sola vez: si el usuario vacía el mapa a propósito, se queda
+  // vacío en vez de resucitar solo en la siguiente carga.
+  out.world = wsMigrateWorld(d.world);
+  if (!s(out.world.seededFrom) && !arr(out.world.areas).length) out.world = seedOrgWorld(out);
   out.pipeline = Object.assign({ runs: [], stages: {} }, obj(d.pipeline));
   out.pipeline.stages = obj(out.pipeline.stages);
   out.pipeline.runs = arr(out.pipeline.runs).slice(-20);
@@ -1662,6 +2064,182 @@ function logLine(c, level, text) {
   const line = { at: nowIso(), level: s(level) || 'info', text: s(text) };
   c.log = arr(c.log).concat([line]).slice(-LOG_MAX);
   return line;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KIMOS WorldSkin · simulación de avatares
+//
+// Los avatares se mueven de verdad, pero lo que hacen NO es decorativo: sale
+// del estado real del flujo de la app. Un agente que está ejecutándose camina
+// a su puesto y trabaja; uno bloqueado se planta con un «!»; uno apagado se
+// va a la zona común y se sienta.
+//
+// La simulación es una FUNCIÓN PURA por paso (`wsSimStep`): el bucle de
+// animación vive en la UI y solo llama aquí. Así se puede probar sin
+// navegador, y pausarla no deja nada a medias.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const WS_SPEED = 1.9;          // celdas por segundo
+const WS_TICK_MAX = 0.1;       // s: techo del delta, para que un frame perdido
+                               // no teletransporte a nadie por medio mapa
+const WS_FOOT_BIAS = 0.78;     // dónde caen los pies dentro de su celda
+
+const WS_MOODS = {
+  working: { id: 'working', bubble: '', label: 'trabajando' },
+  done: { id: 'done', bubble: '✓', label: 'terminado' },
+  blocked: { id: 'blocked', bubble: '!', label: 'bloqueado' },
+  off: { id: 'off', bubble: '·', label: 'descansando' },
+  idle: { id: 'idle', bubble: '', label: 'disponible' },
+  human: { id: 'human', bubble: '', label: 'en su puesto' },
+};
+
+/** Centro de un área en coordenadas de celda. */
+const wsAreaCenter = (a) => ({ x: wsNum(a.x, 0) + wsNum(a.w, 1) / 2, y: wsNum(a.y, 0) + wsNum(a.h, 1) / 2 });
+
+/**
+ * Posición de un puesto dentro de su área, repartida en rejilla.
+ *
+ * `slot` es el número de orden de quien ocupa ese puesto: sin él, dos personas
+ * en el mismo puesto se dibujarían exactamente en el mismo píxel y solo se
+ * vería a una. Se reparten en corrillo alrededor del puesto.
+ */
+function wsStationPos(area, stationId, slot) {
+  const list = wsArr(area.stations);
+  const i = Math.max(0, list.findIndex((s) => s.id === wsS(stationId)));
+  const cols = Math.max(1, Math.min(list.length, Math.round(wsNum(area.w, 2))));
+  const cx = i % cols;
+  const cy = Math.floor(i / cols);
+  const rows = Math.max(1, Math.ceil(list.length / cols));
+  const aw = wsNum(area.w, 2); const ah = wsNum(area.h, 2);
+  // Los pies van en la parte baja de la celda: el avatar se dibuja HACIA
+  // ARRIBA desde este punto, y centrado se le saldría la cabeza por el tejado.
+  const base = {
+    x: wsNum(area.x, 0) + (cx + 0.5) * (aw / cols),
+    y: wsNum(area.y, 0) + (cy + WS_FOOT_BIAS) * (ah / rows),
+  };
+  const k = Math.max(0, wsNum(slot, 0));
+  if (k) {
+    // Corrillo: radio creciente cada seis, para que un puesto muy poblado no
+    // acabe con todo el mundo encima de la pared.
+    const ring = Math.floor((k - 1) / 6) + 1;
+    const ang = (((k - 1) % 6) / 6) * Math.PI * 2;
+    const r = Math.min(0.4 * ring, Math.min(aw, ah) / 2 - 0.12);
+    base.x += Math.cos(ang) * r;
+    base.y += Math.sin(ang) * r * 0.55;
+  }
+  return {
+    x: wsClamp(base.x, wsNum(area.x, 0) + 0.18, wsNum(area.x, 0) + aw - 0.18),
+    y: wsClamp(base.y, wsNum(area.y, 0) + WS_FOOT_BIAS, wsNum(area.y, 0) + ah - 0.08),
+  };
+}
+
+/**
+ * Crea el estado inicial de los avatares. Se vuelve a llamar cuando cambia el
+ * mundo: conserva la posición de quien siga existiendo, para que editar un
+ * área no haga saltar a todo el personal.
+ */
+function wsSimInit(world, prev) {
+  const before = new Map(wsArr(wsObj(prev).actors).map((a) => [a.id, a]));
+  const areas = wsArr(wsObj(world).areas);
+  const taken = {};                    // cuántos comparten ya cada puesto
+  const actors = wsArr(wsObj(world).staff).map((p) => {
+    const area = areas.find((a) => a.id === p.areaId) || areas[0] || null;
+    const key = (area ? area.id : '-') + '|' + wsS(p.stationId);
+    const slot = taken[key] || 0;
+    taken[key] = slot + 1;
+    const home = area ? wsStationPos(area, p.stationId, slot) : { x: 1, y: 1 };
+    const old = before.get(p.id);
+    const seed = wsHash(p.id + p.name);
+    return {
+      id: p.id, name: p.name, kind: p.kind, role: p.role,
+      agentId: p.agentId || null, areaId: area ? area.id : '',
+      x: old ? old.x : home.x, y: old ? old.y : home.y,
+      tx: home.x, ty: home.y,          // destino
+      homeX: home.x, homeY: home.y,
+      face: old ? old.face : 1,        // 1 derecha, -1 izquierda
+      phase: (seed % 1000) / 1000,     // desfase de animación, para que no vayan a la vez
+      hue: seed % 360,
+      mood: 'idle', wait: (seed % 700) / 1000,
+      bubble: '', bubbleT: 0,
+    };
+  });
+  return { actors, t: 0, paused: false };
+}
+
+/**
+ * Un paso de simulación. `dt` en segundos; `statusOf(agentId)` devuelve el
+ * estado del agente en el flujo de la app anfitriona.
+ * Devuelve un estado NUEVO (no muta el recibido).
+ */
+function wsSimStep(sim, world, dt, statusOf) {
+  const s0 = wsObj(sim);
+  const step = Math.min(WS_TICK_MAX, Math.max(0, wsNum(dt, 0)));
+  const areas = wsArr(wsObj(world).areas);
+  const plaza = areas.find((a) => a.structure === 'plaza') || null;
+  const t = wsNum(s0.t, 0) + step;
+
+  const actors = wsArr(s0.actors).map((a0) => {
+    const a = Object.assign({}, a0);
+    const st = a.kind === 'ai' && typeof statusOf === 'function' ? wsS(statusOf(a.agentId)) : '';
+    // El humor sale del flujo real; si la app no dice nada, la persona
+    // simplemente está en su puesto.
+    a.mood = a.kind !== 'ai' ? 'human'
+      : st === 'done' ? 'done' : st === 'error' || st === 'blocked' ? 'blocked'
+        : st === 'off' || st === 'skipped' ? 'off' : st === 'running' ? 'working' : 'idle';
+
+    // A dónde va: apagado → zona común; el resto → su puesto, con pequeños
+    // paseos para que la escena esté viva sin ser un caos.
+    let goX = a.homeX; let goY = a.homeY;
+    if (a.mood === 'off' && plaza) { const c = wsAreaCenter(plaza); goX = c.x; goY = c.y; }
+    a.wait = wsNum(a.wait, 0) - step;
+    if (a.wait <= 0) {
+      a.wait = 2.5 + ((wsHash(a.id + Math.floor(t / 3)) % 400) / 100);
+      const wob = ((wsHash(a.id + Math.floor(t / 3) + 'w') % 100) / 100 - 0.5) * 0.9;
+      const wob2 = ((wsHash(a.id + Math.floor(t / 3) + 'h') % 100) / 100 - 0.5) * 0.9;
+      a.tx = goX + (a.mood === 'working' ? wob * 0.35 : wob);
+      a.ty = goY + (a.mood === 'working' ? wob2 * 0.35 : wob2);
+    } else if (a.mood === 'off' && plaza) { a.tx = goX; a.ty = goY; }
+
+    const dx = a.tx - a.x; const dy = a.ty - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const speed = WS_SPEED * (a.mood === 'working' ? 1.25 : a.mood === 'off' ? 0.6 : 1);
+    if (dist > 0.02) {
+      const mv = Math.min(dist, speed * step);
+      a.x += (dx / dist) * mv;
+      a.y += (dy / dist) * mv;
+      if (Math.abs(dx) > 0.02) a.face = dx > 0 ? 1 : -1;
+      a.moving = true;
+    } else { a.moving = false; }
+
+    const mood = WS_MOODS[a.mood] || WS_MOODS.idle;
+    a.bubble = mood.bubble;
+    return a;
+  });
+
+  return { actors, t, paused: !!s0.paused };
+}
+
+/** Un actor «habla»: burbuja temporal. Útil al seleccionarlo o al ejecutarlo. */
+function wsSimSay(sim, actorId, text, seconds) {
+  const s0 = wsObj(sim);
+  return {
+    t: wsNum(s0.t, 0), paused: !!s0.paused,
+    actors: wsArr(s0.actors).map((a) => (a.id === wsS(actorId)
+      ? Object.assign({}, a, { bubble: wsS(text).slice(0, 40), bubbleT: wsNum(seconds, 3) })
+      : a)),
+  };
+}
+
+/** Paleta del avatar, derivada de su id: siempre el mismo aspecto. */
+function wsAvatarColors(actor) {
+  const a = wsObj(actor);
+  const hue = wsNum(a.hue, 200);
+  if (a.kind === 'ai') {
+    return { body: 'hsl(' + ((hue % 60) + 170) + ' 55% 52%)', head: '#E9F6F7',
+      trim: 'hsl(' + ((hue % 60) + 170) + ' 70% 72%)' };
+  }
+  return { body: 'hsl(' + hue + ' 42% 48%)', head: 'hsl(' + ((hue * 7) % 40 + 20) + ' 45% 74%)',
+    trim: 'hsl(' + hue + ' 42% 66%)' };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3879,67 +4457,67 @@ function exportJobsCsv(c) {
 
 const AGENTS = [
   {
-    id: 'creative-director', n: 1, name: 'Creative Director', emoji: '🎯',
+    id: 'creative-director', n: 1, name: 'Creative Director', emoji: '🎯', dept: 'direccion',
     description: 'Analiza el producto, extrae atributos, ventajas y emociones, y define storytelling, estilo visual, narrativa y concepto creativo.',
     needs: ['brief'], writes: 'concept', requires: [],
     run: (c) => buildConcept(c),
   },
   {
-    id: 'research', n: 2, name: 'Research Agent', emoji: '🔍',
+    id: 'research', n: 2, name: 'Research Agent', emoji: '🔍', dept: 'marketing',
     description: 'Investiga mercado, competencia, tendencias, público objetivo, nicho y el estilo visual dominante de la categoría.',
     needs: ['brief'], writes: 'research', requires: [],
     run: (c) => buildResearch(c),
   },
   {
-    id: 'planner', n: 3, name: 'Campaign Planner', emoji: '🗺️',
+    id: 'planner', n: 3, name: 'Campaign Planner', emoji: '🗺️', dept: 'operaciones',
     description: 'Define objetivo y funnel completo (notoriedad, consideración, conversión y remarketing) con canales, presupuesto, calendario y KPIs.',
     needs: ['research'], writes: 'plan', requires: ['research'],
     run: (c) => buildPlan(c),
   },
   {
-    id: 'storyboard', n: 4, name: 'Storyboard Generator', emoji: '🎞️',
+    id: 'storyboard', n: 4, name: 'Storyboard Generator', emoji: '🎞️', dept: 'produccion',
     description: 'Genera escenas con duración, cámara, ángulo, óptica, movimiento, iluminación, etalonaje, efectos y ritmo, por cada formato y variante.',
     needs: ['concept'], writes: 'storyboard', requires: ['concept'],
     run: (c) => buildStoryboard(c),
   },
   {
-    id: 'prompt-engineer', n: 5, name: 'Prompt Engineer', emoji: '✍️',
+    id: 'prompt-engineer', n: 5, name: 'Prompt Engineer', emoji: '✍️', dept: 'ti',
     description: 'Traduce cada escena a prompts optimizados para el proveedor configurado (OpenAI, Midjourney, FLUX, SD, ComfyUI, Runway, Kling, Veo, Sora, Higgsfield).',
     needs: ['storyboard'], writes: 'prompts', requires: ['storyboard'],
     run: (c) => buildPrompts(c),
   },
   {
-    id: 'voice-director', n: 6, name: 'Voice Director', emoji: '🎙️',
+    id: 'voice-director', n: 6, name: 'Voice Director', emoji: '🎙️', dept: 'produccion',
     description: 'Escribe la locución ajustada al metraje y genera los briefs de música, ambiente y efectos para ElevenLabs, OpenAI Audio, Suno o Udio.',
     needs: ['storyboard', 'concept'], writes: 'audio', requires: ['storyboard'],
     run: (c) => buildAudio(c),
   },
   {
-    id: 'video-producer', n: 7, name: 'Video Producer', emoji: '🎬',
+    id: 'video-producer', n: 7, name: 'Video Producer', emoji: '🎬', dept: 'produccion',
     description: 'Convierte prompts en trabajos de producción ejecutables: keyframes, tomas encadenadas cuando la escena excede el modelo, audio y coste estimado.',
     needs: ['prompts', 'audio'], writes: 'production', requires: ['prompts'],
     run: (c) => buildProduction(c),
   },
   {
-    id: 'video-editor', n: 8, name: 'Video Editor', emoji: '✂️',
+    id: 'video-editor', n: 8, name: 'Video Editor', emoji: '✂️', dept: 'produccion',
     description: 'Construye el timeline, los subtítulos SRT, la lista EDL y el script FFmpeg completo: cortes, color, transiciones, títulos, logo, CTA, mezcla y exportación.',
     needs: ['storyboard', 'audio'], writes: 'edit', requires: ['storyboard'],
     run: (c) => buildEdit(c),
   },
   {
-    id: 'copywriter', n: 10, name: 'Copywriter', emoji: '🖊️',
+    id: 'copywriter', n: 10, name: 'Copywriter', emoji: '🖊️', dept: 'marketing',
     description: 'Redacta anuncios para Meta, Instagram, TikTok, LinkedIn, YouTube y Google, más landing completa y secuencia de emails, respetando los límites de cada plataforma.',
     needs: ['concept', 'research'], writes: 'copy', requires: ['concept'],
     run: (c) => buildCopy(c),
   },
   {
-    id: 'brand-consistency', n: 9, name: 'Brand Consistency', emoji: '🛡️',
+    id: 'brand-consistency', n: 9, name: 'Brand Consistency', emoji: '🛡️', dept: 'legal',
     description: 'Audita paleta, tipografía, logotipo, producto, personajes, tono y legibilidad, y devuelve hallazgos accionables con su severidad.',
     needs: ['storyboard', 'copy'], writes: 'brandCheck', requires: ['storyboard'],
     run: (c) => buildBrandCheck(c),
   },
   {
-    id: 'analytics', n: 12, name: 'Analytics', emoji: '📊',
+    id: 'analytics', n: 12, name: 'Analytics', emoji: '📊', dept: 'finanzas',
     description: 'Contabiliza costes estimados y reales, tiempo, tokens y consumo por proveedor, y proyecta CTR, CPA y ROAS por canal.',
     needs: ['production', 'plan'], writes: 'analytics', requires: ['production'],
     run: (c, ctx) => buildAnalytics(c, arr(obj(ctx).ledger)),
@@ -4112,11 +4690,69 @@ function workflowPlan(campaign) {
     return {
       idx: i, id, n: a ? a.n : 0, name: a ? a.name : id, emoji: a ? a.emoji : '•',
       description: a ? a.description : '', writes: a ? a.writes : '',
+      // Departamento al que pertenece: es lo que coloca a su avatar en el mapa
+      // de la organización. Ver `wsSeedWorld`.
+      departmentId: a ? a.dept : 'produccion',
       deps, disabled: off, blocked,
       status: off ? 'off' : blocked ? 'blocked' : s(obj(stages[id]).status) || 'idle',
       ms: num(obj(stages[id]).ms, 0), error: s(obj(stages[id]).error),
       hasOutput: !!campaign[a ? a.writes : ''],
     };
+  });
+}
+
+// ── La organización detrás del flujo ──────────────────────────────────────
+// El mapa de la empresa no se inventa: los departamentos son los mismos que
+// declaran los agentes, y el personal humano es el equipo real que convive con
+// ellos. Todo esto es solo la SIEMBRA inicial; a partir de ahí el usuario (o el
+// agente de KIMOS) añade, edita y borra lo que quiera.
+
+const KS_ORG_AREAS = [
+  { departmentId: 'direccion', name: 'Dirección', structure: 'hq',
+    stations: [{ name: 'Dirección creativa', process: 'Aprueba concepto y guion' },
+      { name: 'Cuentas', process: 'Relación con el cliente' }] },
+  { departmentId: 'marketing', name: 'Marketing', structure: 'office',
+    stations: [{ name: 'Investigación', process: 'Mercado, competencia y tendencias' },
+      { name: 'Copy', process: 'Anuncios, landing y emails' }] },
+  { departmentId: 'produccion', name: 'Producción', structure: 'factory',
+    stations: [{ name: 'Storyboard', process: 'Escenas, cámara y ritmo' },
+      { name: 'Rodaje virtual', process: 'Keyframes y tomas' },
+      { name: 'Sala de montaje', process: 'Timeline, subtítulos y render' },
+      { name: 'Sonido', process: 'Locución, música y efectos' }] },
+  { departmentId: 'ti', name: 'Tecnología', structure: 'lab',
+    stations: [{ name: 'Prompts', process: 'Traducción a cada proveedor' },
+      { name: 'Proveedores', process: 'Altas, claves y coste por unidad' }] },
+  { departmentId: 'operaciones', name: 'Operaciones', structure: 'office',
+    stations: [{ name: 'Planificación', process: 'Funnel, calendario y presupuesto' }] },
+  { departmentId: 'finanzas', name: 'Finanzas', structure: 'office',
+    stations: [{ name: 'Coste de campaña', process: 'Estimado contra real' }] },
+  { departmentId: 'contabilidad', name: 'Contabilidad', structure: 'office',
+    stations: [{ name: 'Facturación', process: 'Proveedores y cliente' }] },
+  { departmentId: 'ventas', name: 'Ventas', structure: 'shop',
+    stations: [{ name: 'Propuestas', process: 'Presupuesto y cierre' }] },
+  { departmentId: 'rrhh', name: 'Recursos Humanos', structure: 'training',
+    stations: [{ name: 'Formación', process: 'Onboarding y buenas prácticas' }] },
+  { departmentId: 'legal', name: 'Legal y marca', structure: 'office',
+    stations: [{ name: 'Cumplimiento', process: 'Legales, claims y uso de marca' }] },
+];
+
+const KS_ORG_PEOPLE = [
+  { name: 'Dirección', role: 'Director creativo', departmentId: 'direccion' },
+  { name: 'Cuentas', role: 'Responsable de cliente', departmentId: 'direccion' },
+  { name: 'Marketing', role: 'Estratega', departmentId: 'marketing' },
+  { name: 'Realización', role: 'Productor', departmentId: 'produccion' },
+  { name: 'Montaje', role: 'Editor', departmentId: 'produccion' },
+  { name: 'Finanzas', role: 'Controller', departmentId: 'finanzas' },
+  { name: 'Contabilidad', role: 'Contable', departmentId: 'contabilidad' },
+  { name: 'Ventas', role: 'Comercial', departmentId: 'ventas' },
+  { name: 'Personas', role: 'Responsable de RRHH', departmentId: 'rrhh' },
+  { name: 'Legal', role: 'Asesor', departmentId: 'legal' },
+];
+
+/** Mundo inicial de una campaña, sembrado desde su propio flujo de agentes. */
+function seedOrgWorld(campaign) {
+  return wsSeedWorld(workflowPlan(campaign), {
+    appId: 'kreative-studio', groups: KS_ORG_AREAS, people: KS_ORG_PEOPLE,
   });
 }
 
@@ -4261,7 +4897,8 @@ export default function mount(shell) {
   let assets = [];      // items kind:'asset'  (AGENTE 11)
   let ledger = [];      // items kind:'cost'   (AGENTE 12)
   let ui = { view: 'dashboard', busy: false, sceneSel: null, formatSel: null, promptCap: 'video',
-    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '' };
+    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '',
+    worldTab: 'areas', worldArea: null, worldStaff: null };
 
   // ── Tema ────────────────────────────────────────────────────────────────
   // El modo Vivo depende de la hora, así que se guarda la hora actual en el
@@ -4538,6 +5175,24 @@ export default function mount(shell) {
     return next;
   }
 
+  /**
+   * Aplica una mutación del mapa de la organización (WorldSkin).
+   *
+   * Las mutaciones del paquete no lanzan: devuelven `{ world, ok, error }`.
+   * Aquí se traduce eso a la interfaz —guardar y avisar, o solo avisar— para
+   * que un dato imposible (un área que no cabe, un mapa que se encogería sobre
+   * un departamento) no deje el documento a medias.
+   */
+  function applyWorld(fn, opts) {
+    const o = obj(opts);
+    let r = null;
+    try { r = fn(model.world); } catch (e) { r = { ok: false, error: (e && e.message) || 'error inesperado' }; }
+    if (!r || !r.ok) { notify('error', s(r && r.error) || 'No se pudo cambiar el mapa.'); return false; }
+    patch((m) => { m.world = r.world; logLine(m, 'info', 'Organización · ' + s(r.message)); });
+    if (!o.quiet) notify('success', s(r.message));
+    return true;
+  }
+
   /** Vuelve a ejecutar las etapas que dependen de lo que acaba de cambiar. */
   function refreshFrom(stageId) {
     const idx = PIPELINE_ORDER.indexOf(s(stageId));
@@ -4700,6 +5355,27 @@ export default function mount(shell) {
         classicMode: { type: 'string', description: 'day | sunset | night | live' },
         gameMode: { type: 'string', description: 'kimoslab | jabotel | spacecraft' },
       } } },
+    { name: 'SET_ORG',
+      description: 'Edita el mapa de la organización que se recorre en la vista Organización: áreas (departamentos), '
+        + 'puestos (procesos internos de cada departamento) y personal (personas y agentes de IA). '
+        + 'Es el mismo mapa en las cuatro ambientaciones: cambiar el aspecto no lo modifica. '
+        + 'Los agentes del flujo ya están dentro como personal de IA; para apagarlos usa SET_WORKFLOW, no borres su avatar.',
+      inputSchema: { type: 'object', properties: {
+        op: { type: 'string', description: 'add_area | update_area | remove_area | add_station | update_station '
+          + '| remove_station | add_staff | update_staff | remove_staff | resize | reseed' },
+        areaId: { type: 'string', description: 'Id o nombre del área.' },
+        stationId: { type: 'string', description: 'Id o nombre del puesto.' },
+        staffId: { type: 'string', description: 'Id o nombre de la persona/agente.' },
+        name: { type: 'string' },
+        departmentId: { type: 'string', description: 'Uno de: ' + WS_DEPARTMENTS.map((d) => d.id).join(', ') },
+        structure: { type: 'string', description: 'Uno de: ' + WS_STRUCTURES.map((x) => x.id).join(', ') },
+        process: { type: 'string', description: 'Qué se hace en ese puesto.' },
+        role: { type: 'string', description: 'Rol de la persona.' },
+        kind: { type: 'string', description: 'human | ai' },
+        note: { type: 'string' },
+        x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' },
+        gridW: { type: 'number' }, gridH: { type: 'number' },
+      }, required: ['op'] } },
     { name: 'RUN_AGENT',
       description: 'Ejecuta un agente concreto y sus dependencias. IDs: ' + AGENTS.map((a) => a.id).join(', ') + '.',
       inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
@@ -5114,6 +5790,45 @@ export default function mount(shell) {
           + ' Es solo presentación: los datos y los resultados no cambian.' };
       }
 
+      // ── Mapa de la organización ─────────────────────────────────────────
+      if (type === 'SET_ORG') {
+        const op = norm(p.op).replace(/[^a-z_]/g, '');
+        // Cada operación es una mutación pura del paquete: devuelve un mundo
+        // nuevo o un motivo, nunca lanza y nunca deja el documento a medias.
+        const OPS = {
+          add_area: (w) => wsAddArea(w, { departmentId: p.departmentId, name: p.name, structure: p.structure,
+            x: p.x, y: p.y, w: p.w, h: p.h, note: p.note }),
+          update_area: (w) => wsUpdateArea(w, p.areaId, p),
+          remove_area: (w) => wsRemoveArea(w, p.areaId),
+          add_station: (w) => wsAddStation(w, p.areaId, { name: p.name, process: p.process }),
+          update_station: (w) => wsUpdateStation(w, p.areaId, p.stationId, { name: p.name, process: p.process }),
+          remove_station: (w) => wsRemoveStation(w, p.areaId, p.stationId),
+          add_staff: (w) => wsAddStaff(w, { name: p.name, role: p.role, kind: p.kind, areaId: p.areaId, stationId: p.stationId }),
+          update_staff: (w) => wsUpdateStaff(w, p.staffId, p),
+          remove_staff: (w) => wsRemoveStaff(w, p.staffId),
+          resize: (w) => wsResizeGrid(w, numOr(p.gridW, obj(w.grid).w), numOr(p.gridH, obj(w.grid).h)),
+        };
+        if (op === 'reseed') {
+          patch((m) => { m.world = seedOrgWorld(m); logLine(m, 'info', 'Organización · mapa sembrado de nuevo.'); });
+          return { success: true, message: 'Mapa sembrado de nuevo desde el flujo de agentes.',
+            data: wsWorldSummary(model.world) };
+        }
+        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['reseed']).join(', ') + '.' };
+        // Un agente del flujo no se da de baja borrando su avatar: eso dejaría
+        // el mapa mintiendo sobre quién trabaja aquí.
+        if (op === 'remove_staff') {
+          const who = arr(model.world.staff).find((x) => x.id === s(p.staffId) || norm(x.name) === norm(p.staffId));
+          if (who && who.agentId) {
+            return { success: false, error: '«' + who.name + '» es un agente del flujo. Desactívalo con '
+              + 'SET_WORKFLOW { disable: ["' + who.agentId + '"] } en vez de borrarlo del mapa.' };
+          }
+        }
+        const r = OPS[op](model.world);
+        if (!r || !r.ok) return { success: false, error: s(r && r.error) || 'No se pudo cambiar el mapa.' };
+        patch((m) => { m.world = r.world; logLine(m, 'info', 'Organización · ' + s(r.message)); });
+        return { success: true, message: s(r.message), data: wsWorldSummary(model.world) };
+      }
+
       // ── Ejecución de agentes ────────────────────────────────────────────
       if (type === 'RUN_AGENT') {
         const ag = agentById(p.agentId);
@@ -5509,6 +6224,16 @@ export default function mount(shell) {
           flujo: workflowPlan(model).map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name,
             estado: x.status, desactivado: x.disabled, bloqueado: x.blocked })),
           aspecto: { forma: currentTheme().formId, modo: currentTheme().modeId, etiqueta: currentTheme().label },
+          organizacion: {
+            resumen: wsWorldSummary(model.world),
+            areas: arr(model.world.areas).map((a) => ({ id: a.id, nombre: a.name,
+              departamento: wsDepartmentById(a.departmentId).label, estructura: a.structure,
+              procesos: arr(a.stations).map((x) => x.name),
+              ocupantes: arr(model.world.staff).filter((x) => x.areaId === a.id).map((x) => x.name) })),
+            personal: arr(model.world.staff).map((x) => ({ id: x.id, nombre: x.name, tipo: x.kind,
+              rol: x.role, area: (arr(model.world.areas).find((a) => a.id === x.areaId) || {}).name || null,
+              agente: x.agentId || null })),
+          },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),
         dispatchAction: dispatch,
@@ -5524,6 +6249,7 @@ export default function mount(shell) {
     { id: 'guide', label: 'Guía', emoji: '❔', group: 'Estudio' },
     { id: 'dashboard', label: 'Panel', emoji: '◎', group: 'Estudio' },
     { id: 'flow', label: 'Flujo', emoji: '⇄', group: 'Estudio' },
+    { id: 'world', label: 'Organización', emoji: '🗺', group: 'Estudio' },
     { id: 'brief', label: 'Brief', emoji: '✦', group: 'Estudio' },
     { id: 'research', label: 'Investigación', emoji: '⌕', group: 'Estrategia' },
     { id: 'concept', label: 'Concepto', emoji: '✧', group: 'Estrategia' },
@@ -6138,6 +6864,231 @@ export default function mount(shell) {
       h(Card, { key: 't', title: 'Plan de pruebas' }, [
         h('ul', { className: 'ks-list', key: 'l' }, arr(p.testPlan).map((x, i) => h('li', { key: i }, x))),
       ]),
+    ]);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // KIMOS WorldSkin · superficie del mundo (dentro de mount)
+  //
+  // Un solo modelo, tres proyecciones. La villa y el territorio son cenitales;
+  // el hotel es isométrico. La MISMA área ocupa las mismas celdas en los tres:
+  // cambiar de ambientación no mueve nada, solo cambia cómo se proyecta.
+  //
+  // Requisitos del anfitrión (ver docs/CONTRATO.md): `h`, `useState`,
+  // `useEffect`, `useRef` y `cx`.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  const WS_TILE = 46;
+
+  /** Proyección celda → píxel, por ambientación. */
+  function wsProjector(kind, grid) {
+    const g = wsObj(grid);
+    const T = WS_TILE;
+    if (kind === 'hotel') {
+      const originX = (wsNum(g.h, 12) * T) / 2 + 20;
+      return {
+        kind, T,
+        to: (cx, cy) => ({ x: (cx - cy) * (T / 2) + originX, y: (cx + cy) * (T / 4) + 34 }),
+        width: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 2) + 40,
+        height: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 4) + 120,
+      };
+    }
+    // El margen superior deja sitio al rótulo, que va por encima de cada
+    // estructura; el inferior, al subtítulo de la última fila.
+    return {
+      kind, T,
+      to: (cx, cy) => ({ x: cx * T + 14, y: cy * T + 22 }),
+      width: wsNum(g.w, 16) * T + 28,
+      height: wsNum(g.h, 12) * T + 42,
+    };
+  }
+
+  /** Rombo/rectángulo del suelo de un área, según proyección. */
+  function wsAreaShape(pr, a) {
+    if (pr.kind === 'hotel') {
+      const p1 = pr.to(a.x, a.y);
+      const p2 = pr.to(a.x + a.w, a.y);
+      const p3 = pr.to(a.x + a.w, a.y + a.h);
+      const p4 = pr.to(a.x, a.y + a.h);
+      return [p1, p2, p3, p4].map((p) => p.x + ',' + p.y).join(' ');
+    }
+    const o = pr.to(a.x, a.y);
+    return { x: o.x, y: o.y, w: a.w * pr.T, h: a.h * pr.T };
+  }
+
+  // ── Estructuras dibujadas ──────────────────────────────────────────────
+  function WsStructure(props) {
+    const p = wsObj(props);
+    const a = p.area; const pr = p.pr;
+    const dep = wsDepartmentById(a.departmentId);
+    const st = wsStructureById(a.structure);
+    const sel = p.selected;
+    const n = wsArr(a.stations).length;
+    const sub = wsStructureName(st.id, pr.kind) + ' · ' + n + (n === 1 ? ' puesto' : ' puestos');
+    if (pr.kind === 'hotel') {
+      const pts = wsAreaShape(pr, a);
+      const top = pr.to(a.x + a.w / 2, a.y + a.h / 2);
+      const lift = 26;
+      return h('g', { className: cx('ws-struct', sel && 'ws-struct-sel'), onClick: p.onClick }, [
+        h('polygon', { key: 'f', points: pts, fill: dep.color, fillOpacity: 0.22, stroke: dep.color, strokeWidth: sel ? 2.5 : 1.2 }),
+        h('polygon', { key: 'w', points: pts, fill: 'none', stroke: dep.color, strokeWidth: 1,
+          transform: 'translate(0,' + -lift + ')', opacity: 0.75 }),
+        h('line', { key: 'l1', x1: pts.split(' ')[0].split(',')[0], y1: pts.split(' ')[0].split(',')[1],
+          x2: pts.split(' ')[0].split(',')[0], y2: Number(pts.split(' ')[0].split(',')[1]) - lift,
+          stroke: dep.color, strokeWidth: 1, opacity: 0.6 }),
+        h('text', { key: 't', x: top.x, y: top.y - lift - 12, textAnchor: 'middle', className: 'ws-struct-label' },
+          dep.emoji + ' ' + a.name),
+        h('text', { key: 's', x: top.x, y: top.y - lift - 2, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+      ]);
+    }
+    const r = wsAreaShape(pr, a);
+    const round = pr.kind === 'village' ? 6 : 0;
+    const roof = pr.kind === 'village';
+    return h('g', { className: cx('ws-struct', sel && 'ws-struct-sel'), onClick: p.onClick }, [
+      h('rect', { key: 'b', x: r.x, y: r.y + (roof ? 10 : 0), width: r.w, height: r.h - (roof ? 10 : 0),
+        rx: round, fill: dep.color, fillOpacity: 0.26, stroke: dep.color, strokeWidth: sel ? 2.5 : 1.2 }),
+      roof ? h('polygon', { key: 'r', points: [
+        [r.x - 3, r.y + 12], [r.x + r.w / 2, r.y - 2], [r.x + r.w + 3, r.y + 12],
+      ].map((q) => q.join(',')).join(' '), fill: dep.color, fillOpacity: 0.7 }) : null,
+      // El chaflán es lo que hace que una estructura se lea como «desplegada»
+      // y no como una caja: se rellena, no solo se contornea.
+      pr.kind === 'territory' ? h('polygon', { key: 'c', points: [
+        [r.x, r.y + 12], [r.x + 12, r.y], [r.x + r.w - 12, r.y], [r.x + r.w, r.y + 12],
+        [r.x + r.w, r.y + r.h - 12], [r.x + r.w - 12, r.y + r.h],
+        [r.x + 12, r.y + r.h], [r.x, r.y + r.h - 12],
+      ].map((q) => q.join(',')).join(' '), fill: dep.color, fillOpacity: 0.18,
+      stroke: dep.color, strokeWidth: 1, opacity: 0.9 }) : null,
+      // Los rótulos van FUERA de la estructura: dentro los taparían los
+      // avatares, que es justo lo que hay que poder mirar.
+      h('text', { key: 't', x: r.x + r.w / 2, y: r.y - 4, textAnchor: 'middle', className: 'ws-struct-label' },
+        dep.emoji + ' ' + a.name),
+      h('text', { key: 's', x: r.x + r.w / 2, y: r.y + r.h + 11, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+    ]);
+  }
+
+  /** Avatar: dos píxeles de cuerpo y uno de cabeza, con rebote al andar. */
+  function WsAvatar(props) {
+    const p = wsObj(props);
+    const a = p.actor;
+    const col = wsAvatarColors(a);
+    const bob = a.moving ? Math.sin((p.t + a.phase) * 9) * 1.6 : Math.sin((p.t + a.phase) * 2) * 0.5;
+    const s = p.scale || 1;
+    return h('g', {
+      className: cx('ws-actor', p.selected && 'ws-actor-sel', a.mood === 'off' && 'ws-actor-off'),
+      transform: 'translate(' + p.px + ',' + (p.py + bob) + ') scale(' + (a.face < 0 ? -s : s) + ',' + s + ')',
+      onClick: p.onClick,
+    }, [
+      h('ellipse', { key: 'sh', cx: 0, cy: 1, rx: 6, ry: 2.4, fill: '#000', opacity: 0.22 }),
+      h('rect', { key: 'b', x: -4, y: -11, width: 8, height: 8, rx: 2, fill: col.body }),
+      h('rect', { key: 'h', x: -3.5, y: -18, width: 7, height: 7, rx: a.kind === 'ai' ? 1.5 : 3.5, fill: col.head }),
+      a.kind === 'ai'
+        ? h('rect', { key: 'e', x: -2.5, y: -16, width: 5, height: 1.8, fill: col.body })
+        : h('rect', { key: 'e', x: 0.4, y: -15.6, width: 1.4, height: 1.4, fill: '#2A2A2A' }),
+      a.kind === 'ai' ? h('rect', { key: 'a', x: -0.6, y: -21, width: 1.2, height: 3, fill: col.trim }) : null,
+      a.bubble ? h('g', { key: 'bu', transform: 'translate(7,-20) scale(' + (a.face < 0 ? -1 : 1) + ',1)' }, [
+        h('circle', { key: 'c', cx: 0, cy: 0, r: 5.5, fill: '#fff', opacity: 0.92 }),
+        h('text', { key: 't', x: 0, y: 2.4, textAnchor: 'middle', className: 'ws-bubble' }, a.bubble),
+      ]) : null,
+    ]);
+  }
+
+  /**
+   * Superficie del mundo. Recibe el mundo, el tema, el plan del flujo y una
+   * función que traduce agente → estado. Devuelve el SVG animado.
+   */
+  function WsWorldSurface(props) {
+    const p = wsObj(props);
+    const world = wsObj(p.world);
+    const pr = wsProjector(wsS(p.kind) || 'village', world.grid);
+    const simRef = useRef(null);
+    const rafRef = useRef(null);
+    // El bucle se da de alta una sola vez por firma del mundo, así que no
+    // puede cerrarse sobre `props`: se quedaría con el estado del flujo que
+    // había al arrancar y los avatares no reaccionarían nunca. Aquí se deja
+    // siempre lo último que ha llegado, y el bucle lo lee de aquí.
+    const liveRef = useRef(null);
+    const [, forceTick] = useState(0);
+    liveRef.current = { world, statusOf: p.statusOf };
+
+    // Firma del mundo: si cambia, se reconstruyen los actores conservando
+    // posiciones. Sin esto, editar un área haría saltar a todo el personal.
+    const sig = wsArr(world.staff).map((x) => x.id + x.areaId + x.stationId).join('|')
+      + '#' + wsArr(world.areas).map((a) => a.id + a.x + a.y + a.w + a.h).join('|');
+
+    if (!simRef.current || simRef.current.sig !== sig) {
+      simRef.current = { sig, sim: wsSimInit(world, simRef.current ? simRef.current.sim : null) };
+    }
+
+    useEffect(() => {
+      const reduce = (globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) || false;
+      if (reduce || typeof requestAnimationFrame !== 'function') return undefined;
+      let last = 0; let acc = 0; let stop = false;
+      const loop = (ts) => {
+        if (stop) return;
+        rafRef.current = requestAnimationFrame(loop);
+        // Pausa real cuando la pestaña no se ve: no gastar CPU de nadie.
+        if (globalThis.document && document.hidden) { last = ts; return; }
+        const dt = last ? (ts - last) / 1000 : 0;
+        last = ts;
+        acc += dt;
+        if (acc < 1 / 24) return;              // se repinta a 24 fps como techo
+        const cur = simRef.current;
+        const live = liveRef.current || { world, statusOf: p.statusOf };
+        if (cur) cur.sim = wsSimStep(cur.sim, live.world, acc, live.statusOf);
+        acc = 0;
+        forceTick((x) => (x + 1) % 1000000);
+      };
+      rafRef.current = requestAnimationFrame(loop);
+      return () => { stop = true; if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    }, [sig]);
+
+    const sim = simRef.current ? simRef.current.sim : wsSimInit(world, null);
+    const areas = wsArr(world.areas);
+    const g = wsObj(world.grid);
+
+    // Rejilla del suelo.
+    const lines = [];
+    if (pr.kind === 'hotel') {
+      for (let i = 0; i <= wsNum(g.w, 16); i++) {
+        const a0 = pr.to(i, 0); const b0 = pr.to(i, wsNum(g.h, 12));
+        lines.push(h('line', { key: 'v' + i, x1: a0.x, y1: a0.y, x2: b0.x, y2: b0.y, className: 'ws-grid' }));
+      }
+      for (let j = 0; j <= wsNum(g.h, 12); j++) {
+        const a0 = pr.to(0, j); const b0 = pr.to(wsNum(g.w, 16), j);
+        lines.push(h('line', { key: 'h' + j, x1: a0.x, y1: a0.y, x2: b0.x, y2: b0.y, className: 'ws-grid' }));
+      }
+    } else {
+      for (let i = 0; i <= wsNum(g.w, 16); i++) {
+        const a0 = pr.to(i, 0); const b0 = pr.to(i, wsNum(g.h, 12));
+        lines.push(h('line', { key: 'v' + i, x1: a0.x, y1: a0.y, x2: b0.x, y2: b0.y, className: 'ws-grid' }));
+      }
+      for (let j = 0; j <= wsNum(g.h, 12); j++) {
+        const a0 = pr.to(0, j); const b0 = pr.to(wsNum(g.w, 16), j);
+        lines.push(h('line', { key: 'h' + j, x1: a0.x, y1: a0.y, x2: b0.x, y2: b0.y, className: 'ws-grid' }));
+      }
+    }
+
+    // Los avatares se pintan de arriba abajo para que el de delante tape al
+    // de detrás: sin esto la escena se ve plana y desordenada.
+    const actors = wsArr(sim.actors).slice().sort((a, b) => (a.y + a.x) - (b.y + b.x));
+
+    return h('svg', {
+      className: 'ws-surface', viewBox: '0 0 ' + pr.width + ' ' + pr.height,
+      width: '100%', height: pr.height, role: 'img',
+      'aria-label': 'Mapa de la organización con ' + areas.length + ' áreas y ' + actors.length + ' avatares',
+    }, [
+      h('rect', { key: 'bg', x: 0, y: 0, width: pr.width, height: pr.height, className: 'ws-ground' }),
+      h('g', { key: 'grid' }, lines),
+      h('g', { key: 'areas' }, areas.map((a) => h(WsStructure, {
+        key: a.id, area: a, pr, selected: p.selArea === a.id,
+        onClick: () => p.onSelectArea && p.onSelectArea(a.id),
+      }))),
+      h('g', { key: 'actors' }, actors.map((a) => {
+        const q = pr.to(a.x, a.y);
+        return h(WsAvatar, { key: a.id, actor: a, px: q.x, py: q.y, t: wsNum(sim.t, 0),
+          scale: pr.kind === 'hotel' ? 1.15 : 1.25, selected: p.selStaff === a.id,
+          onClick: (e) => { if (e && e.stopPropagation) e.stopPropagation(); if (p.onSelectStaff) p.onSelectStaff(a.id); } });
+      })),
     ]);
   }
 
@@ -6910,6 +7861,38 @@ export default function mount(shell) {
 
   const GAME_RENDERERS = { kimoslab: FlowKimosLab, jabotel: FlowJabotel, spacecraft: FlowSpacecraft };
 
+  // ── Selector de forma y modo ───────────────────────────────────────────
+  // Vive aquí porque nació con el Flujo, pero lo usan dos vistas: el aspecto es
+  // de la app entera, no de una pantalla. Cambiarlo desde cualquiera de las dos
+  // afecta a las dos, porque escribe en el mismo sitio (`settings.theme`).
+  function SkinPicker() {
+    const theme = currentTheme();
+    const setTheme = (patchTheme) => patch((m) => { m.settings.theme = Object.assign({}, m.settings.theme, patchTheme); });
+    return h('div', { className: 'ks-skin' }, [
+      h('div', { className: 'ks-skin-row', key: 'forms' }, THEME_FORMS.map((f) => h('button', {
+        key: f.id, type: 'button', className: cx('ks-skin-form', theme.formId === f.id && 'ks-skin-on'),
+        onClick: () => setTheme({ form: f.id }), title: f.help,
+      }, [h('span', { key: 'e' }, f.emoji), h('span', { key: 'l' }, f.label)]))),
+      h('div', { className: 'ks-skin-row', key: 'modes' },
+        (theme.formId === 'game' ? GAME_MODES : CLASSIC_MODES).map((m0) => h('button', {
+          key: m0.id, type: 'button',
+          className: cx('ks-skin-mode', (theme.formId === 'game' ? theme.modeId : model.settings.theme.classicMode) === m0.id && 'ks-skin-on'),
+          onClick: () => setTheme(theme.formId === 'game' ? { gameMode: m0.id } : { classicMode: m0.id }),
+          title: m0.help || '',
+        }, [h('span', { key: 'e' }, m0.emoji), h('span', { key: 'l' }, m0.label)]))),
+    ]);
+  }
+
+  /** Explicación del modo activo, en una línea. */
+  function skinHint(theme) {
+    if (theme.live) {
+      return 'Modo Vivo: ahora mismo se ve en ' + s(theme.label).split('·').pop().trim()
+        + ', y cambia solo con la hora del equipo.';
+    }
+    return s((theme.formId === 'game' ? gameModeById(theme.modeId) : classicModeById(theme.modeId)).help
+      || 'El aspecto no cambia lo que hacen los agentes, solo cómo se lee.');
+  }
+
   // ── Vista ──────────────────────────────────────────────────────────────
   function FlowView() {
     const plan = workflowPlan(model);
@@ -6920,8 +7903,6 @@ export default function mount(shell) {
     const custom = arr(model.settings.workflow.order).length > 0 || arr(model.settings.workflow.disabled).length > 0;
     const Renderer = theme.formId === 'game' ? (GAME_RENDERERS[theme.modeId] || FlowKimosLab) : FlowClassic;
 
-    const setTheme = (patchTheme) => patch((m) => { m.settings.theme = Object.assign({}, m.settings.theme, patchTheme); });
-
     return h('div', { className: 'ks-view' }, [
       h(ViewHead, { key: 'h', title: 'Flujo de agentes',
         subtitle: plan.length + ' agentes · ' + plan.filter((x) => x.status === 'done').length + ' ejecutados'
@@ -6931,25 +7912,11 @@ export default function mount(shell) {
           custom ? h(Btn, { key: 'z', onClick: act.reset }, 'Restablecer') : null,
         ].filter(Boolean) }),
 
-      h(Card, { key: 'sk', title: 'Aspecto' }, [
-        h('div', { className: 'ks-skin', key: 'f' }, [
-          h('div', { className: 'ks-skin-row', key: 'forms' }, THEME_FORMS.map((f) => h('button', {
-            key: f.id, type: 'button', className: cx('ks-skin-form', theme.formId === f.id && 'ks-skin-on'),
-            onClick: () => setTheme({ form: f.id }), title: f.help,
-          }, [h('span', { key: 'e' }, f.emoji), h('span', { key: 'l' }, f.label)]))),
-          h('div', { className: 'ks-skin-row', key: 'modes' },
-            (theme.formId === 'game' ? GAME_MODES : CLASSIC_MODES).map((m0) => h('button', {
-              key: m0.id, type: 'button',
-              className: cx('ks-skin-mode', (theme.formId === 'game' ? theme.modeId : model.settings.theme.classicMode) === m0.id && 'ks-skin-on'),
-              onClick: () => setTheme(theme.formId === 'game' ? { gameMode: m0.id } : { classicMode: m0.id }),
-              title: m0.help || '',
-            }, [h('span', { key: 'e' }, m0.emoji), h('span', { key: 'l' }, m0.label)]))),
-        ]),
-        h('p', { className: 'ks-hint', key: 'n' },
-          theme.live ? 'Modo Vivo: ahora mismo se ve en ' + s(theme.label).split('·').pop().trim()
-            + ', y cambia solo con la hora del equipo.'
-            : s((theme.formId === 'game' ? gameModeById(theme.modeId) : classicModeById(theme.modeId)).help
-              || 'El aspecto no cambia lo que hacen los agentes, solo cómo se lee.')),
+      h(Card, { key: 'sk', title: 'Aspecto',
+        actions: [h(Btn, { key: 'w', size: 'sm', variant: 'ghost', onClick: () => setUi({ view: 'world' }) },
+          'Ver la organización')] }, [
+        h(SkinPicker, { key: 'f' }),
+        h('p', { className: 'ks-hint', key: 'n' }, skinHint(theme)),
       ]),
 
       h('div', { className: cx('ks-flow-stage', 'ks-flow-' + (theme.formId === 'game' ? theme.modeId : 'classic')), key: 'st' },
@@ -7455,6 +8422,340 @@ export default function mount(shell) {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
+  // UI · Organización — el mapa de la empresa, editable
+  //
+  // La misma información que el Flujo, contada como un sitio: departamentos,
+  // procesos internos y quién los atiende. En forma juego se recorre como una
+  // villa, un hotel o un territorio; en forma clásica es un plano de planta.
+  //
+  // Lo que se ve NO es decorado: cada avatar de IA está enlazado a un agente
+  // del flujo y su comportamiento sale de su estado real. Si ejecutas el
+  // Storyboard Generator desde aquí, su avatar se pone a trabajar de verdad.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  const KIND_LABEL = { village: 'villa', hotel: 'hotel', territory: 'territorio', plan: 'plano' };
+
+  /** Ambientación activa: la del modo de juego, o el plano en forma clásica. */
+  function worldKind(theme) {
+    return theme.formId === 'game' ? (s(obj(theme.world).kind) || 'village') : 'plan';
+  }
+
+  /** «1 proceso» / «2 procesos»: contar mal se nota más que cualquier adorno. */
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+  const depOptions = () => WS_DEPARTMENTS.map((d) => ({ value: d.id, label: d.emoji + '  ' + d.label }));
+  const structOptions = (kind) => WS_STRUCTURES.map((x) => {
+    const local = wsStructureName(x.id, kind);
+    return { value: x.id, label: x.emoji + '  ' + x.label + (norm(local) === norm(x.label) ? '' : ' · ' + local) };
+  });
+
+  // ── Detalle de un área ─────────────────────────────────────────────────
+  function AreaEditor(props) {
+    const p = obj(props);
+    const a = p.area;
+    const kind = p.kind;
+    const [stationName, setStationName] = useState('');
+    const dep = wsDepartmentById(a.departmentId);
+    const staffHere = arr(model.world.staff).filter((x) => x.areaId === a.id);
+
+    const upd = (patchArea) => applyWorld((w) => wsUpdateArea(w, a.id, patchArea), { quiet: true });
+
+    return h('div', { key: a.id }, [
+      h('div', { className: 'ks-form ws-form', key: 'f' }, [
+        h(Field, { key: 'n', label: 'Nombre' },
+          h(TextInput, { value: a.name, onChange: (v) => upd({ name: v }) })),
+        h(Field, { key: 'd', label: 'Departamento' },
+          h(Select, { value: a.departmentId, options: depOptions(), onChange: (v) => upd({ departmentId: v }) })),
+        h(Field, { key: 's', label: 'Estructura',
+          help: norm(wsStructureName(a.structure, kind)) === norm(wsStructureById(a.structure).label)
+            ? '' : 'Aquí se ve como «' + wsStructureName(a.structure, kind) + '».' },
+          h(Select, { value: a.structure, options: structOptions(kind), onChange: (v) => upd({ structure: v }) })),
+        h(Field, { key: 'w', label: 'Ancho (celdas)' },
+          h(TextInput, { type: 'number', min: 1, max: 8, value: a.w, onChange: (v) => upd({ w: v }) })),
+        h(Field, { key: 'h', label: 'Alto (celdas)' },
+          h(TextInput, { type: 'number', min: 1, max: 8, value: a.h, onChange: (v) => upd({ h: v }) })),
+        h(Field, { key: 'x', label: 'Posición X' },
+          h(TextInput, { type: 'number', min: 0, value: a.x, onChange: (v) => upd({ x: v }) })),
+        h(Field, { key: 'y', label: 'Posición Y' },
+          h(TextInput, { type: 'number', min: 0, value: a.y, onChange: (v) => upd({ y: v }) })),
+      ]),
+      h(Field, { key: 'note', label: 'Nota', wide: true },
+        h(TextArea, { value: a.note, rows: 2, placeholder: 'Para qué sirve este departamento',
+          onChange: (v) => upd({ note: v }) })),
+
+      h('h4', { className: 'ws-subhead', key: 'sth' }, 'Procesos internos'),
+      h('p', { className: 'ws-mini', key: 'sthx' },
+        'Cada puesto es un proceso del departamento. El personal se reparte entre ellos, y ahí es donde se le ve trabajar.'),
+      h('div', { className: 'ks-list ws-list ws-sub', key: 'st' }, arr(a.stations).map((st) => h('div', {
+        key: st.id, className: 'ws-row',
+      }, [
+        h('span', { className: 'ws-row-dot', key: 'd', style: { background: dep.color } }),
+        h('div', { className: 'ws-row-body', key: 'b' }, [
+          h(TextInput, { key: 'n', value: st.name,
+            onChange: (v) => applyWorld((w) => wsUpdateStation(w, a.id, st.id, { name: v }), { quiet: true }) }),
+          h(TextInput, { key: 'p', value: st.process, placeholder: 'Qué se hace en este puesto',
+            onChange: (v) => applyWorld((w) => wsUpdateStation(w, a.id, st.id, { process: v }), { quiet: true }) }),
+        ]),
+        h(Btn, { key: 'x', size: 'xs', variant: 'ghost', title: 'Eliminar puesto',
+          onClick: () => applyWorld((w) => wsRemoveStation(w, a.id, st.id)) }, '✕'),
+      ]))),
+      h('div', { className: 'ws-actions', key: 'sta' }, [
+        h(TextInput, { key: 'i', value: stationName, placeholder: 'Nombre del nuevo puesto',
+          onChange: setStationName }),
+        h(Btn, { key: 'b', size: 'sm', onClick: () => {
+          if (applyWorld((w) => wsAddStation(w, a.id, { name: stationName }))) setStationName('');
+        } }, 'Añadir puesto'),
+      ]),
+
+      h('p', { className: 'ws-mini', key: 'who' }, staffHere.length
+        ? 'Aquí trabajan ' + staffHere.map((x) => x.name).join(', ') + '.'
+        : 'Todavía no hay nadie asignado a esta área.'),
+
+      h('div', { className: 'ws-actions', key: 'del' }, [
+        h(Btn, { key: 'd', size: 'sm', variant: 'danger',
+          onClick: () => { if (applyWorld((w) => wsRemoveArea(w, a.id))) setUi({ worldArea: null }); } },
+          'Eliminar área'),
+      ]),
+    ]);
+  }
+
+  // ── Detalle de una persona o agente ────────────────────────────────────
+  function StaffEditor(props) {
+    const p = obj(props);
+    const person = p.person;
+    const world = model.world;
+    const area = arr(world.areas).find((x) => x.id === person.areaId) || null;
+    const node = person.agentId ? arr(p.plan).find((x) => x.id === person.agentId) : null;
+    const upd = (q) => applyWorld((w) => wsUpdateStaff(w, person.id, q), { quiet: true });
+
+    return h('div', { key: person.id }, [
+      h('div', { className: 'ks-form ws-form', key: 'f' }, [
+        h(Field, { key: 'n', label: 'Nombre' },
+          h(TextInput, { value: person.name, disabled: !!node, onChange: (v) => upd({ name: v }) })),
+        h(Field, { key: 'r', label: 'Puesto o rol' },
+          h(TextInput, { value: person.role, onChange: (v) => upd({ role: v }) })),
+        h(Field, { key: 'k', label: 'Tipo', help: node ? 'Enlazado a un agente del flujo: no puede pasar a persona.' : '' },
+          h(Select, { value: person.kind, disabled: !!node,
+            options: [{ value: 'human', label: '🧑 Persona' }, { value: 'ai', label: '🤖 Agente de IA' }],
+            onChange: (v) => upd({ kind: v }) })),
+        h(Field, { key: 'a', label: 'Área' },
+          h(Select, { value: person.areaId, options: arr(world.areas).map((x) => ({ value: x.id, label: x.name })),
+            onChange: (v) => upd({ areaId: v }) })),
+        area ? h(Field, { key: 's', label: 'Puesto' },
+          h(Select, { value: person.stationId, options: arr(area.stations).map((x) => ({ value: x.id, label: x.name })),
+            onChange: (v) => upd({ stationId: v }) })) : null,
+      ]),
+      node ? h('div', { className: 'ks-kv ks-kv-sm', key: 'ag' }, [
+        h('div', { key: '1' }, [h('span', { key: 'a' }, 'Agente del flujo'),
+          h('strong', { key: 'b' }, node.emoji + ' ' + node.name)]),
+        h('div', { key: '2' }, [h('span', { key: 'a' }, 'Estado ahora'),
+          h('strong', { key: 'b' }, STATUS_LABEL[node.status] || node.status)]),
+        h('div', { key: '3' }, [h('span', { key: 'a' }, 'Escribe'), h('strong', { key: 'b' }, node.writes || '—')]),
+      ]) : null,
+      node ? h('p', { className: 'ws-mini', key: 'desc' }, node.description) : null,
+      h('div', { className: 'ws-actions', key: 'a' }, [
+        node ? h(Btn, { key: 'r', size: 'sm', variant: 'primary', disabled: node.disabled || node.blocked,
+          onClick: () => runStages([node.id], node.name) }, 'Ponerle a trabajar') : null,
+        node ? h(Btn, { key: 'f', size: 'sm', onClick: () => setUi({ view: 'flow', flowSel: node.id }) },
+          'Ver en el flujo') : null,
+        h(Btn, { key: 'd', size: 'sm', variant: 'danger', disabled: !!node,
+          title: node ? 'Los agentes del flujo no se dan de baja aquí: desactívalos en el Flujo.' : '',
+          onClick: () => { if (applyWorld((w) => wsRemoveStaff(w, person.id))) setUi({ worldStaff: null }); } },
+          'Dar de baja'),
+      ].filter(Boolean)),
+    ]);
+  }
+
+  // ── Alta de áreas y de personal ────────────────────────────────────────
+  function AreaCreator(props) {
+    const kind = obj(props).kind;
+    const [dep, setDep] = useState('rrhh');
+    const [name, setName] = useState('');
+    const [struct, setStruct] = useState('office');
+    return h('div', { className: 'ws-form', key: 'new' }, [
+      h(Field, { key: 'd', label: 'Departamento' },
+        h(Select, { value: dep, options: depOptions(), onChange: setDep })),
+      h(Field, { key: 'n', label: 'Nombre', help: 'Vacío = el del departamento.' },
+        h(TextInput, { value: name, placeholder: wsDepartmentById(dep).label, onChange: setName })),
+      h(Field, { key: 's', label: 'Estructura' },
+        h(Select, { value: struct, options: structOptions(kind), onChange: setStruct })),
+      h(Field, { key: 'b', label: ' ' },
+        h(Btn, { variant: 'primary', size: 'sm', onClick: () => {
+          const before = arr(model.world.areas).map((x) => x.id);
+          if (applyWorld((w) => wsAddArea(w, { departmentId: dep, name, structure: struct }))) {
+            const added = arr(model.world.areas).find((x) => before.indexOf(x.id) < 0);
+            setName('');
+            if (added) setUi({ worldTab: 'areas', worldArea: added.id, worldStaff: null });
+          }
+        } }, 'Añadir área')),
+    ]);
+  }
+
+  function StaffCreator() {
+    const world = model.world;
+    const [name, setName] = useState('');
+    const [role, setRole] = useState('');
+    const [areaId, setAreaId] = useState('');
+    const area = arr(world.areas).find((x) => x.id === areaId) || arr(world.areas)[0] || null;
+    return h('div', { className: 'ws-form', key: 'new' }, [
+      h(Field, { key: 'n', label: 'Nombre' },
+        h(TextInput, { value: name, placeholder: 'Quién se incorpora', onChange: setName })),
+      h(Field, { key: 'r', label: 'Puesto o rol' },
+        h(TextInput, { value: role, placeholder: 'Diseñador, becaria, contable…', onChange: setRole })),
+      h(Field, { key: 'a', label: 'Área' },
+        h(Select, { value: area ? area.id : '', options: arr(world.areas).map((x) => ({ value: x.id, label: x.name })),
+          onChange: setAreaId })),
+      h(Field, { key: 'b', label: ' ' },
+        h(Btn, { variant: 'primary', size: 'sm', disabled: !arr(world.areas).length, onClick: () => {
+          if (!s(name).trim()) { notify('error', 'Ponle un nombre a la persona.'); return; }
+          if (applyWorld((w) => wsAddStaff(w, { name, role, kind: 'human', areaId: area ? area.id : '' }))) {
+            setName(''); setRole('');
+          }
+        } }, 'Incorporar persona')),
+    ]);
+  }
+
+  // ── Vista ──────────────────────────────────────────────────────────────
+  function WorldView() {
+    const theme = currentTheme();
+    const kind = worldKind(theme);
+    const world = model.world;
+    const sum = wsWorldSummary(world);
+    const plan = workflowPlan(model);
+
+    // Un mapa de estados por agente, calculado UNA vez por repintado: la
+    // simulación pregunta por cada avatar y en cada fotograma.
+    const statusMap = {};
+    for (const n of plan) statusMap[n.id] = n.status;
+    const statusOf = (agentId) => statusMap[s(agentId)] || '';
+
+    const selArea = arr(world.areas).find((x) => x.id === ui.worldArea) || null;
+    const selStaff = arr(world.staff).find((x) => x.id === ui.worldStaff) || null;
+    const tab = ui.worldTab === 'staff' ? 'staff' : 'areas';
+
+    const depsPresent = uniq(arr(world.areas).map((a) => a.departmentId)).map(wsDepartmentById);
+
+    return h('div', { className: 'ks-view' }, [
+      h(ViewHead, { key: 'h', title: 'Organización',
+        subtitle: plural(sum.areas, 'área', 'áreas') + ' · ' + plural(sum.puestos, 'proceso', 'procesos')
+          + ' · ' + plural(sum.agentes, 'agente de IA', 'agentes de IA')
+          + ' · ' + plural(sum.personas, 'persona', 'personas')
+          + ' · mapa ' + sum.mapa + ' · ' + (KIND_LABEL[kind] || kind),
+        actions: [
+          h(Btn, { key: 'f', size: 'sm', onClick: () => setUi({ view: 'flow' }) }, 'Ir al flujo'),
+          h(Btn, { key: 'r', size: 'sm', variant: 'primary',
+            onClick: () => runStages(null, 'Pipeline') }, 'Ejecutar flujo'),
+        ] }),
+
+      h(Card, { key: 'sk', title: 'Aspecto' }, [
+        h(SkinPicker, { key: 'p' }),
+        h('p', { className: 'ks-hint', key: 'n' }, theme.formId === 'game'
+          ? skinHint(theme)
+          : 'En forma clásica la organización se ve como un plano de planta. Cambia a forma Juego para recorrerla.'),
+      ]),
+
+      h('div', { className: 'ws-stage', key: 'stage' }, [
+        h('div', { className: 'ws-scroll', key: 's' }, arr(world.areas).length
+          ? h(WsWorldSurface, {
+            world, kind, statusOf,
+            selArea: ui.worldArea, selStaff: ui.worldStaff,
+            onSelectArea: (id) => setUi({ worldArea: id, worldStaff: null, worldTab: 'areas' }),
+            onSelectStaff: (id) => setUi({ worldStaff: id, worldArea: null, worldTab: 'staff' }),
+          })
+          : h(Empty, { icon: '🗺️', text: 'El mapa está vacío. Añade un área o vuelve a sembrarlo desde el flujo.' })),
+        h('div', { className: 'ws-legend', key: 'l' }, [
+          h('span', { key: 'ai' }, [h('i', { key: 'd', style: { background: '#4ECDC4' } }), 'Agente de IA']),
+          h('span', { key: 'hu' }, [h('i', { key: 'd', style: { background: '#C9A227' } }), 'Persona']),
+        ].concat(depsPresent.map((d) => h('span', { key: d.id },
+          [h('i', { key: 'd', style: { background: d.color } }), d.label])))),
+      ]),
+
+      h('div', { className: 'ws-cols', key: 'cols' }, [
+        h(Card, { key: 'list', title: 'Qué hay en el mapa', flush: false }, [
+          h('div', { className: 'ws-tabs', key: 't' }, [
+            h('button', { key: 'a', type: 'button', className: cx('ws-tab', tab === 'areas' && 'ws-tab-on'),
+              onClick: () => setUi({ worldTab: 'areas' }) }, 'Áreas · ' + sum.areas),
+            h('button', { key: 's', type: 'button', className: cx('ws-tab', tab === 'staff' && 'ws-tab-on'),
+              onClick: () => setUi({ worldTab: 'staff' }) }, 'Personal · ' + (sum.agentes + sum.personas)),
+          ]),
+          tab === 'areas'
+            ? h('div', { className: 'ks-list ws-list', key: 'la' }, arr(world.areas).map((a) => {
+              const dep = wsDepartmentById(a.departmentId);
+              const here = arr(world.staff).filter((x) => x.areaId === a.id).length;
+              return h('button', {
+                key: a.id, type: 'button', className: cx('ws-row', ui.worldArea === a.id && 'ws-row-on'),
+                onClick: () => setUi({ worldArea: a.id, worldStaff: null }),
+              }, [
+                h('span', { className: 'ws-row-dot', key: 'd', style: { background: dep.color } }),
+                h('span', { className: 'ws-row-body', key: 'b' }, [
+                  h('strong', { key: 'n' }, a.name),
+                  h('span', { key: 'm' }, wsStructureName(a.structure, kind) + ' · '
+                    + plural(arr(a.stations).length, 'proceso', 'procesos') + ' · '
+                    + plural(here, 'ocupante', 'ocupantes')),
+                ]),
+                h('span', { className: 'ws-row-tag', key: 't' }, a.w + '×' + a.h),
+              ]);
+            }))
+            : h('div', { className: 'ks-list ws-list', key: 'ls' }, arr(world.staff).map((x) => {
+              const area = arr(world.areas).find((y) => y.id === x.areaId);
+              const st = area ? arr(area.stations).find((y) => y.id === x.stationId) : null;
+              const status = x.agentId ? statusOf(x.agentId) : '';
+              return h('button', {
+                key: x.id, type: 'button', className: cx('ws-row', ui.worldStaff === x.id && 'ws-row-on'),
+                onClick: () => setUi({ worldStaff: x.id, worldArea: null }),
+              }, [
+                h('span', { className: 'ws-row-dot', key: 'd',
+                  style: { background: x.kind === 'ai' ? '#4ECDC4' : '#C9A227' } }),
+                h('span', { className: 'ws-row-body', key: 'b' }, [
+                  h('strong', { key: 'n' }, (x.kind === 'ai' ? '🤖 ' : '🧑 ') + x.name),
+                  h('span', { key: 'm' }, (x.role || '—') + ' · ' + (area ? area.name : 'sin área')
+                    + (st ? ' · ' + st.name : '')),
+                ]),
+                status ? h('span', { className: 'ws-row-tag', key: 't' }, STATUS_LABEL[status] || status) : null,
+              ]);
+            })),
+          h('h4', { className: 'ws-subhead', key: 'nh' }, tab === 'areas' ? 'Nueva área' : 'Nueva persona'),
+          tab === 'areas' ? h(AreaCreator, { key: 'nc', kind }) : h(StaffCreator, { key: 'nc' }),
+        ]),
+
+        h(Card, { key: 'det', title: selArea ? 'Área seleccionada' : selStaff ? 'Ficha' : 'Detalle' },
+          selArea ? h(AreaEditor, { area: selArea, kind })
+            : selStaff ? h(StaffEditor, { person: selStaff, plan })
+              : h('p', { className: 'ks-hint' },
+                'Pincha una estructura o un avatar del mapa —o una fila de la lista— para editarlo.')),
+      ]),
+
+      h(Card, { key: 'map', title: 'Terreno' }, [
+        h('div', { className: 'ws-form', key: 'f' }, [
+          h(Field, { key: 'w', label: 'Ancho del mapa' },
+            h(TextInput, { type: 'number', min: 6, max: 40, value: obj(world.grid).w,
+              onChange: (v) => applyWorld((w) => wsResizeGrid(w, v, obj(model.world.grid).h)) })),
+          h(Field, { key: 'h', label: 'Alto del mapa' },
+            h(TextInput, { type: 'number', min: 6, max: 40, value: obj(world.grid).h,
+              onChange: (v) => applyWorld((w) => wsResizeGrid(w, obj(model.world.grid).w, v)) })),
+          h(Field, { key: 'r', label: ' ', help: 'Rehace el mapa desde los agentes del flujo. Se pierde lo que hayas editado.' },
+            h(Btn, { size: 'sm', onClick: () => {
+              patch((m) => { m.world = seedOrgWorld(m); logLine(m, 'info', 'Organización · mapa sembrado de nuevo.'); });
+              setUi({ worldArea: null, worldStaff: null });
+              notify('success', 'Mapa sembrado de nuevo desde el flujo.');
+            } }, 'Sembrar de nuevo')),
+        ]),
+        h('p', { className: 'ks-hint', key: 'n' },
+          'El mapa no se puede encoger por encima de un área ocupada: primero muévela o bórrala.'),
+      ]),
+
+      h(Card, { key: 'help', title: 'Cómo se relaciona esto con el trabajo real' }, [
+        h('ul', { className: 'ks-list', key: 'l' }, [
+          'Cada avatar de IA es un agente del flujo. Su comportamiento sale de su estado real: si se está ejecutando, camina a su puesto y trabaja; si está bloqueado, se planta con un «!»; si lo desactivas, se va a la zona común.',
+          'Las personas son tuyas: añádelas, cámbialas de área y repártelas entre procesos. Nadie las ejecuta ni las simula como agentes; están para que se vea quién acompaña a cada máquina.',
+          'Las áreas son departamentos y sus puestos son los procesos internos. Son los mismos datos en las cuatro ambientaciones: cambiar de villa a hotel o a territorio no mueve una sola celda.',
+          'El movimiento se pausa cuando la ventana no está a la vista, y no arranca si tu sistema pide menos animación.',
+        ].map((x, i) => h('li', { key: i }, x))),
+      ]),
+    ]);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   // UI · Guía
   // Lo que la app hace y lo que NO hace, en la propia app. El punto que más
   // confunde —Kreative Studio no llama a los modelos generativos— no se
@@ -7636,6 +8937,24 @@ export default function mount(shell) {
           h('span', { key: 'l' }, providersFor(cap.id).map((p) => p.label).join(' · ')),
         ]))),
       ]),
+
+      // ── Aspecto y organización ───────────────────────────────────────
+      h(Card, { key: 'skin', title: 'Dos formas de ver el mismo trabajo',
+        actions: [
+          h(Btn, { key: 'f', size: 'sm', onClick: go('flow') }, 'Ver el flujo'),
+          h(Btn, { key: 'w', size: 'sm', onClick: go('world') }, 'Ver la organización'),
+        ] }, [
+        h('p', { className: 'ks-lead', key: 'p' },
+          'La forma clásica es un estudio profesional con modos de luz —día, atardecer, noche y «vivo», '
+          + 'que sigue la hora del equipo—. La forma juego enseña lo mismo como un sitio por el que pasear: '
+          + 'una villa en píxeles (KimosLab), un hotel isométrico (JABOTEL) o un territorio de estructuras (Spacecraft).'),
+        h('ul', { className: 'ks-list', key: 'l' }, [
+          'En el Flujo se ve la cadena de agentes: qué depende de qué, qué se ha ejecutado y qué está bloqueado. Se puede reordenar, apagar agentes y ejecutarlos sueltos.',
+          'En la Organización se ve la empresa: departamentos, sus procesos internos y quién los atiende. Cada agente de IA tiene su avatar y se mueve según su estado real; junto a ellos está el personal humano que añadas.',
+          'Se pueden añadir, editar y borrar áreas, procesos y personas en cualquiera de las ambientaciones. El mapa es el mismo en las cuatro: cambiar de piel no mueve una sola celda ni toca la campaña.',
+          'El movimiento se pausa cuando la ventana no está a la vista y no arranca si tu sistema pide menos animación.',
+        ].map((x, i) => h('li', { key: i }, x))),
+      ]),
     ]);
   }
 
@@ -7644,7 +8963,7 @@ export default function mount(shell) {
   // ═════════════════════════════════════════════════════════════════════════
 
   const VIEW_COMPONENTS = {
-    guide: GuideView, flow: FlowView,
+    guide: GuideView, flow: FlowView, world: WorldView,
     dashboard: DashboardView, brief: BriefView, research: ResearchView, concept: ConceptView,
     plan: PlanView, storyboard: StoryboardView, timeline: TimelineView, prompts: PromptsView,
     audio: AudioView, jobs: JobsView, editor: EditorView, copy: CopyView, brand: BrandView,

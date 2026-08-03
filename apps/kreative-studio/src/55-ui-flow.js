@@ -317,6 +317,38 @@
 
   const GAME_RENDERERS = { kimoslab: FlowKimosLab, jabotel: FlowJabotel, spacecraft: FlowSpacecraft };
 
+  // ── Selector de forma y modo ───────────────────────────────────────────
+  // Vive aquí porque nació con el Flujo, pero lo usan dos vistas: el aspecto es
+  // de la app entera, no de una pantalla. Cambiarlo desde cualquiera de las dos
+  // afecta a las dos, porque escribe en el mismo sitio (`settings.theme`).
+  function SkinPicker() {
+    const theme = currentTheme();
+    const setTheme = (patchTheme) => patch((m) => { m.settings.theme = Object.assign({}, m.settings.theme, patchTheme); });
+    return h('div', { className: 'ks-skin' }, [
+      h('div', { className: 'ks-skin-row', key: 'forms' }, THEME_FORMS.map((f) => h('button', {
+        key: f.id, type: 'button', className: cx('ks-skin-form', theme.formId === f.id && 'ks-skin-on'),
+        onClick: () => setTheme({ form: f.id }), title: f.help,
+      }, [h('span', { key: 'e' }, f.emoji), h('span', { key: 'l' }, f.label)]))),
+      h('div', { className: 'ks-skin-row', key: 'modes' },
+        (theme.formId === 'game' ? GAME_MODES : CLASSIC_MODES).map((m0) => h('button', {
+          key: m0.id, type: 'button',
+          className: cx('ks-skin-mode', (theme.formId === 'game' ? theme.modeId : model.settings.theme.classicMode) === m0.id && 'ks-skin-on'),
+          onClick: () => setTheme(theme.formId === 'game' ? { gameMode: m0.id } : { classicMode: m0.id }),
+          title: m0.help || '',
+        }, [h('span', { key: 'e' }, m0.emoji), h('span', { key: 'l' }, m0.label)]))),
+    ]);
+  }
+
+  /** Explicación del modo activo, en una línea. */
+  function skinHint(theme) {
+    if (theme.live) {
+      return 'Modo Vivo: ahora mismo se ve en ' + s(theme.label).split('·').pop().trim()
+        + ', y cambia solo con la hora del equipo.';
+    }
+    return s((theme.formId === 'game' ? gameModeById(theme.modeId) : classicModeById(theme.modeId)).help
+      || 'El aspecto no cambia lo que hacen los agentes, solo cómo se lee.');
+  }
+
   // ── Vista ──────────────────────────────────────────────────────────────
   function FlowView() {
     const plan = workflowPlan(model);
@@ -327,8 +359,6 @@
     const custom = arr(model.settings.workflow.order).length > 0 || arr(model.settings.workflow.disabled).length > 0;
     const Renderer = theme.formId === 'game' ? (GAME_RENDERERS[theme.modeId] || FlowKimosLab) : FlowClassic;
 
-    const setTheme = (patchTheme) => patch((m) => { m.settings.theme = Object.assign({}, m.settings.theme, patchTheme); });
-
     return h('div', { className: 'ks-view' }, [
       h(ViewHead, { key: 'h', title: 'Flujo de agentes',
         subtitle: plan.length + ' agentes · ' + plan.filter((x) => x.status === 'done').length + ' ejecutados'
@@ -338,25 +368,11 @@
           custom ? h(Btn, { key: 'z', onClick: act.reset }, 'Restablecer') : null,
         ].filter(Boolean) }),
 
-      h(Card, { key: 'sk', title: 'Aspecto' }, [
-        h('div', { className: 'ks-skin', key: 'f' }, [
-          h('div', { className: 'ks-skin-row', key: 'forms' }, THEME_FORMS.map((f) => h('button', {
-            key: f.id, type: 'button', className: cx('ks-skin-form', theme.formId === f.id && 'ks-skin-on'),
-            onClick: () => setTheme({ form: f.id }), title: f.help,
-          }, [h('span', { key: 'e' }, f.emoji), h('span', { key: 'l' }, f.label)]))),
-          h('div', { className: 'ks-skin-row', key: 'modes' },
-            (theme.formId === 'game' ? GAME_MODES : CLASSIC_MODES).map((m0) => h('button', {
-              key: m0.id, type: 'button',
-              className: cx('ks-skin-mode', (theme.formId === 'game' ? theme.modeId : model.settings.theme.classicMode) === m0.id && 'ks-skin-on'),
-              onClick: () => setTheme(theme.formId === 'game' ? { gameMode: m0.id } : { classicMode: m0.id }),
-              title: m0.help || '',
-            }, [h('span', { key: 'e' }, m0.emoji), h('span', { key: 'l' }, m0.label)]))),
-        ]),
-        h('p', { className: 'ks-hint', key: 'n' },
-          theme.live ? 'Modo Vivo: ahora mismo se ve en ' + s(theme.label).split('·').pop().trim()
-            + ', y cambia solo con la hora del equipo.'
-            : s((theme.formId === 'game' ? gameModeById(theme.modeId) : classicModeById(theme.modeId)).help
-              || 'El aspecto no cambia lo que hacen los agentes, solo cómo se lee.')),
+      h(Card, { key: 'sk', title: 'Aspecto',
+        actions: [h(Btn, { key: 'w', size: 'sm', variant: 'ghost', onClick: () => setUi({ view: 'world' }) },
+          'Ver la organización')] }, [
+        h(SkinPicker, { key: 'f' }),
+        h('p', { className: 'ks-hint', key: 'n' }, skinHint(theme)),
       ]),
 
       h('div', { className: cx('ks-flow-stage', 'ks-flow-' + (theme.formId === 'game' ? theme.modeId : 'classic')), key: 'st' },

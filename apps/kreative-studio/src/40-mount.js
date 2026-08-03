@@ -35,7 +35,8 @@ export default function mount(shell) {
   let assets = [];      // items kind:'asset'  (AGENTE 11)
   let ledger = [];      // items kind:'cost'   (AGENTE 12)
   let ui = { view: 'dashboard', busy: false, sceneSel: null, formatSel: null, promptCap: 'video',
-    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '' };
+    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '',
+    worldTab: 'areas', worldArea: null, worldStaff: null };
 
   // ── Tema ────────────────────────────────────────────────────────────────
   // El modo Vivo depende de la hora, así que se guarda la hora actual en el
@@ -310,6 +311,24 @@ export default function mount(shell) {
     next.updatedAt = nowIso();
     commit(next, opts);
     return next;
+  }
+
+  /**
+   * Aplica una mutación del mapa de la organización (WorldSkin).
+   *
+   * Las mutaciones del paquete no lanzan: devuelven `{ world, ok, error }`.
+   * Aquí se traduce eso a la interfaz —guardar y avisar, o solo avisar— para
+   * que un dato imposible (un área que no cabe, un mapa que se encogería sobre
+   * un departamento) no deje el documento a medias.
+   */
+  function applyWorld(fn, opts) {
+    const o = obj(opts);
+    let r = null;
+    try { r = fn(model.world); } catch (e) { r = { ok: false, error: (e && e.message) || 'error inesperado' }; }
+    if (!r || !r.ok) { notify('error', s(r && r.error) || 'No se pudo cambiar el mapa.'); return false; }
+    patch((m) => { m.world = r.world; logLine(m, 'info', 'Organización · ' + s(r.message)); });
+    if (!o.quiet) notify('success', s(r.message));
+    return true;
   }
 
   /** Vuelve a ejecutar las etapas que dependen de lo que acaba de cambiar. */
