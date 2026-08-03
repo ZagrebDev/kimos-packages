@@ -15,6 +15,12 @@
   --ks-ok: #35C48A;
   --ks-warn: #E5A93A;
   --ks-bad: #EE5A5A;
+  --ks-media: #05070A;      /* fondo de miniaturas de imagen y vídeo */
+  --ks-checker: #1A1F26;    /* tablero de transparencia del logotipo */
+  --ks-shadow: 0 1px 2px rgba(0,0,0,.4);
+  --ks-grid: #232932;       /* rejilla decorativa de los modos de juego */
+  --ks-ink: #19ACB1;
+  --ks-gamefont: inherit;
   height: 100%; width: 100%;
   display: flex; flex-direction: column;
   background: var(--ks-bg); color: var(--ks-txt);
@@ -272,7 +278,7 @@
 .kimos-kreative .ks-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .kimos-kreative .ks-photo { border: 1px solid var(--ks-line2); border-radius: 10px; overflow: hidden; background: var(--ks-bg); }
 .kimos-kreative .ks-photo-hero { border-color: var(--ks-accent); }
-.kimos-kreative .ks-photo img { width: 100%; height: 118px; object-fit: contain; display: block; background: #05070A; }
+.kimos-kreative .ks-photo img { width: 100%; height: 118px; object-fit: contain; display: block; background: var(--ks-media); }
 .kimos-kreative .ks-photo-bar { display: flex; gap: 5px; padding: 6px; justify-content: space-between; align-items: center; }
 .kimos-kreative .ks-swatches { display: flex; flex-wrap: wrap; gap: 12px; }
 .kimos-kreative .ks-swatch { display: flex; align-items: center; gap: 7px; }
@@ -281,7 +287,7 @@
 .kimos-kreative .ks-swatch-label code { font-family: ui-monospace, Menlo, monospace; color: var(--ks-txt2); text-transform: uppercase; }
 .kimos-kreative .ks-moodphotos { display: flex; gap: 8px; flex-wrap: wrap; }
 .kimos-kreative .ks-moodphotos img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--ks-line2); }
-.kimos-kreative .ks-logo { padding: 14px; background: repeating-conic-gradient(#1a1f26 0% 25%, #12151A 0% 50%) 50% / 16px 16px; border-radius: 9px; text-align: center; }
+.kimos-kreative .ks-logo { padding: 14px; background: repeating-conic-gradient(var(--ks-checker) 0% 25%, var(--ks-panel) 0% 50%) 50% / 16px 16px; border-radius: 9px; text-align: center; }
 .kimos-kreative .ks-logo img { max-width: 190px; max-height: 80px; object-fit: contain; }
 
 /* ── Concepto ──────────────────────────────────────────────────────────── */
@@ -458,7 +464,7 @@
 /* ── Biblioteca ────────────────────────────────────────────────────────── */
 .kimos-kreative .ks-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 11px; }
 .kimos-kreative .ks-asset { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
-.kimos-kreative .ks-asset-thumb { height: 122px; background: #05070A; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.kimos-kreative .ks-asset-thumb { height: 122px; background: var(--ks-media); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .kimos-kreative .ks-asset-thumb img, .kimos-kreative .ks-asset-thumb video { width: 100%; height: 100%; object-fit: contain; }
 .kimos-kreative .ks-asset-thumb audio { width: 92%; }
 .kimos-kreative .ks-asset-icon { font-size: 30px; opacity: .5; }
@@ -485,6 +491,201 @@
 .kimos-kreative .ks-version-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .kimos-kreative .ks-version-date { font-size: 11px; color: var(--ks-txt3); font-variant-numeric: tabular-nums; }
 .kimos-kreative .ks-version-actions { display: flex; gap: 6px; }
+
+/* ═══ FLUJO DE AGENTES ═══════════════════════════════════════════════════
+   Una sola vista, cuatro pieles. Todo el decorado es CSS y SVG generados:
+   ni una imagen, ni una fuente externa, ni una petición de red. */
+
+.kimos-kreative .ks-skin { display: flex; flex-direction: column; gap: 9px; }
+.kimos-kreative .ks-skin-row { display: flex; gap: 7px; flex-wrap: wrap; }
+.kimos-kreative .ks-skin-form, .kimos-kreative .ks-skin-mode {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  border: 1px solid var(--ks-line2); background: var(--ks-panel2); color: var(--ks-txt2);
+  border-radius: 9px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 600;
+}
+.kimos-kreative .ks-skin-mode { padding: 5px 11px; font-size: 12px; border-radius: 999px; }
+.kimos-kreative .ks-skin-form:hover, .kimos-kreative .ks-skin-mode:hover { color: var(--ks-txt); border-color: var(--ks-txt3); }
+.kimos-kreative .ks-skin-on {
+  background: color-mix(in srgb, var(--ks-accent) 18%, transparent);
+  border-color: var(--ks-accent); color: var(--ks-txt);
+}
+.kimos-kreative .ks-flow-stage { border-radius: 12px; overflow: hidden; border: 1px solid var(--ks-line); }
+
+/* ── Forma clásica: grafo de dependencias ──────────────────────────────── */
+.kimos-kreative .ks-flow-classic { display: flex; flex-direction: column; gap: 0; background: var(--ks-panel); padding: 6px 0; }
+.kimos-kreative .ks-flownode {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 20px; cursor: pointer; border-left: 3px solid transparent;
+}
+.kimos-kreative .ks-flownode:hover { background: var(--ks-panel2); }
+.kimos-kreative .ks-flownode-sel { background: var(--ks-panel2); border-left-color: var(--ks-accent); }
+.kimos-kreative .ks-flowlink {
+  position: absolute; left: 33px; top: -8px; width: 2px; height: 16px; background: var(--ks-line2);
+}
+.kimos-kreative .ks-flownode-idx {
+  width: 25px; height: 25px; border-radius: 8px; flex-shrink: 0; z-index: 1;
+  background: var(--ks-bg); border: 1px solid var(--ks-line2); color: var(--ks-txt3);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+}
+.kimos-kreative .ks-fs-done .ks-flownode-idx { border-color: var(--ks-ok); color: var(--ks-ok); }
+.kimos-kreative .ks-fs-error .ks-flownode-idx { border-color: var(--ks-bad); color: var(--ks-bad); }
+.kimos-kreative .ks-fs-off { opacity: .45; }
+.kimos-kreative .ks-fs-blocked .ks-flownode-idx { border-color: var(--ks-warn); color: var(--ks-warn); }
+.kimos-kreative .ks-flownode-emoji { font-size: 16px; flex-shrink: 0; }
+.kimos-kreative .ks-flownode-body { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.kimos-kreative .ks-flownode-body strong { font-size: 13px; }
+.kimos-kreative .ks-flownode-meta { font-size: 11px; color: var(--ks-txt3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-flowdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ks-line2); flex-shrink: 0; }
+.kimos-kreative .ks-fd-done { background: var(--ks-ok); }
+.kimos-kreative .ks-fd-error { background: var(--ks-bad); }
+.kimos-kreative .ks-fd-blocked { background: var(--ks-warn); }
+.kimos-kreative .ks-fd-skipped, .kimos-kreative .ks-fd-off { background: transparent; border: 1px solid var(--ks-line2); }
+
+.kimos-kreative .ks-flow-inspector { display: flex; flex-direction: column; gap: 11px; }
+.kimos-kreative .ks-flow-insp-head { display: flex; align-items: center; gap: 11px; }
+.kimos-kreative .ks-flow-insp-emoji { font-size: 22px; }
+.kimos-kreative .ks-flow-insp-head > div { display: flex; flex-direction: column; }
+.kimos-kreative .ks-flow-insp-status { font-size: 11px; color: var(--ks-txt3); text-transform: uppercase; letter-spacing: .06em; }
+.kimos-kreative .ks-flow-insp-desc { margin: 0; color: var(--ks-txt2); max-width: 84ch; }
+.kimos-kreative .ks-flow-insp-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.kimos-kreative .ks-sprite { display: block; image-rendering: pixelated; }
+
+/* ── KimosLab: ruta en píxeles ─────────────────────────────────────────── */
+.kimos-kreative .ks-flow-kimoslab {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 15px, rgba(0,0,0,.06) 15px 16px),
+    repeating-linear-gradient(90deg, transparent 0 15px, rgba(0,0,0,.06) 15px 16px),
+    var(--ks-bg);
+  border-color: var(--ks-line);
+}
+.kimos-kreative .ks-lab { padding: 14px; font-family: var(--ks-gamefont); }
+.kimos-kreative .ks-lab-hud {
+  display: flex; justify-content: space-between; gap: 10px;
+  background: var(--ks-panel); border: 3px solid var(--ks-line); border-radius: 6px;
+  padding: 7px 12px; font-size: 12px; font-weight: 700; color: var(--ks-txt);
+  box-shadow: var(--ks-shadow); margin-bottom: 14px;
+}
+.kimos-kreative .ks-lab-route { display: flex; flex-wrap: wrap; gap: 4px 0; align-items: flex-start; }
+.kimos-kreative .ks-lab-stop {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: transparent; border: 0; cursor: pointer; padding: 6px 4px; width: 104px;
+  color: var(--ks-txt); font: inherit;
+}
+.kimos-kreative .ks-lab-stop:hover .ks-sprite { transform: translateY(-3px); }
+.kimos-kreative .ks-lab-stop .ks-sprite { transition: transform .12s steps(3); }
+.kimos-kreative .ks-lab-stop-sel::before {
+  content: ''; position: absolute; inset: 2px; border: 3px solid var(--ks-ink); border-radius: 5px;
+}
+.kimos-kreative .ks-lab-off { opacity: .5; }
+.kimos-kreative .ks-lab-name {
+  font-size: 10.5px; font-weight: 700; text-align: center; line-height: 1.2;
+  background: var(--ks-panel); border: 2px solid var(--ks-line); border-radius: 4px;
+  padding: 2px 5px; color: var(--ks-txt);
+}
+.kimos-kreative .ks-lab-badge { position: absolute; top: 0; right: 10px; font-size: 13px; color: #E8C020; }
+.kimos-kreative .ks-lab-path {
+  position: absolute; right: -2px; top: 28px; width: 8px; height: 4px; background: var(--ks-grid);
+}
+.kimos-kreative .ks-lab-dialog {
+  margin-top: 14px; background: var(--ks-panel); color: var(--ks-txt);
+  border: 4px solid var(--ks-line); border-radius: 8px; padding: 12px 14px;
+  box-shadow: var(--ks-shadow); font-size: 13px; line-height: 1.55;
+}
+.kimos-kreative .ks-lab-dialog p { margin: 0 0 10px; }
+.kimos-kreative .ks-lab-cmds { display: flex; gap: 7px; flex-wrap: wrap; }
+.kimos-kreative .ks-lab-cmd {
+  background: var(--ks-panel2); border: 2px solid var(--ks-line); border-radius: 5px;
+  padding: 5px 11px; font: inherit; font-size: 11.5px; font-weight: 700; color: var(--ks-txt);
+  cursor: pointer; box-shadow: 0 2px 0 var(--ks-line);
+}
+.kimos-kreative .ks-lab-cmd:hover:not(:disabled) { background: var(--ks-ink); color: #FFF; }
+.kimos-kreative .ks-lab-cmd:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+.kimos-kreative .ks-lab-cmd:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── JABOTEL: sala isométrica ──────────────────────────────────────────── */
+.kimos-kreative .ks-flow-jabotel { background: var(--ks-bg); }
+.kimos-kreative .ks-jab { padding: 14px; font-family: var(--ks-gamefont); }
+.kimos-kreative .ks-jab-hud {
+  display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px;
+  background: var(--ks-panel); border: 1px solid var(--ks-line2); border-radius: 999px;
+  padding: 6px 14px; font-size: 12px; font-weight: 700;
+}
+.kimos-kreative .ks-jab-room { position: relative; }
+.kimos-kreative .ks-jab-floor { position: absolute; inset: 0; width: 100%; }
+.kimos-kreative .ks-jab-tile { fill: var(--ks-grid); stroke: var(--ks-line2); stroke-width: 1; }
+.kimos-kreative .ks-jab-items { position: absolute; inset: 0; }
+.kimos-kreative .ks-jab-furni {
+  position: absolute; transform: translateX(-50%); display: flex; flex-direction: column;
+  align-items: center; gap: 2px; background: transparent; border: 0; cursor: pointer;
+  padding: 0; color: var(--ks-txt); font: inherit;
+}
+.kimos-kreative .ks-jab-furni:hover { filter: brightness(1.15); }
+.kimos-kreative .ks-jab-furni-sel .ks-jab-plate { background: var(--ks-ink); color: #1B2A3A; border-color: var(--ks-ink); }
+.kimos-kreative .ks-jab-off { opacity: .5; }
+.kimos-kreative .ks-jab-plate {
+  font-size: 10px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border-radius: 3px;
+  background: var(--ks-panel); border: 1px solid var(--ks-line2); color: var(--ks-txt);
+}
+.kimos-kreative .ks-jab-chat {
+  margin-top: 12px; background: var(--ks-panel); border: 1px solid var(--ks-line2);
+  border-radius: 4px 14px 14px 14px; padding: 11px 14px; position: relative;
+}
+.kimos-kreative .ks-jab-who { font-size: 11.5px; font-weight: 700; color: var(--ks-ink); }
+.kimos-kreative .ks-jab-chat p { margin: 4px 0 9px; color: var(--ks-txt2); font-size: 12.5px; }
+.kimos-kreative .ks-jab-btns { display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ── Spacecraft: consola de mando ──────────────────────────────────────── */
+.kimos-kreative .ks-flow-spacecraft {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(127,227,196,.035) 3px 4px),
+    var(--ks-bg);
+}
+.kimos-kreative .ks-craft { padding: 12px; font-family: var(--ks-gamefont); }
+.kimos-kreative .ks-craft-bar {
+  display: flex; gap: 16px; flex-wrap: wrap; padding: 7px 13px; margin-bottom: 11px;
+  background: var(--ks-panel); color: var(--ks-ink);
+  border: 1px solid var(--ks-line2); font-size: 11px; letter-spacing: .12em; font-weight: 700;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.kimos-kreative .ks-craft-grid { display: grid; grid-template-columns: minmax(240px, 1fr) 1.4fr; gap: 11px; }
+.kimos-kreative .ks-craft-title {
+  display: block; font-size: 10px; letter-spacing: .16em; color: var(--ks-txt3);
+  font-weight: 700; margin-bottom: 7px;
+}
+.kimos-kreative .ks-craft-queue, .kimos-kreative .ks-craft-panel {
+  background: var(--ks-panel); border: 1px solid var(--ks-line2); padding: 11px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+.kimos-kreative .ks-craft-items { display: flex; flex-direction: column; gap: 3px; }
+.kimos-kreative .ks-craft-item {
+  display: flex; align-items: center; gap: 9px; padding: 5px 8px; cursor: pointer;
+  background: var(--ks-panel2); border: 1px solid transparent; color: var(--ks-txt2);
+  font: inherit; font-size: 11.5px; text-align: left;
+}
+.kimos-kreative .ks-craft-item:hover { border-color: var(--ks-line2); color: var(--ks-txt); }
+.kimos-kreative .ks-craft-item-sel { border-color: var(--ks-ink); color: var(--ks-txt); }
+.kimos-kreative .ks-cs-done { color: var(--ks-ok); }
+.kimos-kreative .ks-cs-error { color: var(--ks-bad); }
+.kimos-kreative .ks-cs-off, .kimos-kreative .ks-cs-blocked { opacity: .55; }
+.kimos-kreative .ks-craft-num { font-size: 10px; color: var(--ks-txt3); }
+.kimos-kreative .ks-craft-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-craft-state { font-size: 10px; letter-spacing: .1em; }
+.kimos-kreative .ks-craft-unit { display: flex; gap: 13px; align-items: flex-start; }
+.kimos-kreative .ks-craft-unit strong { font-size: 13px; letter-spacing: .06em; color: var(--ks-ink); }
+.kimos-kreative .ks-craft-unit p { margin: 5px 0 0; font-size: 12px; color: var(--ks-txt2); }
+.kimos-kreative .ks-craft-stats { display: flex; flex-direction: column; gap: 3px; margin: 11px 0; }
+.kimos-kreative .ks-craft-stats span { font-size: 10.5px; letter-spacing: .08em; color: var(--ks-txt3); }
+.kimos-kreative .ks-craft-cmds { display: flex; gap: 6px; flex-wrap: wrap; }
+.kimos-kreative .ks-craft-cmd {
+  background: transparent; border: 1px solid var(--ks-line2); color: var(--ks-ink);
+  padding: 5px 11px; font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .1em; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+}
+.kimos-kreative .ks-craft-cmd:hover:not(:disabled) { background: color-mix(in srgb, var(--ks-ink) 20%, transparent); }
+.kimos-kreative .ks-craft-cmd:disabled { opacity: .4; cursor: not-allowed; }
+
+/* La forma de juego cambia el decorado, no la legibilidad del resto. */
+.kimos-kreative.ks-form-game .ks-brandmark-text { letter-spacing: .1em; }
 
 /* ── Catálogo de ProductLab ────────────────────────────────────────────── */
 .kimos-kreative .ks-catalogs { display: flex; flex-direction: column; gap: 12px; }
@@ -594,4 +795,6 @@
   .kimos-kreative .ks-barrow { grid-template-columns: 1fr; gap: 3px; }
   .kimos-kreative .ks-barrow-value { text-align: left; }
   .kimos-kreative .ks-guide-arrow { display: none; }
+  .kimos-kreative .ks-craft-grid { grid-template-columns: 1fr; }
+  .kimos-kreative .ks-lab-stop { width: 84px; }
 }

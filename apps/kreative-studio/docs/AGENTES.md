@@ -81,6 +81,8 @@ pierde el progreso.
 | `SET_SETTINGS` | Duraciones, variantes, fps, subtítulos, formatos, resoluciones y plataformas. |
 | `SET_BRAND` | Paleta, tipografías, logotipo, tono, eslogan, prohibidos, bloqueo de producto y personaje. |
 | `REGISTER_PROVIDER` | Da de alta un modelo nuevo en caliente con una plantilla. |
+| `SET_WORKFLOW` | Reordena y activa/desactiva agentes. Corrige el orden si rompe una dependencia. |
+| `SET_THEME` | Forma (`classic`/`game`) y modo. Solo presentación. |
 
 ### Storyboard
 

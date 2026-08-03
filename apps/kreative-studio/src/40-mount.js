@@ -35,7 +35,20 @@ export default function mount(shell) {
   let assets = [];      // items kind:'asset'  (AGENTE 11)
   let ledger = [];      // items kind:'cost'   (AGENTE 12)
   let ui = { view: 'dashboard', busy: false, sceneSel: null, formatSel: null, promptCap: 'video',
-    platformSel: null, assetFilter: 'all', ready: false, error: '' };
+    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '' };
+
+  // ── Tema ────────────────────────────────────────────────────────────────
+  // El modo Vivo depende de la hora, así que se guarda la hora actual en el
+  // estado y un temporizador la refresca: sin eso, la ventana se quedaría con
+  // la luz del momento en que se abrió.
+  let hourNow = new Date().getHours();
+  const currentTheme = () => resolveTheme(obj(model.settings).theme, hourNow);
+  const clockTimer = setInterval(() => {
+    const h0 = new Date().getHours();
+    if (h0 === hourNow) return;
+    hourNow = h0;
+    if (currentTheme().live) emit();      // solo repinta si de verdad afecta
+  }, 60000);
 
   const listeners = new Set();
   const emit = () => { listeners.forEach((l) => { try { l({}); } catch (e) { /* componente desmontado */ } }); };

@@ -62,6 +62,21 @@
           tokens: { type: 'number' }, note: { type: 'string' },
         }, required: ['url'] } },
       }, required: ['assets'] } },
+    { name: 'SET_WORKFLOW',
+      description: 'Edita el flujo de agentes: reordena y activa o desactiva agentes. Un agente no puede ir antes de aquel del que depende; si el orden lo rompe, se corrige a la posición válida más cercana. Un agente desactivado se salta, y los que dependían de él quedan bloqueados con el motivo.',
+      inputSchema: { type: 'object', properties: {
+        order: { type: 'array', items: { type: 'string' }, description: 'Orden deseado (parcial vale). IDs: ' + PIPELINE_ORDER.join(', ') },
+        disable: { type: 'array', items: { type: 'string' }, description: 'Agentes a desactivar.' },
+        enable: { type: 'array', items: { type: 'string' }, description: 'Agentes a reactivar.' },
+        reset: { type: 'boolean', description: 'Volver al orden de fábrica con todos activos.' },
+      } } },
+    { name: 'SET_THEME',
+      description: 'Cambia el aspecto de la interfaz. Forma «classic» con modos day, sunset, night o live (sigue la hora); forma «game» con modos kimoslab, jabotel o spacecraft. Es solo presentación: no toca los datos ni el resultado de los agentes.',
+      inputSchema: { type: 'object', properties: {
+        form: { type: 'string', description: 'classic | game' },
+        classicMode: { type: 'string', description: 'day | sunset | night | live' },
+        gameMode: { type: 'string', description: 'kimoslab | jabotel | spacecraft' },
+      } } },
     { name: 'RUN_AGENT',
       description: 'Ejecuta un agente concreto y sus dependencias. IDs: ' + AGENTS.map((a) => a.id).join(', ') + '.',
       inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
@@ -417,6 +432,63 @@
             + '. Quedan ' + pending + ' trabajo(s) pendientes'
             + (pending ? ': vuelve a llamar a RUN_PRODUCTION.' : ': exporta `render_bundle` y renderiza.'),
           error: errs.length ? errs.join(' · ') : undefined };
+      }
+
+      // ── Flujo y aspecto ─────────────────────────────────────────────────
+      if (type === 'SET_WORKFLOW') {
+        const known = (x) => PIPELINE_ORDER.indexOf(s(x)) >= 0;
+        const bad = arr(p.order).concat(arr(p.disable)).concat(arr(p.enable)).map(s).filter((x) => x && !known(x));
+        if (bad.length) return { success: false, error: 'Agentes desconocidos: ' + uniq(bad).join(', ') + '. Válidos: ' + PIPELINE_ORDER.join(', ') + '.' };
+        if (!p.reset && !arr(p.order).length && !arr(p.disable).length && !arr(p.enable).length) {
+          return { success: false, error: 'Indica `order`, `disable`, `enable` o `reset`.' };
+        }
+        patch((m) => {
+          if (p.reset) { m.settings.workflow = { order: [], disabled: [] }; return; }
+          if (arr(p.order).length) m.settings.workflow.order = uniq(arr(p.order).map(s).filter(known));
+          const off = new Set(arr(m.settings.workflow.disabled));
+          for (const x of arr(p.disable)) if (known(x)) off.add(s(x));
+          for (const x of arr(p.enable)) off.delete(s(x));
+          m.settings.workflow.disabled = Array.from(off);
+        });
+        // effectiveOrder puede haber corregido el orden pedido: se guarda ya
+        // corregido para que lo que se ve sea lo que se va a ejecutar.
+        if (!p.reset && arr(p.order).length) {
+          const fixed = effectiveOrder(model);
+          patch((m) => { m.settings.workflow.order = fixed; });
+        }
+        const plan = workflowPlan(model);
+        const off = plan.filter((x) => x.disabled).map((x) => x.name);
+        const blocked = plan.filter((x) => x.blocked).map((x) => x.name);
+        return { success: true,
+          message: 'Flujo actualizado. Orden: ' + plan.map((x) => x.name).join(' → ') + '.'
+            + (off.length ? ' Desactivados: ' + off.join(', ') + '.' : '')
+            + (blocked.length ? ' Bloqueados por dependencia apagada: ' + blocked.join(', ') + '.' : ''),
+          data: plan.map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name, estado: x.status,
+            depende: arr(x.deps).map((d) => (agentById(d) || {}).name) })) };
+      }
+
+      if (type === 'SET_THEME') {
+        const ch = [];
+        let bad = '';
+        patch((m) => {
+          if (s(p.form)) {
+            if (!THEME_FORMS.some((x) => x.id === s(p.form))) bad = 'form debe ser classic o game.';
+            else { m.settings.theme.form = s(p.form); ch.push('forma ' + themeFormById(p.form).label); }
+          }
+          if (s(p.classicMode)) {
+            if (!CLASSIC_MODES.some((x) => x.id === s(p.classicMode))) bad = 'classicMode debe ser day, sunset, night o live.';
+            else { m.settings.theme.classicMode = s(p.classicMode); ch.push('modo ' + classicModeById(p.classicMode).label); }
+          }
+          if (s(p.gameMode)) {
+            if (!GAME_MODES.some((x) => x.id === s(p.gameMode))) bad = 'gameMode debe ser kimoslab, jabotel o spacecraft.';
+            else { m.settings.theme.gameMode = s(p.gameMode); ch.push('ambientación ' + gameModeById(p.gameMode).label); }
+          }
+        });
+        if (bad) return { success: false, error: bad };
+        if (!ch.length) return { success: false, error: 'Indica `form`, `classicMode` o `gameMode`.' };
+        const th = currentTheme();
+        return { success: true, message: 'Aspecto: ' + ch.join(', ') + '. Ahora se ve como «' + th.label + '».'
+          + ' Es solo presentación: los datos y los resultados no cambian.' };
       }
 
       // ── Ejecución de agentes ────────────────────────────────────────────
@@ -811,6 +883,9 @@
           marca: { score: num(obj(model.brandCheck).score, 0), hallazgos: arr(obj(model.brandCheck).findings).length },
           versiones: arr(model.versions).map((v) => ({ id: v.id, label: v.label, at: v.at })),
           etapas: model.pipeline.stages,
+          flujo: workflowPlan(model).map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name,
+            estado: x.status, desactivado: x.disabled, bloqueado: x.blocked })),
+          aspecto: { forma: currentTheme().formId, modo: currentTheme().modeId, etiqueta: currentTheme().label },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),
         dispatchAction: dispatch,

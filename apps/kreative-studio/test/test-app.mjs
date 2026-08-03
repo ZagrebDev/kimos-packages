@@ -520,7 +520,7 @@ catch (e) { check('el componente raíz renderiza en profundidad', false, e.messa
 
 {
   const nav = navButtons();
-  eq('el menú expone las 19 vistas', nav.length, 19);
+  eq('el menú expone las 20 vistas', nav.length, 20);
   const broken = [];
   for (let i = 0; i < nav.length; i++) {
     const btn = navButtons()[i];            // el árbol se reconstruye tras navegar
@@ -535,7 +535,7 @@ catch (e) { check('el componente raíz renderiza en profundidad', false, e.messa
     } catch (e) { broken.push(label + ': ' + ((e && e.message) || 'error')); }
     for (const err of renderErrors) broken.push(label + ' → ' + err);
   }
-  check('ninguna de las 19 vistas rompe al renderizarse', broken.length === 0, broken.join(' · '));
+  check('ninguna de las 20 vistas rompe al renderizarse', broken.length === 0, broken.join(' · '));
 }
 
 // La Guía debe decir explícitamente lo que la app NO hace: es el punto que
@@ -727,6 +727,117 @@ check('EXPORT render_bundle funciona', r.success && r.data.length > 500, JSON.st
   }
   const after = await state();
   eq('el trabajo sigue cerrado tras re-registrar', after.production.jobs.find((j) => j.id === someJob.id).status, 'done');
+}
+
+// ── 18. Flujo de agentes: visible, editable y con dos formas ─────────────
+// Navegar a la vista Flujo y operar con los botones reales, no con el estado
+// interno: es la única manera de saber que la interfaz hace lo que dice.
+{
+  const gotoFlow = () => {
+    const b = navButtons().find((x) => {
+      const l = renderDeep(x, 0).find((n) => n && n.p && n.p.className === 'ks-navitem-label');
+      return l && String(l.c) === 'Flujo';
+    });
+    if (b) b.p.onClick();
+    return b;
+  };
+  check('la vista Flujo está en el menú', !!gotoFlow());
+
+  /** Botones del selector de aspecto, por su etiqueta visible. */
+  const skinButtons = () => renderDeep(app.Component(), 0).filter((n) => n && n.p
+    && typeof n.p.className === 'string' && /ks-skin-(form|mode)/.test(n.p.className));
+  const clickSkin = (label) => {
+    const b = skinButtons().find((x) => renderDeep(x, 0).some((n) => n && n.c === label
+      || (Array.isArray(n && n.c) && n.c.indexOf(label) >= 0)));
+    if (b) b.p.onClick();
+    return !!b;
+  };
+
+  const st0 = await state();
+  eq('arranca en forma clásica', st0.settings.theme.form, 'classic');
+  eq('arranca en modo noche', st0.settings.theme.classicMode, 'night');
+  // Huella de TODO lo que no es presentación: cambiar de piel no puede
+  // alterar ni un byte de la campaña.
+  const sinTema = (x) => { const c0 = JSON.parse(JSON.stringify(x)); delete c0.settings.theme; delete c0.updatedAt; delete c0.log; return JSON.stringify(c0); };
+  const huella = sinTema(st0);
+
+  // Los cuatro modos clásicos y las tres ambientaciones de juego deben
+  // renderizar sin romper, que es de lo que sirve tener una sola vista.
+  const roto = [];
+  for (const m0 of ['Día', 'Atardecer', 'Noche', 'Vivo']) {
+    renderErrors = [];
+    if (!clickSkin(m0)) { roto.push('no se encontró el modo ' + m0); continue; }
+    renderDeep(app.Component(), 0);
+    for (const e of renderErrors) roto.push(m0 + ' → ' + e);
+  }
+  check('los 4 modos clásicos se aplican y renderizan', roto.length === 0, roto.join(' · '));
+  eq('el modo Vivo queda guardado como tal', (await state()).settings.theme.classicMode, 'live');
+
+  clickSkin('Juego');
+  eq('la forma juego se guarda', (await state()).settings.theme.form, 'game');
+  const rotoJuego = [];
+  for (const g of ['KimosLab', 'JABOTEL', 'Spacecraft']) {
+    renderErrors = [];
+    if (!clickSkin(g)) { rotoJuego.push('no se encontró ' + g); continue; }
+    const tree2 = renderDeep(app.Component(), 0);
+    for (const e of renderErrors) rotoJuego.push(g + ' → ' + e);
+    // Cada ambientación tiene su propia raíz: no es la misma vista repintada.
+    const cls = { KimosLab: 'ks-lab', JABOTEL: 'ks-jab', Spacecraft: 'ks-craft' }[g];
+    if (!tree2.some((n) => n && n.p && n.p.className === cls)) rotoJuego.push(g + ': no pintó ' + cls);
+  }
+  check('las 3 ambientaciones de juego se aplican y renderizan', rotoJuego.length === 0, rotoJuego.join(' · '));
+  eq('la ambientación de juego se guarda', (await state()).settings.theme.gameMode, 'spacecraft');
+  check('cambiar de aspecto no altera NADA de la campaña', sinTema(await state()) === huella,
+    'la huella del documento cambió al cambiar de piel');
+  clickSkin('Clásica');
+
+  // ── Editar el flujo ──
+  const before = (await state()).settings.workflow;
+  eq('el flujo arranca de fábrica', before.order.length + before.disabled.length, 0);
+
+  // Desactivar Research debe bloquear a Campaign Planner, que depende de él.
+  r = await call('SET_WORKFLOW', { disable: ['research'] });
+  check('SET_WORKFLOW desactiva un agente', r.success, JSON.stringify(r));
+  eq('queda desactivado', (await state()).settings.workflow.disabled.join(), 'research');
+  r = await call('SET_WORKFLOW', { reset: true });
+  check('SET_WORKFLOW restablece', r.success && (await state()).settings.workflow.disabled.length === 0);
+
+  // Reordenar respetando dependencias: planner NO puede ir antes que research.
+  r = await call('SET_WORKFLOW', { order: ['planner', 'research'] });
+  check('SET_WORKFLOW acepta un orden', r.success, JSON.stringify(r));
+  const ord = (await state()).settings.workflow.order;
+  check('el orden se corrige para no romper dependencias',
+    ord.indexOf('research') < ord.indexOf('planner'),
+    JSON.stringify(ord.slice(0, 4)));
+
+  // Con una dependencia apagada, el dependiente queda bloqueado con motivo,
+  // en vez de ejecutarse a medias o reventar.
+  await call('SET_WORKFLOW', { reset: true });
+  await call('SET_WORKFLOW', { disable: ['research'] });
+  const run2 = await call('RUN_PIPELINE', {});
+  const etapas = snap().etapas;
+  eq('el agente apagado se marca saltado', etapas.research.status, 'skipped');
+  check('el pipeline sigue adelante con el resto',
+    Object.keys(etapas).filter((k) => etapas[k].status === 'done').length >= 8,
+    JSON.stringify(Object.keys(etapas).map((k) => k + ':' + etapas[k].status)));
+  await call('SET_WORKFLOW', { reset: true });
+  await call('RUN_PIPELINE', {});
+  eq('al reactivarlo vuelve a ejecutarse', snap().etapas.research.status, 'done');
+
+  // El agente ve el flujo y el aspecto en su snapshot: si no, no podría
+  // razonar sobre lo que el usuario está mirando.
+  const sp2 = snap();
+  eq('el snapshot expone el flujo completo', (Array.isArray(sp2.flujo) ? sp2.flujo : []).length, 11);
+  check('el snapshot dice qué aspecto está activo', !!sp2.aspecto && !!sp2.aspecto.forma);
+
+  r = await call('SET_THEME', { form: 'game', gameMode: 'jabotel' });
+  check('SET_THEME funciona', r.success, JSON.stringify(r));
+  eq('SET_THEME aplica la ambientación', (await state()).settings.theme.gameMode, 'jabotel');
+  r = await call('SET_THEME', { form: 'inventada' });
+  check('SET_THEME rechaza formas inválidas', r.success === false, JSON.stringify(r));
+  r = await call('SET_THEME', {});
+  check('SET_THEME pide al menos un campo', r.success === false);
+  await call('SET_THEME', { form: 'classic', classicMode: 'night' });
 }
 
 app.unmount();

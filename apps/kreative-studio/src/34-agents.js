@@ -199,6 +199,57 @@ const PIPELINE_ORDER = ['research', 'creative-director', 'planner', 'storyboard'
   'voice-director', 'copywriter', 'video-producer', 'video-editor', 'brand-consistency', 'analytics'];
 
 const agentById = (id) => AGENTS.find((a) => a.id === s(id)) || null;
+/** Agentes de los que depende otro (traduce `requires` a ids de agente). */
+const agentDeps = (id) => {
+  const a = agentById(id);
+  if (!a) return [];
+  return arr(a.requires).map((k) => (AGENTS.find((x) => x.writes === k) || {}).id).filter(Boolean);
+};
+
+/**
+ * Orden efectivo del flujo. El usuario puede reordenar, pero un agente nunca
+ * puede ir antes de aquel del que depende: si el orden guardado lo intenta, se
+ * corrige en lugar de romper la ejecución.
+ */
+function effectiveOrder(campaign) {
+  const custom = uniq(arr(obj(obj(campaign).settings).workflow && campaign.settings.workflow.order)
+    .filter((x) => PIPELINE_ORDER.indexOf(x) >= 0));
+  const wanted = custom.length ? custom.concat(PIPELINE_ORDER.filter((x) => custom.indexOf(x) < 0)) : PIPELINE_ORDER.slice();
+  // Orden topológico estable: se respeta la preferencia salvo que rompa una
+  // dependencia, en cuyo caso el que depende baja.
+  const out = [];
+  const pending = wanted.slice();
+  let guard = 0;
+  while (pending.length && guard++ < 200) {
+    const i = pending.findIndex((id) => agentDeps(id).every((d) => out.indexOf(d) >= 0 || pending.indexOf(d) < 0));
+    out.push(pending.splice(i < 0 ? 0 : i, 1)[0]);
+  }
+  return out.concat(pending);
+}
+
+/** ¿Está el agente apagado en el flujo? */
+const isDisabled = (campaign, id) =>
+  arr(obj(obj(campaign).settings).workflow && campaign.settings.workflow.disabled).indexOf(s(id)) >= 0;
+
+/** El flujo tal y como se va a ejecutar, para pintarlo y para razonar sobre él. */
+function workflowPlan(campaign) {
+  const order = effectiveOrder(campaign);
+  const stages = obj(obj(campaign).pipeline).stages;
+  return order.map((id, i) => {
+    const a = agentById(id);
+    const off = isDisabled(campaign, id);
+    const deps = agentDeps(id);
+    const blocked = !off && deps.some((d) => isDisabled(campaign, d) && !campaign[(agentById(d) || {}).writes]);
+    return {
+      idx: i, id, n: a ? a.n : 0, name: a ? a.name : id, emoji: a ? a.emoji : '•',
+      description: a ? a.description : '', writes: a ? a.writes : '',
+      deps, disabled: off, blocked,
+      status: off ? 'off' : blocked ? 'blocked' : s(obj(stages[id]).status) || 'idle',
+      ms: num(obj(stages[id]).ms, 0), error: s(obj(stages[id]).error),
+      hasOutput: !!campaign[a ? a.writes : ''],
+    };
+  });
+}
 
 /**
  * Ejecuta el pipeline (completo o parcial) sobre una copia de la campaña.
@@ -207,7 +258,8 @@ const agentById = (id) => AGENTS.find((a) => a.id === s(id)) || null;
 function runPipeline(campaign, opts) {
   const o = obj(opts);
   const only = arr(o.only).filter(Boolean);
-  const ids = only.length ? PIPELINE_ORDER.filter((x) => only.indexOf(x) >= 0) : PIPELINE_ORDER.slice();
+  const order = effectiveOrder(campaign);
+  const ids = only.length ? order.filter((x) => only.indexOf(x) >= 0) : order.slice();
   let c = JSON.parse(JSON.stringify(campaign));
   const t0 = Date.now();
   const run = { id: newId('run'), startedAt: nowIso(), stages: [], only: only.slice(), ok: true };
@@ -215,17 +267,36 @@ function runPipeline(campaign, opts) {
   for (const id of ids) {
     const agent = agentById(id);
     if (!agent) continue;
+    // Un agente apagado no se ejecuta ni se autorresuelve: apagarlo es una
+    // decisión del usuario, y saltársela «porque hacía falta» la anularía.
+    if (isDisabled(c, id)) {
+      const st = { agentId: id, name: agent.name, status: 'skipped', ms: 0, at: nowIso() };
+      run.stages.push(st);
+      c.pipeline.stages[id] = stageState(st);
+      continue;
+    }
     const missing = arr(agent.requires).filter((k) => !c[k]);
     if (missing.length) {
       // Autorresolución: ejecuta la dependencia que falte antes de seguir.
       for (const dep of missing) {
         const depAgent = AGENTS.find((a) => a.writes === dep);
-        if (depAgent && ids.indexOf(depAgent.id) < 0) {
+        if (depAgent && ids.indexOf(depAgent.id) < 0 && !isDisabled(c, depAgent.id)) {
           const res = execAgent(depAgent, c, o);
           c[depAgent.writes] = res.value;
           run.stages.push(res.stage);
           c.pipeline.stages[depAgent.id] = stageState(res.stage);
         }
+      }
+      // Si la dependencia sigue sin datos porque está apagada, este agente no
+      // puede correr: se marca bloqueado con el motivo, no se cuela un fallo.
+      const still = arr(agent.requires).filter((k) => !c[k]);
+      if (still.length) {
+        const who = still.map((k) => (AGENTS.find((a) => a.writes === k) || {}).name || k).join(', ');
+        const st = { agentId: id, name: agent.name, status: 'blocked', ms: 0, at: nowIso(),
+          error: 'Necesita ' + who + ', que está desactivado en el flujo.' };
+        run.stages.push(st);
+        c.pipeline.stages[id] = stageState(st);
+        continue;
       }
     }
     const res = execAgent(agent, c, o);

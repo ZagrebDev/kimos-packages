@@ -41,6 +41,9 @@ function emptySettings() {
     heroDurationSec: 30, shortDurationSec: 15, variantCount: 3,
     fps: 25, currency: 'USD', subtitles: true, safeAreas: true,
     autoRunOnBrief: true,
+    theme: emptyTheme(),
+    // Flujo editable: orden propio y agentes desactivados. Vacío = el de fábrica.
+    workflow: { order: [], disabled: [] },
   };
 }
 
@@ -99,6 +102,17 @@ function migrate(raw) {
   out.settings.targets.resolutions = uniq(arr(out.settings.targets.resolutions)).filter((r) => RESOLUTIONS.some((x) => x.id === r));
   if (!out.settings.targets.resolutions.length) out.settings.targets.resolutions = ['1080'];
   out.settings.targets.platforms = uniq(arr(out.settings.targets.platforms)).filter((p) => PLATFORMS.some((x) => x.id === p));
+  const th = Object.assign(emptyTheme(), obj(out.settings.theme));
+  out.settings.theme = {
+    form: themeFormById(th.form).id,
+    classicMode: classicModeById(th.classicMode).id,
+    gameMode: gameModeById(th.gameMode).id,
+  };
+  const wf = Object.assign({ order: [], disabled: [] }, obj(out.settings.workflow));
+  out.settings.workflow = {
+    order: uniq(arr(wf.order).map(s).filter((x) => PIPELINE_ORDER.indexOf(x) >= 0)),
+    disabled: uniq(arr(wf.disabled).map(s).filter((x) => PIPELINE_ORDER.indexOf(x) >= 0)),
+  };
   // Proveedores desconocidos (bundle antiguo) vuelven al default de su capacidad.
   for (const cap of CAPABILITIES) {
     const cur = out.settings.providers[cap.id];

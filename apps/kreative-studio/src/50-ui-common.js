@@ -6,6 +6,7 @@
   const VIEWS = [
     { id: 'guide', label: 'Guía', emoji: '❔', group: 'Estudio' },
     { id: 'dashboard', label: 'Panel', emoji: '◎', group: 'Estudio' },
+    { id: 'flow', label: 'Flujo', emoji: '⇄', group: 'Estudio' },
     { id: 'brief', label: 'Brief', emoji: '✦', group: 'Estudio' },
     { id: 'research', label: 'Investigación', emoji: '⌕', group: 'Estrategia' },
     { id: 'concept', label: 'Concepto', emoji: '✧', group: 'Estrategia' },

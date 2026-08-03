@@ -4,7 +4,7 @@
   // ═════════════════════════════════════════════════════════════════════════
 
   const VIEW_COMPONENTS = {
-    guide: GuideView,
+    guide: GuideView, flow: FlowView,
     dashboard: DashboardView, brief: BriefView, research: ResearchView, concept: ConceptView,
     plan: PlanView, storyboard: StoryboardView, timeline: TimelineView, prompts: PromptsView,
     audio: AudioView, jobs: JobsView, editor: EditorView, copy: CopyView, brand: BrandView,
@@ -43,8 +43,16 @@
     }
     const st = styleById(model.styleId);
     const accent = isHex(model.brand.palette.secondary) ? model.brand.palette.secondary : '#19ACB1';
+    // El tema son SOLO variables y dos clases: nada del resto de la interfaz
+    // conoce el modo en el que está.
+    const theme = currentTheme();
+    const rootStyle = Object.assign({ '--ks-accent': accent }, themeVars(theme));
 
-    return h('div', { className: 'kimos-kreative', style: { '--ks-accent': accent } }, [
+    return h('div', {
+      className: cx('kimos-kreative', 'ks-form-' + theme.formId,
+        'ks-mode-' + (theme.formId === 'game' ? theme.modeId : theme.effectiveId || theme.modeId)),
+      style: rootStyle,
+    }, [
       h('header', { className: 'ks-top', key: 't' }, [
         h('div', { className: 'ks-brandmark', key: 'b' }, [
           h('span', { className: 'ks-brandmark-dot', key: 'd' }),
@@ -56,6 +64,8 @@
           h(Chip, { key: 's', tone: 'accent', title: st.tagline, onClick: () => setUi({ view: 'styles' }) }, st.emoji + ' ' + st.name),
           h(Chip, { key: 'o', onClick: () => setUi({ view: 'plan' }) }, objectiveById(model.objectiveId).label),
           h(Chip, { key: 'a', onClick: () => setUi({ view: 'brief' }) }, audienceById(model.audienceId).label),
+          h(Chip, { key: 'th', onClick: () => setUi({ view: 'flow' }),
+            title: 'Cambiar el aspecto en la vista Flujo' }, theme.emoji + ' ' + theme.label),
         ]),
         h('div', { className: 'ks-top-actions', key: 'a' }, [
           h(Btn, { key: 'g', variant: 'primary', size: 'sm', disabled: ui.busy || !s(model.brief.productName).trim(),
@@ -94,6 +104,7 @@
     unmount() {
       cancelled = true;
       clearTimeout(saveTimer);
+      clearInterval(clockTimer);
       listeners.clear();
       try { if (typeof unregisterAgent === 'function') unregisterAgent(); } catch (e) { /* ya desregistrado */ }
       try { if (typeof offConfig === 'function') offConfig(); } catch (e) { /* opcional */ }

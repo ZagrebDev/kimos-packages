@@ -13,7 +13,7 @@ traslada cada pieza de ese stack a su equivalente real de la plataforma:
 
 | Pieza del stack clásico | Equivalente en KIMOS |
 |---|---|
-| FastAPI (API de orquestación) | `shell.agent.register` — 27 tools que el agente de la empresa invoca |
+| FastAPI (API de orquestación) | `shell.agent.register` — 29 tools que el agente de la empresa invoca |
 | Celery + Redis (cola de tareas) | Pipeline de agentes puros (ms) + **trabajos por lotes** para lo caro: `RUN_PRODUCTION` entrega el lote listo y `REGISTER_ASSETS` lo liquida |
 | PostgreSQL / Prisma | `shell.saveData` (documento de campaña) + `shell.items` (assets y ledger de costes) |
 | MinIO / S3 | `POST /api/v2/files` → `/api/public/files/{path}` |
@@ -55,9 +55,16 @@ documentos, versiones y agente sin escribir una línea de infraestructura.
 │  40-mount       estado por ventana, puertos (persistencia, archivos,   │
 │                 notificación, config, documentos), carga y guardado    │
 │  42-agent       tools del agente de KIMOS y su despachador             │
-│  50-58          19 vistas de estudio (la primera es la Guía)            │
+│  18-themes      formas y modos de la interfaz (solo tokens)             │
+│  50-58          20 vistas; 55 es el Flujo, con 4 presentaciones         │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
+El **tema** es solo tokens: dos clases y un puñado de variables CSS en la
+raíz. Ningún componente sabe en qué modo está, así que añadir una piel nueva
+no toca ninguna vista. La única excepción deliberada es el Flujo, que tiene un
+renderizador por ambientación sobre el mismo modelo (`workflowPlan`) y las
+mismas acciones.
 
 **Regla de dependencia**: hacia dentro. El dominio no sabe que existen React,
 `shell` ni la red. Por eso los tests pueden ejercitar el sistema entero sin

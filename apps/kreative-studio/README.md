@@ -44,6 +44,34 @@ Desde el chat de KIMOS, la campaña entera en dos frases:
 
 ---
 
+## El flujo de agentes: visible, editable y con dos formas
+
+La vista **Flujo** muestra los doce agentes con sus dependencias, su estado y
+su último tiempo de ejecución. Y se puede **editar**: reordenar, desactivar
+agentes y ejecutarlos sueltos.
+
+Reordenar respeta las dependencias: un agente no puede ir antes de aquel del
+que depende, y si lo intentas se coloca en la posición válida más cercana.
+Desactivar un agente lo salta; los que dependían de él quedan **bloqueados con
+el motivo**, en vez de fallar a medias.
+
+El mismo flujo se puede ver de dos formas, con varios modos cada una:
+
+| Forma | Modos |
+|---|---|
+| **Clásica** — estudio profesional | ☀️ Día · 🌇 Atardecer · 🌙 Noche · 🕰️ Vivo (sigue la hora del equipo) |
+| **Juego** — el flujo, jugable | 🔬 KimosLab (ruta en píxeles con caja de diálogo) · 🏨 JABOTEL (sala isométrica) · 🛸 Spacecraft (consola de mando) |
+
+Las cuatro presentaciones operan sobre **los mismos datos y con las mismas
+acciones**: seleccionar, ejecutar, activar/desactivar y reordenar. El aspecto
+no cambia nada del documento — hay una prueba que compara la huella completa
+de la campaña antes y después de cambiar de piel.
+
+Todo el decorado es CSS y SVG generados en el bundle: ni una imagen, ni una
+fuente externa, ni una petición de red.
+
+---
+
 ## Qué genera exactamente
 
 | Entregable | Detalle |
@@ -87,7 +115,7 @@ nada más. Añadir un modelo nuevo es añadir un descriptor: ver
 
 ## Control por el agente de KIMOS
 
-La app declara `agent.control` con 27 herramientas. El agente puede llevar la
+La app declara `agent.control` con 29 herramientas. El agente puede llevar la
 campaña de cero al vídeo montado sin que toques la interfaz:
 
 ```
@@ -131,7 +159,7 @@ No escribe nada en ProductLab.
 
 ```bash
 node apps/kreative-studio/build.mjs              # src/*.js → dist/index.js
-node apps/kreative-studio/test/test-app.mjs      # 232 comprobaciones, sin dependencias
+node apps/kreative-studio/test/test-app.mjs      # 256 comprobaciones, sin dependencias
 node apps/kreative-studio/test/test-render.mjs   # render REAL (requiere ffmpeg)
 node tools/pack.mjs apps/kreative-studio         # → kreative-studio-1.0.0.kapp
 ```

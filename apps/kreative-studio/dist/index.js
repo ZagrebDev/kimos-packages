@@ -1364,6 +1364,142 @@ function billableQty(provider, job) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// DOMINIO · Temas de la interfaz
+//
+// Dos FORMAS de ver el mismo trabajo:
+//   · clásica — un estudio profesional, con modos de luz (día, atardecer,
+//     noche y «vivo», que sigue la hora real).
+//   · juego  — el flujo de agentes como un videojuego, con tres ambientaciones.
+//
+// Un tema es SOLO tokens: colores y unos pocos parámetros de decorado. No
+// cambia ni el modelo ni lo que hacen los agentes; cambia cómo se lee. La
+// vista Flujo tiene un renderizador por ambientación, pero todos operan sobre
+// los mismos datos y con las mismas acciones.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const THEME_FORMS = [
+  { id: 'classic', label: 'Clásica', emoji: '▤', help: 'Estudio profesional. La luz cambia, el trabajo no.' },
+  { id: 'game', label: 'Juego', emoji: '🕹️', help: 'El mismo flujo, jugable. Para revisarlo sin que pese.' },
+];
+
+/** Paletas de la forma clásica. */
+const CLASSIC_MODES = [
+  {
+    id: 'day', label: 'Día', emoji: '☀️',
+    tokens: {
+      bg: '#F4F6F8', panel: '#FFFFFF', panel2: '#F0F3F6', line: '#DFE5EC', line2: '#C6D0DB',
+      txt: '#101822', txt2: '#4A5768', txt3: '#7A8798', media: '#E8ECF1', checker: '#E2E7EE',
+      ok: '#1E9E6A', warn: '#B7791F', bad: '#C6403C', shadow: '0 1px 2px rgba(16,24,34,.07)',
+    },
+  },
+  {
+    id: 'sunset', label: 'Atardecer', emoji: '🌇',
+    tokens: {
+      bg: '#241A1B', panel: '#2E2122', panel2: '#38292A', line: '#4A3435', line2: '#5E4241',
+      txt: '#F6E8E0', txt2: '#C4A99E', txt3: '#94786F', media: '#1A1213', checker: '#332526',
+      ok: '#8FBF6A', warn: '#E8A33D', bad: '#E8664F', shadow: '0 1px 2px rgba(0,0,0,.35)',
+    },
+  },
+  {
+    id: 'night', label: 'Noche', emoji: '🌙',
+    tokens: {
+      bg: '#0B0D10', panel: '#12151A', panel2: '#171B21', line: '#232932', line2: '#2E3641',
+      txt: '#E7EBF0', txt2: '#98A2B0', txt3: '#6B7684', media: '#05070A', checker: '#1A1F26',
+      ok: '#35C48A', warn: '#E5A93A', bad: '#EE5A5A', shadow: '0 1px 2px rgba(0,0,0,.4)',
+    },
+  },
+  {
+    id: 'live', label: 'Vivo', emoji: '🕰️',
+    help: 'Sigue la hora del equipo: día, atardecer y noche.',
+    tokens: null,      // se resuelve en tiempo de ejecución
+  },
+];
+
+/** Ambientaciones de la forma juego. */
+const GAME_MODES = [
+  {
+    id: 'kimoslab', label: 'KimosLab', emoji: '🔬',
+    help: 'Ruta de laboratorio en píxeles, con caja de diálogo. Homenaje al RPG de bolsillo.',
+    tokens: {
+      bg: '#184C3C', panel: '#F8F8F0', panel2: '#E8E8D8', line: '#282828', line2: '#585858',
+      txt: '#282828', txt2: '#484848', txt3: '#787878', media: '#103828', checker: '#D8D8C8',
+      ok: '#38A048', warn: '#E8A020', bad: '#D83830', shadow: '0 3px 0 rgba(0,0,0,.35)',
+    },
+    decor: { grid: '#1E5C48', accentInk: '#3860A8', pixel: 4, font: 'ui-monospace, "Courier New", monospace' },
+  },
+  {
+    id: 'jabotel', label: 'JABOTEL', emoji: '🏨',
+    help: 'Habitación isométrica: cada agente es un mueble de la sala.',
+    tokens: {
+      bg: '#1B2A3A', panel: '#26384C', panel2: '#2F455C', line: '#3E5975', line2: '#52708F',
+      txt: '#EAF2FA', txt2: '#A9C0D6', txt3: '#7C93AA', media: '#14212E', checker: '#223448',
+      ok: '#5BD07A', warn: '#F2B33D', bad: '#EE6A5A', shadow: '0 2px 0 rgba(0,0,0,.4)',
+    },
+    decor: { grid: '#33506D', accentInk: '#FFCC33', pixel: 3, font: 'Verdana, Geneva, sans-serif' },
+  },
+  {
+    id: 'spacecraft', label: 'Spacecraft', emoji: '🛸',
+    help: 'Consola de mando: cola de construcción, paneles angulares y rejilla táctica.',
+    tokens: {
+      bg: '#07110E', panel: '#0E1D1A', panel2: '#132823', line: '#1E3B34', line2: '#2C554B',
+      txt: '#D6F5E6', txt2: '#7FC4A8', txt3: '#4F8B76', media: '#040B09', checker: '#0C1916',
+      ok: '#4BE3A0', warn: '#E8C24A', bad: '#FF6B5B', shadow: '0 0 0 1px rgba(75,227,160,.12)',
+    },
+    decor: { grid: '#123029', accentInk: '#7FE3C4', pixel: 2, font: 'ui-monospace, Menlo, monospace' },
+  },
+];
+
+const themeFormById = (id) => THEME_FORMS.find((x) => x.id === id) || THEME_FORMS[0];
+const classicModeById = (id) => CLASSIC_MODES.find((x) => x.id === id) || CLASSIC_MODES[2];
+const gameModeById = (id) => GAME_MODES.find((x) => x.id === id) || GAME_MODES[0];
+
+/** Qué luz toca según la hora local (para el modo Vivo). */
+function modeForHour(hour) {
+  const h = clamp(num(hour, 12), 0, 23);
+  if (h >= 7 && h < 18) return 'day';
+  if (h >= 18 && h < 21) return 'sunset';
+  return 'night';
+}
+
+/**
+ * Resuelve el tema efectivo. Devuelve siempre algo utilizable, aunque los
+ * ajustes vengan de un bundle antiguo o con valores inventados.
+ */
+function resolveTheme(themeCfg, hour) {
+  const t = obj(themeCfg);
+  const form = themeFormById(t.form);
+  if (form.id === 'game') {
+    const mode = gameModeById(t.gameMode);
+    return { formId: 'game', modeId: mode.id, label: mode.label, emoji: mode.emoji,
+      tokens: mode.tokens, decor: obj(mode.decor), live: false };
+  }
+  const chosen = classicModeById(t.classicMode);
+  const live = chosen.id === 'live';
+  const actual = live ? classicModeById(modeForHour(hour)) : chosen;
+  return { formId: 'classic', modeId: chosen.id, effectiveId: actual.id,
+    label: chosen.label + (live ? ' · ' + actual.label : ''), emoji: live ? chosen.emoji : actual.emoji,
+    tokens: actual.tokens, decor: {}, live };
+}
+
+/** Variables CSS del tema, listas para el atributo `style` de la raíz. */
+function themeVars(theme) {
+  const tk = obj(obj(theme).tokens);
+  const out = {};
+  const map = { bg: '--ks-bg', panel: '--ks-panel', panel2: '--ks-panel2', line: '--ks-line',
+    line2: '--ks-line2', txt: '--ks-txt', txt2: '--ks-txt2', txt3: '--ks-txt3',
+    media: '--ks-media', checker: '--ks-checker', ok: '--ks-ok', warn: '--ks-warn', bad: '--ks-bad',
+    shadow: '--ks-shadow' };
+  for (const k of Object.keys(map)) if (tk[k]) out[map[k]] = tk[k];
+  const dc = obj(obj(theme).decor);
+  if (dc.grid) out['--ks-grid'] = dc.grid;
+  if (dc.accentInk) out['--ks-ink'] = dc.accentInk;
+  if (dc.font) out['--ks-gamefont'] = dc.font;
+  return out;
+}
+
+const emptyTheme = () => ({ form: 'classic', classicMode: 'night', gameMode: 'kimoslab' });
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DOMINIO · Modelo de campaña (agregado raíz)
 //
 // Un documento de Kreative Studio = una CAMPAÑA. Cada agente escribe en su
@@ -1405,6 +1541,9 @@ function emptySettings() {
     heroDurationSec: 30, shortDurationSec: 15, variantCount: 3,
     fps: 25, currency: 'USD', subtitles: true, safeAreas: true,
     autoRunOnBrief: true,
+    theme: emptyTheme(),
+    // Flujo editable: orden propio y agentes desactivados. Vacío = el de fábrica.
+    workflow: { order: [], disabled: [] },
   };
 }
 
@@ -1463,6 +1602,17 @@ function migrate(raw) {
   out.settings.targets.resolutions = uniq(arr(out.settings.targets.resolutions)).filter((r) => RESOLUTIONS.some((x) => x.id === r));
   if (!out.settings.targets.resolutions.length) out.settings.targets.resolutions = ['1080'];
   out.settings.targets.platforms = uniq(arr(out.settings.targets.platforms)).filter((p) => PLATFORMS.some((x) => x.id === p));
+  const th = Object.assign(emptyTheme(), obj(out.settings.theme));
+  out.settings.theme = {
+    form: themeFormById(th.form).id,
+    classicMode: classicModeById(th.classicMode).id,
+    gameMode: gameModeById(th.gameMode).id,
+  };
+  const wf = Object.assign({ order: [], disabled: [] }, obj(out.settings.workflow));
+  out.settings.workflow = {
+    order: uniq(arr(wf.order).map(s).filter((x) => PIPELINE_ORDER.indexOf(x) >= 0)),
+    disabled: uniq(arr(wf.disabled).map(s).filter((x) => PIPELINE_ORDER.indexOf(x) >= 0)),
+  };
   // Proveedores desconocidos (bundle antiguo) vuelven al default de su capacidad.
   for (const cap of CAPABILITIES) {
     const cur = out.settings.providers[cap.id];
@@ -3918,6 +4068,57 @@ const PIPELINE_ORDER = ['research', 'creative-director', 'planner', 'storyboard'
   'voice-director', 'copywriter', 'video-producer', 'video-editor', 'brand-consistency', 'analytics'];
 
 const agentById = (id) => AGENTS.find((a) => a.id === s(id)) || null;
+/** Agentes de los que depende otro (traduce `requires` a ids de agente). */
+const agentDeps = (id) => {
+  const a = agentById(id);
+  if (!a) return [];
+  return arr(a.requires).map((k) => (AGENTS.find((x) => x.writes === k) || {}).id).filter(Boolean);
+};
+
+/**
+ * Orden efectivo del flujo. El usuario puede reordenar, pero un agente nunca
+ * puede ir antes de aquel del que depende: si el orden guardado lo intenta, se
+ * corrige en lugar de romper la ejecución.
+ */
+function effectiveOrder(campaign) {
+  const custom = uniq(arr(obj(obj(campaign).settings).workflow && campaign.settings.workflow.order)
+    .filter((x) => PIPELINE_ORDER.indexOf(x) >= 0));
+  const wanted = custom.length ? custom.concat(PIPELINE_ORDER.filter((x) => custom.indexOf(x) < 0)) : PIPELINE_ORDER.slice();
+  // Orden topológico estable: se respeta la preferencia salvo que rompa una
+  // dependencia, en cuyo caso el que depende baja.
+  const out = [];
+  const pending = wanted.slice();
+  let guard = 0;
+  while (pending.length && guard++ < 200) {
+    const i = pending.findIndex((id) => agentDeps(id).every((d) => out.indexOf(d) >= 0 || pending.indexOf(d) < 0));
+    out.push(pending.splice(i < 0 ? 0 : i, 1)[0]);
+  }
+  return out.concat(pending);
+}
+
+/** ¿Está el agente apagado en el flujo? */
+const isDisabled = (campaign, id) =>
+  arr(obj(obj(campaign).settings).workflow && campaign.settings.workflow.disabled).indexOf(s(id)) >= 0;
+
+/** El flujo tal y como se va a ejecutar, para pintarlo y para razonar sobre él. */
+function workflowPlan(campaign) {
+  const order = effectiveOrder(campaign);
+  const stages = obj(obj(campaign).pipeline).stages;
+  return order.map((id, i) => {
+    const a = agentById(id);
+    const off = isDisabled(campaign, id);
+    const deps = agentDeps(id);
+    const blocked = !off && deps.some((d) => isDisabled(campaign, d) && !campaign[(agentById(d) || {}).writes]);
+    return {
+      idx: i, id, n: a ? a.n : 0, name: a ? a.name : id, emoji: a ? a.emoji : '•',
+      description: a ? a.description : '', writes: a ? a.writes : '',
+      deps, disabled: off, blocked,
+      status: off ? 'off' : blocked ? 'blocked' : s(obj(stages[id]).status) || 'idle',
+      ms: num(obj(stages[id]).ms, 0), error: s(obj(stages[id]).error),
+      hasOutput: !!campaign[a ? a.writes : ''],
+    };
+  });
+}
 
 /**
  * Ejecuta el pipeline (completo o parcial) sobre una copia de la campaña.
@@ -3926,7 +4127,8 @@ const agentById = (id) => AGENTS.find((a) => a.id === s(id)) || null;
 function runPipeline(campaign, opts) {
   const o = obj(opts);
   const only = arr(o.only).filter(Boolean);
-  const ids = only.length ? PIPELINE_ORDER.filter((x) => only.indexOf(x) >= 0) : PIPELINE_ORDER.slice();
+  const order = effectiveOrder(campaign);
+  const ids = only.length ? order.filter((x) => only.indexOf(x) >= 0) : order.slice();
   let c = JSON.parse(JSON.stringify(campaign));
   const t0 = Date.now();
   const run = { id: newId('run'), startedAt: nowIso(), stages: [], only: only.slice(), ok: true };
@@ -3934,17 +4136,36 @@ function runPipeline(campaign, opts) {
   for (const id of ids) {
     const agent = agentById(id);
     if (!agent) continue;
+    // Un agente apagado no se ejecuta ni se autorresuelve: apagarlo es una
+    // decisión del usuario, y saltársela «porque hacía falta» la anularía.
+    if (isDisabled(c, id)) {
+      const st = { agentId: id, name: agent.name, status: 'skipped', ms: 0, at: nowIso() };
+      run.stages.push(st);
+      c.pipeline.stages[id] = stageState(st);
+      continue;
+    }
     const missing = arr(agent.requires).filter((k) => !c[k]);
     if (missing.length) {
       // Autorresolución: ejecuta la dependencia que falte antes de seguir.
       for (const dep of missing) {
         const depAgent = AGENTS.find((a) => a.writes === dep);
-        if (depAgent && ids.indexOf(depAgent.id) < 0) {
+        if (depAgent && ids.indexOf(depAgent.id) < 0 && !isDisabled(c, depAgent.id)) {
           const res = execAgent(depAgent, c, o);
           c[depAgent.writes] = res.value;
           run.stages.push(res.stage);
           c.pipeline.stages[depAgent.id] = stageState(res.stage);
         }
+      }
+      // Si la dependencia sigue sin datos porque está apagada, este agente no
+      // puede correr: se marca bloqueado con el motivo, no se cuela un fallo.
+      const still = arr(agent.requires).filter((k) => !c[k]);
+      if (still.length) {
+        const who = still.map((k) => (AGENTS.find((a) => a.writes === k) || {}).name || k).join(', ');
+        const st = { agentId: id, name: agent.name, status: 'blocked', ms: 0, at: nowIso(),
+          error: 'Necesita ' + who + ', que está desactivado en el flujo.' };
+        run.stages.push(st);
+        c.pipeline.stages[id] = stageState(st);
+        continue;
       }
     }
     const res = execAgent(agent, c, o);
@@ -4040,7 +4261,20 @@ export default function mount(shell) {
   let assets = [];      // items kind:'asset'  (AGENTE 11)
   let ledger = [];      // items kind:'cost'   (AGENTE 12)
   let ui = { view: 'dashboard', busy: false, sceneSel: null, formatSel: null, promptCap: 'video',
-    platformSel: null, assetFilter: 'all', ready: false, error: '' };
+    platformSel: null, assetFilter: 'all', flowSel: null, ready: false, error: '' };
+
+  // ── Tema ────────────────────────────────────────────────────────────────
+  // El modo Vivo depende de la hora, así que se guarda la hora actual en el
+  // estado y un temporizador la refresca: sin eso, la ventana se quedaría con
+  // la luz del momento en que se abrió.
+  let hourNow = new Date().getHours();
+  const currentTheme = () => resolveTheme(obj(model.settings).theme, hourNow);
+  const clockTimer = setInterval(() => {
+    const h0 = new Date().getHours();
+    if (h0 === hourNow) return;
+    hourNow = h0;
+    if (currentTheme().live) emit();      // solo repinta si de verdad afecta
+  }, 60000);
 
   const listeners = new Set();
   const emit = () => { listeners.forEach((l) => { try { l({}); } catch (e) { /* componente desmontado */ } }); };
@@ -4451,6 +4685,21 @@ export default function mount(shell) {
           tokens: { type: 'number' }, note: { type: 'string' },
         }, required: ['url'] } },
       }, required: ['assets'] } },
+    { name: 'SET_WORKFLOW',
+      description: 'Edita el flujo de agentes: reordena y activa o desactiva agentes. Un agente no puede ir antes de aquel del que depende; si el orden lo rompe, se corrige a la posición válida más cercana. Un agente desactivado se salta, y los que dependían de él quedan bloqueados con el motivo.',
+      inputSchema: { type: 'object', properties: {
+        order: { type: 'array', items: { type: 'string' }, description: 'Orden deseado (parcial vale). IDs: ' + PIPELINE_ORDER.join(', ') },
+        disable: { type: 'array', items: { type: 'string' }, description: 'Agentes a desactivar.' },
+        enable: { type: 'array', items: { type: 'string' }, description: 'Agentes a reactivar.' },
+        reset: { type: 'boolean', description: 'Volver al orden de fábrica con todos activos.' },
+      } } },
+    { name: 'SET_THEME',
+      description: 'Cambia el aspecto de la interfaz. Forma «classic» con modos day, sunset, night o live (sigue la hora); forma «game» con modos kimoslab, jabotel o spacecraft. Es solo presentación: no toca los datos ni el resultado de los agentes.',
+      inputSchema: { type: 'object', properties: {
+        form: { type: 'string', description: 'classic | game' },
+        classicMode: { type: 'string', description: 'day | sunset | night | live' },
+        gameMode: { type: 'string', description: 'kimoslab | jabotel | spacecraft' },
+      } } },
     { name: 'RUN_AGENT',
       description: 'Ejecuta un agente concreto y sus dependencias. IDs: ' + AGENTS.map((a) => a.id).join(', ') + '.',
       inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
@@ -4806,6 +5055,63 @@ export default function mount(shell) {
             + '. Quedan ' + pending + ' trabajo(s) pendientes'
             + (pending ? ': vuelve a llamar a RUN_PRODUCTION.' : ': exporta `render_bundle` y renderiza.'),
           error: errs.length ? errs.join(' · ') : undefined };
+      }
+
+      // ── Flujo y aspecto ─────────────────────────────────────────────────
+      if (type === 'SET_WORKFLOW') {
+        const known = (x) => PIPELINE_ORDER.indexOf(s(x)) >= 0;
+        const bad = arr(p.order).concat(arr(p.disable)).concat(arr(p.enable)).map(s).filter((x) => x && !known(x));
+        if (bad.length) return { success: false, error: 'Agentes desconocidos: ' + uniq(bad).join(', ') + '. Válidos: ' + PIPELINE_ORDER.join(', ') + '.' };
+        if (!p.reset && !arr(p.order).length && !arr(p.disable).length && !arr(p.enable).length) {
+          return { success: false, error: 'Indica `order`, `disable`, `enable` o `reset`.' };
+        }
+        patch((m) => {
+          if (p.reset) { m.settings.workflow = { order: [], disabled: [] }; return; }
+          if (arr(p.order).length) m.settings.workflow.order = uniq(arr(p.order).map(s).filter(known));
+          const off = new Set(arr(m.settings.workflow.disabled));
+          for (const x of arr(p.disable)) if (known(x)) off.add(s(x));
+          for (const x of arr(p.enable)) off.delete(s(x));
+          m.settings.workflow.disabled = Array.from(off);
+        });
+        // effectiveOrder puede haber corregido el orden pedido: se guarda ya
+        // corregido para que lo que se ve sea lo que se va a ejecutar.
+        if (!p.reset && arr(p.order).length) {
+          const fixed = effectiveOrder(model);
+          patch((m) => { m.settings.workflow.order = fixed; });
+        }
+        const plan = workflowPlan(model);
+        const off = plan.filter((x) => x.disabled).map((x) => x.name);
+        const blocked = plan.filter((x) => x.blocked).map((x) => x.name);
+        return { success: true,
+          message: 'Flujo actualizado. Orden: ' + plan.map((x) => x.name).join(' → ') + '.'
+            + (off.length ? ' Desactivados: ' + off.join(', ') + '.' : '')
+            + (blocked.length ? ' Bloqueados por dependencia apagada: ' + blocked.join(', ') + '.' : ''),
+          data: plan.map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name, estado: x.status,
+            depende: arr(x.deps).map((d) => (agentById(d) || {}).name) })) };
+      }
+
+      if (type === 'SET_THEME') {
+        const ch = [];
+        let bad = '';
+        patch((m) => {
+          if (s(p.form)) {
+            if (!THEME_FORMS.some((x) => x.id === s(p.form))) bad = 'form debe ser classic o game.';
+            else { m.settings.theme.form = s(p.form); ch.push('forma ' + themeFormById(p.form).label); }
+          }
+          if (s(p.classicMode)) {
+            if (!CLASSIC_MODES.some((x) => x.id === s(p.classicMode))) bad = 'classicMode debe ser day, sunset, night o live.';
+            else { m.settings.theme.classicMode = s(p.classicMode); ch.push('modo ' + classicModeById(p.classicMode).label); }
+          }
+          if (s(p.gameMode)) {
+            if (!GAME_MODES.some((x) => x.id === s(p.gameMode))) bad = 'gameMode debe ser kimoslab, jabotel o spacecraft.';
+            else { m.settings.theme.gameMode = s(p.gameMode); ch.push('ambientación ' + gameModeById(p.gameMode).label); }
+          }
+        });
+        if (bad) return { success: false, error: bad };
+        if (!ch.length) return { success: false, error: 'Indica `form`, `classicMode` o `gameMode`.' };
+        const th = currentTheme();
+        return { success: true, message: 'Aspecto: ' + ch.join(', ') + '. Ahora se ve como «' + th.label + '».'
+          + ' Es solo presentación: los datos y los resultados no cambian.' };
       }
 
       // ── Ejecución de agentes ────────────────────────────────────────────
@@ -5200,6 +5506,9 @@ export default function mount(shell) {
           marca: { score: num(obj(model.brandCheck).score, 0), hallazgos: arr(obj(model.brandCheck).findings).length },
           versiones: arr(model.versions).map((v) => ({ id: v.id, label: v.label, at: v.at })),
           etapas: model.pipeline.stages,
+          flujo: workflowPlan(model).map((x) => ({ orden: x.idx + 1, id: x.id, agente: x.name,
+            estado: x.status, desactivado: x.disabled, bloqueado: x.blocked })),
+          aspecto: { forma: currentTheme().formId, modo: currentTheme().modeId, etiqueta: currentTheme().label },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),
         dispatchAction: dispatch,
@@ -5214,6 +5523,7 @@ export default function mount(shell) {
   const VIEWS = [
     { id: 'guide', label: 'Guía', emoji: '❔', group: 'Estudio' },
     { id: 'dashboard', label: 'Panel', emoji: '◎', group: 'Estudio' },
+    { id: 'flow', label: 'Flujo', emoji: '⇄', group: 'Estudio' },
     { id: 'brief', label: 'Brief', emoji: '✦', group: 'Estudio' },
     { id: 'research', label: 'Investigación', emoji: '⌕', group: 'Estrategia' },
     { id: 'concept', label: 'Concepto', emoji: '✧', group: 'Estrategia' },
@@ -6283,6 +6593,383 @@ export default function mount(shell) {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
+  // UI · Flujo de agentes — visible y editable, en dos formas
+  //
+  // Un único modelo (workflowPlan) y cuatro presentaciones. Las acciones son
+  // las mismas en todas: seleccionar, ejecutar, apagar/encender y reordenar.
+  // Cambiar de forma no cambia lo que puedes hacer, solo cómo se ve.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  /** Acciones del flujo, compartidas por los cuatro renderizadores. */
+  function flowActions() {
+    return {
+      select: (id) => setUi({ flowSel: id }),
+      run: (id) => { const a = agentById(id); if (a) runStages([id], a.name); },
+      toggle: (id) => {
+        patch((m) => {
+          const off = arr(m.settings.workflow.disabled);
+          m.settings.workflow.disabled = off.indexOf(id) >= 0 ? off.filter((x) => x !== id) : off.concat([id]);
+          logLine(m, 'info', 'Agente «' + (agentById(id) || {}).name + '» '
+            + (off.indexOf(id) >= 0 ? 'reactivado' : 'desactivado') + ' en el flujo.');
+        });
+      },
+      move: (id, dir) => {
+        patch((m) => {
+          const cur = effectiveOrder(m).slice();
+          const i = cur.indexOf(id);
+          const j = i + (dir < 0 ? -1 : 1);
+          if (i < 0 || j < 0 || j >= cur.length) return;
+          cur.splice(j, 0, cur.splice(i, 1)[0]);
+          m.settings.workflow.order = cur;
+        });
+        // effectiveOrder corrige el orden si el movimiento rompía una
+        // dependencia; se avisa para que no parezca que el botón no hizo nada.
+        const after = effectiveOrder(model);
+        const wanted = arr(model.settings.workflow.order);
+        if (wanted.join('|') !== after.join('|')) {
+          patch((m) => { m.settings.workflow.order = after; });
+          notify('info', 'Ese orden rompía una dependencia; se ha colocado en la posición válida más cercana.');
+        }
+      },
+      reset: () => {
+        patch((m) => { m.settings.workflow = { order: [], disabled: [] }; });
+        notify('success', 'Flujo restablecido al orden de fábrica.');
+      },
+    };
+  }
+
+  // ── Sprites (SVG con rejilla de píxeles; nada externo, ni una imagen) ───
+  const pxRect = (x, y, w, hh, fill, key) => h('rect', { key, x, y, width: w, height: hh, fill });
+
+  /** Laboratorio en píxeles: cuerpo, tejado, puerta y ventana. */
+  function LabSprite(props) {
+    const p = obj(props);
+    const on = p.status === 'done';
+    const wall = p.off ? '#9AA0A0' : on ? '#F0F0E0' : '#D8D8C8';
+    const roof = p.off ? '#6A7070' : on ? '#D83830' : '#A85850';
+    const glass = p.off ? '#586060' : on ? '#68C8F8' : '#3868A8';
+    return h('svg', { className: 'ks-sprite', viewBox: '0 0 16 16', width: p.size || 48, height: p.size || 48,
+      style: { shapeRendering: 'crispEdges' }, 'aria-hidden': 'true' }, [
+      pxRect(2, 6, 12, 9, wall, 'w'),
+      pxRect(1, 4, 14, 2, roof, 'r'),
+      pxRect(3, 3, 10, 1, roof, 'r2'),
+      pxRect(4, 8, 3, 3, glass, 'g1'),
+      pxRect(9, 8, 3, 3, glass, 'g2'),
+      pxRect(7, 11, 2, 4, p.off ? '#4A5050' : '#785840', 'd'),
+      pxRect(0, 15, 16, 1, '#3A6048', 'ground'),
+    ]);
+  }
+
+  /** Mueble isométrico: tapa, frente y lateral. */
+  function FurniSprite(props) {
+    const p = obj(props);
+    const on = p.status === 'done';
+    const top = p.off ? '#5B6B7B' : on ? '#7ADFA0' : '#8FB4D8';
+    const front = p.off ? '#3E4C5A' : on ? '#4CB075' : '#5D82A6';
+    const side = p.off ? '#32404C' : on ? '#3B8C5E' : '#476A8A';
+    return h('svg', { className: 'ks-sprite', viewBox: '0 0 32 28', width: p.size || 56, height: (p.size || 56) * 0.875,
+      'aria-hidden': 'true' }, [
+      h('polygon', { key: 't', points: '16,2 31,10 16,18 1,10', fill: top }),
+      h('polygon', { key: 'l', points: '1,10 16,18 16,26 1,18', fill: side }),
+      h('polygon', { key: 'r', points: '31,10 16,18 16,26 31,18', fill: front }),
+    ]);
+  }
+
+  /** Nodo de mando: hexágono con núcleo. */
+  function CraftSprite(props) {
+    const p = obj(props);
+    const on = p.status === 'done';
+    const ring = p.off ? '#33564C' : on ? '#4BE3A0' : '#2C554B';
+    const core = p.off ? '#16241F' : on ? '#0E4433' : '#122A24';
+    return h('svg', { className: 'ks-sprite', viewBox: '0 0 32 32', width: p.size || 50, height: p.size || 50,
+      'aria-hidden': 'true' }, [
+      h('polygon', { key: 'h', points: '16,2 29,9 29,23 16,30 3,23 3,9', fill: core, stroke: ring, strokeWidth: 2 }),
+      h('polygon', { key: 'i', points: '16,9 23,13 23,20 16,24 9,20 9,13', fill: ring, opacity: on ? 0.9 : 0.35 }),
+    ]);
+  }
+
+  const STATUS_LABEL = { done: 'completado', error: 'con error', skipped: 'saltado', blocked: 'bloqueado',
+    off: 'desactivado', idle: 'sin ejecutar' };
+
+  // ── Inspector común ────────────────────────────────────────────────────
+  function FlowInspector(props) {
+    const p = obj(props);
+    const node = p.node;
+    const act = p.actions;
+    if (!node) return h('div', { className: 'ks-flow-inspector' },
+      h('p', { className: 'ks-hint' }, 'Elige un agente para ver qué hace y actuar sobre él.'));
+    const deps = arr(node.deps).map((d) => (agentById(d) || {}).name).filter(Boolean);
+    return h('div', { className: 'ks-flow-inspector' }, [
+      h('div', { className: 'ks-flow-insp-head', key: 'h' }, [
+        h('span', { className: 'ks-flow-insp-emoji', key: 'e' }, node.emoji),
+        h('div', { key: 'n' }, [
+          h('strong', { key: 'a' }, 'Agente ' + node.n + ' · ' + node.name),
+          h('span', { className: 'ks-flow-insp-status', key: 'b' }, STATUS_LABEL[node.status] || node.status),
+        ]),
+      ]),
+      h('p', { className: 'ks-flow-insp-desc', key: 'd' }, node.description),
+      h('div', { className: 'ks-kv ks-kv-sm', key: 'k' }, [
+        h('div', { key: '1' }, [h('span', { key: 'a' }, 'Escribe'), h('strong', { key: 'b' }, node.writes || '—')]),
+        h('div', { key: '2' }, [h('span', { key: 'a' }, 'Depende de'), h('strong', { key: 'b' }, deps.length ? deps.join(', ') : 'nada')]),
+        h('div', { key: '3' }, [h('span', { key: 'a' }, 'Último tiempo'), h('strong', { key: 'b' }, node.ms ? node.ms + ' ms' : '—')]),
+      ]),
+      node.error ? h('p', { className: 'ks-warn', key: 'e' }, node.error) : null,
+      h('div', { className: 'ks-flow-insp-actions', key: 'a' }, [
+        h(Btn, { key: 'r', size: 'sm', variant: 'primary', disabled: node.disabled || node.blocked,
+          onClick: () => act.run(node.id) }, 'Ejecutar'),
+        h(Btn, { key: 't', size: 'sm', onClick: () => act.toggle(node.id) },
+          node.disabled ? 'Activar' : 'Desactivar'),
+        h(Btn, { key: 'u', size: 'sm', variant: 'ghost', onClick: () => act.move(node.id, -1) }, '↑'),
+        h(Btn, { key: 'd', size: 'sm', variant: 'ghost', onClick: () => act.move(node.id, 1) }, '↓'),
+      ]),
+    ]);
+  }
+
+  // ── 1. Clásica: grafo de dependencias ──────────────────────────────────
+  function FlowClassic(props) {
+    const p = obj(props);
+    const plan = arr(p.plan);
+    const act = p.actions;
+    return h('div', { className: 'ks-flow-classic' }, plan.map((n, i) => h('div', {
+      key: n.id, className: cx('ks-flownode', 'ks-fs-' + n.status, p.sel === n.id && 'ks-flownode-sel'),
+      onClick: () => act.select(n.id),
+    }, [
+      i > 0 ? h('span', { className: 'ks-flowlink', key: 'l' }) : null,
+      h('span', { className: 'ks-flownode-idx', key: 'x' }, i + 1),
+      h('span', { className: 'ks-flownode-emoji', key: 'e' }, n.emoji),
+      h('div', { className: 'ks-flownode-body', key: 'b' }, [
+        h('strong', { key: 'n' }, n.name),
+        h('span', { className: 'ks-flownode-meta', key: 'm' },
+          (arr(n.deps).length ? '← ' + arr(n.deps).map((d) => (agentById(d) || {}).name).join(', ') : 'sin dependencias')
+          + (n.ms ? ' · ' + n.ms + ' ms' : '')),
+      ]),
+      h('span', { className: cx('ks-flowdot', 'ks-fd-' + n.status), key: 'd', title: STATUS_LABEL[n.status] }),
+    ])));
+  }
+
+  // ── 2. KimosLab: ruta en píxeles con caja de diálogo ───────────────────
+  function FlowKimosLab(props) {
+    const p = obj(props);
+    const plan = arr(p.plan);
+    const act = p.actions;
+    const sel = plan.find((x) => x.id === p.sel) || plan[0];
+    const done = plan.filter((x) => x.status === 'done').length;
+    return h('div', { className: 'ks-lab' }, [
+      h('div', { className: 'ks-lab-hud', key: 'h' }, [
+        h('span', { key: 'a' }, '★ ' + done + '/' + plan.length + ' medallas'),
+        h('span', { key: 'b' }, 'Ruta de producción'),
+      ]),
+      h('div', { className: 'ks-lab-route', key: 'r' }, plan.map((n, i) => h('button', {
+        key: n.id, type: 'button',
+        className: cx('ks-lab-stop', p.sel === n.id && 'ks-lab-stop-sel', n.disabled && 'ks-lab-off'),
+        onClick: () => act.select(n.id),
+      }, [
+        h(LabSprite, { key: 's', status: n.status, off: n.disabled, size: 44 }),
+        h('span', { className: 'ks-lab-name', key: 'n' }, n.name),
+        n.status === 'done' ? h('span', { className: 'ks-lab-badge', key: 'b' }, '★') : null,
+        i < plan.length - 1 ? h('span', { className: 'ks-lab-path', key: 'p' }) : null,
+      ]))),
+      sel ? h('div', { className: 'ks-lab-dialog', key: 'd' }, [
+        h('p', { key: 't' }, [
+          h('b', { key: 'n' }, sel.name.toUpperCase() + ': '),
+          sel.disabled ? 'Está descansando. No participa en la ruta.'
+            : sel.blocked ? 'No puede salir: necesita a ' + arr(sel.deps).map((d) => (agentById(d) || {}).name).join(', ') + '.'
+              : sel.status === 'done' ? '¡Listo! ' + sel.description
+                : sel.description,
+        ]),
+        h('div', { className: 'ks-lab-cmds', key: 'c' }, [
+          h('button', { key: 'r', type: 'button', className: 'ks-lab-cmd', disabled: sel.disabled || sel.blocked,
+            onClick: () => act.run(sel.id) }, '▶ EJECUTAR'),
+          h('button', { key: 't', type: 'button', className: 'ks-lab-cmd', onClick: () => act.toggle(sel.id) },
+            sel.disabled ? '✚ ACTIVAR' : '✖ DESCANSAR'),
+          h('button', { key: 'u', type: 'button', className: 'ks-lab-cmd', onClick: () => act.move(sel.id, -1) }, '↑'),
+          h('button', { key: 'd', type: 'button', className: 'ks-lab-cmd', onClick: () => act.move(sel.id, 1) }, '↓'),
+        ]),
+      ]) : null,
+    ]);
+  }
+
+  // ── 3. JABOTEL: sala isométrica ────────────────────────────────────────
+  function FlowJabotel(props) {
+    const p = obj(props);
+    const plan = arr(p.plan);
+    const act = p.actions;
+    const sel = plan.find((x) => x.id === p.sel) || null;
+    const COLS = 4;
+    const TW = 96; const TH = 48;                      // ancho y alto de baldosa
+    const rows = Math.ceil(plan.length / COLS);
+    const W = (COLS + rows) * (TW / 2) + 40;
+    const H = (COLS + rows) * (TH / 2) + 130;
+    const isoX = (cx0, cy) => (cx0 - cy) * (TW / 2) + W / 2;
+    const isoY = (cx0, cy) => (cx0 + cy) * (TH / 2) + 30;
+    const tiles = [];
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const i = y * COLS + x;
+        tiles.push(h('polygon', {
+          key: 't' + i, className: 'ks-jab-tile',
+          points: [
+            [isoX(x, y), isoY(x, y) - TH / 2], [isoX(x, y) + TW / 2, isoY(x, y)],
+            [isoX(x, y), isoY(x, y) + TH / 2], [isoX(x, y) - TW / 2, isoY(x, y)],
+          ].map((q) => q.join(',')).join(' '),
+          opacity: (x + y) % 2 ? 0.55 : 0.3,
+        }));
+      }
+    }
+    return h('div', { className: 'ks-jab' }, [
+      h('div', { className: 'ks-jab-hud', key: 'h' }, [
+        h('span', { key: 'a' }, '🏨 Sala de producción'),
+        h('span', { key: 'b' }, plan.filter((x) => x.status === 'done').length + ' de ' + plan.length + ' listos'),
+      ]),
+      h('div', { className: 'ks-jab-room', key: 'r', style: { height: H + 'px' } }, [
+        h('svg', { key: 'f', className: 'ks-jab-floor', viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: H }, tiles),
+        h('div', { key: 'i', className: 'ks-jab-items' }, plan.map((n, i) => {
+          const x = i % COLS; const y = Math.floor(i / COLS);
+          return h('button', {
+            key: n.id, type: 'button',
+            className: cx('ks-jab-furni', p.sel === n.id && 'ks-jab-furni-sel', n.disabled && 'ks-jab-off'),
+            style: { left: (isoX(x, y) / W * 100) + '%', top: (isoY(x, y) - 34) + 'px' },
+            onClick: () => act.select(n.id),
+          }, [
+            h(FurniSprite, { key: 's', status: n.status, off: n.disabled, size: 52 }),
+            h('span', { className: 'ks-jab-plate', key: 'p' }, n.name),
+          ]);
+        })),
+      ]),
+      sel ? h('div', { className: 'ks-jab-chat', key: 'c' }, [
+        h('span', { className: 'ks-jab-who', key: 'w' }, sel.emoji + ' ' + sel.name),
+        h('p', { key: 't' }, sel.disabled ? 'Fuera de servicio en esta sala.'
+          : sel.blocked ? 'Esperando a ' + arr(sel.deps).map((d) => (agentById(d) || {}).name).join(', ') + '.'
+            : sel.description),
+        h('div', { className: 'ks-jab-btns', key: 'b' }, [
+          h(Btn, { key: 'r', size: 'sm', variant: 'primary', disabled: sel.disabled || sel.blocked, onClick: () => act.run(sel.id) }, 'Usar'),
+          h(Btn, { key: 't', size: 'sm', onClick: () => act.toggle(sel.id) }, sel.disabled ? 'Poner' : 'Retirar'),
+          h(Btn, { key: 'u', size: 'sm', variant: 'ghost', onClick: () => act.move(sel.id, -1) }, '↑'),
+          h(Btn, { key: 'd', size: 'sm', variant: 'ghost', onClick: () => act.move(sel.id, 1) }, '↓'),
+        ]),
+      ]) : null,
+    ]);
+  }
+
+  // ── 4. Spacecraft: consola de mando ────────────────────────────────────
+  function FlowSpacecraft(props) {
+    const p = obj(props);
+    const plan = arr(p.plan);
+    const act = p.actions;
+    const sel = plan.find((x) => x.id === p.sel) || null;
+    const done = plan.filter((x) => x.status === 'done').length;
+    const pct = plan.length ? Math.round((done / plan.length) * 100) : 0;
+    return h('div', { className: 'ks-craft' }, [
+      h('div', { className: 'ks-craft-bar', key: 'b' }, [
+        h('span', { key: 'a' }, '▮ CADENA DE MANDO'),
+        h('span', { key: 'b' }, 'OPERATIVOS ' + done + '/' + plan.length),
+        h('span', { key: 'c' }, 'INTEGRIDAD ' + pct + '%'),
+      ]),
+      h('div', { className: 'ks-craft-grid', key: 'g' }, [
+        h('div', { className: 'ks-craft-queue', key: 'q' }, [
+          h('span', { className: 'ks-craft-title', key: 't' }, 'COLA DE CONSTRUCCIÓN'),
+          h('div', { className: 'ks-craft-items', key: 'i' }, plan.map((n, i) => h('button', {
+            key: n.id, type: 'button',
+            className: cx('ks-craft-item', p.sel === n.id && 'ks-craft-item-sel', 'ks-cs-' + n.status),
+            onClick: () => act.select(n.id),
+          }, [
+            h('span', { className: 'ks-craft-num', key: 'n' }, String(i + 1).padStart(2, '0')),
+            h(CraftSprite, { key: 's', status: n.status, off: n.disabled, size: 26 }),
+            h('span', { className: 'ks-craft-name', key: 'l' }, n.name),
+            h('span', { className: 'ks-craft-state', key: 'x' },
+              n.disabled ? 'OFF' : n.blocked ? 'HOLD' : n.status === 'done' ? 'OK' : n.status === 'error' ? 'ERR' : '···'),
+          ]))),
+        ]),
+        h('div', { className: 'ks-craft-panel', key: 'p' }, sel ? [
+          h('span', { className: 'ks-craft-title', key: 't' }, 'UNIDAD SELECCIONADA'),
+          h('div', { className: 'ks-craft-unit', key: 'u' }, [
+            h(CraftSprite, { key: 's', status: sel.status, off: sel.disabled, size: 76 }),
+            h('div', { key: 'd' }, [
+              h('strong', { key: 'n' }, sel.name.toUpperCase()),
+              h('p', { key: 'x' }, sel.description),
+            ]),
+          ]),
+          h('div', { className: 'ks-craft-stats', key: 'st' }, [
+            h('span', { key: '1' }, 'REQUISITOS: ' + (arr(sel.deps).length
+              ? arr(sel.deps).map((d) => (agentById(d) || {}).name).join(' · ').toUpperCase() : 'NINGUNO')),
+            h('span', { key: '2' }, 'ESTADO: ' + (STATUS_LABEL[sel.status] || sel.status).toUpperCase()),
+            h('span', { key: '3' }, 'CICLO: ' + (sel.ms ? sel.ms + ' MS' : '—')),
+          ]),
+          h('div', { className: 'ks-craft-cmds', key: 'c' }, [
+            h('button', { key: 'r', type: 'button', className: 'ks-craft-cmd', disabled: sel.disabled || sel.blocked,
+              onClick: () => act.run(sel.id) }, 'EJECUTAR'),
+            h('button', { key: 't', type: 'button', className: 'ks-craft-cmd', onClick: () => act.toggle(sel.id) },
+              sel.disabled ? 'ACTIVAR' : 'DESACTIVAR'),
+            h('button', { key: 'u', type: 'button', className: 'ks-craft-cmd', onClick: () => act.move(sel.id, -1) }, '▲'),
+            h('button', { key: 'd', type: 'button', className: 'ks-craft-cmd', onClick: () => act.move(sel.id, 1) }, '▼'),
+          ]),
+        ] : h('p', { className: 'ks-hint' }, 'Sin unidad seleccionada.')),
+      ]),
+    ]);
+  }
+
+  const GAME_RENDERERS = { kimoslab: FlowKimosLab, jabotel: FlowJabotel, spacecraft: FlowSpacecraft };
+
+  // ── Vista ──────────────────────────────────────────────────────────────
+  function FlowView() {
+    const plan = workflowPlan(model);
+    const act = flowActions();
+    const theme = currentTheme();
+    const sel = ui.flowSel && plan.some((x) => x.id === ui.flowSel) ? ui.flowSel : (plan[0] || {}).id;
+    const node = plan.find((x) => x.id === sel) || null;
+    const custom = arr(model.settings.workflow.order).length > 0 || arr(model.settings.workflow.disabled).length > 0;
+    const Renderer = theme.formId === 'game' ? (GAME_RENDERERS[theme.modeId] || FlowKimosLab) : FlowClassic;
+
+    const setTheme = (patchTheme) => patch((m) => { m.settings.theme = Object.assign({}, m.settings.theme, patchTheme); });
+
+    return h('div', { className: 'ks-view' }, [
+      h(ViewHead, { key: 'h', title: 'Flujo de agentes',
+        subtitle: plan.length + ' agentes · ' + plan.filter((x) => x.status === 'done').length + ' ejecutados'
+          + (custom ? ' · flujo personalizado' : ' · orden de fábrica'),
+        actions: [
+          h(Btn, { key: 'r', variant: 'primary', onClick: () => runStages(null, 'Pipeline') }, 'Ejecutar flujo'),
+          custom ? h(Btn, { key: 'z', onClick: act.reset }, 'Restablecer') : null,
+        ].filter(Boolean) }),
+
+      h(Card, { key: 'sk', title: 'Aspecto' }, [
+        h('div', { className: 'ks-skin', key: 'f' }, [
+          h('div', { className: 'ks-skin-row', key: 'forms' }, THEME_FORMS.map((f) => h('button', {
+            key: f.id, type: 'button', className: cx('ks-skin-form', theme.formId === f.id && 'ks-skin-on'),
+            onClick: () => setTheme({ form: f.id }), title: f.help,
+          }, [h('span', { key: 'e' }, f.emoji), h('span', { key: 'l' }, f.label)]))),
+          h('div', { className: 'ks-skin-row', key: 'modes' },
+            (theme.formId === 'game' ? GAME_MODES : CLASSIC_MODES).map((m0) => h('button', {
+              key: m0.id, type: 'button',
+              className: cx('ks-skin-mode', (theme.formId === 'game' ? theme.modeId : model.settings.theme.classicMode) === m0.id && 'ks-skin-on'),
+              onClick: () => setTheme(theme.formId === 'game' ? { gameMode: m0.id } : { classicMode: m0.id }),
+              title: m0.help || '',
+            }, [h('span', { key: 'e' }, m0.emoji), h('span', { key: 'l' }, m0.label)]))),
+        ]),
+        h('p', { className: 'ks-hint', key: 'n' },
+          theme.live ? 'Modo Vivo: ahora mismo se ve en ' + s(theme.label).split('·').pop().trim()
+            + ', y cambia solo con la hora del equipo.'
+            : s((theme.formId === 'game' ? gameModeById(theme.modeId) : classicModeById(theme.modeId)).help
+              || 'El aspecto no cambia lo que hacen los agentes, solo cómo se lee.')),
+      ]),
+
+      h('div', { className: cx('ks-flow-stage', 'ks-flow-' + (theme.formId === 'game' ? theme.modeId : 'classic')), key: 'st' },
+        h(Renderer, { plan, actions: act, sel })),
+
+      theme.formId === 'classic' ? h(Card, { key: 'i', title: 'Agente seleccionado' },
+        h(FlowInspector, { node, actions: act })) : null,
+
+      h(Card, { key: 'help', title: 'Qué puedes cambiar aquí' }, [
+        h('ul', { className: 'ks-list', key: 'l' }, [
+          'Reordenar: un agente no puede ir antes de aquel del que depende; si lo intentas, se coloca en la posición válida más cercana.',
+          'Desactivar: el agente se salta. Los que dependían de él quedan bloqueados con el motivo, en vez de fallar a medias.',
+          'Ejecutar suelto: útil para rehacer solo el copy o solo el montaje sin tocar el resto.',
+          'El aspecto es solo presentación: los datos, el orden y los resultados son los mismos en las cuatro vistas.',
+        ].map((x, i) => h('li', { key: i }, x))),
+      ]),
+    ]);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   // UI · Distribución y sistema: Copy, Marca, Biblioteca, Analytics,
   //       Estilos, Versiones y Ajustes
   // ═════════════════════════════════════════════════════════════════════════
@@ -6957,7 +7644,7 @@ export default function mount(shell) {
   // ═════════════════════════════════════════════════════════════════════════
 
   const VIEW_COMPONENTS = {
-    guide: GuideView,
+    guide: GuideView, flow: FlowView,
     dashboard: DashboardView, brief: BriefView, research: ResearchView, concept: ConceptView,
     plan: PlanView, storyboard: StoryboardView, timeline: TimelineView, prompts: PromptsView,
     audio: AudioView, jobs: JobsView, editor: EditorView, copy: CopyView, brand: BrandView,
@@ -6996,8 +7683,16 @@ export default function mount(shell) {
     }
     const st = styleById(model.styleId);
     const accent = isHex(model.brand.palette.secondary) ? model.brand.palette.secondary : '#19ACB1';
+    // El tema son SOLO variables y dos clases: nada del resto de la interfaz
+    // conoce el modo en el que está.
+    const theme = currentTheme();
+    const rootStyle = Object.assign({ '--ks-accent': accent }, themeVars(theme));
 
-    return h('div', { className: 'kimos-kreative', style: { '--ks-accent': accent } }, [
+    return h('div', {
+      className: cx('kimos-kreative', 'ks-form-' + theme.formId,
+        'ks-mode-' + (theme.formId === 'game' ? theme.modeId : theme.effectiveId || theme.modeId)),
+      style: rootStyle,
+    }, [
       h('header', { className: 'ks-top', key: 't' }, [
         h('div', { className: 'ks-brandmark', key: 'b' }, [
           h('span', { className: 'ks-brandmark-dot', key: 'd' }),
@@ -7009,6 +7704,8 @@ export default function mount(shell) {
           h(Chip, { key: 's', tone: 'accent', title: st.tagline, onClick: () => setUi({ view: 'styles' }) }, st.emoji + ' ' + st.name),
           h(Chip, { key: 'o', onClick: () => setUi({ view: 'plan' }) }, objectiveById(model.objectiveId).label),
           h(Chip, { key: 'a', onClick: () => setUi({ view: 'brief' }) }, audienceById(model.audienceId).label),
+          h(Chip, { key: 'th', onClick: () => setUi({ view: 'flow' }),
+            title: 'Cambiar el aspecto en la vista Flujo' }, theme.emoji + ' ' + theme.label),
         ]),
         h('div', { className: 'ks-top-actions', key: 'a' }, [
           h(Btn, { key: 'g', variant: 'primary', size: 'sm', disabled: ui.busy || !s(model.brief.productName).trim(),
@@ -7047,6 +7744,7 @@ export default function mount(shell) {
     unmount() {
       cancelled = true;
       clearTimeout(saveTimer);
+      clearInterval(clockTimer);
       listeners.clear();
       try { if (typeof unregisterAgent === 'function') unregisterAgent(); } catch (e) { /* ya desregistrado */ }
       try { if (typeof offConfig === 'function') offConfig(); } catch (e) { /* opcional */ }
