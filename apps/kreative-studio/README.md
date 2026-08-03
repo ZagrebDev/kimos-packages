@@ -79,7 +79,7 @@ nada más. Añadir un modelo nuevo es añadir un descriptor: ver
 
 ## Control por el agente de KIMOS
 
-La app declara `agent.control` con 22 herramientas. Flujo típico:
+La app declara `agent.control` con 23 herramientas. Flujo típico:
 
 ```
 SET_BRIEF → ADD_PRODUCT_PHOTO → GENERATE_CAMPAIGN
@@ -96,10 +96,15 @@ el real. Lista completa en [`docs/AGENTES.md`](docs/AGENTES.md).
 ## Desarrollo
 
 ```bash
-node apps/kreative-studio/build.mjs      # src/*.js → dist/index.js
+node apps/kreative-studio/build.mjs           # src/*.js → dist/index.js
 node apps/kreative-studio/test/test-app.mjs   # 170 comprobaciones
 node tools/pack.mjs apps/kreative-studio      # → kreative-studio-1.0.0.kapp
 ```
+
+El `.kapp` de la versión publicada vive en la raíz del repo
+(`kreative-studio-1.0.0.kapp`), como el de `productlab`. **Al subir `version` en
+el manifest hay que regenerarlo**, o el archivo de sideload queda desfasado
+respecto al `dist/` que instala la Tienda.
 
 `dist/index.js` se **genera**: edita `src/`, nunca el bundle. Los fragmentos de
 `src/` comparten ámbito y se concatenan en orden por su prefijo numérico

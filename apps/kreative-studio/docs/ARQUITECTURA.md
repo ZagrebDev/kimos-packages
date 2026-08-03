@@ -13,7 +13,7 @@ traslada cada pieza de ese stack a su equivalente real de la plataforma:
 
 | Pieza del stack clásico | Equivalente en KIMOS |
 |---|---|
-| FastAPI (API de orquestación) | `shell.agent.register` — 22 tools que el agente de la empresa invoca |
+| FastAPI (API de orquestación) | `shell.agent.register` — 23 tools que el agente de la empresa invoca |
 | Celery + Redis (cola de tareas) | Pipeline de agentes puros (milisegundos) + **trabajos** para lo que sí es caro: llamar a los modelos |
 | PostgreSQL / Prisma | `shell.saveData` (documento de campaña) + `shell.items` (assets y ledger de costes) |
 | MinIO / S3 | `POST /api/v2/files` → `/api/public/files/{path}` |
