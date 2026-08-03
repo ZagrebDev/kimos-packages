@@ -122,12 +122,25 @@ Qué hace, en seis pasos:
 6. **Exporta** cada formato y resolución con reencuadre por recorte central,
    `yuv420p` y `+faststart`.
 
-El script se entrega, no se ejecuta aquí. Está validado como shell y su
-filtergraph se comprueba estáticamente en los tests (cada pad se produce y se
-consume una sola vez), pero el render ocurre en tu máquina o en tu CI.
+El script se entrega, no se ejecuta dentro de KIMOS, pero **sí está probado**:
+`test/test-render.mjs` fabrica los assets con FFmpeg, los sirve por HTTP,
+ejecuta el bundle tal cual y comprueba que el .mp4 resultante tiene las
+dimensiones, el fps, el audio y la duración declarados.
 
-Requisitos: FFmpeg con `libx264`, `xfade`, `sidechaincompress`, `loudnorm` y
-`drawtext` (compilado con `--enable-libfreetype`).
+Requisitos: FFmpeg con `libx264`, `xfade`, `sidechaincompress`, `loudnorm`,
+`subtitles` y `drawtext` (este último necesita `--enable-libfreetype`; algunos
+builds estáticos no lo traen, y la prueba lo detecta y avisa).
+
+### Por qué el máster dura menos que la suma de los planos
+
+`xfade` **solapa** los clips: una transición de medio segundo se come medio
+segundo de metraje. La duración final es `suma de planos − suma de
+transiciones`, y todo lo que va sobre la imagen —locución, rótulos y
+subtítulos— se coloca en ese tiempo, no en el nominal del storyboard.
+
+No es un detalle: con tres transiciones de medio segundo el desfase pasa de un
+segundo al final, y la voz deja de cuadrar con la imagen. Lo descubrió el
+primer render real, no la lectura del código.
 
 ## 6. Antes de invertir en medios
 

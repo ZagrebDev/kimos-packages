@@ -97,8 +97,10 @@
       h(Card, { key: 'f', title: 'Cortes por formato' }, [
         h('div', { className: 'ks-formats', key: 'f' }, Object.keys(obj(sb.formats)).map((a) => {
           const f = sb.formats[a];
+          const fScenes = scenesOfFormat(sb, a);
           return h('div', { key: a, className: 'ks-format' }, [
-            h('strong', { key: 'a' }, a + ' · ' + fmtSec(f.durationSec) + ' · ' + arr(f.scenes).length + ' escenas'),
+            h('strong', { key: 'a' }, a + (f.isMaster ? ' · maestro' : '') + ' · '
+              + fmtSec(masterTimes(fScenes).total) + ' · ' + fScenes.length + ' escenas'),
             h('div', { className: 'ks-chips', key: 'd' }, arr(f.dims).map((d) => h(Chip, { key: d.res }, d.label + ' ' + d.w + '×' + d.h))),
             h('p', { className: 'ks-hint', key: 'n' }, f.note),
           ]);

@@ -257,13 +257,18 @@ function buildStoryboard(c) {
   const master = buildScenes(c, { durationSec: hero, aspect: aspects[0] || '16:9', variant: 0 });
 
   const formats = {};
+  const masterAspect = aspects[0] || '16:9';
   for (const a of aspects) {
     const isVertical = a === '9:16' || a === '4:5';
     const dur = isVertical ? short : hero;
+    const isMaster = a === masterAspect;
     formats[a] = {
-      aspect: a, durationSec: dur,
+      aspect: a, durationSec: dur, isMaster,
       dims: RESOLUTIONS.map((r) => ({ res: r.id, label: r.label, ...dimsFor(a, r.id) })),
-      scenes: a === (aspects[0] || '16:9') ? master : buildScenes(c, { durationSec: dur, aspect: a, variant: 0 }),
+      // El formato maestro NO duplica las escenas: apunta a `storyboard.scenes`.
+      // Duplicarlas dejaba la copia obsoleta en cuanto se editaba un plano, y
+      // el entregable acababa declarando una duración que no era la suya.
+      scenes: isMaster ? [] : buildScenes(c, { durationSec: dur, aspect: a, variant: 0 }),
       safeArea: isVertical ? { top: 12, bottom: 20, left: 6, right: 6 } : { top: 6, bottom: 8, left: 6, right: 6 },
       note: isVertical ? 'Texto y logotipo fuera de la zona de la interfaz (arriba 12 %, abajo 20 %).'
         : 'Composición apta para recorte central a 1:1 sin perder el producto.',
@@ -291,6 +296,13 @@ function buildStoryboard(c) {
     formats, variants,
     totalSec: round(master.reduce((a, x) => a + num(x.durationSec, 0), 0), 1),
   };
+}
+
+/** Escenas de un formato: el maestro siempre lee la lista viva. */
+function scenesOfFormat(sb, aspect) {
+  const f = obj(obj(sb).formats)[s(aspect)];
+  if (!f) return [];
+  return f.isMaster || !arr(f.scenes).length ? arr(obj(sb).scenes) : arr(f.scenes);
 }
 
 const VARIANT_HYPOTHESES = [

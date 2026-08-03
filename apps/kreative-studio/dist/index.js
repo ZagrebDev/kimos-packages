@@ -2074,13 +2074,18 @@ function buildStoryboard(c) {
   const master = buildScenes(c, { durationSec: hero, aspect: aspects[0] || '16:9', variant: 0 });
 
   const formats = {};
+  const masterAspect = aspects[0] || '16:9';
   for (const a of aspects) {
     const isVertical = a === '9:16' || a === '4:5';
     const dur = isVertical ? short : hero;
+    const isMaster = a === masterAspect;
     formats[a] = {
-      aspect: a, durationSec: dur,
+      aspect: a, durationSec: dur, isMaster,
       dims: RESOLUTIONS.map((r) => ({ res: r.id, label: r.label, ...dimsFor(a, r.id) })),
-      scenes: a === (aspects[0] || '16:9') ? master : buildScenes(c, { durationSec: dur, aspect: a, variant: 0 }),
+      // El formato maestro NO duplica las escenas: apunta a `storyboard.scenes`.
+      // Duplicarlas dejaba la copia obsoleta en cuanto se editaba un plano, y
+      // el entregable acababa declarando una duración que no era la suya.
+      scenes: isMaster ? [] : buildScenes(c, { durationSec: dur, aspect: a, variant: 0 }),
       safeArea: isVertical ? { top: 12, bottom: 20, left: 6, right: 6 } : { top: 6, bottom: 8, left: 6, right: 6 },
       note: isVertical ? 'Texto y logotipo fuera de la zona de la interfaz (arriba 12 %, abajo 20 %).'
         : 'Composición apta para recorte central a 1:1 sin perder el producto.',
@@ -2108,6 +2113,13 @@ function buildStoryboard(c) {
     formats, variants,
     totalSec: round(master.reduce((a, x) => a + num(x.durationSec, 0), 0), 1),
   };
+}
+
+/** Escenas de un formato: el maestro siempre lee la lista viva. */
+function scenesOfFormat(sb, aspect) {
+  const f = obj(obj(sb).formats)[s(aspect)];
+  if (!f) return [];
+  return f.isMaster || !arr(f.scenes).length ? arr(obj(sb).scenes) : arr(f.scenes);
 }
 
 const VARIANT_HYPOTHESES = [
@@ -2267,8 +2279,7 @@ function buildPrompts(c, overrides) {
   const byFormat = {};
   for (const a of Object.keys(obj(sb.formats))) {
     if (a === aspect) continue;
-    const f = sb.formats[a];
-    byFormat[a] = arr(f.scenes).map((sc) => {
+    byFormat[a] = arr(scenesOfFormat(sb, a)).map((sc) => {
       const spec = specForScene(c, sc, { kind: 'video', aspect: a });
       const out = renderPrompt(vidProv, spec, params[vidProv]);
       return { sceneId: sc.id, code: sc.code, role: sc.role, kind: 'video', aspect: a, durationSec: sc.durationSec,
@@ -2613,35 +2624,76 @@ function mkJob(d) {
 // todos los formatos y resoluciones pedidos.
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** ¿El montaje usa xfade encadenado o concatenación pura? */
+function usesXfade(scenes) {
+  const list = arr(scenes);
+  return list.length >= 2 && list.some((sc, i) => i > 0 && sc.transitionIn && sc.transitionIn !== 'cut');
+}
+/** Segundos que cada transición consume solapando los dos planos. */
+function overlapOf(sc) {
+  const tr = byId(TRANSITIONS, sc.transitionIn, TRANSITIONS[0]);
+  return tr.ff ? num(tr.dur, 0) : 0.02;   // el corte se hace con un xfade mínimo
+}
+/**
+ * Tiempos REALES en el máster montado.
+ *
+ * xfade SOLAPA los clips: la duración final es la suma de los planos menos la
+ * de las transiciones. Calcular la locución, los rótulos y los subtítulos sobre
+ * la suma nominal los desincroniza, y el desfase se acumula plano a plano
+ * (con 3 transiciones de medio segundo, más de un segundo al final). Estos son
+ * los tiempos contra los que se monta todo lo que va sobre la imagen.
+ */
+function masterTimes(scenes) {
+  const list = arr(scenes);
+  const xf = usesXfade(list);
+  const starts = [];
+  let len = 0;
+  list.forEach((sc, i) => {
+    if (i === 0) { starts.push(0); len = num(sc.durationSec, 0); return; }
+    const d = xf ? overlapOf(sc) : 0;
+    starts.push(round(len - d, 3));       // el plano entra aquí, con el solape
+    len = round(len - d + num(sc.durationSec, 0), 3);
+  });
+  return { starts, total: round(len, 3), xfade: xf };
+}
+
 function buildEdit(c) {
   const sb = obj(c.storyboard);
   const scenes = arr(sb.scenes);
   const audio = obj(c.audio);
   const st = styleById(c.styleId);
   const fps = clamp(num(c.settings.fps, 25), 12, 60);
-  const total = round(scenes.reduce((a, x) => a + num(x.durationSec, 0), 0), 2);
+  const times = masterTimes(scenes);
+  const total = times.total;
+  const startOf = (sceneId) => {
+    const i = scenes.findIndex((x) => x.id === sceneId);
+    return i >= 0 ? times.starts[i] : 0;
+  };
 
-  // ── Timeline multipista ────────────────────────────────────────────────
+  // ── Timeline multipista (en tiempos del máster, no del storyboard) ─────
   const video = scenes.map((sc, i) => ({
     idx: i, sceneId: sc.id, code: sc.code, role: sc.role,
-    startSec: sc.startSec, endSec: round(sc.startSec + sc.durationSec, 2), durationSec: sc.durationSec,
+    startSec: times.starts[i], endSec: round(times.starts[i] + sc.durationSec, 2), durationSec: sc.durationSec,
     frames: Math.round(sc.durationSec * fps),
     source: 'render/' + sc.code + '.mp4', speed: num(sc.speed, 1),
     transitionIn: sc.transitionIn, grade: sc.grade,
   }));
-  const titles = scenes.filter((sc) => s(sc.onScreenText).trim()).map((sc) => ({
-    sceneId: sc.id, code: sc.code, text: s(sc.onScreenText),
-    startSec: round(sc.startSec + 0.25, 2), endSec: round(sc.startSec + sc.durationSec - 0.15, 2),
-    position: sc.role === 'cta' ? 'center' : 'lower-third',
-    style: sc.role === 'cta' ? 'display' : 'body',
-  }));
+  const titles = scenes.filter((sc) => s(sc.onScreenText).trim()).map((sc) => {
+    const st0 = startOf(sc.id);
+    return {
+      sceneId: sc.id, code: sc.code, text: s(sc.onScreenText),
+      startSec: round(st0 + 0.25, 2), endSec: round(st0 + sc.durationSec - 0.15, 2),
+      position: sc.role === 'cta' ? 'center' : 'lower-third',
+      style: sc.role === 'cta' ? 'display' : 'body',
+    };
+  });
   const voice = arr(audio.vo).map((v) => ({
-    sceneId: v.sceneId, code: v.code, startSec: v.startSec, durationSec: v.estimatedSec,
+    sceneId: v.sceneId, code: v.code, startSec: startOf(v.sceneId), durationSec: v.estimatedSec,
     source: 'audio/vo-' + v.code + '.wav', text: v.text, gainDb: -6,
   }));
   const musicTrack = { source: 'audio/music.wav', startSec: 0, durationSec: total, gainDb: -18,
     ducking: { enabled: true, thresholdDb: -30, ratio: 6, attackMs: 60, releaseMs: 300 } };
-  const sfxTrack = arr(audio.sfx).map((x) => ({ sceneId: x.sceneId, code: x.code, startSec: x.atSec,
+  const sfxTrack = arr(audio.sfx).map((x) => ({ sceneId: x.sceneId, code: x.code, startSec: startOf(x.sceneId),
     source: 'audio/sfx-' + slug(x.code) + '.wav', gainDb: -12 }));
 
   // ── Entregables ────────────────────────────────────────────────────────
@@ -2649,11 +2701,14 @@ function buildEdit(c) {
   for (const a of arr(c.settings.targets.aspects)) {
     for (const rId of arr(c.settings.targets.resolutions)) {
       const d = dimsFor(a, rId);
-      const fmt = obj(sb.formats)[a];
+      // La duración del entregable es la del MÁSTER de ese formato, ya con las
+      // transiciones descontadas: es lo que va a medir quien reciba el archivo.
+      const fmtScenes = scenesOfFormat(sb, a);
+      const fmtTotal = arr(fmtScenes).length ? masterTimes(fmtScenes).total : total;
       exports.push({
         id: 'exp-' + slug(a) + '-' + rId, aspect: a, resolution: rId,
         width: d.w, height: d.h, fps,
-        durationSec: fmt ? num(fmt.durationSec, total) : total,
+        durationSec: fmtTotal,
         filename: slug(c.title) + '-' + slug(a) + '-' + rId + '.mp4',
         bitrateMbps: rId === '4k' ? 45 : rId === '2k' ? 22 : 12,
         codec: 'h264', profile: 'high', pixFmt: 'yuv420p',
@@ -2668,8 +2723,10 @@ function buildEdit(c) {
     fps, totalSec: total,
     timeline: { video, titles, voice, music: musicTrack, sfx: sfxTrack },
     exports,
-    srt: buildSrt(scenes, arr(audio.vo)),
-    ffmpeg: buildFfmpegScript(c, { scenes, exports, fps, total }),
+    // Subtítulos y script se construyen sobre las pistas YA remapeadas al
+    // tiempo del máster; nunca sobre los tiempos del storyboard.
+    srt: buildSrt(titles, voice),
+    ffmpeg: buildFfmpegScript(c, { scenes, exports, fps, total, titles, voice, sfx: sfxTrack }),
     edl: buildEdl(c, video, fps),
     checklist: [
       'Comprobar que el producto no cambia de forma entre planos consecutivos.',
@@ -2680,11 +2737,16 @@ function buildEdit(c) {
   };
 }
 
-/** Subtítulos SRT a partir de la locución (o del texto en pantalla). */
-function buildSrt(scenes, vo) {
-  const lines = arr(vo).length ? arr(vo).map((v) => ({ start: num(v.startSec, 0), end: num(v.startSec, 0) + Math.max(1, num(v.estimatedSec, 1)), text: s(v.text) }))
-    : arr(scenes).filter((x) => s(x.onScreenText)).map((x) => ({ start: num(x.startSec, 0), end: num(x.startSec, 0) + num(x.durationSec, 2), text: s(x.onScreenText) }));
-  return lines.map((l, i) => (i + 1) + '\n' + fmtTc(l.start) + ' --> ' + fmtTc(l.end) + '\n' + l.text + '\n').join('\n');
+/**
+ * Subtítulos SRT. Recibe pistas ya expresadas en tiempo del máster: la
+ * locución si la hay, y si no los rótulos.
+ */
+function buildSrt(titles, voice) {
+  const lines = arr(voice).length
+    ? arr(voice).map((v) => ({ start: num(v.startSec, 0), end: num(v.startSec, 0) + Math.max(1, num(v.durationSec, 1)), text: s(v.text) }))
+    : arr(titles).map((x) => ({ start: num(x.startSec, 0), end: num(x.endSec, 0), text: s(x.text) }));
+  return lines.filter((l) => s(l.text).trim())
+    .map((l, i) => (i + 1) + '\n' + fmtTc(l.start) + ' --> ' + fmtTc(l.end) + '\n' + l.text + '\n').join('\n');
 }
 
 /** EDL en formato CMX3600 simplificado, importable en NLE. */
@@ -2730,7 +2792,9 @@ function buildFfmpegScript(c, ctx) {
 
   L.push('#!/usr/bin/env bash');
   L.push('# ' + s(c.title) + ' — script de montaje generado por Kreative Studio ' + KS_VERSION);
-  L.push('# Estilo: ' + st.name + ' · ' + scenes.length + ' escenas · ' + fmtSec(x.total));
+  L.push('# Estilo: ' + st.name + ' · ' + scenes.length + ' escenas · ' + fmtSec(x.total)
+    + ' (suma de planos ' + fmtSec(scenes.reduce((a, sc) => a + num(sc.durationSec, 0), 0))
+    + ' menos el solape de las transiciones)');
   L.push('#');
   L.push('# Entradas esperadas:');
   L.push('#   render/SCxx.mp4  — una toma por escena (mismo fps y resolución de trabajo)');
@@ -2794,18 +2858,23 @@ function buildFfmpegScript(c, ctx) {
   }
   L.push('');
   L.push('# ── 3. Mezcla de audio (locución + música con ducking + efectos) ──────');
-  const voFiles = arr(obj(c.audio).vo).map((v) => 'audio/vo-' + v.code + '.wav');
-  const sfxFiles = arr(obj(c.audio).sfx).map((v) => 'audio/sfx-' + slug(v.code) + '.wav');
+  // Pistas en tiempo del máster (ya descontadas las transiciones).
+  const voTrack = arr(x.voice);
+  const sfxTrackFF = arr(x.sfx);
+  const voFiles = voTrack.map((v) => 'audio/vo-' + v.code + '.wav');
+  const sfxFiles = sfxTrackFF.map((v) => 'audio/sfx-' + slug(v.code) + '.wav');
   L.push('# Ajusta los delays si mueves escenas en el timeline.');
   const aInputs = ['-i audio/music.wav'].concat(voFiles.map((f) => '-i ' + f)).concat(sfxFiles.map((f) => '-i ' + f));
   const aParts = [];
   aParts.push('[0:a]volume=-18dB,aformat=sample_fmts=fltp:sample_rates=48000[music]');
-  arr(obj(c.audio).vo).forEach((v, i) => {
-    aParts.push('[' + (i + 1) + ':a]adelay=' + Math.round(num(v.startSec, 0) * 1000) + '|' + Math.round(num(v.startSec, 0) * 1000) + ',volume=-6dB[vo' + i + ']');
+  voTrack.forEach((v, i) => {
+    const ms = Math.round(num(v.startSec, 0) * 1000);
+    aParts.push('[' + (i + 1) + ':a]adelay=' + ms + '|' + ms + ',volume=-6dB[vo' + i + ']');
   });
-  arr(obj(c.audio).sfx).forEach((v, i) => {
+  sfxTrackFF.forEach((v, i) => {
     const idx = 1 + voFiles.length + i;
-    aParts.push('[' + idx + ':a]adelay=' + Math.round(num(v.atSec, 0) * 1000) + '|' + Math.round(num(v.atSec, 0) * 1000) + ',volume=-12dB[sfx' + i + ']');
+    const ms = Math.round(num(v.startSec, 0) * 1000);
+    aParts.push('[' + idx + ':a]adelay=' + ms + '|' + ms + ',volume=-12dB[sfx' + i + ']');
   });
   const voLbls = voFiles.map((_, i) => '[vo' + i + ']').join('');
   const sfxLbls = sfxFiles.map((_, i) => '[sfx' + i + ']').join('');
@@ -2826,15 +2895,15 @@ function buildFfmpegScript(c, ctx) {
   L.push('');
   L.push('# ── 4. Títulos, logotipo y cierre de marca ────────────────────────────');
   const titleFilters = [];
-  for (const sc of scenes) {
-    const txt = s(sc.onScreenText).trim();
+  for (const ti of arr(x.titles)) {
+    const txt = s(ti.text).trim();
     if (!txt) continue;
-    const isCta = sc.role === 'cta';
+    const isCta = ti.style === 'display';
     const font = isCta ? 'fonts/display.ttf' : 'fonts/body.ttf';
     const size = isCta ? 'h/12' : 'h/22';
     const yPos = isCta ? '(h-text_h)/2' : 'h-(h*0.18)';
-    const from = round(sc.startSec + 0.25, 2);
-    const to = round(sc.startSec + sc.durationSec - 0.15, 2);
+    const from = round(num(ti.startSec, 0), 2);
+    const to = round(num(ti.endSec, 0), 2);
     titleFilters.push('drawtext=fontfile=' + font + ':text=' + "'" + ffq(txt) + "'"
       + ':fontcolor=' + light + ':fontsize=' + size + ':x=(w-text_w)/2:y=' + yPos
       + ':box=1:boxcolor=' + primary + '@0.35:boxborderw=18'
@@ -3569,11 +3638,25 @@ function exportRenderBundle(c, assets) {
   L.push('');
   L.push('mkdir -p render keyframes audio brand fonts work out');
   L.push('');
+  L.push('command -v curl >/dev/null || { echo "Falta curl."; exit 1; }');
+  L.push('command -v ffmpeg >/dev/null || { echo "Falta ffmpeg."; exit 1; }');
+  L.push('');
   L.push('# ── Descarga de assets registrados ───────────────────────────────────');
+  L.push('# `-S` deja pasar el mensaje de error de curl: si una descarga falla hay');
+  L.push('# que ver POR QUÉ, no quedarse mirando un "bajando…" que no termina.');
   L.push('dl() {  # dl <destino> <url>');
   L.push('  if [ -f "$1" ]; then echo "  ya está: $1"; return 0; fi');
+  L.push('  mkdir -p "$(dirname "$1")"');
   L.push('  echo "  bajando: $1"');
-  L.push('  curl -fsSL --retry 3 --retry-delay 2 -o "$1" "$2"');
+  L.push('  if ! curl -fsSL --show-error --retry 3 --retry-delay 2 --connect-timeout 20 -o "$1" "$2"; then');
+  L.push('    rm -f "$1"');
+  L.push('    echo "" >&2');
+  L.push('    echo "✖ No se pudo descargar $1" >&2');
+  L.push('    echo "  desde: $2" >&2');
+  L.push('    echo "  Comprueba que la URL sigue siendo accesible desde esta máquina" >&2');
+  L.push('    echo "  (los assets se sirven desde KIMOS y pueden requerir red o VPN)." >&2');
+  L.push('    exit 1');
+  L.push('  fi');
   L.push('}');
   for (const e of entries) {
     if (e.asset) L.push('dl ' + shq(e.job.file) + ' ' + shq(e.asset.url));
@@ -5846,8 +5929,10 @@ export default function mount(shell) {
       h(Card, { key: 'f', title: 'Cortes por formato' }, [
         h('div', { className: 'ks-formats', key: 'f' }, Object.keys(obj(sb.formats)).map((a) => {
           const f = sb.formats[a];
+          const fScenes = scenesOfFormat(sb, a);
           return h('div', { key: a, className: 'ks-format' }, [
-            h('strong', { key: 'a' }, a + ' · ' + fmtSec(f.durationSec) + ' · ' + arr(f.scenes).length + ' escenas'),
+            h('strong', { key: 'a' }, a + (f.isMaster ? ' · maestro' : '') + ' · '
+              + fmtSec(masterTimes(fScenes).total) + ' · ' + fScenes.length + ' escenas'),
             h('div', { className: 'ks-chips', key: 'd' }, arr(f.dims).map((d) => h(Chip, { key: d.res }, d.label + ' ' + d.w + '×' + d.h))),
             h('p', { className: 'ks-hint', key: 'n' }, f.note),
           ]);

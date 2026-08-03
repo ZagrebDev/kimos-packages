@@ -130,10 +130,17 @@ No escribe nada en ProductLab.
 ## Desarrollo
 
 ```bash
-node apps/kreative-studio/build.mjs           # src/*.js → dist/index.js
-node apps/kreative-studio/test/test-app.mjs   # 223 comprobaciones
-node tools/pack.mjs apps/kreative-studio      # → kreative-studio-1.0.0.kapp
+node apps/kreative-studio/build.mjs              # src/*.js → dist/index.js
+node apps/kreative-studio/test/test-app.mjs      # 232 comprobaciones, sin dependencias
+node apps/kreative-studio/test/test-render.mjs   # render REAL (requiere ffmpeg)
+node tools/pack.mjs apps/kreative-studio         # → kreative-studio-1.0.0.kapp
 ```
+
+`test-render.mjs` genera una campaña, fabrica los assets con FFmpeg (patrones
+de prueba, sin material externo), los sirve por HTTP, ejecuta el bundle **sin
+tocarlo** y comprueba el .mp4 resultante. Si no hay `ffmpeg` en el PATH —o le
+faltan filtros— se salta diciendo exactamente qué falta. Con `FFMPEG=/ruta`
+puedes apuntar a un binario concreto.
 
 El `.kapp` de la versión publicada vive en la raíz del repo
 (`kreative-studio-1.0.0.kapp`), como el de `productlab`. **Al subir `version` en
@@ -158,10 +165,11 @@ Documentación: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) ·
   la app le dice qué toca, con qué modelo y con qué referencia, y recoge el
   resultado. Para el usuario es una frase en el chat; la diferencia es de
   arquitectura, no de experiencia.
-- **El render se prepara aquí y se ejecuta fuera.** El bundle está validado como
-  shell y su filtergraph se comprueba estáticamente en los tests (cada pad se
-  produce y se consume una vez), pero **no se ha ejecutado un render real**: no
-  hay FFmpeg en el entorno de desarrollo. Conviene hacerlo una vez.
+- **El render se prepara aquí y se ejecuta fuera.** El bundle se ha ejecutado
+  de verdad (`test-render.mjs`) y produce un .mp4 con las dimensiones, el fps,
+  el audio y la duración declarados; pero el render corre en tu máquina o en tu
+  CI, no dentro de KIMOS. Necesita FFmpeg con `libx264`, `xfade`,
+  `sidechaincompress`, `loudnorm`, `subtitles` y `drawtext`.
 - **Las cifras de medios son proyecciones**, derivadas de benchmarks públicos
   por familia de plataforma y del ajuste creativo del propio storyboard. Sirven
   para dimensionar y comparar variantes, no son un compromiso de resultado.

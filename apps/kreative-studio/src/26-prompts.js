@@ -146,8 +146,7 @@ function buildPrompts(c, overrides) {
   const byFormat = {};
   for (const a of Object.keys(obj(sb.formats))) {
     if (a === aspect) continue;
-    const f = sb.formats[a];
-    byFormat[a] = arr(f.scenes).map((sc) => {
+    byFormat[a] = arr(scenesOfFormat(sb, a)).map((sc) => {
       const spec = specForScene(c, sc, { kind: 'video', aspect: a });
       const out = renderPrompt(vidProv, spec, params[vidProv]);
       return { sceneId: sc.id, code: sc.code, role: sc.role, kind: 'video', aspect: a, durationSec: sc.durationSec,

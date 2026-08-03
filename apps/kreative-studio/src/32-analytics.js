@@ -359,11 +359,25 @@ function exportRenderBundle(c, assets) {
   L.push('');
   L.push('mkdir -p render keyframes audio brand fonts work out');
   L.push('');
+  L.push('command -v curl >/dev/null || { echo "Falta curl."; exit 1; }');
+  L.push('command -v ffmpeg >/dev/null || { echo "Falta ffmpeg."; exit 1; }');
+  L.push('');
   L.push('# ── Descarga de assets registrados ───────────────────────────────────');
+  L.push('# `-S` deja pasar el mensaje de error de curl: si una descarga falla hay');
+  L.push('# que ver POR QUÉ, no quedarse mirando un "bajando…" que no termina.');
   L.push('dl() {  # dl <destino> <url>');
   L.push('  if [ -f "$1" ]; then echo "  ya está: $1"; return 0; fi');
+  L.push('  mkdir -p "$(dirname "$1")"');
   L.push('  echo "  bajando: $1"');
-  L.push('  curl -fsSL --retry 3 --retry-delay 2 -o "$1" "$2"');
+  L.push('  if ! curl -fsSL --show-error --retry 3 --retry-delay 2 --connect-timeout 20 -o "$1" "$2"; then');
+  L.push('    rm -f "$1"');
+  L.push('    echo "" >&2');
+  L.push('    echo "✖ No se pudo descargar $1" >&2');
+  L.push('    echo "  desde: $2" >&2');
+  L.push('    echo "  Comprueba que la URL sigue siendo accesible desde esta máquina" >&2');
+  L.push('    echo "  (los assets se sirven desde KIMOS y pueden requerir red o VPN)." >&2');
+  L.push('    exit 1');
+  L.push('  fi');
   L.push('}');
   for (const e of entries) {
     if (e.asset) L.push('dl ' + shq(e.job.file) + ' ' + shq(e.asset.url));

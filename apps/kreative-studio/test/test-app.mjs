@@ -299,6 +299,48 @@ check('el EDL lleva título', /^TITLE: /.test(edit.edl));
 check('el timeline cubre vídeo, títulos y voz',
   edit.timeline.video.length > 0 && edit.timeline.voice.length > 0);
 
+// xfade SOLAPA los clips: el máster dura menos que la suma de los planos. Si
+// los tiempos del audio, los rótulos y los subtítulos se calculan sobre la
+// suma nominal, todo se desincroniza y el desfase crece plano a plano. Lo
+// detectó un render real; esta comprobación impide que vuelva.
+{
+  const sbScenes = (await state()).storyboard.scenes;
+  const nominal = sbScenes.reduce((a, x) => a + x.durationSec, 0);
+  const conTransiciones = sbScenes.some((x, i) => i > 0 && x.transitionIn && x.transitionIn !== 'cut');
+  if (conTransiciones) {
+    check('el máster dura menos que la suma de planos (las transiciones solapan)',
+      edit.totalSec < nominal - 0.05, 'máster ' + edit.totalSec + ' vs suma ' + nominal.toFixed(2));
+  }
+  check('el último plano cabe dentro del máster',
+    edit.timeline.video[edit.timeline.video.length - 1].endSec <= edit.totalSec + 0.05,
+    'fin ' + edit.timeline.video[edit.timeline.video.length - 1].endSec + ' vs total ' + edit.totalSec);
+  check('ningún rótulo se sale del máster',
+    edit.timeline.titles.every((t2) => t2.endSec <= edit.totalSec + 0.05));
+  check('ninguna locución arranca fuera del máster',
+    edit.timeline.voice.every((v) => v.startSec < edit.totalSec));
+  const masterAspect = (await state()).storyboard.masterAspect;
+  const masterExports = edit.exports.filter((e) => e.aspect === masterAspect);
+  check('los entregables del formato maestro declaran la duración real del máster',
+    masterExports.length > 0 && masterExports.every((e) => Math.abs(e.durationSec - edit.totalSec) < 0.05),
+    JSON.stringify(masterExports.map((e) => e.aspect + ':' + e.durationSec)) + ' vs ' + edit.totalSec);
+  check('cada formato declara su propia duración, ya descontadas las transiciones',
+    edit.exports.every((e) => e.durationSec > 0 && e.durationSec < nominal + 0.05),
+    JSON.stringify(edit.exports.map((e) => e.aspect + ':' + e.durationSec)));
+  // Los retardos del script tienen que coincidir con la pista, al milisegundo.
+  const firstVo = edit.timeline.voice.find((v) => v.startSec > 0);
+  if (firstVo) {
+    const ms = Math.round(firstVo.startSec * 1000);
+    check('el retardo de la locución en el script usa el tiempo del máster',
+      edit.ffmpeg.indexOf('adelay=' + ms + '|' + ms) >= 0, 'esperado adelay=' + ms);
+  }
+  // El primer subtítulo no puede empezar después de lo que dura el vídeo.
+  const firstCue = /\d\d:(\d\d):(\d\d),(\d\d\d) -->/.exec(edit.srt);
+  if (firstCue) {
+    const at = Number(firstCue[1]) * 60 + Number(firstCue[2]) + Number(firstCue[3]) / 1000;
+    check('los subtítulos caen dentro del máster', at < edit.totalSec, at + ' vs ' + edit.totalSec);
+  }
+}
+
 // Validación estática del filtergraph: en FFmpeg cada pad etiquetado se
 // produce una vez y se consume una vez. Consumir dos veces el mismo pad (sin
 // split/asplit) hace que el filtergraph ni siquiera arranque, y eso no se ve
