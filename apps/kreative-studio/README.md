@@ -28,15 +28,19 @@ caros. Está siempre disponible en el menú.
    documento es una campaña.
 2. **Brief** → nombre del producto + fotos (frontal, tres cuartos, detalle).
    Marca la mejor como *principal*: es la referencia que reciben los modelos.
+   Si el producto está en **ProductLab**, impórtalo y se rellena solo.
 3. **Panel** → escribe la intención y pulsa **Generar campaña**.
-4. **Producción** → la lista de trabajos con su prompt, proveedor y coste.
-   Ejecútalos con tus modelos y registra cada resultado.
-5. **Editor** → descarga el script de montaje, los subtítulos y el EDL.
+4. **Producción** → pídeselo al agente: genera el material por lotes
+   (keyframes → tomas → audio) y registra cada resultado con su coste real.
+5. **Bundle de render** → un script que baja todo, une las tomas partidas,
+   escribe los subtítulos y monta los entregables con FFmpeg.
 
-Desde el chat de KIMOS, lo mismo en una frase:
+Desde el chat de KIMOS, la campaña entera en dos frases:
 
-> «Crea una campaña premium para el Vector Pro con estas fotos, en 9:16 y 16:9,
-> y dame los prompts de vídeo para Veo.»
+> «Importa la Mesa Fiordo de ProductLab y hazle una campaña premium de 20
+> segundos en 9:16 y 16:9.»
+>
+> «Produce todo el material pendiente y dame el bundle de render.»
 
 ---
 
@@ -83,17 +87,43 @@ nada más. Añadir un modelo nuevo es añadir un descriptor: ver
 
 ## Control por el agente de KIMOS
 
-La app declara `agent.control` con 23 herramientas. Flujo típico:
+La app declara `agent.control` con 27 herramientas. El agente puede llevar la
+campaña de cero al vídeo montado sin que toques la interfaz:
 
 ```
-SET_BRIEF → ADD_PRODUCT_PHOTO → GENERATE_CAMPAIGN
-          → GET_JOBS → (generas con tus modelos) → REGISTER_ASSET
-          → EXPORT bible | ffmpeg | srt | prompts_csv | copy_csv
+IMPORT_PRODUCT  (o SET_BRIEF + ADD_PRODUCT_PHOTO)
+      ↓
+GENERATE_CAMPAIGN «crea una campaña premium»
+      ↓
+RUN_PRODUCTION ──► lote: qué generar ahora, con qué modelo, con qué referencia
+      │                   (el agente lo genera con sus conexiones)
+      └── REGISTER_ASSETS ──► versiona, cierra trabajos, suma el coste real
+      ↑                                                        │
+      └──────────────── repetir hasta listo: true ◄────────────┘
+      ↓
+EXPORT render_bundle ──► descarga + unión de tomas + subtítulos + FFmpeg
 ```
 
-`REGISTER_ASSET` cierra el ciclo: asocia el archivo a su escena, versiona las
-iteraciones, marca el trabajo como completado y sustituye el coste estimado por
-el real. Lista completa en [`docs/AGENTES.md`](docs/AGENTES.md).
+`RUN_PRODUCTION` respeta las dependencias reales: no entrega una toma de vídeo
+hasta que su keyframe existe, y se la pasa como imagen de referencia. Lista
+completa en [`docs/AGENTES.md`](docs/AGENTES.md).
+
+---
+
+## Integración con ProductLab
+
+Con el permiso `data.read:productlab` (solo lectura, y el RBAC del usuario es
+siempre el techo), Kreative Studio importa un producto del catálogo:
+
+| De ProductLab | Al brief |
+|---|---|
+| `name`, `sku` | Nombre del producto y trazabilidad del origen |
+| `price` + moneda del catálogo | Precio y divisa |
+| `storefront.specs[]` | Propuesta de valor (los atributos reales) |
+| `groups[]` (pasos) | «Personalizable en: …», que es argumento de venta |
+| `galleryImages[]` + foto de tienda | Fotos de referencia para los modelos |
+
+No escribe nada en ProductLab.
 
 ---
 
@@ -101,7 +131,7 @@ el real. Lista completa en [`docs/AGENTES.md`](docs/AGENTES.md).
 
 ```bash
 node apps/kreative-studio/build.mjs           # src/*.js → dist/index.js
-node apps/kreative-studio/test/test-app.mjs   # 177 comprobaciones
+node apps/kreative-studio/test/test-app.mjs   # 223 comprobaciones
 node tools/pack.mjs apps/kreative-studio      # → kreative-studio-1.0.0.kapp
 ```
 
@@ -122,14 +152,16 @@ Documentación: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) ·
 
 ## Límites, dichos sin rodeos
 
-- **La app no llama a los modelos generativos.** Un bundle de KIMOS corre en el
-  navegador del usuario y no puede custodiar claves de API de terceros. Kreative
-  Studio produce los prompts, los parámetros y los trabajos; quien los ejecuta
-  es el agente de KIMOS (con sus MCP, p. ej. Higgsfield) o el operador. El
-  resultado vuelve con `REGISTER_ASSET`.
-- **El script FFmpeg no se ejecuta aquí**, se entrega. Está validado como shell
-  y su filtergraph se comprueba estáticamente en los tests (pads producidos y
-  consumidos), pero el render ocurre en tu máquina o en tu CI.
+- **La app no llama a los modelos por su cuenta.** Un bundle de KIMOS corre en
+  el navegador del usuario y no puede custodiar claves de API de terceros. Quien
+  genera es el agente de KIMOS con sus conexiones (MCP de Higgsfield y demás);
+  la app le dice qué toca, con qué modelo y con qué referencia, y recoge el
+  resultado. Para el usuario es una frase en el chat; la diferencia es de
+  arquitectura, no de experiencia.
+- **El render se prepara aquí y se ejecuta fuera.** El bundle está validado como
+  shell y su filtergraph se comprueba estáticamente en los tests (cada pad se
+  produce y se consume una vez), pero **no se ha ejecutado un render real**: no
+  hay FFmpeg en el entorno de desarrollo. Conviene hacerlo una vez.
 - **Las cifras de medios son proyecciones**, derivadas de benchmarks públicos
   por familia de plataforma y del ajuste creativo del propio storyboard. Sirven
   para dimensionar y comparar variantes, no son un compromiso de resultado.

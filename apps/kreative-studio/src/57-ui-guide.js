@@ -12,7 +12,7 @@
     {
       n: 1, title: 'Rellena el brief', view: 'brief', cta: 'Ir al Brief',
       body: 'Lo único obligatorio es el nombre del producto y las fotos. Sube frontal, tres cuartos y un detalle de material, y marca la mejor como principal: es la referencia que reciben los modelos y lo que impide que se inventen la forma del producto.',
-      tip: 'La propuesta de valor, una idea por frase. De ahí salen los atributos, los beneficios y casi todo el copy.',
+      tip: 'Si el producto ya está en ProductLab, impórtalo: trae nombre, precio, especificaciones y toda la galería sin teclear nada.',
     },
     {
       n: 2, title: 'Escribe lo que quieres', view: 'dashboard', cta: 'Ir al Panel',
@@ -25,13 +25,13 @@
       tip: 'Si no te gusta la dirección entera, cambia de estilo en el Marketplace: se regenera todo de forma coherente, no solo los colores.',
     },
     {
-      n: 4, title: 'Produce el material', view: 'jobs', cta: 'Ver los trabajos',
-      body: 'Aquí está la lista de trabajos con su prompt, su proveedor y su coste estimado. Genera primero TODOS los keyframes y valida el producto antes de gastar en vídeo: un vídeo malo cuesta entre 10 y 30 veces más que la imagen que lo habría evitado.',
-      tip: 'Registra cada resultado con el asset correspondiente: se versiona, cierra el trabajo y el coste real sustituye al estimado.',
+      n: 4, title: 'Produce el material', view: 'jobs', cta: 'Ver la producción',
+      body: 'Díselo al agente de KIMOS: «produce el material pendiente». Él pide el siguiente lote, genera cada imagen, vídeo y audio con sus modelos y devuelve los resultados; la app los versiona, cierra cada trabajo y contabiliza el coste real. Repite solo hasta que quede en cero.',
+      tip: 'El orden no es negociable: primero los keyframes, y las tomas de vídeo parten de ellos. Un vídeo malo cuesta entre 10 y 30 veces más que la imagen que lo habría evitado.',
     },
     {
-      n: 5, title: 'Monta y exporta', view: 'editor', cta: 'Abrir el Editor',
-      body: 'Descarga el script de montaje, los subtítulos y el EDL. El script lleva la normalización de cada toma, el etalonaje, las transiciones, los rótulos, el logotipo, la mezcla con ducking y la exportación a todos los formatos que hayas pedido.',
+      n: 5, title: 'Renderiza', view: 'jobs', cta: 'Bundle de render',
+      body: 'Cuando la producción llega al 100 %, descarga el bundle de render: un único script que baja todos los archivos generados a su sitio, une las tomas que hubo que partir, escribe los subtítulos y ejecuta FFmpeg hasta los entregables finales en cada formato.',
       tip: 'La biblia de campaña (botón «Biblia» arriba) es el documento que se le entrega al cliente: concepto, plan, storyboard, copy y costes.',
     },
   ];
@@ -84,10 +84,10 @@
         h('div', { className: 'ks-guide-doesnt', key: 'b' }, [
           h('h3', { key: 't' }, 'Lo que NO hace'),
           h('ul', { className: 'ks-list', key: 'l' }, [
-            h('li', { key: '1' }, [h('strong', { key: 's' }, 'No llama a los modelos generativos. '),
-              'Esta app corre en tu navegador y no puede custodiar claves de API de terceros. Produce los prompts, los parámetros y los trabajos; quien los ejecuta es el agente de KIMOS con sus conexiones, o tú desde el panel de tu proveedor. El resultado vuelve aquí al registrarlo.']),
-            h('li', { key: '2' }, [h('strong', { key: 's' }, 'No renderiza el vídeo. '),
-              'Genera el script de FFmpeg completo y reproducible; el render ocurre en tu máquina o en tu servidor.']),
+            h('li', { key: '1' }, [h('strong', { key: 's' }, 'No llama a los modelos por su cuenta. '),
+              'Esta app corre en tu navegador y no puede custodiar claves de API de terceros. Quien genera es el agente de KIMOS con sus conexiones: la app le dice exactamente qué toca hacer ahora, con qué modelo y con qué referencia, y él devuelve los archivos. Tú solo tienes que pedírselo.']),
+            h('li', { key: '2' }, [h('strong', { key: 's' }, 'No ejecuta el render. '),
+              'Prepara el bundle completo —descarga de archivos, unión de tomas, subtítulos y FFmpeg— pero el render corre en tu máquina o en tu servidor.']),
             h('li', { key: '3' }, [h('strong', { key: 's' }, 'No compra medios ni publica. '),
               'Deja el copy y los entregables listos para subirlos al gestor de anuncios.']),
             h('li', { key: '4' }, [h('strong', { key: 's' }, 'No promete resultados. '),
@@ -127,18 +127,18 @@
       // ── El ciclo de producción ───────────────────────────────────────
       h(Card, { key: 'cycle', title: 'Cómo se cierra el ciclo de producción' }, [
         h('div', { className: 'ks-guide-cycle', key: 'c' }, [
-          { t: 'Trabajos', d: 'La app lista qué generar, con qué modelo y a qué coste.' },
-          { t: 'Generación', d: 'El agente de KIMOS o tú ejecutáis cada trabajo con el proveedor indicado.' },
-          { t: 'Registro', d: 'El archivo vuelve a la Biblioteca asociado a su escena, versionado.' },
-          { t: 'Liquidación', d: 'El trabajo se cierra y el coste real sustituye al estimado en Analytics.' },
+          { t: 'Lote', d: 'La app entrega el siguiente bloque que toca generar, con proveedor, prompt y referencia.' },
+          { t: 'Generación', d: 'El agente lo genera con sus modelos, respetando el orden: keyframes antes que vídeo.' },
+          { t: 'Registro', d: 'Devuelve todo de una vez: se versiona por escena, cierra cada trabajo y suma el coste real.' },
+          { t: 'Render', d: 'Al llegar a cero, el bundle baja los archivos, los ordena y monta los entregables.' },
         ].map((x, i, all) => h('div', { key: i, className: 'ks-guide-cyclestep' }, [
           h('strong', { key: 't' }, x.t),
           h('p', { key: 'd' }, x.d),
           i < all.length - 1 ? h('span', { className: 'ks-guide-arrow', key: 'a' }, '→') : null,
         ]))),
         h('p', { className: 'ks-hint', key: 'n' },
-          'Desde el chat de KIMOS basta con pedirlo: «ejecuta los trabajos pendientes de Kreative Studio». '
-          + 'El agente lee la lista, genera con sus modelos y registra cada resultado.'),
+          'Desde el chat de KIMOS basta con pedirlo: «produce el material pendiente de Kreative Studio». '
+          + 'El agente repite el ciclo solo hasta que no quede nada, y te avisa cuando esté lista para renderizar.'),
       ]),
 
       // ── Errores frecuentes ───────────────────────────────────────────

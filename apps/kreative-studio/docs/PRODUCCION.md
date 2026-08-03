@@ -28,11 +28,16 @@ facturable, unidad de coste, coste estimado, dependencias y estado.
 
 ## 2. Ejecución
 
-Kreative Studio no llama a los modelos: un bundle en el navegador no puede
-custodiar claves de API de terceros. Dos caminos:
+Kreative Studio no llama a los modelos por su cuenta: un bundle en el navegador
+no puede custodiar claves de API de terceros. Quien genera es el agente, y la
+app le da el trabajo masticado.
 
-**Desde el chat de KIMOS** — el agente lee `GET_JOBS`, genera con sus MCP
-(Higgsfield y demás) y cierra cada trabajo con `REGISTER_ASSET`.
+**Desde el chat de KIMOS** — «produce el material pendiente». El agente entra
+en el ciclo `RUN_PRODUCTION` → generar → `REGISTER_ASSETS` y lo repite hasta
+que no queda nada. Cada lote llega con el proveedor, el prompt, los parámetros,
+la imagen de referencia y el archivo de destino ya resueltos; no tiene que
+deducir nada ni respetar el orden por su cuenta, porque la app solo le entrega
+lo que ya se puede hacer.
 
 **A mano** — la vista **Producción** exporta el CSV de trabajos con el prompt y
 los parámetros de cada uno, listo para el cliente de tu proveedor.
@@ -57,12 +62,18 @@ rápido y suele ser el problema real.
 ## 4. Registro
 
 ```
-REGISTER_ASSET { url, jobId, sceneId, providerId, costUsd, durationSec }
+REGISTER_ASSETS { assets: [ { jobId, url, costUsd, durationSec }, … ] }
 ```
 
-Hace cuatro cosas de una vez: guarda el asset asociado a su escena, lo versiona
-(la segunda toma del mismo plano es `v2`, no un archivo suelto), marca el
-trabajo como `done` y sustituye el coste estimado por el real en Analytics.
+Hace cuatro cosas de una vez: guarda cada asset asociado a su escena, lo
+versiona (la segunda toma del mismo plano es `v2`, no un archivo suelto), marca
+su trabajo como `done` y sustituye el coste estimado por el real en Analytics.
+
+El estado no se fía de que alguien pase el `jobId`: se **reconcilia** con lo que
+hay en la Biblioteca cada vez que cambia algo. Borrar un asset reabre su
+trabajo; recalcular la producción no borra el progreso; y un archivo de una
+configuración anterior no cierra un trabajo que no es suyo, porque el id del
+trabajo incluye la escena y no solo su código.
 
 Marca como **aprobado** el asset que entra al montaje: es lo que distingue una
 iteración descartada de la buena.
@@ -73,9 +84,16 @@ La vista **Editor** entrega tres archivos:
 
 | Archivo | Para qué |
 |---|---|
-| `montaje-*.sh` | Script FFmpeg completo, de las tomas al entregable final. |
-| `*.srt` | Subtítulos. Guárdalos como `subs.srt` junto al script. |
-| `*.edl` | Lista CMX3600 para importar el corte en tu NLE. |
+| `*-render.sh` | **El bundle**: descarga los assets registrados a su sitio, une las tomas partidas, escribe los subtítulos y monta. Un solo comando. |
+| `*-assets.json` | Manifiesto: qué archivo generado corresponde a cada ruta del montaje. |
+| `montaje-*.sh` | Solo el montaje, si prefieres colocar los archivos tú. |
+| `*.srt` · `*.edl` | Subtítulos sueltos y lista CMX3600 para tu NLE. |
+
+Con el bundle basta con:
+
+```bash
+bash mi-campana-render.sh     # baja, une, subtitula y renderiza
+```
 
 Estructura de carpetas que espera el script:
 

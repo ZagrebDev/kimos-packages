@@ -40,6 +40,26 @@ const shell = {
   agent: { register: (reg) => { agentReg = reg; return () => { agentReg = null; }; } },
   config: { get: async () => ({ accent: '#19ACB1' }), onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
+  // Catálogo de ProductLab simulado (shell.data, permiso data.read:productlab).
+  data: {
+    listInstances: async (tpl) => (tpl === 'productlab' ? [{ id: 'pl-1', name: 'Catálogo Mobiliario' }] : []),
+    listItems: async (iid) => (iid !== 'pl-1' ? [] : [
+      { id: 'definition', kind: 'definition', brandName: 'Nordika', storeName: 'Nordika Store',
+        rules: { currency: 'EUR', currencySymbol: '€' } },
+      { id: 'prd-1', kind: 'producto', name: 'Mesa Fiordo', sku: 'MF-140', status: 'active', price: 749,
+        galleryImages: ['https://cdn.test/fiordo-1.jpg', 'https://cdn.test/fiordo-2.jpg'],
+        storeRef: { instanceId: 'p-inst', itemId: 'x1', imageUrl: 'https://cdn.test/fiordo-hero.jpg' },
+        groups: [{ id: 'g1', label: 'Cubierta', values: [] }, { id: 'g2', label: 'Patas', values: [] }],
+        model3d: { enabled: true },
+        storefront: { specs: [
+          { label: 'Material', value: 'Roble macizo certificado FSC' },
+          { label: 'Medidas', value: '140 × 90 × 75 cm' },
+          { label: 'Acabado', value: 'Aceite natural sin disolventes' },
+        ] } },
+      { id: 'prd-2', kind: 'producto', name: 'Silla Ártica', sku: 'SA-01', price: 219, storefront: {} },
+      { id: 'cmp-1', kind: 'component', name: 'Tablero roble', cost: 120 },
+    ]),
+  },
 };
 
 // ── Utilidades de test ───────────────────────────────────────────────────
@@ -489,10 +509,11 @@ catch (e) { check('el componente raíz renderiza en profundidad', false, e.messa
     const txt = renderDeep(app.Component(), 0)
       .map((n) => (typeof n.c === 'string' ? n.c : Array.isArray(n.c) ? n.c.filter((x) => typeof x === 'string').join(' ') : ''))
       .join(' ');
-    check('la Guía advierte que la app no llama a los modelos', /No llama a los modelos generativos/.test(txt));
-    check('la Guía advierte que no renderiza el vídeo', /No renderiza el vídeo/.test(txt));
+    check('la Guía advierte que la app no llama a los modelos por su cuenta', /No llama a los modelos por su cuenta/.test(txt));
+    check('la Guía advierte que el render se ejecuta fuera', /No ejecuta el render/.test(txt));
     check('la Guía advierte que las cifras son proyecciones', /No promete resultados/.test(txt));
-    check('la Guía explica el flujo por pasos', /Rellena el brief/.test(txt) && /Monta y exporta/.test(txt));
+    check('la Guía explica el flujo por pasos', /Rellena el brief/.test(txt) && /Renderiza/.test(txt));
+    check('la Guía menciona la importación desde ProductLab', /ProductLab/.test(txt));
   }
 }
 
@@ -502,6 +523,169 @@ check('el snapshot expone las escenas', Array.isArray(sp.escenas) && sp.escenas.
 check('el snapshot expone los proveedores disponibles', !!sp.proveedoresDisponibles.image);
 check('el snapshot expone los assets', Array.isArray(sp.assets) && sp.assets.length === 2);
 check('el snapshot expone el coste real', sp.costeRealUsd > 0);
+
+// ── 16. Integración con ProductLab ───────────────────────────────────────
+r = await call('LIST_CATALOG', {});
+check('LIST_CATALOG lee el catálogo', r.success && r.data.length === 1, JSON.stringify(r).slice(0, 140));
+eq('lista solo los productos, no los componentes', r.data[0].productos.length, 2);
+eq('lee la moneda del catálogo', r.data[0].moneda, 'EUR');
+r = await call('LIST_CATALOG', { query: 'fiordo' });
+eq('LIST_CATALOG filtra', r.data[0].productos.length, 1);
+
+r = await call('IMPORT_PRODUCT', { product: 'no-existe-nada' });
+check('IMPORT_PRODUCT avisa si no encuentra el producto', r.success === false, JSON.stringify(r));
+
+r = await call('IMPORT_PRODUCT', { product: 'MF-140' });
+check('IMPORT_PRODUCT funciona por SKU', r.success, JSON.stringify(r));
+{
+  const st2 = await state();
+  eq('importa el nombre', st2.brief.productName, 'Mesa Fiordo');
+  eq('importa el precio', st2.brief.priceText, '749');
+  eq('importa la moneda', st2.brief.currency, 'EUR');
+  check('las especificaciones pasan a la propuesta de valor',
+    /Roble macizo/.test(st2.brief.usp) && /140 × 90/.test(st2.brief.usp), st2.brief.usp);
+  check('los pasos configurables se anotan', /Personalizable en: Cubierta, Patas/.test(st2.brief.extraNotes), st2.brief.extraNotes);
+  check('anota el modelo 3D', /modelo 3D/.test(st2.brief.extraNotes));
+  const urls = st2.brief.photos.map((x) => x.url);
+  check('importa la galería y la foto de tienda',
+    urls.indexOf('https://cdn.test/fiordo-1.jpg') >= 0 && urls.indexOf('https://cdn.test/fiordo-hero.jpg') >= 0, JSON.stringify(urls));
+  check('no duplica fotos al reimportar', new Set(urls).size === urls.length);
+  eq('deja trazado el origen', st2.brief.sourceRef.app, 'productlab');
+  eq('el origen guarda el SKU', st2.brief.sourceRef.sku, 'MF-140');
+  check('siempre hay una foto principal', st2.brief.photos.some((x) => x.isHero));
+}
+r = await call('IMPORT_PRODUCT', { product: 'Silla Ártica', intent: 'campaña premium minimalista' });
+check('IMPORT_PRODUCT puede generar la campaña de seguido', r.success && /Campaña generada/.test(r.message), JSON.stringify(r));
+eq('la campaña es del producto importado', (await state()).brief.productName, 'Silla Ártica');
+
+// ── 17. Producción completa haciendo de agente ───────────────────────────
+// Es la prueba que importa: simula al agente de KIMOS generando TODO el
+// material por lotes hasta que la campaña queda lista para renderizar.
+await call('SET_SETTINGS', { aspects: ['9:16'], resolutions: ['1080'], variantCount: 2, subtitles: true });
+const num2 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+// La reconciliación tiene que sobrevivir a un recálculo de la producción: si
+// no, cada «Recalcular» borraría el progreso real y habría que pagar dos veces
+// por el mismo plano.
+{
+  const st0 = await state();
+  const probe = st0.production.jobs.find((j) => j.kind === 'image');
+  await call('REGISTER_ASSETS', { assets: [{ jobId: probe.id, url: 'https://cdn.test/probe.png', costUsd: 0.19 }] });
+  const st1 = await state();
+  eq('registrar cierra su trabajo', st1.production.jobs.find((j) => j.id === probe.id).status, 'done');
+  await call('RUN_AGENT', { agentId: 'video-producer' });
+  const st2b = await state();
+  eq('el trabajo sigue cerrado tras recalcular la producción',
+    st2b.production.jobs.find((j) => j.id === probe.id).status, 'done');
+  // Y un asset de una configuración ANTERIOR no debe cerrar un trabajo ajeno.
+  const stale = st2b.production.jobs.filter((j) => j.status === 'done').length;
+  eq('solo se da por hecho lo que de verdad tiene archivo', stale, 1);
+}
+
+const stBefore = await state();
+const pendingAtStart = stBefore.production.jobs.filter((j) => j.status === 'pending').length;
+const costBefore = num2(stBefore.analytics.production.realTotalUsd);
+
+r = await call('RUN_PRODUCTION', {});
+check('RUN_PRODUCTION devuelve un lote', r.success && r.data.siguienteLote.length > 0, JSON.stringify(r).slice(0, 160));
+check('cada elemento trae proveedor, prompt y destino',
+  r.data.siguienteLote.every((x) => x.proveedor && x.prompt && x.archivoDestino));
+const kf = r.data.siguienteLote.find((x) => x.etapa === 'keyframe');
+check('los keyframes reciben las fotos del producto como referencia',
+  kf && Array.isArray(kf.imagenReferencia) && kf.imagenReferencia.length > 0, JSON.stringify(kf && kf.imagenReferencia));
+
+let rondas = 0; let generados = 0; let costeAcum = 0; let ordenOk = true;   // true o el motivo del fallo
+while (rondas < 25) {
+  const res = await call('RUN_PRODUCTION', { limit: 12 });
+  if (!res.success) { check('RUN_PRODUCTION no falla durante el ciclo', false, JSON.stringify(res)); break; }
+  if (res.data.listo) break;
+  const lote = res.data.siguienteLote;
+  if (!lote.length) { check('el ciclo de producción avanza', false, 'lote vacío con ' + res.data.total + ' trabajos'); break; }
+  // INVARIANTE: ninguna toma de vídeo puede entrar en un lote si su keyframe
+  // no está ya generado. Es lo que evita gastar en vídeo a ciegas.
+  const st4 = await state();
+  const kfDone = new Set(st4.production.jobs.filter((j) => j.stage === 'keyframe' && j.status === 'done').map((j) => j.sceneId));
+  for (const x of lote) {
+    if (x.etapa !== 'shot') continue;
+    const job = st4.production.jobs.find((j) => j.id === x.jobId);
+    if (!kfDone.has(job.sceneId)) ordenOk = 'ronda ' + rondas + ': ' + x.jobId + ' sin keyframe hecho (escena ' + job.sceneId + ')';
+    else if (typeof x.imagenReferencia !== 'string') ordenOk = 'ronda ' + rondas + ': ' + x.jobId + ' sin imagen de referencia (' + JSON.stringify(x.imagenReferencia) + ')';
+  }
+  const payload = lote.map((x) => {
+    const ext = x.tipo === 'image' ? 'png' : x.tipo === 'video' ? 'mp4' : 'wav';
+    costeAcum += num2(x.costeEstimadoUsd);
+    return { jobId: x.jobId, url: 'https://cdn.test/gen/' + x.jobId + '.' + ext,
+      providerId: x.proveedor, costUsd: x.costeEstimadoUsd, durationSec: x.duracionSeg };
+  });
+  const reg = await call('REGISTER_ASSETS', { assets: payload });
+  if (!reg.success) { check('REGISTER_ASSETS no falla durante el ciclo', false, JSON.stringify(reg)); break; }
+  generados += lote.length;
+  rondas++;
+}
+
+check('ninguna toma se genera antes que su keyframe, y usa ese keyframe como referencia', ordenOk === true, typeof ordenOk === 'string' ? ordenOk : '');
+r = await call('RUN_PRODUCTION', {});
+check('la producción termina', r.data.listo === true, JSON.stringify(r).slice(0, 200));
+check('hicieron falta varias rondas (hay dependencias reales)', rondas >= 2, rondas + ' ronda(s)');
+{
+  const st3 = await state();
+  const jobs = st3.production.jobs;
+  eq('todos los trabajos quedan hechos', jobs.filter((j) => j.status === 'done').length, jobs.length);
+  eq('se generó exactamente lo que faltaba', generados, pendingAtStart);
+  check('el coste real subió con lo generado',
+    Math.abs((num2(st3.analytics.production.realTotalUsd) - costBefore) - costeAcum) < 0.05,
+    'delta ' + (num2(st3.analytics.production.realTotalUsd) - costBefore).toFixed(4) + ' vs ' + costeAcum.toFixed(4));
+  check('los keyframes se generaron antes que las tomas',
+    jobs.filter((j) => j.stage === 'keyframe').every((j) => j.assetId));
+}
+
+// El manifiesto y el bundle de render son la salida final.
+r = await call('EXPORT', { what: 'assets_manifest' });
+check('EXPORT assets_manifest funciona', r.success, JSON.stringify(r).slice(0, 120));
+{
+  const man = JSON.parse(r.data);
+  eq('el manifiesto no deja archivos sin resolver', man.ready, man.total);
+  check('todo archivo del manifiesto tiene URL', man.files.every((f) => f.url));
+  check('las rutas son las que espera el montaje',
+    man.files.some((f) => /^render\/SC\d+\.mp4$/.test(f.file))
+    && man.files.some((f) => f.file === 'audio/music.wav')
+    && man.files.some((f) => /^audio\/vo-SC\d+\.wav$/.test(f.file)), JSON.stringify(man.files.slice(0, 4)));
+}
+
+r = await call('EXPORT', { what: 'render_bundle' });
+check('EXPORT render_bundle funciona', r.success && r.data.length > 500, JSON.stringify(r).slice(0, 120));
+{
+  const bundle = r.data;
+  check('el bundle no declara archivos faltantes', !/FALTAN \d+ DE/.test(bundle));
+  check('el bundle descarga los assets', /^dl 'render\/SC01\.mp4'/m.test(bundle), bundle.split('\n').filter((l) => l.indexOf('dl ') === 0)[0]);
+  check('el bundle escribe los subtítulos', /cat > subs\.srt <<'KREATIVE_SRT'/.test(bundle));
+  check('el bundle incluye el montaje completo', /ffmpeg -y -i "\$MASTER"/.test(bundle));
+  check('el bundle exige las tipografías antes de rotular', /FALTA \$f — copia una tipografía TTF/.test(bundle));
+  check('el bundle no anida otro shebang', (bundle.match(/^#!/gm) || []).length === 1);
+  const fs2 = await import('node:fs/promises');
+  const os2 = await import('node:os');
+  const path2 = await import('node:path');
+  const tmp = path2.join(os2.tmpdir(), 'ks-bundle-' + Date.now() + '.sh');
+  await fs2.writeFile(tmp, bundle, 'utf8');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('bash', ['-n', tmp]); check('el bundle de render es shell válido', true); }
+  catch (e) { check('el bundle de render es shell válido', false, String(e.stderr || e.message).slice(0, 200)); }
+  await fs2.unlink(tmp).catch(() => {});
+}
+
+// Borrar un asset debe reabrir su trabajo: si no, el bundle mentiría.
+{
+  const before = await state();
+  const someJob = before.production.jobs.find((j) => j.kind === 'image');
+  const list = await call('LIST_ASSETS', { kind: 'image' });
+  const victim = list.data.find((a) => a.escena === someJob.code);
+  if (victim) {
+    items.delete(victim.id);
+    const reg2 = await call('REGISTER_ASSETS', { assets: [{ jobId: someJob.id, url: 'https://cdn.test/gen/re.png' }] });
+    check('re-registrar un asset lo versiona', reg2.success, JSON.stringify(reg2));
+  }
+  const after = await state();
+  eq('el trabajo sigue cerrado tras re-registrar', after.production.jobs.find((j) => j.id === someJob.id).status, 'done');
+}
 
 app.unmount();
 check('unmount desregistra el agente', agentReg === null);

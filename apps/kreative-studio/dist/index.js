@@ -1380,6 +1380,7 @@ function emptyBrief() {
     budget: 3000, marketRegion: 'España / LatAm', language: 'es',
     photos: [],           // [{ id, url, caption, isHero }]
     competitorsText: '', mandatories: '', legal: '',
+    sourceRef: null,      // { app:'productlab', instanceId, itemId, sku, at }
   };
 }
 
@@ -1445,6 +1446,8 @@ function migrate(raw) {
   out.brief.photos = arr(out.brief.photos).map((p, i) => ({
     id: s(p.id) || 'photo-' + i, url: s(p.url), caption: s(p.caption), isHero: !!p.isHero,
   })).filter((p) => p.url);
+  out.brief.sourceRef = obj(d.brief).sourceRef && s(obj(obj(d.brief).sourceRef).app)
+    ? Object.assign({}, obj(obj(d.brief).sourceRef)) : null;
   out.brand = Object.assign(emptyBrand(), obj(d.brand));
   out.brand.palette = Object.assign(emptyBrand().palette, obj(out.brand.palette));
   out.brand.typography = Object.assign(emptyBrand().typography, obj(out.brand.typography));
@@ -2494,6 +2497,7 @@ function buildProduction(c) {
       prompt: p.text, negative: p.negative, params: p.params, payload: p.payload,
       qty: { count: 1 },
       label: 'Keyframe ' + p.code + ' · ' + p.role,
+      file: 'keyframes/' + p.code + '.png',
       dependsOn: [],
       note: 'Usa las fotos del producto como referencia; valida forma y logotipo antes de animar.',
     }));
@@ -2513,6 +2517,10 @@ function buildProduction(c) {
         params: Object.assign({}, p.params, takes > 1 ? { continuation: t > 0, take: t + 1, of: takes } : {}),
         qty: { durationSec: dur },
         label: 'Toma ' + p.code + (takes > 1 ? ' (' + (t + 1) + '/' + takes + ')' : '') + ' · ' + p.role,
+        // El montaje espera un archivo por escena. Si hubo que partir la
+        // escena en varias tomas, el bundle de render las une antes.
+        file: takes > 1 ? 'render/' + p.code + '-T' + (t + 1) + '.mp4' : 'render/' + p.code + '.mp4',
+        joinInto: takes > 1 ? 'render/' + p.code + '.mp4' : '',
         dependsOn: ['keyframe:' + p.sceneId],
         note: takes > 1 ? 'Encadenada: parte del último fotograma de la toma anterior.' : '',
       }));
@@ -2525,7 +2533,7 @@ function buildProduction(c) {
       order: order++, kind: 'voice', stage: 'audio', sceneId: v.sceneId, code: v.code,
       providerId: v.providerId, provider: voiceProv,
       prompt: v.text, params: v.params, qty: { text: v.text },
-      label: 'Locución ' + v.code, dependsOn: [],
+      label: 'Locución ' + v.code, file: 'audio/vo-' + v.code + '.wav', dependsOn: [],
       note: v.fits ? '' : 'La línea excede la duración de la escena: acortar texto o alargar plano.',
     }));
   }
@@ -2536,7 +2544,7 @@ function buildProduction(c) {
       order: order++, kind: 'music', stage: 'audio', sceneId: null, code: 'MUS',
       providerId: s(audio.music.providerId), provider: musicProv,
       prompt: s(audio.music.prompt), params: obj(audio.music.params), qty: { count: 1 },
-      label: 'Música · ' + s(audio.music.genre), dependsOn: [],
+      label: 'Música · ' + s(audio.music.genre), file: 'audio/music.wav', dependsOn: [],
       note: 'Pedir al menos 2 versiones y elegir la que respete el clímax del money shot.',
     }));
   }
@@ -2545,7 +2553,7 @@ function buildProduction(c) {
       order: order++, kind: 'sfx', stage: 'audio', sceneId: x.sceneId, code: 'SFX-' + x.code,
       providerId: s(x.providerId), provider: sfxProv,
       prompt: s(x.prompt), params: obj(x.params), qty: { count: 1 },
-      label: 'Efecto ' + x.code, dependsOn: [],
+      label: 'Efecto ' + x.code, file: 'audio/sfx-' + slug(x.code) + '.wav', dependsOn: [],
     }));
   }
 
@@ -2575,12 +2583,21 @@ function buildProduction(c) {
 function mkJob(d) {
   const p = d.provider || null;
   const qty = billableQty(p, obj(d.qty));
+  // El id incluye la ESCENA, no solo tipo+código. Los códigos (SC01…) se
+  // reutilizan al regenerar el storyboard con otra duración o formato: sin la
+  // escena, un asset de la configuración anterior cerraría un trabajo que en
+  // realidad es otro plano distinto.
+  const idParts = ['job', slug(s(d.kind)),
+    s(d.sceneId) ? slug(s(d.sceneId)) : '', slug(s(d.code) || String(d.order))].filter(Boolean);
   return {
-    id: 'job-' + slug(s(d.kind)) + '-' + slug(s(d.code) || String(d.order)),
+    id: idParts.join('-'),
     order: num(d.order, 0), kind: s(d.kind), stage: s(d.stage),
     sceneId: d.sceneId || null, code: s(d.code), label: s(d.label),
     providerId: s(d.providerId), providerLabel: p ? p.label : s(d.providerId),
     prompt: s(d.prompt), negative: s(d.negative), params: obj(d.params), payload: d.payload || null,
+    // `file` es la ruta que el montaje espera encontrar: es lo que enlaza un
+    // asset registrado con el script de render.
+    file: s(d.file), joinInto: s(d.joinInto),
     qty: obj(d.qty), billableQty: round(qty, 4),
     costUnit: p && p.cost ? p.cost.unit : 'call',
     estCostUsd: round(estimateCost(s(d.providerId), qty), 4),
@@ -3496,6 +3513,119 @@ function exportCopyCsv(c) {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
+/**
+ * Manifiesto de assets: qué archivo generado corresponde a cada ruta que el
+ * montaje espera encontrar. Es el puente entre la Biblioteca y el render.
+ */
+function exportAssetsManifest(c, assets) {
+  const jobs = arr(obj(c.production).jobs);
+  const byId = new Map(arr(assets).map((a) => [a.id, a]));
+  const files = jobs.filter((j) => s(j.file)).map((j) => {
+    const a = j.assetId ? byId.get(j.assetId) : null;
+    return { file: j.file, jobId: j.id, kind: j.kind, scene: j.code,
+      url: a ? a.url : '', ready: !!a, joinInto: s(j.joinInto) || undefined };
+  });
+  return JSON.stringify({
+    campaign: s(c.title), generatedAt: nowIso(),
+    ready: files.filter((f) => f.ready).length, total: files.length,
+    subtitles: 'subs.srt', logo: s(c.brand.logoUrl) || null,
+    files,
+  }, null, 2);
+}
+
+/**
+ * Bundle de render: un único script que descarga todos los assets registrados
+ * en las rutas que espera el montaje, une las tomas partidas, escribe los
+ * subtítulos y ejecuta FFmpeg hasta los entregables finales.
+ *
+ * Es lo que convierte «tengo los archivos sueltos en la Biblioteca» en «tengo
+ * el vídeo», sin pedirle al usuario que ordene nada a mano.
+ */
+function exportRenderBundle(c, assets) {
+  const jobs = arr(obj(c.production).jobs);
+  const byId = new Map(arr(assets).map((a) => [a.id, a]));
+  const entries = jobs.filter((j) => s(j.file)).map((j) => ({ job: j, asset: j.assetId ? byId.get(j.assetId) : null }));
+  const missing = entries.filter((e) => !e.asset);
+  const L = [];
+
+  L.push('#!/usr/bin/env bash');
+  L.push('# ' + s(c.title) + ' — bundle de render generado por Kreative Studio ' + KS_VERSION);
+  L.push('#');
+  L.push('# Descarga los assets ya registrados, ordena los archivos como espera el');
+  L.push('# montaje, une las tomas partidas y ejecuta FFmpeg hasta los entregables.');
+  L.push('#');
+  L.push('#   bash ' + slug(c.title) + '-render.sh');
+  L.push('#');
+  L.push('# Requiere: bash, curl y ffmpeg con libx264, xfade, sidechaincompress,');
+  L.push('# loudnorm y drawtext (compilado con --enable-libfreetype).');
+  if (missing.length) {
+    L.push('#');
+    L.push('# ⚠️  FALTAN ' + missing.length + ' DE ' + entries.length + ' ARCHIVOS. Este script descargará lo que hay');
+    L.push('#    y FFmpeg fallará al llegar al primero que falte. Genera y registra:');
+    for (const m of missing.slice(0, 40)) L.push('#      · ' + m.job.file + '  (' + m.job.label + ')');
+    if (missing.length > 40) L.push('#      · … y ' + (missing.length - 40) + ' más');
+  }
+  L.push('set -euo pipefail');
+  L.push('');
+  L.push('mkdir -p render keyframes audio brand fonts work out');
+  L.push('');
+  L.push('# ── Descarga de assets registrados ───────────────────────────────────');
+  L.push('dl() {  # dl <destino> <url>');
+  L.push('  if [ -f "$1" ]; then echo "  ya está: $1"; return 0; fi');
+  L.push('  echo "  bajando: $1"');
+  L.push('  curl -fsSL --retry 3 --retry-delay 2 -o "$1" "$2"');
+  L.push('}');
+  for (const e of entries) {
+    if (e.asset) L.push('dl ' + shq(e.job.file) + ' ' + shq(e.asset.url));
+    else L.push('# FALTA ' + e.job.file + ' — ' + e.job.label + ' (genera y registra el asset)');
+  }
+  if (s(c.brand.logoUrl)) L.push('dl brand/logo.png ' + shq(s(c.brand.logoUrl)));
+  L.push('');
+
+  // Unión de tomas partidas: una escena que no cabía en el modelo llega en
+  // varios archivos y el montaje espera uno solo.
+  const joins = {};
+  for (const e of entries) {
+    const into = s(e.job.joinInto);
+    if (!into) continue;
+    (joins[into] = joins[into] || []).push(e.job.file);
+  }
+  const joinKeys = Object.keys(joins);
+  if (joinKeys.length) {
+    L.push('# ── Unión de tomas partidas ──────────────────────────────────────────');
+    L.push('# Estas escenas superaban el máximo del modelo y se generaron por partes.');
+    for (const into of joinKeys) {
+      const parts = joins[into];
+      L.push('printf "%s\\n" \\');
+      for (const p of parts) L.push('  "file \'' + p.replace(/^render\//, '') + '\'" \\');
+      L.push('  > work/join-' + slug(into) + '.txt');
+      L.push('( cd render && ffmpeg -y -f concat -safe 0 -i ../work/join-' + slug(into) + '.txt -c copy '
+        + shq(into.replace(/^render\//, '')) + ' )');
+    }
+    L.push('');
+  }
+
+  if (c.settings.subtitles !== false) {
+    L.push('# ── Subtítulos ───────────────────────────────────────────────────────');
+    L.push("cat > subs.srt <<'KREATIVE_SRT'");
+    L.push(s(obj(c.edit).srt).replace(/\r/g, ''));
+    L.push('KREATIVE_SRT');
+    L.push('');
+  }
+
+  L.push('# ── Tipografías ──────────────────────────────────────────────────────');
+  L.push('# El montaje rotula con fonts/display.ttf y fonts/body.ttf. Copia ahí las');
+  L.push('# de tu marca (' + (s(c.brand.typography.display) || styleById(c.styleId).typography.display) + ' / '
+    + (s(c.brand.typography.body) || styleById(c.styleId).typography.body) + ').');
+  L.push('for f in fonts/display.ttf fonts/body.ttf; do');
+  L.push('  [ -f "$f" ] || { echo "FALTA $f — copia una tipografía TTF ahí"; exit 1; }');
+  L.push('done');
+  L.push('');
+  L.push('# ── Montaje ──────────────────────────────────────────────────────────');
+  L.push(s(obj(c.edit).ffmpeg).split('\n').filter((l) => l.indexOf('#!') !== 0 && l !== 'set -euo pipefail').join('\n'));
+  return L.join('\n');
+}
+
 /** Lista de trabajos de producción en CSV para operar la generación. */
 function exportJobsCsv(c) {
   const rows = [['orden', 'id', 'tipo', 'etapa', 'codigo', 'proveedor', 'unidad', 'cantidad', 'coste_est_usd', 'estado', 'prompt']];
@@ -3610,6 +3740,9 @@ function normalizeAsset(raw, campaign) {
     sceneId: scene ? scene.id : (s(a.sceneId) || null),
     code: scene ? scene.code : s(a.code),
     jobId: s(a.jobId) || null,
+    // Tipo del trabajo que lo produjo (image|video|voice|music|sfx). Es lo
+    // que distingue una locución de un efecto dentro de la misma escena.
+    jobKind: s(a.jobKind) || null,
     providerId: s(a.providerId) || null,
     version: Math.max(1, num(a.version, 1)),
     parentId: s(a.parentId) || null,
@@ -3622,6 +3755,64 @@ function normalizeAsset(raw, campaign) {
     createdAt: s(a.createdAt) || nowIso(),
   };
 }
+/** Familia de medio a la que pertenece un tipo de trabajo. */
+const JOB_MEDIA = { image: 'image', video: 'video', voice: 'audio', music: 'audio', sfx: 'audio' };
+
+/**
+ * Marca como completados los trabajos que ya tienen su archivo registrado.
+ * Sin esto, el estado de un trabajo dependería de que quien generó se
+ * acordara de pasar el `jobId`, y la lista de pendientes mentiría.
+ * Empareja por `jobId` y, en su defecto, por escena + familia de medio.
+ */
+function reconcileJobs(campaign, assets) {
+  const prod = obj(campaign.production);
+  const jobs = arr(prod.jobs);
+  if (!jobs.length) return campaign;
+  const list = arr(assets);
+  const byJob = new Map();
+  for (const a of list) if (s(a.jobId)) byJob.set(s(a.jobId), a);
+  for (const j of jobs) {
+    if (j.status === 'skipped' || j.status === 'failed') continue;
+    const media = JOB_MEDIA[j.kind] || 'reference';
+    let hit = byJob.get(j.id) || null;
+    if (!hit && j.sceneId) {
+      const cands = list.filter((a) => a.kind === media && a.sceneId === j.sceneId);
+      // La locución y los efectos de una escena comparten familia de medio:
+      // emparejar solo por escena cerraría los dos con un único archivo. Para
+      // audio hace falta saber de qué trabajo salió; para imagen y vídeo la
+      // familia ya es única dentro de la escena.
+      hit = cands.find((a) => s(a.jobKind) === j.kind)
+        || (media === 'audio' ? null : cands.find((a) => !s(a.jobKind))) || null;
+    }
+    // Música y efectos globales no cuelgan de una escena: van por código.
+    if (!hit && !j.sceneId) {
+      hit = list.find((a) => a.kind === media && (s(a.jobKind) === j.kind || !s(a.jobKind))
+        && norm(a.code) === norm(j.code)) || null;
+    }
+    if (hit) { j.status = 'done'; j.assetId = hit.id; }
+    else if (j.status === 'done') { j.status = 'pending'; j.assetId = null; }
+  }
+  return campaign;
+}
+
+/** Trabajos pendientes cuyas dependencias ya están satisfechas. */
+function readyJobs(campaign, limit) {
+  const jobs = arr(obj(campaign.production).jobs);
+  const doneScenes = new Set(jobs.filter((j) => j.stage === 'keyframe' && j.status === 'done').map((j) => j.sceneId));
+  const out = [];
+  for (const j of jobs) {
+    if (j.status !== 'pending') continue;
+    const blocked = arr(j.dependsOn).some((d) => {
+      const m = /^keyframe:(.+)$/.exec(s(d));
+      return m ? !doneScenes.has(m[1]) : false;
+    });
+    if (blocked) continue;
+    out.push(j);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
+}
+
 function guessKind(url) {
   const u = norm(url);
   if (/\.(mp4|mov|webm|m4v)(\?|$)/.test(u)) return 'video';
@@ -3814,6 +4005,7 @@ export default function mount(shell) {
     if (!hasItems) {
       const i = assets.findIndex((x) => x.id === a.id);
       if (i >= 0) assets[i] = a; else assets.push(a);
+      syncJobs(true);
       emit();
       return a;
     }
@@ -3822,6 +4014,7 @@ export default function mount(shell) {
       if (exists) await shell.items.update(a.id, item); else await shell.items.create(item);
       const i = assets.findIndex((x) => x.id === a.id);
       if (i >= 0) assets[i] = a; else assets.push(a);
+      syncJobs(true);
       emit();
       return a;
     } catch (e) { throw new Error('No se pudo guardar el asset: ' + ((e && e.message) || 'error')); }
@@ -3832,6 +4025,7 @@ export default function mount(shell) {
     if (i < 0) return false;
     if (hasItems) { try { await shell.items.remove(s(id)); } catch (e) { throw new Error('No se pudo borrar: ' + ((e && e.message) || 'error')); } }
     assets.splice(i, 1);
+    syncJobs(true);
     emit();
     return true;
   }
@@ -3847,6 +4041,88 @@ export default function mount(shell) {
     if (hasItems) { try { await shell.items.create(rec); } catch (err) { /* se contabiliza en memoria igualmente */ } }
     ledger.push(rec);
     return rec;
+  }
+
+  // ── Puerto de catálogo (lectura de ProductLab vía shell.data) ──────────
+  // Permiso `data.read:productlab`. El RBAC del usuario es siempre el techo:
+  // solo se ven instancias de equipos a los que ya tiene acceso.
+  const hasData = shell.data && typeof shell.data.listInstances === 'function';
+
+  async function listCatalogs() {
+    if (!hasData) return [];
+    try { return arr(await shell.data.listInstances('productlab')); } catch (e) { return []; }
+  }
+
+  /** Productos de un catálogo de ProductLab, con su moneda y marca. */
+  async function readCatalog(instanceId) {
+    if (!hasData || typeof shell.data.listItems !== 'function') return null;
+    const items = arr(await shell.data.listItems(s(instanceId)));
+    const definition = items.find((x) => s(x.kind) === 'definition') || {};
+    const rules = obj(definition.rules);
+    return {
+      instanceId: s(instanceId),
+      currency: s(rules.currency) || 'USD',
+      brandName: s(definition.brandName),
+      storeName: s(definition.storeName),
+      products: items.filter((x) => s(x.kind) === 'producto').map((p) => ({
+        id: s(p.id), name: s(p.name), sku: s(p.sku), status: s(p.status),
+        price: num(p.price, 0), raw: p,
+      })),
+    };
+  }
+
+  /**
+   * Traduce un producto de ProductLab al brief de una campaña.
+   * Se mapea lo que de verdad alimenta la creatividad: nombre, precio, fotos
+   * y las especificaciones (que son los atributos reales del producto). Los
+   * pasos configurables se anotan porque «personalizable» es un argumento de
+   * venta, no un detalle técnico.
+   */
+  function productToBrief(product, catalog) {
+    const p = obj(obj(product).raw || product);
+    const cat = obj(catalog);
+    const photos = uniq(arr(p.galleryImages).map(s).concat([s(obj(p.storeRef).imageUrl)])).filter(Boolean);
+    const specs = arr(obj(p.storefront).specs)
+      .map((x) => [s(x.label), s(x.value)].filter(Boolean).join(': '))
+      .filter((x) => x.length > 2);
+    const steps = arr(p.groups).map((g) => s(g.label)).filter(Boolean);
+    return {
+      productName: s(p.name),
+      priceText: num(p.price, 0) ? String(num(p.price, 0)) : '',
+      currency: s(cat.currency) || 'USD',
+      usp: specs.slice(0, 8).map((x) => punct(x)).join(' '),
+      extraNotes: [
+        steps.length ? 'Personalizable en: ' + steps.join(', ') + '.' : '',
+        s(p.sku) ? 'SKU ' + s(p.sku) + '.' : '',
+        obj(p.model3d).enabled ? 'Tiene modelo 3D y vista AR en la tienda.' : '',
+        s(cat.brandName) ? 'Marca: ' + s(cat.brandName) + '.' : '',
+      ].filter(Boolean).join(' '),
+      photos: photos.map((url, i) => ({ id: newId('photo'), url, caption: '', isHero: i === 0 })),
+      sourceRef: { app: 'productlab', instanceId: s(cat.instanceId), itemId: s(p.id), sku: s(p.sku), at: nowIso() },
+    };
+  }
+
+  /** Vuelca el producto en el brief conservando lo que el usuario ya escribió. */
+  function applyProductToBrief(product, catalog, opts) {
+    const o = obj(opts);
+    const mapped = productToBrief(product, catalog);
+    if (!s(mapped.productName).trim()) throw new Error('El producto no tiene nombre en ProductLab.');
+    patch((m) => {
+      const keep = !!o.keepExisting;
+      m.brief.productName = mapped.productName;
+      if (mapped.priceText && (!keep || !s(m.brief.priceText).trim())) m.brief.priceText = mapped.priceText;
+      if (mapped.currency && (!keep || !s(m.brief.currency).trim())) m.brief.currency = mapped.currency;
+      if (mapped.usp && (!keep || !s(m.brief.usp).trim())) m.brief.usp = mapped.usp;
+      if (mapped.extraNotes && (!keep || !s(m.brief.extraNotes).trim())) m.brief.extraNotes = mapped.extraNotes;
+      const known = new Set(arr(m.brief.photos).map((x) => x.url));
+      for (const ph of mapped.photos) if (!known.has(ph.url)) m.brief.photos.push(ph);
+      if (arr(m.brief.photos).length && !m.brief.photos.some((x) => x.isHero)) m.brief.photos[0].isHero = true;
+      m.brief.sourceRef = mapped.sourceRef;
+      if (!s(m.title).trim() || m.title === 'Nueva campaña') m.title = mapped.productName;
+      logLine(m, 'success', 'Producto «' + mapped.productName + '» importado desde ProductLab ('
+        + mapped.photos.length + ' foto(s), ' + (mapped.usp ? 'con' : 'sin') + ' especificaciones).');
+    });
+    return mapped;
   }
 
   // ── Puerto de archivos (subida al área pública de KIMOS) ───────────────
@@ -3894,8 +4170,24 @@ export default function mount(shell) {
   }
 
   // ── Operaciones de dominio expuestas a UI y agente ─────────────────────
+  /**
+   * Reconcilia el estado de los trabajos con los assets ya registrados. Se
+   * llama tras el pipeline y tras cualquier cambio en la Biblioteca: si no,
+   * regenerar la producción borraría el progreso real y la lista de
+   * pendientes mentiría.
+   */
+  function syncJobs(silent) {
+    if (!model.production) return;
+    const before = arr(model.production.jobs).map((j) => j.status + j.id).join('|');
+    const next = JSON.parse(JSON.stringify(model));
+    reconcileJobs(next, assets);
+    const after = arr(next.production.jobs).map((j) => j.status + j.id).join('|');
+    if (before !== after) commit(next, silent ? { noSave: false } : undefined);
+  }
+
   function runStages(only, label) {
     const res = runPipeline(model, { only, ledger });
+    reconcileJobs(res.campaign, assets);
     commit(res.campaign);
     const errs = res.run.stages.filter((x) => x.status === 'error');
     if (errs.length) notify('error', 'Fallaron ' + errs.length + ' etapa(s): ' + errs.map((x) => x.name).join(', '));
@@ -3907,6 +4199,7 @@ export default function mount(shell) {
     setUi({ busy: true });
     try {
       const res = generateCampaign(model, intentText, { ledger });
+      reconcileJobs(res.campaign, assets);
       commit(res.campaign);
       const errs = res.run.stages.filter((x) => x.status === 'error');
       if (errs.length) notify('warn', 'Campaña generada con ' + errs.length + ' aviso(s).');
@@ -3972,6 +4265,7 @@ export default function mount(shell) {
       else if (data && data.brief) model = migrate(data);
       await loadItems();
       if (cancelled) return;
+      reconcileJobs(model, assets);
       // Campaña recién creada: se abre por la Guía. Quien ya tiene trabajo
       // hecho entra directo al Panel, que es lo que espera.
       const virgin = !s(model.brief.productName).trim() && !model.concept && !arr(model.brief.photos).length;
@@ -4044,6 +4338,36 @@ export default function mount(shell) {
         url: { type: 'string', description: 'path del storage, ruta /api/… o URL http(s).' },
         caption: { type: 'string' }, isHero: { type: 'boolean', description: 'Marcarla como toma principal.' },
       }, required: ['url'] } },
+    { name: 'LIST_CATALOG',
+      description: 'Lista los catálogos de ProductLab visibles y sus productos, para importar uno al brief sin volver a teclear nombre, precio, especificaciones y fotos.',
+      inputSchema: { type: 'object', properties: {
+        instanceId: { type: 'string', description: 'Catálogo concreto; vacío = lista todos.' },
+        query: { type: 'string', description: 'Filtra por nombre o SKU.' },
+      } } },
+    { name: 'IMPORT_PRODUCT',
+      description: 'Importa un producto de ProductLab al brief: nombre, precio, moneda, especificaciones (pasan a ser la propuesta de valor), pasos configurables y todas las fotos de la galería. Opcionalmente genera la campaña acto seguido.',
+      inputSchema: { type: 'object', properties: {
+        product: { type: 'string', description: 'Nombre, SKU o id del producto.' },
+        instanceId: { type: 'string', description: 'Catálogo; vacío = se busca en todos.' },
+        keepExisting: { type: 'boolean', description: 'No pisar los campos del brief que ya tengan contenido.' },
+        intent: { type: 'string', description: 'Si se indica, genera la campaña completa con esta intención tras importar.' },
+      }, required: ['product'] } },
+    { name: 'RUN_PRODUCTION',
+      description: 'PUNTO DE ENTRADA DE LA PRODUCCIÓN. Devuelve el siguiente lote de material que toca generar AHORA (respetando dependencias: primero los keyframes, luego las tomas que parten de ellos), cada uno con su proveedor, prompt, parámetros, imágenes de referencia y el archivo de destino. Genera cada elemento del lote con el modelo indicado y devuelve los resultados en UNA llamada a REGISTER_ASSETS. Repite hasta que `listo` sea true; entonces exporta render_bundle y ya tienes el vídeo.',
+      inputSchema: { type: 'object', properties: {
+        limit: { type: 'number', description: 'Máximo de elementos del lote (por defecto 12).' },
+        kind: { type: 'string', description: 'Restringe a image, video, voice, music o sfx.' },
+      } } },
+    { name: 'REGISTER_ASSETS',
+      description: 'Registra VARIOS resultados generados de una vez. Cada entrada cierra su trabajo, versiona el archivo por escena y contabiliza el coste real. Es la forma normal de devolver un lote de RUN_PRODUCTION.',
+      inputSchema: { type: 'object', properties: {
+        assets: { type: 'array', description: 'Lista de resultados.', items: { type: 'object', properties: {
+          jobId: { type: 'string', description: 'Id del trabajo que cierra (lo da RUN_PRODUCTION).' },
+          url: { type: 'string' }, kind: { type: 'string' }, sceneId: { type: 'string' },
+          providerId: { type: 'string' }, costUsd: { type: 'number' }, durationSec: { type: 'number' },
+          tokens: { type: 'number' }, note: { type: 'string' },
+        }, required: ['url'] } },
+      }, required: ['assets'] } },
     { name: 'RUN_AGENT',
       description: 'Ejecuta un agente concreto y sus dependencias. IDs: ' + AGENTS.map((a) => a.id).join(', ') + '.',
       inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
@@ -4139,7 +4463,7 @@ export default function mount(shell) {
       description: 'Devuelve el copy generado: anuncios por plataforma, landing y secuencia de email.',
       inputSchema: { type: 'object', properties: { platform: { type: 'string' }, section: { type: 'string', description: 'ads | landing | emails | hooks' } } } },
     { name: 'EXPORT',
-      description: 'Devuelve un entregable como texto: bible (biblia de campaña en Markdown), ffmpeg (script de montaje), srt (subtítulos), edl, prompts_csv, copy_csv, jobs_csv o json (campaña completa).',
+      description: 'Devuelve un entregable como texto. `render_bundle` es el importante: un único script que descarga todos los assets registrados en su sitio, une las tomas partidas, escribe los subtítulos y ejecuta FFmpeg hasta los entregables finales. Opciones: bible, render_bundle, assets_manifest, ffmpeg, srt, edl, prompts_csv, copy_csv, jobs_csv, json.',
       inputSchema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] } },
     { name: 'CREATE_VERSION',
       description: 'Guarda una versión con etiqueta del estado actual de la campaña.',
@@ -4247,6 +4571,158 @@ export default function mount(shell) {
         });
         if (dup) return { success: true, message: 'Esa foto ya estaba en el brief.' };
         return { success: true, message: 'Foto añadida (' + arr(model.brief.photos).length + ' en total). Se usará como referencia en todos los prompts.' };
+      }
+
+      // ── Catálogo de ProductLab ──────────────────────────────────────────
+      if (type === 'LIST_CATALOG') {
+        if (!hasData) return { success: false, error: 'Este host no expone shell.data, o la app no tiene el permiso data.read:productlab aprobado.' };
+        const insts = await listCatalogs();
+        if (!insts.length) return { success: true, message: 'No hay catálogos de ProductLab visibles para este usuario.', data: [] };
+        const only = s(p.instanceId).trim();
+        const q = norm(p.query);
+        const out = [];
+        for (const inst of insts) {
+          if (only && s(inst.id) !== only) continue;
+          const cat = await readCatalog(inst.id);
+          if (!cat) continue;
+          const prods = cat.products.filter((x) => !q || norm(x.name).indexOf(q) >= 0 || norm(x.sku).indexOf(q) >= 0);
+          out.push({ catalogo: s(inst.name) || s(inst.id), instanceId: s(inst.id), moneda: cat.currency,
+            productos: prods.map((x) => ({ id: x.id, nombre: x.name, sku: x.sku, precio: x.price, estado: x.status })) });
+        }
+        const total = out.reduce((a, x) => a + x.productos.length, 0);
+        return { success: true, message: total + ' producto(s) en ' + out.length + ' catálogo(s). Impórtalo con IMPORT_PRODUCT.', data: out };
+      }
+
+      if (type === 'IMPORT_PRODUCT') {
+        if (!hasData) return { success: false, error: 'Este host no expone shell.data, o falta el permiso data.read:productlab.' };
+        const ref = norm(p.product);
+        if (!ref) return { success: false, error: 'Indica `product` (nombre, SKU o id).' };
+        const insts = await listCatalogs();
+        const only = s(p.instanceId).trim();
+        let found = null; let cat = null;
+        for (const inst of insts) {
+          if (only && s(inst.id) !== only) continue;
+          const c0 = await readCatalog(inst.id);
+          if (!c0) continue;
+          const hit = c0.products.find((x) => norm(x.id) === ref)
+            || c0.products.find((x) => norm(x.sku) === ref)
+            || c0.products.find((x) => norm(x.name) === ref)
+            || c0.products.find((x) => norm(x.name).indexOf(ref) >= 0);
+          if (hit) { found = hit; cat = c0; break; }
+        }
+        if (!found) return { success: false, error: 'No se encontró «' + s(p.product) + '». Usa LIST_CATALOG para ver los productos disponibles.' };
+        let mapped;
+        try { mapped = applyProductToBrief(found, cat, { keepExisting: !!p.keepExisting }); }
+        catch (e) { return { success: false, error: (e && e.message) || 'no se pudo importar' }; }
+        const base = 'Importado «' + mapped.productName + '» desde ProductLab: ' + arr(mapped.photos).length
+          + ' foto(s)' + (mapped.usp ? ', ' + mapped.usp.split('.').filter(Boolean).length + ' especificación(es)' : '')
+          + (mapped.priceText ? ', precio ' + mapped.priceText + ' ' + mapped.currency : '') + '.';
+        if (s(p.intent).trim()) {
+          const run = generateAll(s(p.intent));
+          if (!run) return { success: false, error: base + ' Pero la generación falló.' };
+          return { success: true, message: base + ' Campaña generada: ' + summarize(model).escenas + ' escenas. Usa RUN_PRODUCTION para producir el material.' };
+        }
+        return { success: true, message: base + ' Ejecuta GENERATE_CAMPAIGN con la intención creativa que quieras.' };
+      }
+
+      // ── Producción por lotes ────────────────────────────────────────────
+      if (type === 'RUN_PRODUCTION') {
+        if (!model.production) return { success: false, error: 'Aún no hay producción: ejecuta GENERATE_CAMPAIGN primero.' };
+        syncJobs();
+        const jobs = arr(model.production.jobs);
+        const limit = clamp(num(p.limit, 12), 1, 40);
+        let batch = readyJobs(model, 0);
+        if (s(p.kind)) batch = batch.filter((j) => j.kind === norm(p.kind));
+        batch = batch.slice(0, limit);
+        const pending = jobs.filter((j) => j.status === 'pending');
+        const done = jobs.filter((j) => j.status === 'done').length;
+        const failed = jobs.filter((j) => j.status === 'failed');
+        const byKind = {};
+        for (const j of pending) byKind[j.kind] = (byKind[j.kind] || 0) + 1;
+        const ready = pending.length === 0;
+
+        if (ready) {
+          return { success: true,
+            message: 'Producción completa: ' + done + '/' + jobs.length + ' trabajos con su archivo registrado'
+              + (failed.length ? ' (' + failed.length + ' marcados como fallidos)' : '')
+              + '. Exporta `render_bundle` y ejecútalo: descarga todo, une las tomas partidas y renderiza los '
+              + arr(obj(model.edit).exports).length + ' entregables.',
+            data: { listo: true, completados: done, total: jobs.length, siguienteLote: [] } };
+        }
+
+        const refs = refImagesOf(model, 3);
+        const lote = batch.map((j) => {
+          const scene = arr(obj(model.storyboard).scenes).find((x) => x.id === j.sceneId);
+          // La referencia de una toma es el keyframe YA REGISTRADO de su
+          // escena. Se busca por el trabajo que lo produjo, no por escena +
+          // tipo: así nunca discrepa de lo que dice reconcileJobs.
+          const kfJob = j.stage === 'shot'
+            ? arr(obj(model.production).jobs).find((x) => x.stage === 'keyframe' && x.sceneId === j.sceneId) : null;
+          const keyframe = kfJob && kfJob.assetId ? assets.find((a) => a.id === kfJob.assetId) : null;
+          return {
+            jobId: j.id, tipo: j.kind, etapa: j.stage, escena: j.code,
+            proveedor: j.providerId, proveedorNombre: j.providerLabel,
+            prompt: j.prompt, negativo: j.negative || undefined, parametros: j.params,
+            // Referencias visuales: el keyframe manda sobre las fotos del brief
+            // en las tomas de vídeo, porque es lo que fija la continuidad.
+            imagenReferencia: keyframe ? keyframe.url : (j.kind === 'image' ? refs : undefined),
+            duracionSeg: scene && j.kind === 'video' ? num(j.qty.durationSec, scene.durationSec) : undefined,
+            archivoDestino: j.file,
+            costeEstimadoUsd: j.estCostUsd,
+          };
+        });
+
+        return { success: true,
+          message: lote.length + ' elemento(s) que generar ahora (' + done + '/' + jobs.length + ' hechos). '
+            + 'Genera cada uno con su proveedor y devuélvelos TODOS en una sola llamada a REGISTER_ASSETS '
+            + '(pasa el `jobId` de cada uno). Luego vuelve a llamar a RUN_PRODUCTION.',
+          data: {
+            listo: false, completados: done, total: jobs.length,
+            pendientesPorTipo: byKind,
+            siguienteLote: lote,
+            instrucciones: 'Sube cada archivo generado a una URL accesible y pásala en `url`. '
+              + 'Si un elemento falla dos veces, márcalo con SET_JOB_STATUS failed y sigue con el resto.',
+          } };
+      }
+
+      if (type === 'REGISTER_ASSETS') {
+        const list = arr(p.assets);
+        if (!list.length) return { success: false, error: 'Indica `assets` con al menos un resultado.' };
+        const okIds = []; const errs = [];
+        let costTotal = 0;
+        for (const raw of list) {
+          const a0 = obj(raw);
+          const url = resolveUrl(a0.url);
+          if (!url) { errs.push('entrada sin url'); continue; }
+          const job = s(a0.jobId) ? arr(obj(model.production).jobs).find((x) => x.id === s(a0.jobId)) : null;
+          const sceneRef = job ? job.sceneId : (s(a0.sceneId) ? (findScene(a0.sceneId) || {}).id : null);
+          const code = job ? job.code : (findScene(a0.sceneId) || {}).code;
+          const kind = s(a0.kind) || (job ? (JOB_MEDIA[job.kind] || guessKind(url)) : guessKind(url));
+          const prev = assets.filter((x) => x.sceneId === sceneRef && x.kind === kind);
+          try {
+            const saved = await saveAsset({ url, kind, sceneId: sceneRef, code,
+              jobId: s(a0.jobId) || null, jobKind: job ? job.kind : '',
+              providerId: s(a0.providerId) || (job ? job.providerId : ''),
+              costUsd: a0.costUsd, durationSec: a0.durationSec, note: a0.note, version: prev.length + 1 });
+            okIds.push(saved.id);
+            const cost = num(a0.costUsd, 0);
+            if (cost > 0 || num(a0.tokens, 0) > 0) {
+              costTotal += cost;
+              await addCost({ providerId: s(a0.providerId) || (job ? job.providerId : ''), jobId: s(a0.jobId),
+                sceneId: sceneRef, amountUsd: cost, tokens: a0.tokens, seconds: a0.durationSec,
+                images: kind === 'image' ? 1 : 0, note: 'REGISTER_ASSETS ' + s(code) });
+            }
+          } catch (e) { errs.push(s(a0.jobId || a0.url) + ': ' + ((e && e.message) || 'error')); }
+        }
+        syncJobs();
+        if (model.production) runStages(['analytics'], 'Analítica');
+        const jobs = arr(obj(model.production).jobs);
+        const pending = jobs.filter((j) => j.status === 'pending').length;
+        return { success: errs.length === 0,
+          message: okIds.length + ' asset(s) registrados' + (costTotal ? ' · ' + fmtMoney(costTotal, 'USD') + ' de coste real' : '')
+            + '. Quedan ' + pending + ' trabajo(s) pendientes'
+            + (pending ? ': vuelve a llamar a RUN_PRODUCTION.' : ': exporta `render_bundle` y renderiza.'),
+          error: errs.length ? errs.join(' · ') : undefined };
       }
 
       // ── Ejecución de agentes ────────────────────────────────────────────
@@ -4484,8 +4960,10 @@ export default function mount(shell) {
         const prev = assets.filter((x) => x.sceneId === (sc ? sc.id : null) && x.kind === (s(p.kind) || guessKind(url)));
         let saved;
         try {
+          const jobRef = s(p.jobId) ? arr(obj(model.production).jobs).find((x) => x.id === s(p.jobId)) : null;
           saved = await saveAsset({ url, kind: p.kind, sceneId: sc ? sc.id : s(p.sceneId), code: sc ? sc.code : s(p.sceneId),
-            jobId: p.jobId, providerId: p.providerId, costUsd: p.costUsd, durationSec: p.durationSec,
+            jobId: p.jobId, jobKind: jobRef ? jobRef.kind : '',
+            providerId: p.providerId, costUsd: p.costUsd, durationSec: p.durationSec,
             name: p.name, note: p.note, approved: p.approved, version: prev.length + 1 });
         } catch (e) { return { success: false, error: (e && e.message) || 'no se pudo guardar el asset' }; }
         if (num(p.costUsd, 0) > 0 || num(p.tokens, 0) > 0) {
@@ -4537,6 +5015,8 @@ export default function mount(shell) {
           srt: () => s(obj(model.edit).srt), edl: () => s(obj(model.edit).edl),
           prompts_csv: () => exportPromptsCsv(model), copy_csv: () => exportCopyCsv(model),
           jobs_csv: () => exportJobsCsv(model), json: () => JSON.stringify(model, null, 2),
+          render_bundle: () => exportRenderBundle(model, assets),
+          assets_manifest: () => exportAssetsManifest(model, assets),
         };
         if (!map[what]) return { success: false, error: 'Opciones: ' + Object.keys(map).join(', ') + '.' };
         const content = map[what]();
@@ -4602,8 +5082,16 @@ export default function mount(shell) {
           + 'y una frase: investigación, concepto, plan de funnel, storyboard con dirección de fotografía, prompts por '
           + 'proveedor (OpenAI, Midjourney, FLUX, SD, ComfyUI, Runway, Kling, Veo, Sora, Higgsfield), locución y música '
           + '(ElevenLabs, Suno, Udio), montaje con FFmpeg, control de marca, copy para todos los canales, assets, '
-          + 'versiones y analítica de costes. Flujo típico: SET_BRIEF → ADD_PRODUCT_PHOTO → GENERATE_CAMPAIGN → '
-          + 'GET_JOBS → (generas con tus modelos) → REGISTER_ASSET → EXPORT.',
+          + 'versiones y analítica de costes.\n\n'
+          + 'FLUJO COMPLETO, de cero al vídeo montado:\n'
+          + '1. IMPORT_PRODUCT (si el producto está en ProductLab) o SET_BRIEF + ADD_PRODUCT_PHOTO.\n'
+          + '2. GENERATE_CAMPAIGN con la intención en lenguaje natural.\n'
+          + '3. RUN_PRODUCTION → devuelve el lote que toca generar ahora, con proveedor, prompt, '
+          + 'parámetros e imagen de referencia. Genera cada elemento CON TUS MODELOS.\n'
+          + '4. REGISTER_ASSETS con todo el lote de una vez (pasando el jobId de cada uno).\n'
+          + '5. Repite 3-4 hasta que RUN_PRODUCTION devuelva listo: true.\n'
+          + '6. EXPORT render_bundle → un script que descarga todo, une las tomas partidas y renderiza '
+          + 'los entregables finales con FFmpeg. EXPORT bible para el documento del cliente.',
         tools: AGENT_TOOLS,
         getSnapshot: () => ({
           campania: summarize(model),
@@ -4617,7 +5105,13 @@ export default function mount(shell) {
             dur: x.durationSec, plano: x.shot, movimiento: x.move, texto: x.onScreenText })),
           trabajos: { total: arr(obj(model.production).jobs).length,
             pendientes: arr(obj(model.production).jobs).filter((j) => j.status === 'pending').length,
+            hechos: arr(obj(model.production).jobs).filter((j) => j.status === 'done').length,
+            fallidos: arr(obj(model.production).jobs).filter((j) => j.status === 'failed').length,
+            listoParaRenderizar: !!model.production && arr(model.production.jobs).length > 0
+              && arr(model.production.jobs).every((j) => j.status !== 'pending'),
             costeEstimadoUsd: num(obj(obj(model.production).totals).cost, 0) },
+          catalogoProductLab: hasData ? 'disponible (LIST_CATALOG / IMPORT_PRODUCT)' : 'no disponible en este host',
+          origenDelProducto: obj(model.brief.sourceRef).app || null,
           assets: assets.map((x) => ({ id: x.id, tipo: x.kind, escena: x.code, version: x.version, url: x.url })),
           costeRealUsd: round(ledger.reduce((a, x) => a + num(x.amountUsd, 0), 0), 4),
           marca: { score: num(obj(model.brandCheck).score, 0), hallazgos: arr(obj(model.brandCheck).findings).length },
@@ -4920,8 +5414,33 @@ export default function mount(shell) {
   // ── Brief ──────────────────────────────────────────────────────────────
   function BriefView() {
     const [uploading, setUploading] = useState(false);
+    const [catalogs, setCatalogs] = useState(null);   // null = sin cargar
+    const [loadingCat, setLoadingCat] = useState(false);
     const b = model.brief;
     const setB = (k, v) => patch((m) => { m.brief[k] = v; });
+
+    async function loadCatalogs() {
+      setLoadingCat(true);
+      try {
+        const insts = await listCatalogs();
+        const out = [];
+        for (const inst of insts) {
+          const cat = await readCatalog(inst.id);
+          if (cat && cat.products.length) out.push({ name: s(inst.name) || s(inst.id), cat });
+        }
+        setCatalogs(out);
+        if (!out.length) notify('info', 'No hay catálogos de ProductLab con productos visibles.');
+      } catch (e) { notify('error', 'No se pudo leer ProductLab: ' + ((e && e.message) || 'error')); setCatalogs([]); }
+      setLoadingCat(false);
+    }
+
+    function importProduct(prod, cat) {
+      try {
+        const mapped = applyProductToBrief(prod, cat, { keepExisting: false });
+        notify('success', '«' + mapped.productName + '» importado con ' + mapped.photos.length + ' foto(s).');
+        setCatalogs(null);
+      } catch (e) { notify('error', (e && e.message) || 'no se pudo importar'); }
+    }
 
     async function onFiles(files) {
       const list = Array.from(files || []);
@@ -4945,6 +5464,33 @@ export default function mount(shell) {
         subtitle: 'Lo único obligatorio: nombre y fotos. Todo lo demás mejora la precisión del resultado.',
         actions: [h(Btn, { key: 'g', variant: 'primary', disabled: !s(b.productName).trim(),
           onClick: () => generateAll(s(b.intent) || 'Crea una campaña premium') }, 'Generar campaña')] }),
+
+      hasData ? h(Card, { key: 'pl', title: 'Importar desde ProductLab',
+        actions: [h(Btn, { key: 'l', size: 'sm', disabled: loadingCat,
+          onClick: () => (catalogs === null ? loadCatalogs() : setCatalogs(null)) },
+          loadingCat ? 'Leyendo…' : catalogs === null ? 'Ver catálogos' : 'Cerrar')] }, [
+        h('p', { className: 'ks-hint', key: 'i' },
+          'Trae el nombre, el precio, la moneda, las especificaciones (pasan a ser la propuesta de valor), '
+          + 'los pasos configurables y todas las fotos de la galería. Solo lectura: no modifica el catálogo.'),
+        obj(b.sourceRef).app === 'productlab' ? h('div', { className: 'ks-chips', key: 'r' }, [
+          h(Chip, { key: 'c', tone: 'accent' }, 'Importado · ' + (s(obj(b.sourceRef).sku) || s(obj(b.sourceRef).itemId))),
+          h(Chip, { key: 'd' }, s(obj(b.sourceRef).at).slice(0, 10)),
+        ]) : null,
+        catalogs && catalogs.length ? h('div', { className: 'ks-catalogs', key: 'c' }, catalogs.map((c0) => h('div', {
+          key: c0.cat.instanceId, className: 'ks-catalog',
+        }, [
+          h('strong', { key: 'n' }, c0.name + ' · ' + c0.cat.products.length + ' productos · ' + c0.cat.currency),
+          h('div', { className: 'ks-catalog-items', key: 'p' }, c0.cat.products.map((pr) => h('button', {
+            key: pr.id, type: 'button', className: 'ks-catalog-item', onClick: () => importProduct(pr, c0.cat),
+            title: 'Importar al brief',
+          }, [
+            h('span', { className: 'ks-catalog-name', key: 'n' }, pr.name),
+            h('span', { className: 'ks-catalog-meta', key: 'm' },
+              [pr.sku, pr.price ? fmtMoney(pr.price, c0.cat.currency) : ''].filter(Boolean).join(' · ')),
+          ]))),
+        ]))) : catalogs && !catalogs.length
+          ? h('p', { className: 'ks-hint', key: 'e' }, 'Sin catálogos visibles para tu usuario.') : null,
+      ]) : null,
 
       h(Card, { key: 'photos', title: 'Fotografías del producto',
         actions: [h('label', { key: 'u', className: cx('ks-btn', 'ks-btn-primary', 'ks-btn-sm') }, [
@@ -5540,21 +6086,63 @@ export default function mount(shell) {
     if (!pr) return h('div', { className: 'ks-view' }, h(NotReady, { agentId: 'video-producer' }));
     const jobs = arr(pr.jobs);
     const byStatus = JOB_STATUS.reduce((acc, st0) => { acc[st0] = jobs.filter((j) => j.status === st0).length; return acc; }, {});
+    const done = byStatus.done || 0;
+    const pct = jobs.length ? Math.round((done / jobs.length) * 100) : 0;
+    const pending = jobs.filter((j) => j.status === 'pending');
+    const ready = jobs.length > 0 && !pending.length;
+    const next = readyJobs(model, 12);
+    const missingFiles = jobs.filter((j) => s(j.file) && j.status !== 'done');
+
     return h('div', { className: 'ks-view' }, [
       h(ViewHead, { key: 'h', title: 'Producción',
-        subtitle: jobs.length + ' trabajos · coste estimado ' + fmtMoney(num(obj(pr.totals).cost, 0), 'USD') + ' · ~' + num(pr.estMinutes, 0) + ' min de máquina',
+        subtitle: done + ' de ' + jobs.length + ' archivos generados · coste estimado '
+          + fmtMoney(num(obj(pr.totals).cost, 0), 'USD') + ' · ~' + num(pr.estMinutes, 0) + ' min de máquina',
         actions: [
-          h(Btn, { key: 'c', onClick: () => download(slug(model.title) + '-jobs.csv', exportJobsCsv(model), 'text/csv') }, 'CSV de trabajos'),
+          h(Btn, { key: 'b', variant: ready ? 'primary' : 'ghost',
+            onClick: () => download(slug(model.title) + '-render.sh', exportRenderBundle(model, assets), 'text/x-shellscript'),
+            title: ready ? 'Descarga, une y renderiza todo' : 'Se descargará lo que ya esté registrado' },
+            'Bundle de render'),
+          h(Btn, { key: 'm', onClick: () => download(slug(model.title) + '-assets.json', exportAssetsManifest(model, assets), 'application/json') }, 'Manifiesto'),
+          h(Btn, { key: 'c', onClick: () => download(slug(model.title) + '-jobs.csv', exportJobsCsv(model), 'text/csv') }, 'CSV'),
           h(Btn, { key: 'r', variant: 'ghost', onClick: () => runStages(['video-producer'], 'Video Producer') }, 'Recalcular'),
         ] }),
-      h('div', { className: 'ks-grid ks-grid-4', key: 's' }, JOB_STATUS.slice(0, 4).map((st0) => h(Stat, {
-        key: st0, label: st0, value: byStatus[st0] || 0,
-      }))),
+
+      h(Card, { key: 'prog', title: ready ? 'Listo para renderizar' : 'Progreso' }, [
+        h(Bar, { key: 'b', value: pct, tone: ready ? 'ok' : 'accent' }),
+        h('p', { className: 'ks-lead', key: 'p' }, ready
+          ? 'Todos los archivos están registrados. Descarga el bundle de render y ejecútalo: baja los assets, une las tomas partidas, escribe los subtítulos y monta los '
+            + arr(obj(model.edit).exports).length + ' entregables.'
+          : pending.length + ' archivo(s) por generar. ' + next.length + ' se pueden hacer ahora mismo'
+            + (next.length && next[0].stage === 'keyframe' ? ' (keyframes: valida el producto antes de animar).' : '.')),
+        h('div', { className: 'ks-grid ks-grid-4', key: 's' }, JOB_STATUS.slice(0, 4).map((st0) => h(Stat, {
+          key: st0, label: st0, value: byStatus[st0] || 0,
+          tone: st0 === 'done' ? 'ok' : st0 === 'failed' ? 'bad' : null,
+        }))),
+        ready ? null : h('p', { className: 'ks-hint', key: 'cmd' },
+          'Desde el chat de KIMOS basta con: «produce el material pendiente de Kreative Studio». '
+          + 'El agente llama a RUN_PRODUCTION, genera el lote con sus modelos y lo devuelve con REGISTER_ASSETS; '
+          + 'repite hasta terminar.'),
+      ]),
+
+      next.length ? h(Card, { key: 'next', title: 'Siguiente lote (' + next.length + ')' }, [
+        h('div', { className: 'ks-nextjobs', key: 'l' }, next.map((j) => h('div', { key: j.id, className: 'ks-nextjob' }, [
+          h('span', { className: 'ks-nextjob-kind', key: 'k' }, (CAPABILITIES.find((c0) => c0.id === j.kind) || {}).emoji || '•'),
+          h('div', { key: 'b' }, [
+            h('strong', { key: 'l' }, j.label),
+            h('span', { className: 'ks-nextjob-meta', key: 'm' }, j.providerLabel + ' → ' + j.file),
+          ]),
+          h(Btn, { key: 'c', size: 'xs', onClick: () => copyText(j.prompt, 'Prompt ' + j.code) }, 'Prompt'),
+        ]))),
+      ]) : null,
+
+      missingFiles.length ? h(Card, { key: 'miss', title: 'Archivos que faltan para el montaje' }, [
+        h('p', { className: 'ks-hint', key: 'i' },
+          'El script de render espera estas rutas. Cada una se rellena sola al registrar el asset de su trabajo.'),
+        h('div', { className: 'ks-chips', key: 'c' }, missingFiles.slice(0, 40).map((j) => h(Chip, { key: j.id, tone: 'bad' }, j.file))),
+      ]) : null,
+
       h(Card, { key: 'g', title: 'Cómo ejecutar' }, [
         h('ul', { className: 'ks-list', key: 'l' }, arr(pr.guidance).map((x, i) => h('li', { key: i }, x))),
-        h('p', { className: 'ks-hint', key: 'n' },
-          'Desde el chat de KIMOS: «ejecuta los trabajos pendientes de Kreative Studio». El agente lee GET_JOBS, '
-          + 'genera con el modelo indicado y cierra cada uno con REGISTER_ASSET (que además contabiliza el coste real).'),
       ]),
       h(Card, { key: 'j', flush: true }, [
         h('table', { className: 'ks-table ks-table-jobs', key: 't' }, [
@@ -6107,7 +6695,7 @@ export default function mount(shell) {
     {
       n: 1, title: 'Rellena el brief', view: 'brief', cta: 'Ir al Brief',
       body: 'Lo único obligatorio es el nombre del producto y las fotos. Sube frontal, tres cuartos y un detalle de material, y marca la mejor como principal: es la referencia que reciben los modelos y lo que impide que se inventen la forma del producto.',
-      tip: 'La propuesta de valor, una idea por frase. De ahí salen los atributos, los beneficios y casi todo el copy.',
+      tip: 'Si el producto ya está en ProductLab, impórtalo: trae nombre, precio, especificaciones y toda la galería sin teclear nada.',
     },
     {
       n: 2, title: 'Escribe lo que quieres', view: 'dashboard', cta: 'Ir al Panel',
@@ -6120,13 +6708,13 @@ export default function mount(shell) {
       tip: 'Si no te gusta la dirección entera, cambia de estilo en el Marketplace: se regenera todo de forma coherente, no solo los colores.',
     },
     {
-      n: 4, title: 'Produce el material', view: 'jobs', cta: 'Ver los trabajos',
-      body: 'Aquí está la lista de trabajos con su prompt, su proveedor y su coste estimado. Genera primero TODOS los keyframes y valida el producto antes de gastar en vídeo: un vídeo malo cuesta entre 10 y 30 veces más que la imagen que lo habría evitado.',
-      tip: 'Registra cada resultado con el asset correspondiente: se versiona, cierra el trabajo y el coste real sustituye al estimado.',
+      n: 4, title: 'Produce el material', view: 'jobs', cta: 'Ver la producción',
+      body: 'Díselo al agente de KIMOS: «produce el material pendiente». Él pide el siguiente lote, genera cada imagen, vídeo y audio con sus modelos y devuelve los resultados; la app los versiona, cierra cada trabajo y contabiliza el coste real. Repite solo hasta que quede en cero.',
+      tip: 'El orden no es negociable: primero los keyframes, y las tomas de vídeo parten de ellos. Un vídeo malo cuesta entre 10 y 30 veces más que la imagen que lo habría evitado.',
     },
     {
-      n: 5, title: 'Monta y exporta', view: 'editor', cta: 'Abrir el Editor',
-      body: 'Descarga el script de montaje, los subtítulos y el EDL. El script lleva la normalización de cada toma, el etalonaje, las transiciones, los rótulos, el logotipo, la mezcla con ducking y la exportación a todos los formatos que hayas pedido.',
+      n: 5, title: 'Renderiza', view: 'jobs', cta: 'Bundle de render',
+      body: 'Cuando la producción llega al 100 %, descarga el bundle de render: un único script que baja todos los archivos generados a su sitio, une las tomas que hubo que partir, escribe los subtítulos y ejecuta FFmpeg hasta los entregables finales en cada formato.',
       tip: 'La biblia de campaña (botón «Biblia» arriba) es el documento que se le entrega al cliente: concepto, plan, storyboard, copy y costes.',
     },
   ];
@@ -6179,10 +6767,10 @@ export default function mount(shell) {
         h('div', { className: 'ks-guide-doesnt', key: 'b' }, [
           h('h3', { key: 't' }, 'Lo que NO hace'),
           h('ul', { className: 'ks-list', key: 'l' }, [
-            h('li', { key: '1' }, [h('strong', { key: 's' }, 'No llama a los modelos generativos. '),
-              'Esta app corre en tu navegador y no puede custodiar claves de API de terceros. Produce los prompts, los parámetros y los trabajos; quien los ejecuta es el agente de KIMOS con sus conexiones, o tú desde el panel de tu proveedor. El resultado vuelve aquí al registrarlo.']),
-            h('li', { key: '2' }, [h('strong', { key: 's' }, 'No renderiza el vídeo. '),
-              'Genera el script de FFmpeg completo y reproducible; el render ocurre en tu máquina o en tu servidor.']),
+            h('li', { key: '1' }, [h('strong', { key: 's' }, 'No llama a los modelos por su cuenta. '),
+              'Esta app corre en tu navegador y no puede custodiar claves de API de terceros. Quien genera es el agente de KIMOS con sus conexiones: la app le dice exactamente qué toca hacer ahora, con qué modelo y con qué referencia, y él devuelve los archivos. Tú solo tienes que pedírselo.']),
+            h('li', { key: '2' }, [h('strong', { key: 's' }, 'No ejecuta el render. '),
+              'Prepara el bundle completo —descarga de archivos, unión de tomas, subtítulos y FFmpeg— pero el render corre en tu máquina o en tu servidor.']),
             h('li', { key: '3' }, [h('strong', { key: 's' }, 'No compra medios ni publica. '),
               'Deja el copy y los entregables listos para subirlos al gestor de anuncios.']),
             h('li', { key: '4' }, [h('strong', { key: 's' }, 'No promete resultados. '),
@@ -6222,18 +6810,18 @@ export default function mount(shell) {
       // ── El ciclo de producción ───────────────────────────────────────
       h(Card, { key: 'cycle', title: 'Cómo se cierra el ciclo de producción' }, [
         h('div', { className: 'ks-guide-cycle', key: 'c' }, [
-          { t: 'Trabajos', d: 'La app lista qué generar, con qué modelo y a qué coste.' },
-          { t: 'Generación', d: 'El agente de KIMOS o tú ejecutáis cada trabajo con el proveedor indicado.' },
-          { t: 'Registro', d: 'El archivo vuelve a la Biblioteca asociado a su escena, versionado.' },
-          { t: 'Liquidación', d: 'El trabajo se cierra y el coste real sustituye al estimado en Analytics.' },
+          { t: 'Lote', d: 'La app entrega el siguiente bloque que toca generar, con proveedor, prompt y referencia.' },
+          { t: 'Generación', d: 'El agente lo genera con sus modelos, respetando el orden: keyframes antes que vídeo.' },
+          { t: 'Registro', d: 'Devuelve todo de una vez: se versiona por escena, cierra cada trabajo y suma el coste real.' },
+          { t: 'Render', d: 'Al llegar a cero, el bundle baja los archivos, los ordena y monta los entregables.' },
         ].map((x, i, all) => h('div', { key: i, className: 'ks-guide-cyclestep' }, [
           h('strong', { key: 't' }, x.t),
           h('p', { key: 'd' }, x.d),
           i < all.length - 1 ? h('span', { className: 'ks-guide-arrow', key: 'a' }, '→') : null,
         ]))),
         h('p', { className: 'ks-hint', key: 'n' },
-          'Desde el chat de KIMOS basta con pedirlo: «ejecuta los trabajos pendientes de Kreative Studio». '
-          + 'El agente lee la lista, genera con sus modelos y registra cada resultado.'),
+          'Desde el chat de KIMOS basta con pedirlo: «produce el material pendiente de Kreative Studio». '
+          + 'El agente repite el ciclo solo hasta que no quede nada, y te avisa cuando esté lista para renderizar.'),
       ]),
 
       // ── Errores frecuentes ───────────────────────────────────────────

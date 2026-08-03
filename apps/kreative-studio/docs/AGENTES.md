@@ -42,6 +42,33 @@ Si pides un agente cuya dependencia falta, el orquestador la ejecuta antes.
 | `GENERATE_CAMPAIGN` | **La principal.** Genera la campaña completa desde una intención en lenguaje natural. Acepta `productName`, `usp` y `photos` en la misma llamada. |
 | `SET_BRIEF` | Producto, categoría, precio, USP, público, presupuesto, mercado, idioma, competencia, obligatorios, legal. |
 | `ADD_PRODUCT_PHOTO` | Adjunto del chat, ruta `/api/…` o URL pública. Deduplica y permite marcar la toma principal. |
+| `LIST_CATALOG` | Catálogos de ProductLab visibles y sus productos. |
+| `IMPORT_PRODUCT` | Importa un producto de ProductLab al brief (nombre, precio, especificaciones, pasos, galería). Con `intent`, genera la campaña de seguido. |
+
+### Producción — el ciclo que crea el material
+
+| Tool | Para qué |
+|---|---|
+| `RUN_PRODUCTION` | **Punto de entrada.** Devuelve el siguiente lote que toca generar *ahora*, con proveedor, prompt, parámetros, imagen de referencia y archivo de destino. Respeta las dependencias: una toma de vídeo no aparece hasta que su keyframe existe, y se la pasa como referencia. |
+| `REGISTER_ASSETS` | Devuelve el lote entero de una vez. Versiona por escena, cierra cada trabajo y suma el coste real. |
+| `SET_JOB_STATUS` | `pending · running · done · failed · skipped`. |
+
+```
+RUN_PRODUCTION ──► { listo: false, siguienteLote: [ … ] }
+       │              el agente genera cada elemento con sus modelos
+       └── REGISTER_ASSETS { assets: [ {jobId, url, costUsd}, … ] }
+       ↑                                                    │
+       └────────────── repetir hasta listo: true ◄──────────┘
+```
+
+Cuando `listo` es `true`, `EXPORT render_bundle` entrega el script que baja
+todos los archivos, une las tomas partidas, escribe los subtítulos y ejecuta
+FFmpeg hasta los entregables.
+
+El estado de un trabajo **no depende de que alguien se acuerde de cerrarlo**:
+se reconcilia con los assets registrados en cada cambio de la Biblioteca y tras
+cada recálculo. Borrar un asset reabre su trabajo; recalcular la producción no
+pierde el progreso.
 
 ### Dirección y ejecución
 
@@ -68,10 +95,9 @@ Si pides un agente cuya dependencia falta, el orquestador la ejecuta antes.
 | Tool | Para qué |
 |---|---|
 | `GET_PROMPTS` | Prompts listos, filtrables por tipo y escena. Con `providerId` los reescribe a ese modelo **sin cambiar los ajustes**. |
-| `GET_JOBS` | Trabajos pendientes con prompt, parámetros y coste. |
-| `REGISTER_ASSET` | Registra el archivo generado, lo versiona, cierra el trabajo y contabiliza el coste real. |
+| `GET_JOBS` | Inventario completo de trabajos (para inspeccionar; para producir, usa `RUN_PRODUCTION`). |
+| `REGISTER_ASSET` | Registra un archivo suelto. Para un lote, `REGISTER_ASSETS`. |
 | `LIST_ASSETS` | Assets registrados con escena, proveedor, versión y coste. |
-| `SET_JOB_STATUS` | `pending · running · done · failed · skipped`. |
 | `ADD_COST` | Consumo real suelto (coste, tokens, segundos, imágenes). |
 | `GET_COPY` | Anuncios (filtrables por plataforma), landing, emails o ganchos. |
 
@@ -79,7 +105,7 @@ Si pides un agente cuya dependencia falta, el orquestador la ejecuta antes.
 
 | Tool | Para qué |
 |---|---|
-| `EXPORT` | `bible` · `ffmpeg` · `srt` · `edl` · `prompts_csv` · `copy_csv` · `jobs_csv` · `json` |
+| `EXPORT` | `render_bundle` · `assets_manifest` · `bible` · `ffmpeg` · `srt` · `edl` · `prompts_csv` · `copy_csv` · `jobs_csv` · `json` |
 | `CREATE_VERSION` / `RESTORE_VERSION` | Instantáneas etiquetadas de la campaña completa. |
 
 ---
@@ -87,21 +113,23 @@ Si pides un agente cuya dependencia falta, el orquestador la ejecuta antes.
 ## Flujo completo desde el chat
 
 ```
-SET_BRIEF { productName: "Vector Pro", usp: "Carbono. 180 g. Impermeable.", budget: 12000 }
-ADD_PRODUCT_PHOTO { url: "<adjunto del chat>", isHero: true }
-GENERATE_CAMPAIGN { intent: "Quiero un comercial épico para deportistas que convierta" }
+IMPORT_PRODUCT { product: "MF-140", intent: "campaña premium de 20 segundos" }
+   ↑ o bien: SET_BRIEF + ADD_PRODUCT_PHOTO + GENERATE_CAMPAIGN
 
-GET_JOBS { status: "pending", kind: "image" }
-   → generas los keyframes con tu modelo
-REGISTER_ASSET { url: "...", jobId: "job-image-sc01", costUsd: 0.19 }
+RUN_PRODUCTION {}
+   → { siguienteLote: [ { jobId, proveedor, prompt, imagenReferencia, … } ] }
+   → generas cada elemento con el modelo indicado
+REGISTER_ASSETS { assets: [ { jobId, url, costUsd, durationSec }, … ] }
+   → «Quedan 21 trabajos pendientes: vuelve a llamar a RUN_PRODUCTION.»
 
-GET_JOBS { status: "pending", kind: "video" }
-   → animas cada keyframe
-REGISTER_ASSET { url: "...", jobId: "job-video-sc01", durationSec: 5, costUsd: 1.25 }
+… repetir hasta { listo: true } …
 
-EXPORT { what: "ffmpeg" }   → montas y exportas los entregables
-EXPORT { what: "bible" }    → el documento que se entrega al cliente
+EXPORT { what: "render_bundle" }  → un script: descarga, une, subtitula, renderiza
+EXPORT { what: "bible" }          → el documento que se entrega al cliente
 ```
+
+En la práctica el usuario solo escribe dos frases en el chat: «importa la Mesa
+Fiordo y hazle una campaña premium» y «produce todo el material pendiente».
 
 ## Reglas del despachador
 

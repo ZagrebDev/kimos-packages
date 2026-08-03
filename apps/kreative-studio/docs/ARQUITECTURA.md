@@ -13,13 +13,13 @@ traslada cada pieza de ese stack a su equivalente real de la plataforma:
 
 | Pieza del stack clásico | Equivalente en KIMOS |
 |---|---|
-| FastAPI (API de orquestación) | `shell.agent.register` — 23 tools que el agente de la empresa invoca |
-| Celery + Redis (cola de tareas) | Pipeline de agentes puros (milisegundos) + **trabajos** para lo que sí es caro: llamar a los modelos |
+| FastAPI (API de orquestación) | `shell.agent.register` — 27 tools que el agente de la empresa invoca |
+| Celery + Redis (cola de tareas) | Pipeline de agentes puros (ms) + **trabajos por lotes** para lo caro: `RUN_PRODUCTION` entrega el lote listo y `REGISTER_ASSETS` lo liquida |
 | PostgreSQL / Prisma | `shell.saveData` (documento de campaña) + `shell.items` (assets y ledger de costes) |
 | MinIO / S3 | `POST /api/v2/files` → `/api/public/files/{path}` |
 | Next.js + Tailwind + Shadcn | Componentes `React.createElement` + CSS con ámbito `.kimos-kreative` |
 | Docker / DevOps | Empaquetado `.kapp` e instalación desde la Tienda |
-| FFmpeg en servidor | Script FFmpeg **generado** y entregado, ejecutable en tu máquina o CI |
+| FFmpeg en servidor | **Bundle de render** generado: descarga de assets + unión de tomas + subtítulos + FFmpeg, en un solo script |
 
 Lo que se pierde es ejecutar los modelos desde el propio servicio; lo que se
 gana es que la app se instala en un clic, hereda RBAC, equipos, ventanas,

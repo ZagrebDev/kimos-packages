@@ -486,6 +486,31 @@
 .kimos-kreative .ks-version-date { font-size: 11px; color: var(--ks-txt3); font-variant-numeric: tabular-nums; }
 .kimos-kreative .ks-version-actions { display: flex; gap: 6px; }
 
+/* ── Catálogo de ProductLab ────────────────────────────────────────────── */
+.kimos-kreative .ks-catalogs { display: flex; flex-direction: column; gap: 12px; }
+.kimos-kreative .ks-catalog { display: flex; flex-direction: column; gap: 7px; }
+.kimos-kreative .ks-catalog-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 7px; }
+.kimos-kreative .ks-catalog-item {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  padding: 9px 11px; border-radius: 9px; background: var(--ks-panel2);
+  border: 1px solid var(--ks-line); color: var(--ks-txt); font: inherit;
+}
+.kimos-kreative .ks-catalog-item:hover { border-color: var(--ks-accent); }
+.kimos-kreative .ks-catalog-name { font-size: 12.5px; font-weight: 600; }
+.kimos-kreative .ks-catalog-meta { font-size: 11px; color: var(--ks-txt3); }
+
+/* ── Siguiente lote de producción ──────────────────────────────────────── */
+.kimos-kreative .ks-nextjobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(292px, 1fr)); gap: 8px; }
+.kimos-kreative .ks-nextjob {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+  background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 9px;
+}
+.kimos-kreative .ks-nextjob > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.kimos-kreative .ks-nextjob strong { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-nextjob-kind { font-size: 15px; flex-shrink: 0; }
+.kimos-kreative .ks-nextjob-meta { font-size: 11px; color: var(--ks-txt3); font-family: ui-monospace, Menlo, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── Guía ──────────────────────────────────────────────────────────────── */
 .kimos-kreative .ks-guide-truth { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 13px; }
 .kimos-kreative .ks-guide-does, .kimos-kreative .ks-guide-doesnt {

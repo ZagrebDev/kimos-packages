@@ -337,21 +337,63 @@
     if (!pr) return h('div', { className: 'ks-view' }, h(NotReady, { agentId: 'video-producer' }));
     const jobs = arr(pr.jobs);
     const byStatus = JOB_STATUS.reduce((acc, st0) => { acc[st0] = jobs.filter((j) => j.status === st0).length; return acc; }, {});
+    const done = byStatus.done || 0;
+    const pct = jobs.length ? Math.round((done / jobs.length) * 100) : 0;
+    const pending = jobs.filter((j) => j.status === 'pending');
+    const ready = jobs.length > 0 && !pending.length;
+    const next = readyJobs(model, 12);
+    const missingFiles = jobs.filter((j) => s(j.file) && j.status !== 'done');
+
     return h('div', { className: 'ks-view' }, [
       h(ViewHead, { key: 'h', title: 'Producción',
-        subtitle: jobs.length + ' trabajos · coste estimado ' + fmtMoney(num(obj(pr.totals).cost, 0), 'USD') + ' · ~' + num(pr.estMinutes, 0) + ' min de máquina',
+        subtitle: done + ' de ' + jobs.length + ' archivos generados · coste estimado '
+          + fmtMoney(num(obj(pr.totals).cost, 0), 'USD') + ' · ~' + num(pr.estMinutes, 0) + ' min de máquina',
         actions: [
-          h(Btn, { key: 'c', onClick: () => download(slug(model.title) + '-jobs.csv', exportJobsCsv(model), 'text/csv') }, 'CSV de trabajos'),
+          h(Btn, { key: 'b', variant: ready ? 'primary' : 'ghost',
+            onClick: () => download(slug(model.title) + '-render.sh', exportRenderBundle(model, assets), 'text/x-shellscript'),
+            title: ready ? 'Descarga, une y renderiza todo' : 'Se descargará lo que ya esté registrado' },
+            'Bundle de render'),
+          h(Btn, { key: 'm', onClick: () => download(slug(model.title) + '-assets.json', exportAssetsManifest(model, assets), 'application/json') }, 'Manifiesto'),
+          h(Btn, { key: 'c', onClick: () => download(slug(model.title) + '-jobs.csv', exportJobsCsv(model), 'text/csv') }, 'CSV'),
           h(Btn, { key: 'r', variant: 'ghost', onClick: () => runStages(['video-producer'], 'Video Producer') }, 'Recalcular'),
         ] }),
-      h('div', { className: 'ks-grid ks-grid-4', key: 's' }, JOB_STATUS.slice(0, 4).map((st0) => h(Stat, {
-        key: st0, label: st0, value: byStatus[st0] || 0,
-      }))),
+
+      h(Card, { key: 'prog', title: ready ? 'Listo para renderizar' : 'Progreso' }, [
+        h(Bar, { key: 'b', value: pct, tone: ready ? 'ok' : 'accent' }),
+        h('p', { className: 'ks-lead', key: 'p' }, ready
+          ? 'Todos los archivos están registrados. Descarga el bundle de render y ejecútalo: baja los assets, une las tomas partidas, escribe los subtítulos y monta los '
+            + arr(obj(model.edit).exports).length + ' entregables.'
+          : pending.length + ' archivo(s) por generar. ' + next.length + ' se pueden hacer ahora mismo'
+            + (next.length && next[0].stage === 'keyframe' ? ' (keyframes: valida el producto antes de animar).' : '.')),
+        h('div', { className: 'ks-grid ks-grid-4', key: 's' }, JOB_STATUS.slice(0, 4).map((st0) => h(Stat, {
+          key: st0, label: st0, value: byStatus[st0] || 0,
+          tone: st0 === 'done' ? 'ok' : st0 === 'failed' ? 'bad' : null,
+        }))),
+        ready ? null : h('p', { className: 'ks-hint', key: 'cmd' },
+          'Desde el chat de KIMOS basta con: «produce el material pendiente de Kreative Studio». '
+          + 'El agente llama a RUN_PRODUCTION, genera el lote con sus modelos y lo devuelve con REGISTER_ASSETS; '
+          + 'repite hasta terminar.'),
+      ]),
+
+      next.length ? h(Card, { key: 'next', title: 'Siguiente lote (' + next.length + ')' }, [
+        h('div', { className: 'ks-nextjobs', key: 'l' }, next.map((j) => h('div', { key: j.id, className: 'ks-nextjob' }, [
+          h('span', { className: 'ks-nextjob-kind', key: 'k' }, (CAPABILITIES.find((c0) => c0.id === j.kind) || {}).emoji || '•'),
+          h('div', { key: 'b' }, [
+            h('strong', { key: 'l' }, j.label),
+            h('span', { className: 'ks-nextjob-meta', key: 'm' }, j.providerLabel + ' → ' + j.file),
+          ]),
+          h(Btn, { key: 'c', size: 'xs', onClick: () => copyText(j.prompt, 'Prompt ' + j.code) }, 'Prompt'),
+        ]))),
+      ]) : null,
+
+      missingFiles.length ? h(Card, { key: 'miss', title: 'Archivos que faltan para el montaje' }, [
+        h('p', { className: 'ks-hint', key: 'i' },
+          'El script de render espera estas rutas. Cada una se rellena sola al registrar el asset de su trabajo.'),
+        h('div', { className: 'ks-chips', key: 'c' }, missingFiles.slice(0, 40).map((j) => h(Chip, { key: j.id, tone: 'bad' }, j.file))),
+      ]) : null,
+
       h(Card, { key: 'g', title: 'Cómo ejecutar' }, [
         h('ul', { className: 'ks-list', key: 'l' }, arr(pr.guidance).map((x, i) => h('li', { key: i }, x))),
-        h('p', { className: 'ks-hint', key: 'n' },
-          'Desde el chat de KIMOS: «ejecuta los trabajos pendientes de Kreative Studio». El agente lee GET_JOBS, '
-          + 'genera con el modelo indicado y cierra cada uno con REGISTER_ASSET (que además contabiliza el coste real).'),
       ]),
       h(Card, { key: 'j', flush: true }, [
         h('table', { className: 'ks-table ks-table-jobs', key: 't' }, [

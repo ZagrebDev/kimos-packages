@@ -83,6 +83,7 @@ export default function mount(shell) {
     if (!hasItems) {
       const i = assets.findIndex((x) => x.id === a.id);
       if (i >= 0) assets[i] = a; else assets.push(a);
+      syncJobs(true);
       emit();
       return a;
     }
@@ -91,6 +92,7 @@ export default function mount(shell) {
       if (exists) await shell.items.update(a.id, item); else await shell.items.create(item);
       const i = assets.findIndex((x) => x.id === a.id);
       if (i >= 0) assets[i] = a; else assets.push(a);
+      syncJobs(true);
       emit();
       return a;
     } catch (e) { throw new Error('No se pudo guardar el asset: ' + ((e && e.message) || 'error')); }
@@ -101,6 +103,7 @@ export default function mount(shell) {
     if (i < 0) return false;
     if (hasItems) { try { await shell.items.remove(s(id)); } catch (e) { throw new Error('No se pudo borrar: ' + ((e && e.message) || 'error')); } }
     assets.splice(i, 1);
+    syncJobs(true);
     emit();
     return true;
   }
@@ -116,6 +119,88 @@ export default function mount(shell) {
     if (hasItems) { try { await shell.items.create(rec); } catch (err) { /* se contabiliza en memoria igualmente */ } }
     ledger.push(rec);
     return rec;
+  }
+
+  // ── Puerto de catálogo (lectura de ProductLab vía shell.data) ──────────
+  // Permiso `data.read:productlab`. El RBAC del usuario es siempre el techo:
+  // solo se ven instancias de equipos a los que ya tiene acceso.
+  const hasData = shell.data && typeof shell.data.listInstances === 'function';
+
+  async function listCatalogs() {
+    if (!hasData) return [];
+    try { return arr(await shell.data.listInstances('productlab')); } catch (e) { return []; }
+  }
+
+  /** Productos de un catálogo de ProductLab, con su moneda y marca. */
+  async function readCatalog(instanceId) {
+    if (!hasData || typeof shell.data.listItems !== 'function') return null;
+    const items = arr(await shell.data.listItems(s(instanceId)));
+    const definition = items.find((x) => s(x.kind) === 'definition') || {};
+    const rules = obj(definition.rules);
+    return {
+      instanceId: s(instanceId),
+      currency: s(rules.currency) || 'USD',
+      brandName: s(definition.brandName),
+      storeName: s(definition.storeName),
+      products: items.filter((x) => s(x.kind) === 'producto').map((p) => ({
+        id: s(p.id), name: s(p.name), sku: s(p.sku), status: s(p.status),
+        price: num(p.price, 0), raw: p,
+      })),
+    };
+  }
+
+  /**
+   * Traduce un producto de ProductLab al brief de una campaña.
+   * Se mapea lo que de verdad alimenta la creatividad: nombre, precio, fotos
+   * y las especificaciones (que son los atributos reales del producto). Los
+   * pasos configurables se anotan porque «personalizable» es un argumento de
+   * venta, no un detalle técnico.
+   */
+  function productToBrief(product, catalog) {
+    const p = obj(obj(product).raw || product);
+    const cat = obj(catalog);
+    const photos = uniq(arr(p.galleryImages).map(s).concat([s(obj(p.storeRef).imageUrl)])).filter(Boolean);
+    const specs = arr(obj(p.storefront).specs)
+      .map((x) => [s(x.label), s(x.value)].filter(Boolean).join(': '))
+      .filter((x) => x.length > 2);
+    const steps = arr(p.groups).map((g) => s(g.label)).filter(Boolean);
+    return {
+      productName: s(p.name),
+      priceText: num(p.price, 0) ? String(num(p.price, 0)) : '',
+      currency: s(cat.currency) || 'USD',
+      usp: specs.slice(0, 8).map((x) => punct(x)).join(' '),
+      extraNotes: [
+        steps.length ? 'Personalizable en: ' + steps.join(', ') + '.' : '',
+        s(p.sku) ? 'SKU ' + s(p.sku) + '.' : '',
+        obj(p.model3d).enabled ? 'Tiene modelo 3D y vista AR en la tienda.' : '',
+        s(cat.brandName) ? 'Marca: ' + s(cat.brandName) + '.' : '',
+      ].filter(Boolean).join(' '),
+      photos: photos.map((url, i) => ({ id: newId('photo'), url, caption: '', isHero: i === 0 })),
+      sourceRef: { app: 'productlab', instanceId: s(cat.instanceId), itemId: s(p.id), sku: s(p.sku), at: nowIso() },
+    };
+  }
+
+  /** Vuelca el producto en el brief conservando lo que el usuario ya escribió. */
+  function applyProductToBrief(product, catalog, opts) {
+    const o = obj(opts);
+    const mapped = productToBrief(product, catalog);
+    if (!s(mapped.productName).trim()) throw new Error('El producto no tiene nombre en ProductLab.');
+    patch((m) => {
+      const keep = !!o.keepExisting;
+      m.brief.productName = mapped.productName;
+      if (mapped.priceText && (!keep || !s(m.brief.priceText).trim())) m.brief.priceText = mapped.priceText;
+      if (mapped.currency && (!keep || !s(m.brief.currency).trim())) m.brief.currency = mapped.currency;
+      if (mapped.usp && (!keep || !s(m.brief.usp).trim())) m.brief.usp = mapped.usp;
+      if (mapped.extraNotes && (!keep || !s(m.brief.extraNotes).trim())) m.brief.extraNotes = mapped.extraNotes;
+      const known = new Set(arr(m.brief.photos).map((x) => x.url));
+      for (const ph of mapped.photos) if (!known.has(ph.url)) m.brief.photos.push(ph);
+      if (arr(m.brief.photos).length && !m.brief.photos.some((x) => x.isHero)) m.brief.photos[0].isHero = true;
+      m.brief.sourceRef = mapped.sourceRef;
+      if (!s(m.title).trim() || m.title === 'Nueva campaña') m.title = mapped.productName;
+      logLine(m, 'success', 'Producto «' + mapped.productName + '» importado desde ProductLab ('
+        + mapped.photos.length + ' foto(s), ' + (mapped.usp ? 'con' : 'sin') + ' especificaciones).');
+    });
+    return mapped;
   }
 
   // ── Puerto de archivos (subida al área pública de KIMOS) ───────────────
@@ -163,8 +248,24 @@ export default function mount(shell) {
   }
 
   // ── Operaciones de dominio expuestas a UI y agente ─────────────────────
+  /**
+   * Reconcilia el estado de los trabajos con los assets ya registrados. Se
+   * llama tras el pipeline y tras cualquier cambio en la Biblioteca: si no,
+   * regenerar la producción borraría el progreso real y la lista de
+   * pendientes mentiría.
+   */
+  function syncJobs(silent) {
+    if (!model.production) return;
+    const before = arr(model.production.jobs).map((j) => j.status + j.id).join('|');
+    const next = JSON.parse(JSON.stringify(model));
+    reconcileJobs(next, assets);
+    const after = arr(next.production.jobs).map((j) => j.status + j.id).join('|');
+    if (before !== after) commit(next, silent ? { noSave: false } : undefined);
+  }
+
   function runStages(only, label) {
     const res = runPipeline(model, { only, ledger });
+    reconcileJobs(res.campaign, assets);
     commit(res.campaign);
     const errs = res.run.stages.filter((x) => x.status === 'error');
     if (errs.length) notify('error', 'Fallaron ' + errs.length + ' etapa(s): ' + errs.map((x) => x.name).join(', '));
@@ -176,6 +277,7 @@ export default function mount(shell) {
     setUi({ busy: true });
     try {
       const res = generateCampaign(model, intentText, { ledger });
+      reconcileJobs(res.campaign, assets);
       commit(res.campaign);
       const errs = res.run.stages.filter((x) => x.status === 'error');
       if (errs.length) notify('warn', 'Campaña generada con ' + errs.length + ' aviso(s).');
@@ -241,6 +343,7 @@ export default function mount(shell) {
       else if (data && data.brief) model = migrate(data);
       await loadItems();
       if (cancelled) return;
+      reconcileJobs(model, assets);
       // Campaña recién creada: se abre por la Guía. Quien ya tiene trabajo
       // hecho entra directo al Panel, que es lo que espera.
       const virgin = !s(model.brief.productName).trim() && !model.concept && !arr(model.brief.photos).length;

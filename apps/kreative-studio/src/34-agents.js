@@ -104,6 +104,9 @@ function normalizeAsset(raw, campaign) {
     sceneId: scene ? scene.id : (s(a.sceneId) || null),
     code: scene ? scene.code : s(a.code),
     jobId: s(a.jobId) || null,
+    // Tipo del trabajo que lo produjo (image|video|voice|music|sfx). Es lo
+    // que distingue una locución de un efecto dentro de la misma escena.
+    jobKind: s(a.jobKind) || null,
     providerId: s(a.providerId) || null,
     version: Math.max(1, num(a.version, 1)),
     parentId: s(a.parentId) || null,
@@ -116,6 +119,64 @@ function normalizeAsset(raw, campaign) {
     createdAt: s(a.createdAt) || nowIso(),
   };
 }
+/** Familia de medio a la que pertenece un tipo de trabajo. */
+const JOB_MEDIA = { image: 'image', video: 'video', voice: 'audio', music: 'audio', sfx: 'audio' };
+
+/**
+ * Marca como completados los trabajos que ya tienen su archivo registrado.
+ * Sin esto, el estado de un trabajo dependería de que quien generó se
+ * acordara de pasar el `jobId`, y la lista de pendientes mentiría.
+ * Empareja por `jobId` y, en su defecto, por escena + familia de medio.
+ */
+function reconcileJobs(campaign, assets) {
+  const prod = obj(campaign.production);
+  const jobs = arr(prod.jobs);
+  if (!jobs.length) return campaign;
+  const list = arr(assets);
+  const byJob = new Map();
+  for (const a of list) if (s(a.jobId)) byJob.set(s(a.jobId), a);
+  for (const j of jobs) {
+    if (j.status === 'skipped' || j.status === 'failed') continue;
+    const media = JOB_MEDIA[j.kind] || 'reference';
+    let hit = byJob.get(j.id) || null;
+    if (!hit && j.sceneId) {
+      const cands = list.filter((a) => a.kind === media && a.sceneId === j.sceneId);
+      // La locución y los efectos de una escena comparten familia de medio:
+      // emparejar solo por escena cerraría los dos con un único archivo. Para
+      // audio hace falta saber de qué trabajo salió; para imagen y vídeo la
+      // familia ya es única dentro de la escena.
+      hit = cands.find((a) => s(a.jobKind) === j.kind)
+        || (media === 'audio' ? null : cands.find((a) => !s(a.jobKind))) || null;
+    }
+    // Música y efectos globales no cuelgan de una escena: van por código.
+    if (!hit && !j.sceneId) {
+      hit = list.find((a) => a.kind === media && (s(a.jobKind) === j.kind || !s(a.jobKind))
+        && norm(a.code) === norm(j.code)) || null;
+    }
+    if (hit) { j.status = 'done'; j.assetId = hit.id; }
+    else if (j.status === 'done') { j.status = 'pending'; j.assetId = null; }
+  }
+  return campaign;
+}
+
+/** Trabajos pendientes cuyas dependencias ya están satisfechas. */
+function readyJobs(campaign, limit) {
+  const jobs = arr(obj(campaign.production).jobs);
+  const doneScenes = new Set(jobs.filter((j) => j.stage === 'keyframe' && j.status === 'done').map((j) => j.sceneId));
+  const out = [];
+  for (const j of jobs) {
+    if (j.status !== 'pending') continue;
+    const blocked = arr(j.dependsOn).some((d) => {
+      const m = /^keyframe:(.+)$/.exec(s(d));
+      return m ? !doneScenes.has(m[1]) : false;
+    });
+    if (blocked) continue;
+    out.push(j);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
+}
+
 function guessKind(url) {
   const u = norm(url);
   if (/\.(mp4|mov|webm|m4v)(\?|$)/.test(u)) return 'video';

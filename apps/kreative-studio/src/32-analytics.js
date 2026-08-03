@@ -303,6 +303,119 @@ function exportCopyCsv(c) {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
+/**
+ * Manifiesto de assets: qué archivo generado corresponde a cada ruta que el
+ * montaje espera encontrar. Es el puente entre la Biblioteca y el render.
+ */
+function exportAssetsManifest(c, assets) {
+  const jobs = arr(obj(c.production).jobs);
+  const byId = new Map(arr(assets).map((a) => [a.id, a]));
+  const files = jobs.filter((j) => s(j.file)).map((j) => {
+    const a = j.assetId ? byId.get(j.assetId) : null;
+    return { file: j.file, jobId: j.id, kind: j.kind, scene: j.code,
+      url: a ? a.url : '', ready: !!a, joinInto: s(j.joinInto) || undefined };
+  });
+  return JSON.stringify({
+    campaign: s(c.title), generatedAt: nowIso(),
+    ready: files.filter((f) => f.ready).length, total: files.length,
+    subtitles: 'subs.srt', logo: s(c.brand.logoUrl) || null,
+    files,
+  }, null, 2);
+}
+
+/**
+ * Bundle de render: un único script que descarga todos los assets registrados
+ * en las rutas que espera el montaje, une las tomas partidas, escribe los
+ * subtítulos y ejecuta FFmpeg hasta los entregables finales.
+ *
+ * Es lo que convierte «tengo los archivos sueltos en la Biblioteca» en «tengo
+ * el vídeo», sin pedirle al usuario que ordene nada a mano.
+ */
+function exportRenderBundle(c, assets) {
+  const jobs = arr(obj(c.production).jobs);
+  const byId = new Map(arr(assets).map((a) => [a.id, a]));
+  const entries = jobs.filter((j) => s(j.file)).map((j) => ({ job: j, asset: j.assetId ? byId.get(j.assetId) : null }));
+  const missing = entries.filter((e) => !e.asset);
+  const L = [];
+
+  L.push('#!/usr/bin/env bash');
+  L.push('# ' + s(c.title) + ' — bundle de render generado por Kreative Studio ' + KS_VERSION);
+  L.push('#');
+  L.push('# Descarga los assets ya registrados, ordena los archivos como espera el');
+  L.push('# montaje, une las tomas partidas y ejecuta FFmpeg hasta los entregables.');
+  L.push('#');
+  L.push('#   bash ' + slug(c.title) + '-render.sh');
+  L.push('#');
+  L.push('# Requiere: bash, curl y ffmpeg con libx264, xfade, sidechaincompress,');
+  L.push('# loudnorm y drawtext (compilado con --enable-libfreetype).');
+  if (missing.length) {
+    L.push('#');
+    L.push('# ⚠️  FALTAN ' + missing.length + ' DE ' + entries.length + ' ARCHIVOS. Este script descargará lo que hay');
+    L.push('#    y FFmpeg fallará al llegar al primero que falte. Genera y registra:');
+    for (const m of missing.slice(0, 40)) L.push('#      · ' + m.job.file + '  (' + m.job.label + ')');
+    if (missing.length > 40) L.push('#      · … y ' + (missing.length - 40) + ' más');
+  }
+  L.push('set -euo pipefail');
+  L.push('');
+  L.push('mkdir -p render keyframes audio brand fonts work out');
+  L.push('');
+  L.push('# ── Descarga de assets registrados ───────────────────────────────────');
+  L.push('dl() {  # dl <destino> <url>');
+  L.push('  if [ -f "$1" ]; then echo "  ya está: $1"; return 0; fi');
+  L.push('  echo "  bajando: $1"');
+  L.push('  curl -fsSL --retry 3 --retry-delay 2 -o "$1" "$2"');
+  L.push('}');
+  for (const e of entries) {
+    if (e.asset) L.push('dl ' + shq(e.job.file) + ' ' + shq(e.asset.url));
+    else L.push('# FALTA ' + e.job.file + ' — ' + e.job.label + ' (genera y registra el asset)');
+  }
+  if (s(c.brand.logoUrl)) L.push('dl brand/logo.png ' + shq(s(c.brand.logoUrl)));
+  L.push('');
+
+  // Unión de tomas partidas: una escena que no cabía en el modelo llega en
+  // varios archivos y el montaje espera uno solo.
+  const joins = {};
+  for (const e of entries) {
+    const into = s(e.job.joinInto);
+    if (!into) continue;
+    (joins[into] = joins[into] || []).push(e.job.file);
+  }
+  const joinKeys = Object.keys(joins);
+  if (joinKeys.length) {
+    L.push('# ── Unión de tomas partidas ──────────────────────────────────────────');
+    L.push('# Estas escenas superaban el máximo del modelo y se generaron por partes.');
+    for (const into of joinKeys) {
+      const parts = joins[into];
+      L.push('printf "%s\\n" \\');
+      for (const p of parts) L.push('  "file \'' + p.replace(/^render\//, '') + '\'" \\');
+      L.push('  > work/join-' + slug(into) + '.txt');
+      L.push('( cd render && ffmpeg -y -f concat -safe 0 -i ../work/join-' + slug(into) + '.txt -c copy '
+        + shq(into.replace(/^render\//, '')) + ' )');
+    }
+    L.push('');
+  }
+
+  if (c.settings.subtitles !== false) {
+    L.push('# ── Subtítulos ───────────────────────────────────────────────────────');
+    L.push("cat > subs.srt <<'KREATIVE_SRT'");
+    L.push(s(obj(c.edit).srt).replace(/\r/g, ''));
+    L.push('KREATIVE_SRT');
+    L.push('');
+  }
+
+  L.push('# ── Tipografías ──────────────────────────────────────────────────────');
+  L.push('# El montaje rotula con fonts/display.ttf y fonts/body.ttf. Copia ahí las');
+  L.push('# de tu marca (' + (s(c.brand.typography.display) || styleById(c.styleId).typography.display) + ' / '
+    + (s(c.brand.typography.body) || styleById(c.styleId).typography.body) + ').');
+  L.push('for f in fonts/display.ttf fonts/body.ttf; do');
+  L.push('  [ -f "$f" ] || { echo "FALTA $f — copia una tipografía TTF ahí"; exit 1; }');
+  L.push('done');
+  L.push('');
+  L.push('# ── Montaje ──────────────────────────────────────────────────────────');
+  L.push(s(obj(c.edit).ffmpeg).split('\n').filter((l) => l.indexOf('#!') !== 0 && l !== 'set -euo pipefail').join('\n'));
+  return L.join('\n');
+}
+
 /** Lista de trabajos de producción en CSV para operar la generación. */
 function exportJobsCsv(c) {
   const rows = [['orden', 'id', 'tipo', 'etapa', 'codigo', 'proveedor', 'unidad', 'cantidad', 'coste_est_usd', 'estado', 'prompt']];

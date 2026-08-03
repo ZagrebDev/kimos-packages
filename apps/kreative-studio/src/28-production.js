@@ -31,6 +31,7 @@ function buildProduction(c) {
       prompt: p.text, negative: p.negative, params: p.params, payload: p.payload,
       qty: { count: 1 },
       label: 'Keyframe ' + p.code + ' · ' + p.role,
+      file: 'keyframes/' + p.code + '.png',
       dependsOn: [],
       note: 'Usa las fotos del producto como referencia; valida forma y logotipo antes de animar.',
     }));
@@ -50,6 +51,10 @@ function buildProduction(c) {
         params: Object.assign({}, p.params, takes > 1 ? { continuation: t > 0, take: t + 1, of: takes } : {}),
         qty: { durationSec: dur },
         label: 'Toma ' + p.code + (takes > 1 ? ' (' + (t + 1) + '/' + takes + ')' : '') + ' · ' + p.role,
+        // El montaje espera un archivo por escena. Si hubo que partir la
+        // escena en varias tomas, el bundle de render las une antes.
+        file: takes > 1 ? 'render/' + p.code + '-T' + (t + 1) + '.mp4' : 'render/' + p.code + '.mp4',
+        joinInto: takes > 1 ? 'render/' + p.code + '.mp4' : '',
         dependsOn: ['keyframe:' + p.sceneId],
         note: takes > 1 ? 'Encadenada: parte del último fotograma de la toma anterior.' : '',
       }));
@@ -62,7 +67,7 @@ function buildProduction(c) {
       order: order++, kind: 'voice', stage: 'audio', sceneId: v.sceneId, code: v.code,
       providerId: v.providerId, provider: voiceProv,
       prompt: v.text, params: v.params, qty: { text: v.text },
-      label: 'Locución ' + v.code, dependsOn: [],
+      label: 'Locución ' + v.code, file: 'audio/vo-' + v.code + '.wav', dependsOn: [],
       note: v.fits ? '' : 'La línea excede la duración de la escena: acortar texto o alargar plano.',
     }));
   }
@@ -73,7 +78,7 @@ function buildProduction(c) {
       order: order++, kind: 'music', stage: 'audio', sceneId: null, code: 'MUS',
       providerId: s(audio.music.providerId), provider: musicProv,
       prompt: s(audio.music.prompt), params: obj(audio.music.params), qty: { count: 1 },
-      label: 'Música · ' + s(audio.music.genre), dependsOn: [],
+      label: 'Música · ' + s(audio.music.genre), file: 'audio/music.wav', dependsOn: [],
       note: 'Pedir al menos 2 versiones y elegir la que respete el clímax del money shot.',
     }));
   }
@@ -82,7 +87,7 @@ function buildProduction(c) {
       order: order++, kind: 'sfx', stage: 'audio', sceneId: x.sceneId, code: 'SFX-' + x.code,
       providerId: s(x.providerId), provider: sfxProv,
       prompt: s(x.prompt), params: obj(x.params), qty: { count: 1 },
-      label: 'Efecto ' + x.code, dependsOn: [],
+      label: 'Efecto ' + x.code, file: 'audio/sfx-' + slug(x.code) + '.wav', dependsOn: [],
     }));
   }
 
@@ -112,12 +117,21 @@ function buildProduction(c) {
 function mkJob(d) {
   const p = d.provider || null;
   const qty = billableQty(p, obj(d.qty));
+  // El id incluye la ESCENA, no solo tipo+código. Los códigos (SC01…) se
+  // reutilizan al regenerar el storyboard con otra duración o formato: sin la
+  // escena, un asset de la configuración anterior cerraría un trabajo que en
+  // realidad es otro plano distinto.
+  const idParts = ['job', slug(s(d.kind)),
+    s(d.sceneId) ? slug(s(d.sceneId)) : '', slug(s(d.code) || String(d.order))].filter(Boolean);
   return {
-    id: 'job-' + slug(s(d.kind)) + '-' + slug(s(d.code) || String(d.order)),
+    id: idParts.join('-'),
     order: num(d.order, 0), kind: s(d.kind), stage: s(d.stage),
     sceneId: d.sceneId || null, code: s(d.code), label: s(d.label),
     providerId: s(d.providerId), providerLabel: p ? p.label : s(d.providerId),
     prompt: s(d.prompt), negative: s(d.negative), params: obj(d.params), payload: d.payload || null,
+    // `file` es la ruta que el montaje espera encontrar: es lo que enlaza un
+    // asset registrado con el script de render.
+    file: s(d.file), joinInto: s(d.joinInto),
     qty: obj(d.qty), billableQty: round(qty, 4),
     costUnit: p && p.cost ? p.cost.unit : 'call',
     estCostUsd: round(estimateCost(s(d.providerId), qty), 4),

@@ -113,8 +113,33 @@
   // ── Brief ──────────────────────────────────────────────────────────────
   function BriefView() {
     const [uploading, setUploading] = useState(false);
+    const [catalogs, setCatalogs] = useState(null);   // null = sin cargar
+    const [loadingCat, setLoadingCat] = useState(false);
     const b = model.brief;
     const setB = (k, v) => patch((m) => { m.brief[k] = v; });
+
+    async function loadCatalogs() {
+      setLoadingCat(true);
+      try {
+        const insts = await listCatalogs();
+        const out = [];
+        for (const inst of insts) {
+          const cat = await readCatalog(inst.id);
+          if (cat && cat.products.length) out.push({ name: s(inst.name) || s(inst.id), cat });
+        }
+        setCatalogs(out);
+        if (!out.length) notify('info', 'No hay catálogos de ProductLab con productos visibles.');
+      } catch (e) { notify('error', 'No se pudo leer ProductLab: ' + ((e && e.message) || 'error')); setCatalogs([]); }
+      setLoadingCat(false);
+    }
+
+    function importProduct(prod, cat) {
+      try {
+        const mapped = applyProductToBrief(prod, cat, { keepExisting: false });
+        notify('success', '«' + mapped.productName + '» importado con ' + mapped.photos.length + ' foto(s).');
+        setCatalogs(null);
+      } catch (e) { notify('error', (e && e.message) || 'no se pudo importar'); }
+    }
 
     async function onFiles(files) {
       const list = Array.from(files || []);
@@ -138,6 +163,33 @@
         subtitle: 'Lo único obligatorio: nombre y fotos. Todo lo demás mejora la precisión del resultado.',
         actions: [h(Btn, { key: 'g', variant: 'primary', disabled: !s(b.productName).trim(),
           onClick: () => generateAll(s(b.intent) || 'Crea una campaña premium') }, 'Generar campaña')] }),
+
+      hasData ? h(Card, { key: 'pl', title: 'Importar desde ProductLab',
+        actions: [h(Btn, { key: 'l', size: 'sm', disabled: loadingCat,
+          onClick: () => (catalogs === null ? loadCatalogs() : setCatalogs(null)) },
+          loadingCat ? 'Leyendo…' : catalogs === null ? 'Ver catálogos' : 'Cerrar')] }, [
+        h('p', { className: 'ks-hint', key: 'i' },
+          'Trae el nombre, el precio, la moneda, las especificaciones (pasan a ser la propuesta de valor), '
+          + 'los pasos configurables y todas las fotos de la galería. Solo lectura: no modifica el catálogo.'),
+        obj(b.sourceRef).app === 'productlab' ? h('div', { className: 'ks-chips', key: 'r' }, [
+          h(Chip, { key: 'c', tone: 'accent' }, 'Importado · ' + (s(obj(b.sourceRef).sku) || s(obj(b.sourceRef).itemId))),
+          h(Chip, { key: 'd' }, s(obj(b.sourceRef).at).slice(0, 10)),
+        ]) : null,
+        catalogs && catalogs.length ? h('div', { className: 'ks-catalogs', key: 'c' }, catalogs.map((c0) => h('div', {
+          key: c0.cat.instanceId, className: 'ks-catalog',
+        }, [
+          h('strong', { key: 'n' }, c0.name + ' · ' + c0.cat.products.length + ' productos · ' + c0.cat.currency),
+          h('div', { className: 'ks-catalog-items', key: 'p' }, c0.cat.products.map((pr) => h('button', {
+            key: pr.id, type: 'button', className: 'ks-catalog-item', onClick: () => importProduct(pr, c0.cat),
+            title: 'Importar al brief',
+          }, [
+            h('span', { className: 'ks-catalog-name', key: 'n' }, pr.name),
+            h('span', { className: 'ks-catalog-meta', key: 'm' },
+              [pr.sku, pr.price ? fmtMoney(pr.price, c0.cat.currency) : ''].filter(Boolean).join(' · ')),
+          ]))),
+        ]))) : catalogs && !catalogs.length
+          ? h('p', { className: 'ks-hint', key: 'e' }, 'Sin catálogos visibles para tu usuario.') : null,
+      ]) : null,
 
       h(Card, { key: 'photos', title: 'Fotografías del producto',
         actions: [h('label', { key: 'u', className: cx('ks-btn', 'ks-btn-primary', 'ks-btn-sm') }, [

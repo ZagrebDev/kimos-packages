@@ -16,6 +16,7 @@ function emptyBrief() {
     budget: 3000, marketRegion: 'España / LatAm', language: 'es',
     photos: [],           // [{ id, url, caption, isHero }]
     competitorsText: '', mandatories: '', legal: '',
+    sourceRef: null,      // { app:'productlab', instanceId, itemId, sku, at }
   };
 }
 
@@ -81,6 +82,8 @@ function migrate(raw) {
   out.brief.photos = arr(out.brief.photos).map((p, i) => ({
     id: s(p.id) || 'photo-' + i, url: s(p.url), caption: s(p.caption), isHero: !!p.isHero,
   })).filter((p) => p.url);
+  out.brief.sourceRef = obj(d.brief).sourceRef && s(obj(obj(d.brief).sourceRef).app)
+    ? Object.assign({}, obj(obj(d.brief).sourceRef)) : null;
   out.brand = Object.assign(emptyBrand(), obj(d.brand));
   out.brand.palette = Object.assign(emptyBrand().palette, obj(out.brand.palette));
   out.brand.typography = Object.assign(emptyBrand().typography, obj(out.brand.typography));
