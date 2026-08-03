@@ -26,7 +26,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
 // solos al día siguiente.
-window.KIMOS_ASSET_V = '34';
+window.KIMOS_ASSET_V = '35';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
@@ -130,7 +130,13 @@ window.KIMOS_FULL = true;
           if (fondo && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fondo)) caja.style.setProperty('--kc-boot-bg', fondo);
         } catch (e) { /* da igual: queda el blanco */ }
       }
+      // Color del spinner: el fijado aquí y, si no, el ACENTO DEL THEME
+      // (--color-links del bundle): la espera va con la marca de la tienda,
+      // nunca con un color ajeno.
       var giro = String(window.KIMOS_SPINNER_COLOR || '').trim();
+      if (!giro) {
+        try { giro = (getComputedStyle(document.documentElement).getPropertyValue('--color-links') || '').trim(); } catch (e) { giro = ''; }
+      }
       if (giro) caja.style.setProperty('--kc-boot-accent', giro);
       document.body.appendChild(caja);
     };

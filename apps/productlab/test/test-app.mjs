@@ -1041,6 +1041,35 @@ expectEq('sin variantes imposibles', imposibles.length, 0);
 expectEq('el paso oculto lleva su relleno', variantes.filter((v) => v.options['CPU AMD'] === 'No aplica').length, 2);
 console.log('ProductLab: solo se publican combinaciones alcanzables OK');
 
+// ── Conjuntos (bundle) y filtro por compatibilidad de tags ────────────────
+// "Procesador" en UN paso: cada valor SUMA CPU + placa (bundle), sin pasos
+// dependientes. Y los tags vetan solos las combinaciones imposibles.
+await act('UPSERT_COMPONENT', { name: 'CPU R5', type: 'avios', cost: 100000, tags: 'plataforma:amd' });
+await act('UPSERT_COMPONENT', { name: 'Placa AM5', type: 'avios', cost: 50000, tags: 'socket:am5' });
+await act('UPSERT_COMPONENT', { name: 'RAM DDR5', type: 'acabado', cost: 30000, requires: 'plataforma:amd' });
+await act('UPSERT_COMPONENT', { name: 'RAM DDR4', type: 'acabado', cost: 20000, excludes: 'plataforma:amd' });
+await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
+  { label: 'Procesador', type: 'avios', values: [
+    { label: 'Ryzen 5 + AM5', components: ['CPU R5', 'Placa AM5'], bundle: true },
+    { label: 'Solo CPU', components: ['CPU R5'] },
+  ] },
+  { label: 'Memoria', type: 'acabado', values: [
+    { label: 'DDR5', components: ['RAM DDR5'] },
+    { label: 'DDR4', components: ['RAM DDR4'] },
+  ] },
+] });
+const snapB = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');
+const pasoB = snapB.steps.find((g) => g.label === 'Procesador');
+const vB = pasoB.values.find((x) => x.label === 'Ryzen 5 + AM5');
+// La suma: (100000×1.3×1.19 + 50000×1.3×1.19) redondeado a deltaRoundTo… se
+// comprueba vía el precio relativo: el conjunto cuesta MÁS que "Solo CPU".
+const vSolo = pasoB.values.find((x) => x.label === 'Solo CPU');
+if (!(vB.salePrice > vSolo.salePrice)) throw new Error('el conjunto no suma: ' + vB.salePrice + ' vs ' + vSolo.salePrice);
+// Compatibilidad: DDR5 requiere plataforma:amd (la aporta la CPU, presente en
+// ambos valores del paso 1) y DDR4 la excluye → de 2×2=4 combos quedan 2.
+expectEq('combos tras el filtro de tags', snapB.variantCombos, 2);
+console.log('ProductLab: conjuntos que suman y filtro por compatibilidad OK');
+
 // ── ProductLab 2.1: migración desde otra app + exportar/importar ──────────
 // LIST_SOURCES ve la instancia ajena (y no la propia).
 const src = await act('LIST_SOURCES', {});

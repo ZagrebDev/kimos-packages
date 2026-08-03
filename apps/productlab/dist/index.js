@@ -484,7 +484,24 @@ export default function mount(shell) {
     const q = valueQty(v);
     const avail = valueAlts(v).filter((c) => compAvailableQty(c, q));
     if (!avail.length) return null;
+    // CONJUNTO: los componentes se SUMAN (CPU + placa madre en un solo paso);
+    // como "elegido" (foto, specs, proveedor) representa el primero.
+    if (v.bundle === true) return avail.length === valueAlts(v).length ? avail[0] : null;
     return avail.reduce((best, c) => (componentGross(c) < componentGross(best) ? c : best), avail[0]);
+  }
+  /**
+   * Componentes que este valor INCLUYE de verdad: en modo conjunto, todos;
+   * en modo alternativas, solo el elegido (el más económico disponible).
+   */
+  function valueComps(v) {
+    if (v && v.bundle === true) return valueAlts(v);
+    const c = valueChosen(v);
+    return c ? [c] : [];
+  }
+  // Días de entrega del valor: en conjunto manda el componente más lento.
+  function valueDeliveryDays(v) {
+    const comps = valueComps(v);
+    return comps.reduce((m, c) => Math.max(m, num(c.deliveryDays, 0)), 0);
   }
   // Recargo manual del valor: precio de venta que se suma directamente, sin
   // necesidad de modelar un componente. Es la vía simple para "precios por
@@ -492,6 +509,11 @@ export default function mount(shell) {
   function valueGross(v) {
     const manual = num(v && v.priceDelta, 0);
     if (valueIsFree(v)) return manual;
+    if (v.bundle === true) {
+      // Conjunto: TODOS los componentes, sumados (× cantidad cada uno).
+      if (valueChosen(v) == null) return null;   // alguno inactivo/sin stock
+      return valueAlts(v).reduce((a, c) => a + componentGross(c) * valueQty(v), 0) + manual;
+    }
     const c = valueChosen(v);
     return c ? componentGross(c) * valueQty(v) + manual : null;
   }
@@ -670,7 +692,7 @@ export default function mount(shell) {
         if (valueAlts(v).length && !valueAvailable(v)) warns.push('El valor "' + v.label + '" de "' + label + '" quedó sin alternativas disponibles (inactivas o con stock menor a su cantidad ×' + valueQty(v) + '): se excluirá de la tienda.');
       });
       const dv = groupDefaultValue(g);
-      if (dv) { const c = valueChosen(dv); if (c) chosenSet.push(c); }
+      if (dv) valueComps(dv).forEach((c) => chosenSet.push(c));
       else warns.push('El paso "' + label + '" no tiene ningún valor disponible.');
       // Pasos dependientes: cuando el paso queda oculto, la tienda cobra su
       // default igual — si ese default tiene precio, se recarga sin verse.
@@ -1340,6 +1362,9 @@ export default function mount(shell) {
           // esto, marcar "No aplica" como default dejaba comprar un PC sin
           // procesador a quien sí eligió plataforma.
           fallback: v.fallback === true,
+          // CONJUNTO: los componentes de este valor se SUMAN en vez de ser
+          // alternativas ("Procesador" = CPU + su placa madre, un solo paso).
+          bundle: v.bundle === true,
           // Efectos sobre el visor 3D al elegir este valor (opcional: si el
           // producto no tiene modelo, queda vacío y no molesta).
           model3d: normalizeEffects(v.model3d),
@@ -1551,7 +1576,46 @@ export default function mount(shell) {
       });
     };
     baja(0, {}, {}, 0);
-    return { combos: out, truncado };
+    // Compatibilidad por tags: una combinación cuyo set de componentes viola
+    // un `requiere` o un `incompatible con` no existe para nadie — tampoco se
+    // publica. Es la misma regla de checkSet, aplicada combo a combo, y es lo
+    // que permite modelar restricciones SIN pasos dependientes: etiqueta los
+    // componentes y las combinaciones inválidas desaparecen solas.
+    const base = baseBreakdown(eq).comps;
+    const porId = new Map();
+    (eq.groups || []).forEach((g) => groupValues(g).forEach((v) => porId.set(v.id, v)));
+    // Tags que ALGÚN componente del producto aporta. Un `requiere` de un tag
+    // que no aporta nadie es una configuración incompleta: se queda en aviso
+    // (checkSet ya lo dice) y NO vacía el catálogo. Solo veta el que apunta a
+    // un tag real del producto: ahí sí hay combinaciones buenas y malas.
+    const aportables = new Set();
+    base.forEach((c) => (c.tags || []).forEach((t) => aportables.add(t)));
+    porId.forEach((v) => valueAlts(v).forEach((c) => (c.tags || []).forEach((t) => aportables.add(t))));
+    const validas = out.filter((c) => {
+      const comps = base.slice();
+      Object.keys(c.sel).forEach((gid) => {
+        const v = porId.get(c.sel[gid]);
+        if (v) valueComps(v).forEach((x) => comps.push(x));
+      });
+      return setCompatible(comps, aportables);
+    });
+    return { combos: validas, truncado, incompatibles: out.length - validas.length };
+  }
+  /**
+   * ¿El set de componentes es coherente? `incompatible con` veta siempre;
+   * `requiere` solo cuando el tag lo aporta algún componente del producto
+   * (ver arriba). Versión booleana de checkSet.
+   */
+  function setCompatible(comps, aportables) {
+    for (const c of comps) {
+      const otros = new Set();
+      comps.forEach((o) => { if (o.id !== c.id) (o.tags || []).forEach((t) => otros.add(t)); });
+      for (const t of (c.excludes || [])) if (otros.has(t)) return false;
+      for (const t of (c.requires || [])) {
+        if (!otros.has(t) && (!aportables || aportables.has(t))) return false;
+      }
+    }
+    return true;
   }
   function comboCount(eq) {
     return enumerarCombos(eq).combos.length;
@@ -1841,7 +1905,7 @@ export default function mount(shell) {
                   swatchColor: v.swatchColor || '',
                   imageUrl: v.imageUrl || (alt ? alt.imageUrl || '' : ''),
                   delta: deltaFor(g, v, eq),
-                  deliveryDays: alt ? num(alt.deliveryDays, 0) : 0,
+                  deliveryDays: valueDeliveryDays(v),
                   tags: alt ? alt.tags || [] : [],
                   requires: alt ? alt.requires || [] : [],
                   excludes: alt ? alt.excludes || [] : [],
@@ -2299,6 +2363,11 @@ export default function mount(shell) {
             const f = pick(vo, ['fallback', 'relleno', 'soloRelleno']);
             return f === undefined ? (exv ? exv.fallback === true : false) : f === true;
           })(),
+          // Conjunto: los componentes de este valor se SUMAN (CPU + placa).
+          bundle: (function () {
+            const b = pick(vo, ['bundle', 'conjunto', 'suma']);
+            return b === undefined ? (exv ? exv.bundle === true : false) : b === true;
+          })(),
           componentIds: comps.map((c) => c.id),
           // Efectos 3D: si no se envían, se conservan los que ya tenía el
           // valor (editar los pasos no debe borrar el vínculo con el 3D).
@@ -2404,7 +2473,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -2565,6 +2634,8 @@ export default function mount(shell) {
             values: groupValues(g).map((v) => ({
               label: v.label, isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
               delta: deltaFor(g, v, eq), alternatives: valueAlts(v).map((c) => c.name), priceDelta: num(v.priceDelta, 0),
+              // Conjunto/relleno y precio de venta del valor, para razonar sin recalcular.
+              bundle: v.bundle === true, fallback: v.fallback === true, salePrice: valueSale(v),
               // Efectos sobre el visor 3D (vacío si el producto no tiene modelo)
               model3d: v.model3d || [],
             })),
@@ -3257,6 +3328,7 @@ export default function mount(shell) {
           }
           return { success: false, error: 'Acción desconocida: ' + s(type) + '. Acciones válidas: UPSERT_COMPONENT, SET_COMPONENT_COST, SET_MARGIN, RECALC_PRICES, APPLY_PRODUCTO, UPSERT_PRODUCTO, SET_PRODUCTO_STEPS, SET_STOREFRONT, COMPOSE_HERO, LINK_PRODUCT, SET_STOCK, PUBLISH_CONFIG, IMPORT_IMAGE, SET_MODEL3D, BUILD_3D_STEPS, LIST_SOURCES, MIGRATE_FROM, EXPORT_DATA, IMPORT_DATA.' };
         } catch (e) {
+          console.error('[productlab] dispatchAction', type, e);
           return { success: false, error: (e && e.message) || 'Error interno.' };
         }
       },
@@ -3506,11 +3578,34 @@ export default function mount(shell) {
         h(Row, { key: 'sn', label: 'Proveedor' }, h(TextInput, { value: d.supplierName, onChange: (e) => up({ supplierName: e.target.value }), placeholder: 'Ej: Textiles del Sur / Taller externo / Importador' })),
         h(Row, { key: 'su', label: 'Link del proveedor (para verificar precio)' }, h(TextInput, { mono: true, value: d.supplierUrl, onChange: (e) => up({ supplierUrl: e.target.value }), placeholder: 'https://…' })),
       ]),
-      h('div', { key: 'g4', className: 'gp-grid3' }, [
-        h(Row, { key: 'tg', label: 'Aporta (tags, coma-sep.)' }, h(TextInput, { mono: true, value: joinList(d.tags), onChange: (e) => up({ tags: e.target.value }), placeholder: 'material:roble, uso:exterior' })),
-        h(Row, { key: 'rq', label: 'Requiere (de otros comp.)' }, h(TextInput, { mono: true, value: joinList(d.requires), onChange: (e) => up({ requires: e.target.value }), placeholder: 'material:roble' })),
-        h(Row, { key: 'ex', label: 'Incompatible con' }, h(TextInput, { mono: true, value: joinList(d.excludes), onChange: (e) => up({ excludes: e.target.value }), placeholder: 'textura:pino' })),
-      ]),
+      // ── Compatibilidades por tags ──
+      // Un desplegable con los tags YA usados en el catálogo (más los que se
+      // escriban aquí): elegir uno lo añade a la lista. Escribir a mano sigue
+      // funcionando — el desplegable existe para no tener que recordar la
+      // ortografía exacta ("plataforma:amd" vs "plataforma: AMD").
+      (function () {
+        const usados = Array.from(new Set(model.components.reduce((a, c) =>
+          a.concat(c.tags || [], c.requires || [], c.excludes || []), []))).sort();
+        const CampoTags = ({ campo, valor }) => h('div', { className: 'gp-verify-cost', style: { width: '100%' } }, [
+          h(TextInput, { key: 'i', mono: true, value: joinList(valor), style: { flex: 1, minWidth: 120 },
+            onChange: (e) => up({ [campo]: e.target.value }),
+            placeholder: campo === 'tags' ? 'plataforma:amd, socket:am5' : 'plataforma:amd' }),
+          usados.length ? h('select', { key: 's', className: 'gp-select', style: { width: 34, flex: 'none' }, value: '',
+            title: 'Agregar un tag ya usado en el catálogo',
+            onChange: (e) => {
+              const t = e.target.value; if (!t) return;
+              const lista = joinList(valor); up({ [campo]: lista ? lista + ', ' + t : t });
+            } }, [h('option', { key: '', value: '' }, '+')].concat(
+              usados.map((t) => h('option', { key: t, value: t }, t)))) : null,
+        ]);
+        return h('div', { key: 'g4', className: 'gp-grid3' }, [
+          h(Row, { key: 'tg', label: 'Aporta (tags: lo que este componente ES)' }, h(CampoTags, { campo: 'tags', valor: d.tags })),
+          h(Row, { key: 'rq', label: 'Requiere (un tag de OTRO componente)' }, h(CampoTags, { campo: 'requires', valor: d.requires })),
+          h(Row, { key: 'ex', label: 'Incompatible con (tag que lo veta)' }, h(CampoTags, { campo: 'excludes', valor: d.excludes })),
+        ]);
+      })(),
+      h('div', { key: 'g4h', className: 'gp-muted', style: { marginTop: -4 } },
+        'Las combinaciones que violan un "requiere" o un "incompatible con" NO se publican en la tienda: etiquetar bien evita crear pasos dependientes a mano.'),
       h('label', { key: 'ac', className: 'gp-switch' }, [
         h('input', { key: 'c', type: 'checkbox', checked: d.active !== false, onChange: (e) => up({ active: e.target.checked }) }),
         h('span', { key: 's' }, 'Activo (disponible en el configurador)'),
@@ -4320,8 +4415,15 @@ export default function mount(shell) {
                   h(TextInput, { key: 'qty', mono: true, type: 'number', min: 1, style: { width: 52 },
                     title: 'Cantidad: cuántas unidades del componente elegido incluye este valor (ej. 2 para ofrecer "2×8GB" en un solo paso). Multiplica el precio y exige stock suficiente.',
                     value: v.qty == null ? 1 : v.qty, onChange: (e) => upValue(v.id, { qty: e.target.value }) }),
+                  alts.length > 1 ? h('label', { key: 'bd', className: 'gp-switch', style: { margin: 0 },
+                    title: 'Conjunto: los componentes marcados se SUMAN (ej. "Procesador" = CPU + su placa madre en un solo paso). Sin marcar, son alternativas de proveedores y se usa la más económica disponible.' }, [
+                    h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
+                    h('span', { key: 's' }, 'conjunto (suman)'),
+                  ]) : null,
                   chosen
-                    ? h('span', { key: 'ch', className: 'gp-muted' }, 'usa: ' + chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : '') + ' → ' + fmtMoney(valueSale(v)))
+                    ? h('span', { key: 'ch', className: 'gp-muted' }, v.bundle === true
+                        ? 'suma: ' + valueComps(v).map((c) => c.name).join(' + ') + ' → ' + fmtMoney(valueSale(v))
+                        : 'usa: ' + chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : '') + ' → ' + fmtMoney(valueSale(v)))
                     : alts.length
                       ? h('span', { key: 'ch', className: 'gp-chip err' }, 'sin alternativas disponibles')
                       // Sin componentes = opción válida que no agrega costo.

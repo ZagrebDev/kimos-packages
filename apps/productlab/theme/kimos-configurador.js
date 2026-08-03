@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.10.0';
+  var VERSION = '5.11.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -289,9 +289,10 @@
           var nat = g.values.filter(function (v) { return norm(v.name) === norm(dv.name); })[0];
           if (nat && String(readSelection(groups)[g.id]) !== String(nat.id)) {
             applyNative(g, nat.id);
-            // Pasar del relleno a un valor real al abrirse el paso no es un
-            // "ajuste" que haya que anunciar: es lo esperable.
-            if (!visible) cambios.push((kg.label || '') + ' → ' + (dv.name || ''));
+            // NO se anuncia nada: forzar el relleno de un paso oculto (o salir
+            // de él al abrirse) es cocina interna de la variante. Anunciarlo
+            // ("Ajustado automáticamente: Procesador → No aplica") confundía
+            // al cliente con un mensaje sobre algo que ni siquiera ve.
           }
         }
       });
@@ -341,9 +342,16 @@
     if (ids.length !== groups.length) return null;
     for (var i = 0; i < VARIANTES.length; i++) {
       var e = VARIANTES[i] || {};
-      var vals = (e.values || []).map(function (x) {
-        return String((x && x.value && x.value.id) != null ? x.value.id : (x && x.id));
-      });
+      // Formas vistas en producción: {values:[{value:{id}}]}, {values:[{id}]},
+      // {options:[{value_id}]} y {options:[{id}]}. Se aceptan todas.
+      var crudos = e.values || e.options || [];
+      var vals = [];
+      for (var k = 0; k < crudos.length; k++) {
+        var x = crudos[k] || {};
+        var vid = (x.value && x.value.id != null) ? x.value.id
+          : (x.value_id != null ? x.value_id : x.id);
+        if (vid != null) vals.push(String(vid));
+      }
       if (vals.length !== ids.length) continue;
       var todos = true;
       for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
@@ -405,6 +413,7 @@
     var buscado = valor != null && valor > 0 ? digitos(String(Math.round(valor))) : null;
     var sels = ['.product-page__info .price', '.product-price', '.price', '[class*="price"]'];
     var simbolo = '';
+    var vivo = '';   // primer precio legible que el THEME está mostrando ahora
     for (var i = 0; i < sels.length; i++) {
       var nodes = document.querySelectorAll('.kc-hidden-native ' + sels[i] + ', ' + sels[i]);
       for (var j = 0; j < nodes.length; j++) {
@@ -414,11 +423,16 @@
         var t = (n.textContent || '').trim();
         if (!t || t.length > 40 || !/\d/.test(t) || t.indexOf('{') !== -1) continue;
         if (!simbolo) simbolo = (t.match(/^[^\d]*/) || [''])[0].trim();
+        if (!vivo) vivo = t;
         // Con precio conocido solo vale el nodo que lo muestra.
         if (buscado) { if (digitos(t).indexOf(buscado) !== -1) return t; }
         else if (valor == null) return t;   // sin JSON no queda otra que confiar
       }
     }
+    // El theme muestra un precio DISTINTO del calculado: gana el theme, que es
+    // quien cobra. Pasa cuando su product-json trae otra forma de variantes y
+    // el cálculo se queda con la de arranque — el precio "que no cambiaba".
+    if (vivo && buscado && digitos(vivo) !== buscado) return vivo;
     if (valor == null) return '';
     // El producto está a CERO en la tienda. Se dice en claro en vez de pintar
     // un "0" suelto al lado de "Añadir al carro", que parece un fallo de la
@@ -768,10 +782,14 @@
           sw.style.background = kv.swatchColor;
           c.appendChild(sw);
         }
-        var nombre = el('span', 'kc-card-n', v.name);
-        // Cantidad informativa (v2): "Memoria ×2". El nombre suele decirlo ya;
-        // el multiplicador es discreto y sale del `qty` del JSON.
-        if (kv && Number(kv.qty) > 1) nombre.appendChild(el('span', 'kc-card-qty', ' ×' + Math.round(Number(kv.qty))));
+        // Cantidad: "2× Kingston 8GB". Si el nombre YA dice la cantidad
+        // ("16GB (2×8)"), no se repite nada — "16GB (2×8) ×2" era leerlo dos
+        // veces y entender cuatro módulos.
+        var q = kv ? Math.round(Number(kv.qty) || 1) : 1;
+        var dice = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i').test(v.name || '');
+        var nombre = el('span', 'kc-card-n');
+        if (q > 1 && !dice) nombre.appendChild(el('span', 'kc-card-qty', q + '× '));
+        nombre.appendChild(document.createTextNode(v.name));
         c.appendChild(nombre);
         if (kv && kv.desc) c.appendChild(el('span', 'kc-card-d', kv.desc));
         var precio = cardPrecio(st.showDeltas || 'delta', on, kv, kvSel, precioAhora);
@@ -2162,6 +2180,18 @@
     // ritmo (resuelve la variante después de que nosotros hayamos pintado). Si
     // solo se mira al pintar, el panel se queda con la foto de un instante y
     // enseña "no disponible" para siempre. Se vigila su atributo.
+    // El PRECIO del theme se repinta por su cuenta al cambiar la variante (su
+    // JS reconstruye el componente de precio). Si nuestro cálculo por variante
+    // no casara con este theme, el panel se quedaría con el precio de
+    // arranque: se observa el nodo real y se copia cada vez que cambie.
+    (function vigilarPrecio() {
+      if (typeof MutationObserver !== 'function') return;
+      var nodo = document.querySelector('.kc-hidden-native product-price, .kc-hidden-native .product-price, .kc-hidden-native [class*="price"]');
+      if (!nodo) return;
+      new MutationObserver(function () { pintarPanel(); paintBar(); })
+        .observe(nodo, { childList: true, subtree: true, characterData: true });
+    })();
+
     (function vigilarCarro() {
       var real = botonCarro();
       if (!real || typeof MutationObserver !== 'function') return;

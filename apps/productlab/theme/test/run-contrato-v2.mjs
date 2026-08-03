@@ -318,13 +318,15 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('solo 1 paso visible (dependencias ocultan 2)', pasos.length === 1);
   t('renumeración: el visible es el 01', !!pasos[0] && pasos[0].querySelector('.kc-step-num').textContent === '01');
   t('showDeltas none → sin precios en las cards', d.querySelectorAll('.kc-card-price').length === 0);
+  // La cantidad va DELANTE ("2× Pro"), y solo si el nombre no la dice ya.
   const qty = d.querySelector('.kc-card-qty');
-  t('qty > 1 → multiplicador ×2 junto al nombre', !!qty && qty.textContent.trim() === '×2');
+  t('qty > 1 → "2×" delante del nombre', !!qty && qty.textContent.trim() === '2×'
+    && /2×\s*Pro/.test(qty.parentNode.textContent));
   t('stepsCollapsed: el primer paso visible arranca abierto', !pasos[0].classList.contains('kc-closed'));
 
   const card = (nombre) => Array.prototype.find.call(
     d.querySelectorAll('.kc-card'),
-    (c) => { const n = c.querySelector('.kc-card-n'); return n && n.textContent.replace(/\s*×\d+$/, '') === nombre; });
+    (c) => { const n = c.querySelector('.kc-card-n'); return n && n.textContent.replace(/^\s*\d+×\s*/, '').replace(/\s*×\d+$/, '') === nombre; });
 
   card('Pro').click();
   pasos = d.querySelectorAll('.kc-step');
@@ -342,8 +344,9 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('volver a Base oculta toda la cadena (1 paso)', d.querySelectorAll('.kc-step').length === 1);
   t('select nativo de Tarjeta re-forzado a Sin tarjeta', selGpu.value === '9102');
   t('select nativo de Refrigeración re-forzado a Estándar (cadena)', selRef.value === '9201');
-  const nota = d.querySelector('.kc-notice');
-  t('aviso del ajuste automático visible', !!nota && /Tarjeta/.test(nota.textContent));
+  // El ajuste automático de dependencias es cocina interna de la variante:
+  // el cliente NO recibe ningún aviso ("Ajustado automáticamente: …").
+  t('el ajuste automático es silencioso para el cliente', !d.querySelector('.kc-notice'));
 
   // ── Configurar: pasos a la izquierda, panel de compra a la derecha ──
   d.querySelector('.kc-bar-cta').click();

@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.12.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.13.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -297,6 +297,26 @@ se está ahorrando (la app lo muestra y el snapshot lo expone en
 El tope `MAX_COMBOS` pasa a medir lo que de verdad se publica, así que encadenar
 pasos con dependencias deja de ser un lujo: es la manera de que un catálogo
 grande quepa.
+
+## 9.a.2 Compatibilidad por tags y valores CONJUNTO (2.13)
+
+**Tags que filtran variantes.** `enumerarCombos` descarta también las
+combinaciones cuyo set de componentes viola un `incompatible con` (siempre) o
+un `requiere` (solo si el tag lo aporta algún componente del producto: un
+`requiere` de un tag que no existe en ningún lado es configuración incompleta y
+se queda en aviso, no vacía el catálogo). Etiquetar bien es la alternativa a
+los pasos dependientes: "RAM DDR5 requiere plataforma:amd" mata solas las
+combinaciones Intel×DDR5, sin `dependsOn` ni rellenos.
+
+**Valores conjunto (`bundle: true`).** Los `componentIds` del valor se SUMAN
+en lugar de ser alternativas: "Procesador → Ryzen 5" = CPU + su placa madre en
+un solo paso. Disponible = todos disponibles; entrega = el más lento; el
+"elegido" (foto/specs) es el primero. En la UI es el interruptor «conjunto
+(suman)» del valor; el agente lo pasa como `bundle`/`conjunto`.
+
+**Tags con desplegable.** Los campos aporta/requiere/incompatible ofrecen un
+`+` con los tags ya usados en el catálogo — el error típico era la ortografía
+("plataforma:amd" vs "plataforma: AMD").
 
 ## 9.b Pasos dependientes: el default SIEMPRE se cobra (2.10)
 
