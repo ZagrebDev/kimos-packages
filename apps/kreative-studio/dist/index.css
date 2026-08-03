@@ -1,0 +1,501 @@
+/* Kreative Studio — estilos de la app instalable (scope .kimos-kreative).
+   Sala de montaje: fondo oscuro, tipografía densa y el acento de marca como
+   único color vivo. Todo prefijado para no filtrar nada al shell. */
+
+.kimos-kreative {
+  --ks-accent: #19ACB1;
+  --ks-bg: #0B0D10;
+  --ks-panel: #12151A;
+  --ks-panel2: #171B21;
+  --ks-line: #232932;
+  --ks-line2: #2E3641;
+  --ks-txt: #E7EBF0;
+  --ks-txt2: #98A2B0;
+  --ks-txt3: #6B7684;
+  --ks-ok: #35C48A;
+  --ks-warn: #E5A93A;
+  --ks-bad: #EE5A5A;
+  height: 100%; width: 100%;
+  display: flex; flex-direction: column;
+  background: var(--ks-bg); color: var(--ks-txt);
+  font-family: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  font-size: 13px; line-height: 1.5;
+  overflow: hidden; box-sizing: border-box;
+}
+.kimos-kreative *, .kimos-kreative *::before, .kimos-kreative *::after { box-sizing: border-box; }
+
+/* ── Carga ─────────────────────────────────────────────────────────────── */
+.kimos-kreative.ks-loading { align-items: center; justify-content: center; gap: 14px; color: var(--ks-txt2); }
+.kimos-kreative .ks-loader {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid var(--ks-line2); border-top-color: var(--ks-accent);
+  animation: ks-spin .8s linear infinite;
+}
+@keyframes ks-spin { to { transform: rotate(360deg); } }
+
+/* ── Barra superior ────────────────────────────────────────────────────── */
+.kimos-kreative .ks-top {
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 16px; background: var(--ks-panel); border-bottom: 1px solid var(--ks-line);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.kimos-kreative .ks-brandmark { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.kimos-kreative .ks-brandmark-dot {
+  width: 9px; height: 9px; border-radius: 2px; background: var(--ks-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ks-accent) 22%, transparent);
+}
+.kimos-kreative .ks-brandmark-text { font-weight: 700; letter-spacing: .18em; text-transform: uppercase; font-size: 11px; }
+.kimos-kreative .ks-title-input {
+  flex: 1; min-width: 160px; background: transparent; border: 1px solid transparent;
+  color: var(--ks-txt); font-size: 15px; font-weight: 600; padding: 5px 9px; border-radius: 7px; outline: none;
+}
+.kimos-kreative .ks-title-input:hover { border-color: var(--ks-line); }
+.kimos-kreative .ks-title-input:focus { border-color: var(--ks-accent); background: var(--ks-bg); }
+.kimos-kreative .ks-top-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.kimos-kreative .ks-top-actions { display: flex; gap: 7px; flex-shrink: 0; }
+
+/* ── Cuerpo: navegación + contenido ────────────────────────────────────── */
+.kimos-kreative .ks-body { flex: 1; display: flex; min-height: 0; }
+.kimos-kreative .ks-nav {
+  width: 194px; flex-shrink: 0; background: var(--ks-panel);
+  border-right: 1px solid var(--ks-line); overflow-y: auto; padding: 12px 8px 20px;
+}
+.kimos-kreative .ks-navgroup { margin-bottom: 14px; }
+.kimos-kreative .ks-navgroup-title {
+  display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ks-txt3); padding: 0 8px 6px; font-weight: 700;
+}
+.kimos-kreative .ks-navitems { display: flex; flex-direction: column; gap: 1px; }
+.kimos-kreative .ks-navitem {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 9px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--ks-txt2); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.kimos-kreative .ks-navitem:hover { background: var(--ks-panel2); color: var(--ks-txt); }
+.kimos-kreative .ks-navitem-on { background: color-mix(in srgb, var(--ks-accent) 16%, transparent); color: var(--ks-txt); font-weight: 600; }
+.kimos-kreative .ks-navitem-on .ks-navitem-icon { color: var(--ks-accent); }
+.kimos-kreative .ks-navitem-icon { width: 15px; text-align: center; font-size: 12px; opacity: .9; }
+.kimos-kreative .ks-navitem-label { flex: 1; }
+.kimos-kreative .ks-navitem-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ks-line2); flex-shrink: 0; }
+.kimos-kreative .ks-navitem-dot-on { background: var(--ks-ok); }
+
+.kimos-kreative .ks-main { flex: 1; overflow-y: auto; min-width: 0; }
+.kimos-kreative .ks-view { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 16px; max-width: 1400px; }
+.kimos-kreative .ks-errorbar { margin: 12px 22px 0; padding: 9px 12px; border-radius: 8px; background: color-mix(in srgb, var(--ks-bad) 16%, transparent); color: var(--ks-bad); }
+
+/* ── Cabecera de vista ─────────────────────────────────────────────────── */
+.kimos-kreative .ks-viewhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.kimos-kreative .ks-viewtitle { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.kimos-kreative .ks-viewsub { margin: 4px 0 0; color: var(--ks-txt2); max-width: 76ch; }
+.kimos-kreative .ks-viewactions { display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ── Botones ───────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--ks-line2); background: var(--ks-panel2); color: var(--ks-txt);
+  border-radius: 8px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.kimos-kreative .ks-btn:hover:not(:disabled) { background: var(--ks-line); border-color: var(--ks-txt3); }
+.kimos-kreative .ks-btn:disabled { opacity: .42; cursor: not-allowed; }
+.kimos-kreative .ks-btn-primary { background: var(--ks-accent); border-color: var(--ks-accent); color: #04191A; }
+.kimos-kreative .ks-btn-primary:hover:not(:disabled) { filter: brightness(1.1); background: var(--ks-accent); border-color: var(--ks-accent); }
+.kimos-kreative .ks-btn-ghost { background: transparent; }
+.kimos-kreative .ks-btn-danger { border-color: color-mix(in srgb, var(--ks-bad) 45%, transparent); color: var(--ks-bad); background: transparent; }
+.kimos-kreative .ks-btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--ks-bad) 14%, transparent); border-color: var(--ks-bad); }
+.kimos-kreative .ks-btn-sm { padding: 5px 10px; font-size: 12px; }
+.kimos-kreative .ks-btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+.kimos-kreative .ks-btn-lg { padding: 10px 20px; font-size: 14px; }
+
+/* ── Tarjetas ──────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-card { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 12px; overflow: hidden; }
+.kimos-kreative .ks-card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 16px; border-bottom: 1px solid var(--ks-line); background: var(--ks-panel2);
+}
+.kimos-kreative .ks-card-title { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.kimos-kreative .ks-card-actions { display: flex; gap: 6px; }
+.kimos-kreative .ks-card-body { padding: 16px; display: flex; flex-direction: column; gap: 13px; }
+.kimos-kreative .ks-card-flush { padding: 0; }
+.kimos-kreative .ks-cardfoot { display: flex; gap: 7px; flex-wrap: wrap; padding-top: 4px; }
+
+/* ── Rejillas ──────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-grid { display: grid; gap: 13px; }
+.kimos-kreative .ks-grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.kimos-kreative .ks-grid-3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.kimos-kreative .ks-grid-4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.kimos-kreative .ks-grid-5 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* ── Formularios ───────────────────────────────────────────────────────── */
+.kimos-kreative .ks-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.kimos-kreative .ks-field-wide { width: 100%; }
+.kimos-kreative .ks-field-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ks-txt3); }
+.kimos-kreative .ks-field-help { font-size: 11.5px; color: var(--ks-txt3); }
+.kimos-kreative .ks-input {
+  width: 100%; background: var(--ks-bg); border: 1px solid var(--ks-line2); color: var(--ks-txt);
+  border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 12.5px; outline: none;
+}
+.kimos-kreative .ks-input:focus { border-color: var(--ks-accent); }
+.kimos-kreative .ks-input-bad { border-color: var(--ks-bad); }
+.kimos-kreative .ks-input-lg { font-size: 14.5px; padding: 11px 14px; }
+.kimos-kreative .ks-input-inline { padding: 4px 7px; font-size: 12px; }
+.kimos-kreative .ks-textarea { resize: vertical; min-height: 60px; line-height: 1.55; }
+.kimos-kreative .ks-select { cursor: pointer; }
+.kimos-kreative .ks-select option { background: var(--ks-panel); color: var(--ks-txt); }
+.kimos-kreative .ks-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ks-txt2); cursor: pointer; }
+.kimos-kreative .ks-toggle {
+  width: 38px; height: 21px; border-radius: 999px; border: 1px solid var(--ks-line2);
+  background: var(--ks-bg); padding: 2px; cursor: pointer; display: inline-flex; flex-shrink: 0;
+}
+.kimos-kreative .ks-toggle-knob { width: 15px; height: 15px; border-radius: 50%; background: var(--ks-txt3); transition: transform .14s, background .14s; }
+.kimos-kreative .ks-toggle-on { border-color: var(--ks-accent); background: color-mix(in srgb, var(--ks-accent) 24%, transparent); }
+.kimos-kreative .ks-toggle-on .ks-toggle-knob { transform: translateX(17px); background: var(--ks-accent); }
+.kimos-kreative .ks-switches { display: flex; flex-direction: column; gap: 10px; }
+.kimos-kreative .ks-switch { display: flex; align-items: center; gap: 10px; color: var(--ks-txt2); }
+.kimos-kreative .ks-color { display: flex; gap: 7px; align-items: center; }
+.kimos-kreative .ks-color-swatch { width: 34px; height: 32px; padding: 0; border: 1px solid var(--ks-line2); border-radius: 7px; background: transparent; cursor: pointer; }
+.kimos-kreative .ks-color-hex { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+
+/* ── Texto ─────────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-lead { margin: 0; color: var(--ks-txt); font-size: 13.5px; }
+.kimos-kreative .ks-hint { margin: 0; color: var(--ks-txt3); font-size: 12px; }
+.kimos-kreative .ks-warn { margin: 0; color: var(--ks-warn); font-size: 12.5px; }
+.kimos-kreative .ks-h4 { margin: 6px 0 2px; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ks-txt3); font-weight: 700; }
+.kimos-kreative .ks-list { margin: 0; padding-left: 17px; color: var(--ks-txt2); display: flex; flex-direction: column; gap: 4px; }
+.kimos-kreative .ks-list li { line-height: 1.5; }
+.kimos-kreative .ks-bigidea {
+  margin: 0; padding: 12px 16px; border-left: 3px solid var(--ks-accent);
+  background: var(--ks-panel2); border-radius: 0 9px 9px 0;
+  font-size: 17px; font-weight: 600; line-height: 1.35; letter-spacing: -.01em;
+}
+.kimos-kreative .ks-warnbox {
+  padding: 10px 13px; border-radius: 9px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--ks-warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ks-warn) 35%, transparent); color: var(--ks-warn);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.kimos-kreative .ks-warnbox .ks-list { color: inherit; }
+
+/* ── Chips y etiquetas ─────────────────────────────────────────────────── */
+.kimos-kreative .ks-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.kimos-kreative .ks-chip {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
+  background: var(--ks-panel2); border: 1px solid var(--ks-line2); color: var(--ks-txt2); font-size: 11.5px; white-space: nowrap;
+}
+.kimos-kreative .ks-chip-click { cursor: pointer; }
+.kimos-kreative .ks-chip-click:hover { border-color: var(--ks-accent); color: var(--ks-txt); }
+.kimos-kreative .ks-chip-accent { background: color-mix(in srgb, var(--ks-accent) 16%, transparent); border-color: color-mix(in srgb, var(--ks-accent) 45%, transparent); color: var(--ks-accent); }
+.kimos-kreative .ks-chip-bad { background: color-mix(in srgb, var(--ks-bad) 12%, transparent); border-color: color-mix(in srgb, var(--ks-bad) 35%, transparent); color: var(--ks-bad); }
+
+/* ── Estadísticas y barras ─────────────────────────────────────────────── */
+.kimos-kreative .ks-stat {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px;
+  background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 11px;
+}
+.kimos-kreative .ks-stat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--ks-txt3); font-weight: 700; }
+.kimos-kreative .ks-stat-value { font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+.kimos-kreative .ks-stat-ok { color: var(--ks-ok); }
+.kimos-kreative .ks-stat-warn { color: var(--ks-warn); }
+.kimos-kreative .ks-stat-bad { color: var(--ks-bad); }
+.kimos-kreative .ks-stat-hint { font-size: 11.5px; color: var(--ks-txt3); }
+.kimos-kreative .ks-bar { height: 6px; border-radius: 999px; background: var(--ks-line); overflow: hidden; width: 100%; }
+.kimos-kreative .ks-bar-fill { height: 100%; background: var(--ks-txt3); border-radius: 999px; }
+.kimos-kreative .ks-bar-accent { background: var(--ks-accent); }
+.kimos-kreative .ks-bar-ok { background: var(--ks-ok); }
+.kimos-kreative .ks-bar-warn { background: var(--ks-warn); }
+.kimos-kreative .ks-bar-bad { background: var(--ks-bad); }
+.kimos-kreative .ks-bars { display: flex; flex-direction: column; gap: 8px; }
+.kimos-kreative .ks-barrow { display: grid; grid-template-columns: 150px 1fr 160px; gap: 10px; align-items: center; }
+.kimos-kreative .ks-barrow-label { font-size: 12px; color: var(--ks-txt2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-barrow-value { font-size: 11.5px; color: var(--ks-txt3); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── Clave/valor y tablas ──────────────────────────────────────────────── */
+.kimos-kreative .ks-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-kv > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kimos-kreative .ks-kv span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); font-weight: 700; }
+.kimos-kreative .ks-kv strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.kimos-kreative .ks-kv-sm strong { font-size: 12px; font-weight: 600; }
+.kimos-kreative .ks-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.kimos-kreative .ks-table th {
+  text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--ks-line2);
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); font-weight: 700; white-space: nowrap;
+}
+.kimos-kreative .ks-table td { padding: 8px 11px; border-bottom: 1px solid var(--ks-line); color: var(--ks-txt2); vertical-align: top; }
+.kimos-kreative .ks-table tr:last-child td { border-bottom: 0; }
+.kimos-kreative .ks-table strong { color: var(--ks-txt); }
+.kimos-kreative .ks-table code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ks-accent); }
+.kimos-kreative .ks-row-bad td { background: color-mix(in srgb, var(--ks-bad) 9%, transparent); }
+.kimos-kreative .ks-table-jobs td { font-size: 12px; }
+.kimos-kreative .ks-job-prompt { color: var(--ks-txt3); font-size: 11px; max-width: 380px; }
+.kimos-kreative .ks-job-done td { opacity: .6; }
+.kimos-kreative .ks-job-failed td { background: color-mix(in srgb, var(--ks-bad) 9%, transparent); }
+
+/* ── Vacío ─────────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px;
+  padding: 54px 20px; color: var(--ks-txt3); text-align: center;
+  border: 1px dashed var(--ks-line2); border-radius: 12px;
+}
+.kimos-kreative .ks-empty-icon { font-size: 30px; opacity: .55; }
+.kimos-kreative .ks-empty-text { margin: 0; max-width: 52ch; }
+
+/* ── Panel: generador y agentes ────────────────────────────────────────── */
+.kimos-kreative .ks-genrow { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+.kimos-kreative .ks-genrow .ks-input { flex: 1; min-width: 220px; }
+.kimos-kreative .ks-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.kimos-kreative .ks-quick .ks-chip { cursor: pointer; }
+.kimos-kreative .ks-quick .ks-chip:hover { border-color: var(--ks-accent); color: var(--ks-accent); }
+.kimos-kreative .ks-agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-agent {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px;
+  background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 10px;
+}
+.kimos-kreative .ks-agent-done { border-color: color-mix(in srgb, var(--ks-ok) 38%, transparent); }
+.kimos-kreative .ks-agent-error { border-color: color-mix(in srgb, var(--ks-bad) 45%, transparent); }
+.kimos-kreative .ks-agent-top { display: flex; align-items: center; gap: 7px; }
+.kimos-kreative .ks-agent-emoji { font-size: 15px; }
+.kimos-kreative .ks-agent-n { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--ks-txt3); font-weight: 700; flex: 1; }
+.kimos-kreative .ks-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ks-line2); }
+.kimos-kreative .ks-dot-done { background: var(--ks-ok); }
+.kimos-kreative .ks-dot-error { background: var(--ks-bad); }
+.kimos-kreative .ks-agent-name { font-size: 13px; }
+.kimos-kreative .ks-agent-desc { margin: 0; font-size: 11.5px; color: var(--ks-txt3); line-height: 1.45; flex: 1; }
+.kimos-kreative .ks-agent-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kimos-kreative .ks-agent-ms { font-size: 11px; color: var(--ks-txt3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-log { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; }
+.kimos-kreative .ks-log-line { display: flex; gap: 9px; color: var(--ks-txt2); }
+.kimos-kreative .ks-log-time { color: var(--ks-txt3); flex-shrink: 0; }
+.kimos-kreative .ks-log-success { color: var(--ks-ok); }
+.kimos-kreative .ks-log-error { color: var(--ks-bad); }
+
+/* ── Fotos y paleta ────────────────────────────────────────────────────── */
+.kimos-kreative .ks-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-photo { border: 1px solid var(--ks-line2); border-radius: 10px; overflow: hidden; background: var(--ks-bg); }
+.kimos-kreative .ks-photo-hero { border-color: var(--ks-accent); }
+.kimos-kreative .ks-photo img { width: 100%; height: 118px; object-fit: contain; display: block; background: #05070A; }
+.kimos-kreative .ks-photo-bar { display: flex; gap: 5px; padding: 6px; justify-content: space-between; align-items: center; }
+.kimos-kreative .ks-swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.kimos-kreative .ks-swatch { display: flex; align-items: center; gap: 7px; }
+.kimos-kreative .ks-swatch-dot { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--ks-line2); display: block; }
+.kimos-kreative .ks-swatch-label { display: flex; flex-direction: column; font-size: 11px; color: var(--ks-txt3); }
+.kimos-kreative .ks-swatch-label code { font-family: ui-monospace, Menlo, monospace; color: var(--ks-txt2); text-transform: uppercase; }
+.kimos-kreative .ks-moodphotos { display: flex; gap: 8px; flex-wrap: wrap; }
+.kimos-kreative .ks-moodphotos img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--ks-line2); }
+.kimos-kreative .ks-logo { padding: 14px; background: repeating-conic-gradient(#1a1f26 0% 25%, #12151A 0% 50%) 50% / 16px 16px; border-radius: 9px; text-align: center; }
+.kimos-kreative .ks-logo img { max-width: 190px; max-height: 80px; object-fit: contain; }
+
+/* ── Concepto ──────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-beats { display: flex; flex-direction: column; gap: 6px; }
+.kimos-kreative .ks-beat { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--ks-txt2); }
+.kimos-kreative .ks-beat-n {
+  width: 20px; height: 20px; border-radius: 6px; background: var(--ks-panel2); border: 1px solid var(--ks-line2);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--ks-accent); flex-shrink: 0;
+}
+
+/* ── Funnel y calendario ───────────────────────────────────────────────── */
+.kimos-kreative .ks-funnel { display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr)); gap: 11px; }
+.kimos-kreative .ks-funnel-stage { display: flex; flex-direction: column; gap: 7px; padding: 12px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 10px; }
+.kimos-kreative .ks-funnel-head { display: flex; align-items: baseline; justify-content: space-between; }
+.kimos-kreative .ks-funnel-pct { font-size: 15px; font-weight: 700; color: var(--ks-accent); }
+.kimos-kreative .ks-funnel-goal { margin: 0; font-size: 12px; color: var(--ks-txt2); }
+.kimos-kreative .ks-weeks { display: flex; flex-direction: column; gap: 11px; }
+.kimos-kreative .ks-week { display: flex; flex-direction: column; gap: 5px; }
+
+/* ── Storyboard ────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-sbgrid { display: grid; grid-template-columns: 1fr 296px; gap: 13px; align-items: start; }
+.kimos-kreative .ks-sbcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
+.kimos-kreative .ks-scene {
+  display: flex; flex-direction: column; gap: 7px; padding: 11px;
+  background: var(--ks-panel); border: 1px solid var(--ks-line); border-left: 3px solid var(--ks-line2);
+  border-radius: 9px; cursor: pointer;
+}
+.kimos-kreative .ks-scene:hover { border-color: var(--ks-line2); }
+.kimos-kreative .ks-scene-sel { border-color: var(--ks-accent); background: var(--ks-panel2); }
+.kimos-kreative .ks-role-hook { border-left-color: #E5A93A; }
+.kimos-kreative .ks-role-problem { border-left-color: #EE5A5A; }
+.kimos-kreative .ks-role-reveal { border-left-color: #7B61FF; }
+.kimos-kreative .ks-role-demo { border-left-color: #19ACB1; }
+.kimos-kreative .ks-role-detail { border-left-color: #4ECDC4; }
+.kimos-kreative .ks-role-proof { border-left-color: #35C48A; }
+.kimos-kreative .ks-role-money { border-left-color: #C9A227; }
+.kimos-kreative .ks-role-cta { border-left-color: #FF4FD8; }
+.kimos-kreative .ks-scene-head { display: flex; align-items: center; gap: 7px; }
+.kimos-kreative .ks-scene-code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; font-weight: 700; color: var(--ks-accent); }
+.kimos-kreative .ks-scene-role { font-size: 11px; color: var(--ks-txt3); text-transform: uppercase; letter-spacing: .05em; flex: 1; }
+.kimos-kreative .ks-scene-dur { font-size: 11.5px; color: var(--ks-txt2); font-variant-numeric: tabular-nums; }
+.kimos-kreative .ks-scene-frame { display: flex; gap: 6px; flex-wrap: wrap; }
+.kimos-kreative .ks-scene-shot, .kimos-kreative .ks-scene-move {
+  font-size: 10.5px; padding: 2px 7px; border-radius: 5px; background: var(--ks-panel2); color: var(--ks-txt2); border: 1px solid var(--ks-line);
+}
+.kimos-kreative .ks-scene-desc { margin: 0; font-size: 12px; color: var(--ks-txt2); line-height: 1.45; }
+.kimos-kreative .ks-scene-text { font-size: 12px; color: var(--ks-txt); font-style: italic; padding: 5px 8px; background: var(--ks-bg); border-radius: 6px; }
+.kimos-kreative .ks-scene-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.kimos-kreative .ks-scene-tags span { font-size: 10px; color: var(--ks-txt3); }
+.kimos-kreative .ks-scene-tags span::after { content: '·'; margin-left: 4px; opacity: .5; }
+.kimos-kreative .ks-scene-tags span:last-child::after { content: ''; }
+.kimos-kreative .ks-tag-fx { color: var(--ks-accent) !important; }
+.kimos-kreative .ks-sbside {
+  position: sticky; top: 0; display: flex; flex-direction: column; gap: 10px; padding: 13px;
+  background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 11px; max-height: calc(100vh - 130px); overflow-y: auto;
+}
+.kimos-kreative .ks-sbside-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kimos-kreative .ks-fxpick { display: flex; flex-wrap: wrap; gap: 4px; }
+.kimos-kreative .ks-fxpick .ks-chip { cursor: pointer; font-size: 11px; }
+.kimos-kreative .ks-variants, .kimos-kreative .ks-formats { display: grid; grid-template-columns: repeat(auto-fit, minmax(276px, 1fr)); gap: 11px; }
+.kimos-kreative .ks-variant, .kimos-kreative .ks-format { display: flex; flex-direction: column; gap: 6px; padding: 11px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 9px; }
+
+/* ── Timeline ──────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-tl { padding: 26px 16px 16px; display: flex; flex-direction: column; gap: 7px; position: relative; }
+.kimos-kreative .ks-tl-ruler { position: relative; height: 16px; margin-left: 74px; }
+.kimos-kreative .ks-tl-tick { position: absolute; top: 0; font-size: 10px; color: var(--ks-txt3); transform: translateX(-50%); font-variant-numeric: tabular-nums; }
+.kimos-kreative .ks-tl-track { display: flex; align-items: center; gap: 10px; }
+.kimos-kreative .ks-tl-name { width: 64px; flex-shrink: 0; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); font-weight: 700; text-align: right; }
+.kimos-kreative .ks-tl-lane { position: relative; flex: 1; height: 30px; background: var(--ks-bg); border: 1px solid var(--ks-line); border-radius: 7px; }
+.kimos-kreative .ks-tl-clip {
+  position: absolute; top: 3px; bottom: 3px; border-radius: 5px; overflow: hidden;
+  background: var(--ks-panel2); border: 1px solid var(--ks-line2); border-left-width: 3px;
+  display: flex; align-items: center; gap: 4px; padding: 0 5px; cursor: pointer; min-width: 12px;
+}
+.kimos-kreative .ks-tl-clip span { font-size: 10px; color: var(--ks-txt2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kimos-kreative .ks-tl-clip em { font-size: 9.5px; color: var(--ks-accent); font-style: normal; }
+.kimos-kreative .ks-tl-sel { border-color: var(--ks-accent); }
+.kimos-kreative .ks-tl-title { background: color-mix(in srgb, #7B61FF 22%, transparent); border-left-color: #7B61FF; }
+.kimos-kreative .ks-tl-vo { background: color-mix(in srgb, var(--ks-ok) 20%, transparent); border-left-color: var(--ks-ok); }
+.kimos-kreative .ks-tl-music { background: color-mix(in srgb, var(--ks-accent) 16%, transparent); border-left-color: var(--ks-accent); }
+.kimos-kreative .ks-tl-sfx { background: var(--ks-warn); border-left-color: var(--ks-warn); }
+
+/* ── Prompts ───────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-tabs { display: flex; gap: 3px; flex-wrap: wrap; border-bottom: 1px solid var(--ks-line); padding-bottom: 1px; }
+.kimos-kreative .ks-tab {
+  border: 0; background: transparent; color: var(--ks-txt3); font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 7px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.kimos-kreative .ks-tab:hover { color: var(--ks-txt); }
+.kimos-kreative .ks-tab-on { color: var(--ks-accent); border-bottom-color: var(--ks-accent); }
+.kimos-kreative .ks-provrow { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.kimos-kreative .ks-provrow .ks-field { min-width: 240px; }
+.kimos-kreative .ks-provinfo { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-top: 20px; font-size: 11.5px; color: var(--ks-txt3); }
+.kimos-kreative .ks-provinfo a { color: var(--ks-accent); text-decoration: none; }
+.kimos-kreative .ks-provinfo a:hover { text-decoration: underline; }
+.kimos-kreative .ks-prompts { display: flex; flex-direction: column; gap: 9px; }
+.kimos-kreative .ks-prompt { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 10px; padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; }
+.kimos-kreative .ks-prompt-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.kimos-kreative .ks-prompt-code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; font-weight: 700; color: var(--ks-accent); }
+.kimos-kreative .ks-prompt-role { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ks-txt3); }
+.kimos-kreative .ks-prompt-dur, .kimos-kreative .ks-prompt-prov { font-size: 11px; color: var(--ks-txt3); }
+.kimos-kreative .ks-prompt-prov { margin-left: auto; }
+.kimos-kreative .ks-prompt-text {
+  margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px; line-height: 1.55; color: var(--ks-txt); background: var(--ks-bg);
+  padding: 9px 11px; border-radius: 7px; border: 1px solid var(--ks-line);
+}
+.kimos-kreative .ks-prompt-neg { font-size: 11.5px; color: var(--ks-txt3); }
+.kimos-kreative .ks-prompt-neg strong { color: var(--ks-bad); }
+.kimos-kreative .ks-prompt-params { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--ks-txt3); font-family: ui-monospace, Menlo, monospace; }
+
+/* ── Bloques de código ─────────────────────────────────────────────────── */
+.kimos-kreative .ks-code { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 10px; overflow: hidden; }
+.kimos-kreative .ks-code-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 13px; background: var(--ks-panel2); border-bottom: 1px solid var(--ks-line); }
+.kimos-kreative .ks-code-title { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ks-txt3); }
+.kimos-kreative .ks-code-actions { display: flex; gap: 5px; }
+.kimos-kreative .ks-code-body {
+  margin: 0; padding: 12px 14px; max-height: 440px; overflow: auto;
+  font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.55;
+  color: var(--ks-txt2); white-space: pre; tab-size: 2;
+}
+
+/* ── Copy ──────────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-hooks { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 9px; }
+.kimos-kreative .ks-hook { display: flex; flex-direction: column; gap: 5px; padding: 10px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 9px; }
+.kimos-kreative .ks-hook-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); font-weight: 700; }
+.kimos-kreative .ks-hook p { margin: 0; font-size: 12.5px; flex: 1; }
+.kimos-kreative .ks-hook .ks-btn { align-self: flex-start; }
+.kimos-kreative .ks-ads { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 11px; }
+.kimos-kreative .ks-ad { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 10px; }
+.kimos-kreative .ks-ad-bad { border-color: color-mix(in srgb, var(--ks-bad) 45%, transparent); }
+.kimos-kreative .ks-ad-head { display: flex; align-items: center; gap: 8px; }
+.kimos-kreative .ks-ad-head .ks-btn { margin-left: auto; }
+.kimos-kreative .ks-ad-primary {
+  margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.5;
+  background: var(--ks-bg); padding: 10px 12px; border-radius: 8px; border: 1px solid var(--ks-line); color: var(--ks-txt);
+}
+.kimos-kreative .ks-ad-meta { display: flex; flex-direction: column; gap: 5px; }
+.kimos-kreative .ks-ad-meta > div { display: flex; gap: 7px; align-items: baseline; flex-wrap: wrap; font-size: 12px; }
+.kimos-kreative .ks-ad-meta span { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ks-txt3); font-weight: 700; min-width: 88px; }
+.kimos-kreative .ks-ad-meta em { font-size: 10.5px; color: var(--ks-txt3); font-style: normal; font-variant-numeric: tabular-nums; }
+.kimos-kreative .ks-landing { display: flex; flex-direction: column; gap: 13px; }
+.kimos-kreative .ks-landing-hero { padding: 18px; background: var(--ks-panel2); border-radius: 11px; display: flex; flex-direction: column; gap: 7px; }
+.kimos-kreative .ks-landing-eyebrow { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ks-accent); font-weight: 700; }
+.kimos-kreative .ks-landing-hero h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.kimos-kreative .ks-landing-hero p { margin: 0; color: var(--ks-txt2); font-size: 13.5px; }
+.kimos-kreative .ks-vp { padding: 11px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 9px; display: flex; flex-direction: column; gap: 4px; }
+.kimos-kreative .ks-vp p { margin: 0; font-size: 12px; color: var(--ks-txt2); }
+.kimos-kreative .ks-faq { display: flex; flex-direction: column; gap: 8px; }
+.kimos-kreative .ks-faq-item { padding: 10px 12px; background: var(--ks-panel2); border-radius: 8px; }
+.kimos-kreative .ks-faq-item p { margin: 3px 0 0; font-size: 12.5px; color: var(--ks-txt2); }
+.kimos-kreative .ks-emails { display: flex; flex-direction: column; gap: 10px; }
+.kimos-kreative .ks-email { padding: 12px; background: var(--ks-panel2); border: 1px solid var(--ks-line); border-radius: 10px; display: flex; flex-direction: column; gap: 6px; }
+.kimos-kreative .ks-email-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.kimos-kreative .ks-email-stage { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); margin-left: auto; }
+.kimos-kreative .ks-email-pre { margin: 0; font-size: 12px; color: var(--ks-txt3); font-style: italic; }
+.kimos-kreative .ks-email-body { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.55; color: var(--ks-txt2); }
+
+/* ── Marca ─────────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-score { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; align-items: center; }
+.kimos-kreative .ks-score-num { font-size: 40px; font-weight: 700; letter-spacing: -.03em; grid-row: span 2; }
+.kimos-kreative .ks-ok { color: var(--ks-ok); }
+.kimos-kreative .ks-warn2 { color: var(--ks-warn); }
+.kimos-kreative .ks-bad { color: var(--ks-bad); }
+.kimos-kreative .ks-findings { display: flex; flex-direction: column; gap: 7px; }
+.kimos-kreative .ks-finding { padding: 9px 12px; border-radius: 8px; background: var(--ks-panel2); border-left: 3px solid var(--ks-line2); }
+.kimos-kreative .ks-sev-error { border-left-color: var(--ks-bad); }
+.kimos-kreative .ks-sev-warn { border-left-color: var(--ks-warn); }
+.kimos-kreative .ks-sev-info { border-left-color: var(--ks-txt3); }
+.kimos-kreative .ks-finding-area { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ks-txt3); font-weight: 700; }
+.kimos-kreative .ks-finding p { margin: 2px 0 0; font-size: 12.5px; }
+.kimos-kreative .ks-finding-fix { color: var(--ks-txt3) !important; font-size: 12px !important; }
+
+/* ── Biblioteca ────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-assets { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 11px; }
+.kimos-kreative .ks-asset { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.kimos-kreative .ks-asset-thumb { height: 122px; background: #05070A; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.kimos-kreative .ks-asset-thumb img, .kimos-kreative .ks-asset-thumb video { width: 100%; height: 100%; object-fit: contain; }
+.kimos-kreative .ks-asset-thumb audio { width: 92%; }
+.kimos-kreative .ks-asset-icon { font-size: 30px; opacity: .5; }
+.kimos-kreative .ks-asset-meta { padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+.kimos-kreative .ks-asset-meta strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-kreative .ks-asset-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ── Estilos (marketplace) ─────────────────────────────────────────────── */
+.kimos-kreative .ks-styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(292px, 1fr)); gap: 13px; }
+.kimos-kreative .ks-style { background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.kimos-kreative .ks-style-on { border-color: var(--ks-accent); }
+.kimos-kreative .ks-style-palette { display: flex; height: 54px; }
+.kimos-kreative .ks-style-palette span { flex: 1; }
+.kimos-kreative .ks-style-body { padding: 13px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.kimos-kreative .ks-style-head { display: flex; align-items: center; gap: 8px; }
+.kimos-kreative .ks-style-emoji { font-size: 17px; }
+.kimos-kreative .ks-style-tag { margin: 0; font-size: 12.5px; color: var(--ks-txt2); }
+.kimos-kreative .ks-style-specs { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--ks-txt3); }
+.kimos-kreative .ks-style-body .ks-btn { align-self: flex-start; margin-top: auto; }
+
+/* ── Versiones ─────────────────────────────────────────────────────────── */
+.kimos-kreative .ks-versions { display: grid; grid-template-columns: repeat(auto-fill, minmax(292px, 1fr)); gap: 11px; }
+.kimos-kreative .ks-version { padding: 12px; background: var(--ks-panel); border: 1px solid var(--ks-line); border-radius: 10px; display: flex; flex-direction: column; gap: 9px; }
+.kimos-kreative .ks-version-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kimos-kreative .ks-version-date { font-size: 11px; color: var(--ks-txt3); font-variant-numeric: tabular-nums; }
+.kimos-kreative .ks-version-actions { display: flex; gap: 6px; }
+
+/* ── Adaptación a ventanas estrechas ───────────────────────────────────── */
+@media (max-width: 980px) {
+  .kimos-kreative .ks-sbgrid { grid-template-columns: 1fr; }
+  .kimos-kreative .ks-sbside { position: static; max-height: none; }
+  .kimos-kreative .ks-nav { width: 62px; padding: 12px 6px; }
+  .kimos-kreative .ks-navgroup-title { display: none; }
+  .kimos-kreative .ks-navitem-label { display: none; }
+  .kimos-kreative .ks-navitem { justify-content: center; padding: 9px 4px; }
+  .kimos-kreative .ks-navitem-dot { display: none; }
+  .kimos-kreative .ks-view { padding: 14px; }
+  .kimos-kreative .ks-barrow { grid-template-columns: 1fr; gap: 3px; }
+  .kimos-kreative .ks-barrow-value { text-align: left; }
+}

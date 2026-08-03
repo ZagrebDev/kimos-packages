@@ -1,0 +1,12 @@
+{
+  "name": "kimos-kreative-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "App instalable de KIMOS: estudio de campañas publicitarias cinematográficas generadas con IA.",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node test/test-app.mjs",
+    "pack": "node build.mjs && node ../../tools/pack.mjs ."
+  }
+}

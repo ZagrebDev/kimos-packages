@@ -1,0 +1,73 @@
+{
+  "id": "kreative-studio",
+  "name": "Kreative Studio",
+  "version": "1.0.0",
+  "description": "Estudio de campañas publicitarias cinematográficas con IA: sube fotos de un producto, escribe una intención («crea una campaña premium», «quiero un comercial épico», «véndelo para deportistas») y el sistema produce la campaña completa. Doce agentes especializados generan investigación de mercado, competencia y público, concepto creativo con storytelling y money shot, plan de funnel con presupuesto y KPIs, storyboard con dirección de fotografía (encuadre, óptica, movimiento, luz, etalonaje y efectos), prompts optimizados por proveedor (OpenAI Images, Midjourney, FLUX, Stable Diffusion, ComfyUI, Higgsfield, Runway, Kling, Veo, Sora), guion de locución ajustado al metraje y briefs de música (ElevenLabs, OpenAI Audio, Suno, Udio), trabajos de producción con coste estimado, timeline con script FFmpeg completo, subtítulos y EDL, auditoría de consistencia de marca, copy para Meta, Instagram, TikTok, LinkedIn, YouTube y Google más landing y secuencia de email, biblioteca de assets con versiones, y analítica de costes reales y proyección de CTR, CPA y ROAS. Arquitectura de proveedores intercambiables: añadir un modelo nuevo no toca el núcleo. Orquestable por completo desde el agente de KIMOS.",
+  "icon": "🎬",
+  "author": "Kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ],
+  "configSchema": {
+    "title": "Preferencias de Kreative Studio",
+    "fields": [
+      {
+        "key": "accent",
+        "label": "Color de acento",
+        "type": "color",
+        "help": "Color de marca de la empresa; tiñe la interfaz del estudio y siembra el secundario de la paleta."
+      },
+      {
+        "key": "defaultStyle",
+        "label": "Estilo por defecto",
+        "type": "select",
+        "help": "Dirección creativa inicial de las campañas nuevas.",
+        "options": [
+          { "value": "premium-cinematic", "label": "Premium Cinematic" },
+          { "value": "epic-sport", "label": "Épico Deportivo" },
+          { "value": "nordic-minimal", "label": "Minimal Nórdico" },
+          { "value": "street-energy", "label": "Street Energy" },
+          { "value": "tech-future", "label": "Tech Futurista" },
+          { "value": "gourmet-macro", "label": "Gourmet Macro" },
+          { "value": "editorial-fashion", "label": "Editorial Fashion" },
+          { "value": "warm-lifestyle", "label": "Lifestyle Cálido" },
+          { "value": "retro-90s", "label": "Retro 90s" },
+          { "value": "luxury-noir", "label": "Luxury Noir" }
+        ]
+      },
+      {
+        "key": "heroDuration",
+        "label": "Duración de la pieza principal (s)",
+        "type": "number",
+        "min": 5,
+        "max": 180,
+        "help": "Metraje del corte hero. Los verticales usan la mitad por defecto."
+      },
+      {
+        "key": "autoSubtitles",
+        "label": "Subtítulos quemados",
+        "type": "boolean",
+        "help": "La mayoría del vídeo social se ve sin sonido: por defecto, activado."
+      },
+      {
+        "key": "currency",
+        "label": "Moneda de la analítica",
+        "type": "string",
+        "help": "Código ISO para mostrar presupuesto y proyecciones (los costes de los modelos son en USD)."
+      }
+    ]
+  },
+  "defaultConfig": {
+    "accent": "#19ACB1",
+    "defaultStyle": "premium-cinematic",
+    "heroDuration": 30,
+    "autoSubtitles": true,
+    "currency": "USD"
+  }
+}
