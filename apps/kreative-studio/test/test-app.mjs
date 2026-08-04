@@ -38,6 +38,19 @@ const shell = {
     remove: async (id) => { items.delete(id); },
   },
   agent: { register: (reg) => { agentReg = reg; return () => { agentReg = null; }; } },
+  // Directorio de usuarios de KIMOS: la misma forma que sirve el host real en
+  // `/api/identity/actors` y que ya usan Kanban y Gantt para asignar trabajo.
+  authFetch: async (url) => {
+    if (/\/api\/identity\/actors$/.test(String(url))) {
+      return { ok: true, status: 200, json: async () => ({ actors: [
+        { id: 'u-ana', displayName: 'Ana Ruiz', email: 'ana@kimos.dev', active: true },
+        { id: 'u-luis', displayName: 'Luis Pardo', email: 'luis@kimos.dev', active: true },
+        { id: 'u-baja', displayName: 'Antigua Empleada', email: 'baja@kimos.dev', active: false },
+        { id: 'bot-1', name: 'Agente Web', kind: 'agent', active: true },
+      ] }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  },
   config: { get: async () => ({ accent: '#19ACB1' }), onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
   // Catálogo de ProductLab simulado (shell.data, permiso data.read:productlab).
@@ -934,8 +947,80 @@ check('EXPORT render_bundle funciona', r.success && r.data.length > 500, JSON.st
     for (const e of renderErrors) roto.push((skin.gameMode || skin.classicMode) + ' → ' + e);
   }
   check('la Organización se pinta en las cuatro ambientaciones', roto.length === 0, roto.join(' · '));
+
   eq('cambiar de ambientación no mueve una sola celda', JSON.stringify(await w()), huella2);
   await call('SET_THEME', { form: 'classic', classicMode: 'night' });
+
+  // ── Responsable humano de cada equipo de agentes ──
+  // Un departamento con agentes de IA tiene que tener detrás a una persona, y
+  // esa persona es un usuario de KIMOS: no vale un nombre escrito a mano.
+  {
+    const org = () => snap().organizacion;
+    const users = org().usuariosKimos;
+    eq('el directorio de KIMOS llega a la app', users.length, 2);
+    check('los usuarios dados de baja no se ofrecen', !users.some((u) => u.id === 'u-baja'), JSON.stringify(users));
+    check('los agentes del directorio tampoco', !users.some((u) => u.id === 'bot-1'), JSON.stringify(users));
+
+    const huerfanas = org().sinResponsable;
+    check('al sembrar, los equipos de IA salen sin responsable', huerfanas.length > 0, JSON.stringify(huerfanas));
+    check('y se dice cuántos agentes quedan sin nadie',
+      huerfanas.every((x) => x.agentes > 0), JSON.stringify(huerfanas));
+
+    r = await call('SET_ORG', { op: 'set_owner', areaId: 'Producción', user: 'Ana Ruiz' });
+    check('SET_ORG nombra responsable por nombre', r.success, JSON.stringify(r));
+    let prod = (await w()).areas.find((a) => a.name === 'Producción');
+    eq('el área guarda el usuario de KIMOS', prod.ownerId, 'u-ana');
+    check('y su nombre para el mapa', prod.ownerName === 'Ana Ruiz', JSON.stringify(prod));
+    check('el responsable aparece como avatar humano en su área',
+      (await w()).staff.some((p) => p.areaId === prod.id && p.userId === 'u-ana' && p.kind === 'human' && p.isOwner));
+    check('Producción sale de la lista de departamentos sin responsable',
+      !org().sinResponsable.some((x) => x.id === prod.id), JSON.stringify(org().sinResponsable));
+
+    r = await call('SET_ORG', { op: 'set_owner', areaId: 'Producción', user: 'ana@kimos.dev' });
+    check('también se puede nombrar por correo', r.success, JSON.stringify(r));
+
+    // Lo que no se acepta: un responsable que no es usuario de la organización.
+    r = await call('SET_ORG', { op: 'set_owner', areaId: 'Producción', user: 'Fulano de Tal' });
+    check('un responsable inventado se rechaza', r.success === false, JSON.stringify(r));
+    check('y el error dice quiénes sí valen', /Ana Ruiz/.test(r.error), r.error);
+    eq('el responsable anterior sigue en su sitio', (await w()).areas.find((a) => a.name === 'Producción').ownerId, 'u-ana');
+
+    // El responsable no se muda de departamento por la puerta de atrás.
+    const owner = (await w()).staff.find((p) => p.userId === 'u-ana' && p.isOwner);
+    r = await call('SET_ORG', { op: 'update_staff', staffId: owner.id, areaId: 'Marketing' });
+    check('mudar al responsable se rechaza', r.success === false, JSON.stringify(r));
+    check('y el motivo nombra su departamento', /Producción/.test(r.error), r.error);
+
+    r = await call('SET_ORG', { op: 'clear_owner', areaId: 'Producción' });
+    check('SET_ORG puede quitar el responsable', r.success, JSON.stringify(r));
+    check('y avisa de los agentes que quedan sin nadie', /agente/.test(r.message), r.message);
+    check('Producción vuelve a la lista de huérfanas',
+      org().sinResponsable.some((x) => x.name === 'Producción'), JSON.stringify(org().sinResponsable));
+
+    // El aviso tiene que estar EN LA PANTALLA, no solo en el snapshot.
+    await call('SET_THEME', { form: 'classic', classicMode: 'night' });
+    gotoWorld();
+    renderErrors = [];
+    const painted = renderDeep(app.Component(), 0);
+    // El texto vive en los hijos, que pueden ser cadenas sueltas o listas.
+    const words = [];
+    const collect = (x) => {
+      if (x == null) return;
+      if (typeof x === 'string' || typeof x === 'number') { words.push(String(x)); return; }
+      if (Array.isArray(x)) x.forEach(collect);
+    };
+    for (const n of painted) if (n && typeof n === 'object') collect(n.c);
+    const flat = words.join(' | ');
+    check('la vista avisa de los departamentos sin responsable', /Departamentos sin responsable/.test(flat), flat.slice(0, 300));
+    check('y ofrece asignarlo', /Asignar/.test(flat), flat.slice(0, 300));
+    eq('nada rompió al pintar el aviso', renderErrors.length, 0, renderErrors.join(' · '));
+
+    // Dejarlo asignado: es el estado correcto de la organización.
+    await call('SET_ORG', { op: 'set_owner', areaId: 'Producción', user: 'u-ana' });
+    r = await call('SET_ORG', { op: 'set_owner', areaId: 'Marketing', user: 'Luis Pardo' });
+    check('SET_ORG nombra responsable por id de usuario', r.success, JSON.stringify(r));
+    gte('el resumen cuenta las áreas con responsable', org().resumen.conResponsable, 2);
+  }
 }
 
 app.unmount();

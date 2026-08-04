@@ -48,7 +48,7 @@ const EXPORTS = ['WS_VERSION', 'WS_GRID_MAX', 'WS_AREAS_MAX', 'WS_STAFF_MAX', 'W
   'wsDepartmentById', 'wsStructureById', 'wsStructureName', 'wsHash',
   'wsEmptyWorld', 'wsMigrateWorld', 'wsFits', 'wsFindSpot', 'wsAddArea', 'wsUpdateArea', 'wsRemoveArea',
   'wsAddStation', 'wsUpdateStation', 'wsRemoveStation', 'wsAddStaff', 'wsUpdateStaff', 'wsRemoveStaff',
-  'wsResizeGrid', 'wsSeedWorld', 'wsWorldSummary',
+  'wsResizeGrid', 'wsSeedWorld', 'wsWorldSummary', 'wsSetAreaOwner', 'wsClearAreaOwner', 'wsAreasWithoutOwner', 'wsAiCount',
   'wsSimInit', 'wsSimStep', 'wsSimSay', 'wsAvatarColors', 'wsAreaCenter', 'wsStationPos',
   'wsProjector', 'wsAreaShape', 'WsStructure', 'WsAvatar', 'WsWorldSurface'];
 
@@ -241,6 +241,106 @@ let W = ws.wsEmptyWorld();
   }
   check('el número de áreas está acotado', added <= ws.WS_AREAS_MAX, 'creadas ' + added);
   check('y al llegar al tope se explica', !ws.wsAddArea(w, { departmentId: 'ti', structure: 'shop' }).ok);
+}
+
+// ── 4 bis. Responsable del departamento ──────────────────────────────────
+// Un equipo de agentes de IA sin nadie que responda por él es el fallo que
+// esta parte existe para impedir.
+{
+  const ANA = { id: 'u-ana', name: 'Ana Ruiz' };
+  const LUIS = { id: 'u-luis', name: 'Luis Pardo' };
+  let w = ws.wsAddArea(ws.wsEmptyWorld(), { departmentId: 'produccion', name: 'Producción', structure: 'factory' }).world;
+  w = ws.wsAddStaff(w, { name: 'Editor', kind: 'ai', agentId: 'video-editor', areaId: 'Producción' }).world;
+  const area = () => w.areas[0];
+
+  eq('un área nace sin responsable', area().ownerId, '');
+  eq('y con agentes dentro sale en la lista de huérfanas', ws.wsAreasWithoutOwner(w).length, 1);
+  eq('la lista dice cuántos agentes quedan sin mando', ws.wsAreasWithoutOwner(w)[0].agentes, 1);
+
+  // Sin identificador de usuario no hay responsable: el nombre a mano no vale.
+  const noId = ws.wsSetAreaOwner(w, area().id, { name: 'Alguien de la oficina' });
+  eq('un responsable sin identificador se rechaza', noId.ok, false);
+  check('y el motivo dice de dónde tiene que salir', /usuario del anfitrión|directorio/i.test(noId.error), noId.error);
+  eq('nombrar responsable de un área inexistente se rechaza', ws.wsSetAreaOwner(w, 'fantasma', ANA).ok, false);
+
+  const before = J(w);
+  const r1 = ws.wsSetAreaOwner(w, 'Producción', ANA);
+  check('nombrar responsable funciona', r1.ok, J(r1));
+  check('el mensaje dice por cuántos agentes responde', /1 agente/.test(r1.message), r1.message);
+  eq('nombrar responsable no muta la entrada', J(w), before);
+  w = r1.world;
+  eq('el área queda con responsable', area().ownerId, 'u-ana');
+  eq('y guarda su nombre para el mapa', area().ownerName, 'Ana Ruiz');
+  eq('ya no está en la lista de huérfanas', ws.wsAreasWithoutOwner(w).length, 0);
+
+  // El responsable aparece en el mapa: si no se ve, no está a la vista.
+  const ana = w.staff.find((p) => p.userId === 'u-ana');
+  check('el responsable entra como avatar humano', !!ana && ana.kind === 'human', J(ana));
+  check('marcado como responsable', ana.isOwner);
+  check('y creado por la propia asignación', ana.auto);
+
+  // Cambiar de responsable: se va el avatar que creamos, no el que puso el
+  // usuario a mano.
+  w = ws.wsAddStaff(w, { name: 'Luis Pardo', kind: 'human', role: 'Productor', areaId: area().id, userId: 'u-luis' }).world;
+  const r2 = ws.wsSetAreaOwner(w, area().id, LUIS);
+  check('cambiar de responsable funciona', r2.ok, J(r2));
+  w = r2.world;
+  eq('el avatar automático del anterior se retira', w.staff.filter((p) => p.userId === 'u-ana').length, 0);
+  eq('el que estaba a mano se queda y toma el mando', w.staff.filter((p) => p.userId === 'u-luis').length, 1);
+  check('y no se duplica al asignarlo', w.staff.find((p) => p.userId === 'u-luis').isOwner);
+  eq('solo hay un responsable por área', w.staff.filter((p) => p.areaId === area().id && p.isOwner).length, 1);
+
+  // Al responsable no se le muda de departamento por la puerta de atrás.
+  const luis = w.staff.find((p) => p.userId === 'u-luis');
+  w = ws.wsAddArea(w, { departmentId: 'marketing', name: 'Marketing', structure: 'office' }).world;
+  const move = ws.wsUpdateStaff(w, luis.id, { areaId: 'Marketing' });
+  eq('mudar al responsable se rechaza', move.ok, false);
+  check('y el motivo nombra su departamento', /Producción/.test(move.error), move.error);
+
+  // Darle de baja deja el área sin mando, y se dice.
+  const drop = ws.wsRemoveStaff(w, luis.id);
+  check('dar de baja al responsable funciona', drop.ok, J(drop));
+  check('avisa de que el área se queda sin responsable', /sin responsable/.test(drop.message), drop.message);
+  eq('y el área deja de apuntar a quien ya no está', drop.world.areas[0].ownerId, '');
+  eq('vuelve a la lista de huérfanas', ws.wsAreasWithoutOwner(drop.world).length, 1);
+
+  // Quitar el mando a propósito.
+  const clear = ws.wsClearAreaOwner(w, area().id);
+  check('quitar el responsable funciona', clear.ok, J(clear));
+  check('y avisa de los agentes que quedan sin nadie', /agente/.test(clear.message), clear.message);
+  eq('quitarlo dos veces se rechaza', ws.wsClearAreaOwner(clear.world, area().id).ok, false);
+
+  // Borrar el departamento se lleva su avatar automático, no a las personas.
+  let w2 = ws.wsSetAreaOwner(w, area().id, ANA).world;
+  w2 = ws.wsAddStaff(w2, { name: 'Marta', kind: 'human', areaId: area().id }).world;
+  const gone = ws.wsRemoveArea(w2, area().id);
+  eq('borrar el área retira el avatar automático del responsable', gone.world.staff.filter((p) => p.userId === 'u-ana').length, 0);
+  check('pero reubica a las personas de carne y hueso', gone.world.staff.some((p) => p.name === 'Marta'));
+
+  // Un área con responsable pero sin agentes no es un problema; una con
+  // agentes y sin responsable, sí.
+  const sum = ws.wsWorldSummary(w2);
+  eq('el resumen cuenta las áreas con responsable', sum.conResponsable, 1);
+  check('y nombra las que no lo tienen', Array.isArray(sum.sinResponsable), J(sum.sinResponsable));
+
+  // Un documento manipulado no puede colar dos responsables ni un agente
+  // haciéndose pasar por usuario.
+  const forged = ws.wsMigrateWorld({
+    grid: { w: 10, h: 10 },
+    areas: [{ id: 'a1', name: 'X', structure: 'office', x: 0, y: 0, w: 2, h: 2,
+      stations: [{ id: 's1', name: 'P' }], ownerId: 'u-ana', ownerName: 'Ana Ruiz' }],
+    staff: [
+      { id: 'p1', name: 'Ana Ruiz', kind: 'human', areaId: 'a1', stationId: 's1', userId: 'u-ana', isOwner: true },
+      { id: 'p2', name: 'Impostor', kind: 'human', areaId: 'a1', stationId: 's1', userId: 'u-otro', isOwner: true },
+    ],
+  });
+  eq('al cargar, la marca de responsable se recalcula desde el área',
+    forged.staff.filter((p) => p.isOwner).length, 1);
+  eq('y le toca a quien dice el área', forged.staff.find((p) => p.isOwner).userId, 'u-ana');
+
+  const aiUser = ws.wsAddStaff(ws.wsAddArea(ws.wsEmptyWorld(), { departmentId: 'ti' }).world,
+    { name: 'Bot', kind: 'ai', userId: 'u-ana' }).world;
+  eq('un agente de IA no puede ser un usuario', aiUser.staff[0].userId, null);
 }
 
 // ── 5. Siembra desde el flujo de agentes ─────────────────────────────────

@@ -87,6 +87,15 @@ Lo importante es que **no es un decorado**:
 - Junto a ellos vive el **personal humano** que añadas, con su rol y su puesto.
   Nadie los simula como agentes: están para que se vea quién acompaña a cada
   máquina.
+- **Todo departamento con agentes de IA tiene una persona responsable**, y esa
+  persona es un **usuario de KIMOS**: se elige del directorio de la organización
+  (`/api/identity/actors`, el mismo que usan Kanban y Gantt, con el RBAC del
+  usuario como techo), no se escribe a mano. Su avatar lleva una estrella, la
+  estructura muestra quién responde por ella, y los departamentos que se quedan
+  sin nadie salen marcados en rojo con un aviso arriba de la vista. Al
+  responsable no se le muda de departamento por la puerta de atrás, y darle de
+  baja deja el departamento explícitamente sin responsable en vez de apuntar a
+  alguien que ya no está.
 - Áreas, procesos y personas se **añaden, editan y borran** en cualquiera de las
   ambientaciones, desde la interfaz o con la tool `SET_ORG` del agente. Borrar
   un departamento **reubica** a su gente en vez de despedirla, y el mapa no se
@@ -195,8 +204,8 @@ No escribe nada en ProductLab.
 
 ```bash
 node apps/kreative-studio/build.mjs                        # src/ + worldskin → dist/
-node apps/kreative-studio/test/test-app.mjs                # 283 comprobaciones, sin dependencias
-node packages/kimos-worldskin/test/test-worldskin.mjs      # 138 del paquete y su contrato
+node apps/kreative-studio/test/test-app.mjs                # 307 comprobaciones, sin dependencias
+node packages/kimos-worldskin/test/test-worldskin.mjs      # 174 del paquete y su contrato
 node apps/kreative-studio/test/test-render.mjs             # render REAL (requiere ffmpeg)
 node tools/pack.mjs apps/kreative-studio                   # → kreative-studio-1.0.0.kapp
 ```

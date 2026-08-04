@@ -1578,6 +1578,12 @@ const wsStructureName = (id, worldKind) => {
 // IA y personas. Es el mismo modelo en las tres ambientaciones — la villa, el
 // hotel y el territorio son solo formas de dibujarlo.
 //
+// RESPONSABLE: un departamento con agentes de IA trabajando dentro tiene que
+// tener una persona que responda por él. Ese responsable no es texto libre:
+// es un USUARIO DEL ANFITRIÓN (en KIMOS, un usuario de la organización), y
+// aquí se guardan solo su identificador y su nombre. El paquete NO hace red:
+// el directorio de usuarios lo aporta la app (ver docs/CONTRATO.md).
+//
 // Todas las mutaciones son puras: reciben el mundo y devuelven uno nuevo con
 // `{ world, ok, error }`. Nunca lanzan por datos del usuario.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1605,6 +1611,8 @@ function wsMigrateWorld(raw) {
       x: wsClamp(wsNum(a.x, 0), 0, w - 1), y: wsClamp(wsNum(a.y, 0), 0, h - 1),
       w: wsClamp(wsNum(a.w, st.w), 1, 8), h: wsClamp(wsNum(a.h, st.h), 1, 8),
       note: wsS(a.note),
+      ownerId: wsS(a.ownerId),           // usuario del anfitrión responsable
+      ownerName: wsS(a.ownerName),       // su nombre, cacheado para el mapa
       stations: wsArr(a.stations).slice(0, 12).map((p, j) => ({
         id: wsS(p.id) || 'st-' + i + '-' + j,
         name: wsS(p.name) || 'Puesto ' + (j + 1),
@@ -1617,6 +1625,7 @@ function wsMigrateWorld(raw) {
     const areaId = areaIds.has(wsS(p.areaId)) ? wsS(p.areaId) : (areas[0] ? areas[0].id : '');
     const area = areas.find((a) => a.id === areaId);
     const stIds = area ? area.stations.map((x) => x.id) : [];
+    const userId = wsS(p.userId) || null;
     return {
       id: wsS(p.id) || 'staff-' + i,
       name: wsS(p.name) || 'Sin nombre',
@@ -1625,6 +1634,11 @@ function wsMigrateWorld(raw) {
       areaId,
       stationId: stIds.indexOf(wsS(p.stationId)) >= 0 ? wsS(p.stationId) : (stIds[0] || ''),
       agentId: wsS(p.agentId) || null,     // enlaza con un agente del flujo
+      userId,                              // enlaza con un usuario del anfitrión
+      // La marca de responsable se deriva del área, no se cree a ciegas: así
+      // un documento manipulado no puede tener dos responsables en un área.
+      isOwner: !!userId && !!area && userId === wsS(area.ownerId),
+      auto: !!p.auto,                      // avatar creado al asignar el mando
     };
   });
   return { schema: 1, wsVersion: WS_VERSION, grid: { w, h }, areas, staff, seededFrom: wsS(d.seededFrom) };
@@ -1684,7 +1698,7 @@ function wsAddArea(world, spec) {
     departmentId: dep.id,
     structure: st.id,
     w: wsClamp(wsNum(sp.w, st.w), 1, 8), h: wsClamp(wsNum(sp.h, st.h), 1, 8),
-    note: wsS(sp.note),
+    note: wsS(sp.note), ownerId: '', ownerName: '',
     stations: wsArr(sp.stations).length
       ? wsArr(sp.stations).map((x, j) => ({ id: wsId('st'), name: wsS(x.name) || 'Puesto ' + (j + 1), process: wsS(x.process) }))
       : [{ id: wsId('st'), name: 'Puesto 1', process: '' }],
@@ -1699,7 +1713,12 @@ function wsAddArea(world, spec) {
     area.x = alt.x; area.y = alt.y;
   }
   w0.areas.push(area);
-  return wsDone(w0, 'Área «' + area.name + '» creada en (' + area.x + ',' + area.y + ').');
+  const created = 'Área «' + area.name + '» creada en (' + area.x + ',' + area.y + ').';
+  if (wsS(wsObj(sp.owner).id)) {
+    const withOwner = wsSetAreaOwner(w0, area.id, sp.owner);
+    if (withOwner.ok) return wsDone(withOwner.world, created + ' ' + withOwner.message);
+  }
+  return wsDone(w0, created);
 }
 
 /** Edición: nombre, departamento, estructura, tamaño, posición o nota. */
@@ -1733,12 +1752,16 @@ function wsRemoveArea(world, areaId) {
   if (i < 0) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
   const gone = w0.areas.splice(i, 1)[0];
   const dest = w0.areas[0] || null;
+  // El avatar que se creó solo al nombrar responsable se va con el área; el
+  // resto del personal se reubica, que para eso son personas de la empresa.
+  w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === gone.id && p.auto && p.isOwner));
   let moved = 0;
   for (const p of wsArr(w0.staff)) {
     if (p.areaId !== gone.id) continue;
     moved++;
     p.areaId = dest ? dest.id : '';
     p.stationId = dest && dest.stations[0] ? dest.stations[0].id : '';
+    p.isOwner = !!p.userId && !!dest && p.userId === wsS(dest.ownerId);
   }
   return wsDone(w0, 'Área «' + gone.name + '» eliminada.'
     + (moved ? ' ' + moved + ' persona(s) reubicadas' + (dest ? ' en «' + dest.name + '».' : ', sin área.') : ''));
@@ -1790,7 +1813,11 @@ function wsAddStaff(world, spec) {
     role: wsS(sp.role), areaId: area.id,
     stationId: (area.stations.find((x) => x.id === wsS(sp.stationId)) || area.stations[0] || {}).id || '',
     agentId: wsS(sp.agentId) || null,
+    userId: wsS(sp.userId) || null,
+    isOwner: false, auto: !!sp.auto,
   };
+  if (p.kind === 'ai') p.userId = null;    // un agente no es un usuario
+  p.isOwner = !!p.userId && p.userId === wsS(area.ownerId);
   w0.staff.push(p);
   return wsDone(w0, (p.kind === 'ai' ? 'Agente' : 'Persona') + ' «' + p.name + '» en «' + area.name + '».');
 }
@@ -1805,6 +1832,13 @@ function wsUpdateStaff(world, staffId, patch) {
   if (q.areaId !== undefined) {
     const a = wsArr(w0.areas).find((x) => x.id === wsS(q.areaId) || wsNorm(x.name) === wsNorm(q.areaId));
     if (!a) return wsFail(world, 'No existe el área destino.');
+    // Mudar al responsable dejaría su departamento sin nadie que responda sin
+    // que se note. Se cambia el responsable, no se muda el avatar.
+    if (p.isOwner && a.id !== p.areaId) {
+      const from = wsArr(w0.areas).find((x) => x.id === p.areaId);
+      return wsFail(world, '«' + p.name + '» es responsable de «' + (from ? from.name : 'su área')
+        + '». Cambia antes el responsable de ese departamento.');
+    }
     p.areaId = a.id;
     p.stationId = (a.stations[0] || {}).id || '';
   }
@@ -1814,12 +1848,97 @@ function wsUpdateStaff(world, staffId, patch) {
   }
   return wsDone(w0, '«' + p.name + '» actualizado.');
 }
+// ── Responsable de un departamento ────────────────────────────────────────
+// Un equipo de agentes de IA sin nadie que responda por él es exactamente el
+// problema que esta parte evita. El responsable es un usuario del anfitrión,
+// no un nombre escrito a mano: la app pasa `{ id, name }` de su directorio.
+
+/** ¿Cuántos agentes de IA trabajan en esa área? */
+const wsAiCount = (world, areaId) =>
+  wsArr(wsObj(world).staff).filter((p) => p.areaId === wsS(areaId) && p.kind === 'ai').length;
+
+function wsSetAreaOwner(world, areaId, user) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const u = wsObj(user);
+  const uid = wsS(u.id).trim();
+  if (!uid) {
+    return wsFail(world, 'El responsable tiene que ser un usuario del anfitrión: falta su identificador. '
+      + 'Elígelo del directorio, no lo escribas a mano.');
+  }
+  const name = wsS(u.name).trim() || uid;
+
+  const prev = wsS(a.ownerId);
+  if (prev && prev !== uid) {
+    // El avatar que creamos al asignar el mando se va con el mando; el que
+    // puso el usuario a mano se queda, solo pierde la marca.
+    w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === a.id && p.userId === prev && p.auto));
+    for (const p of wsArr(w0.staff)) if (p.areaId === a.id && p.userId === prev) p.isOwner = false;
+  }
+  a.ownerId = uid;
+  a.ownerName = name;
+
+  let person = wsArr(w0.staff).find((p) => p.areaId === a.id && p.userId === uid);
+  if (!person) {
+    if (wsArr(w0.staff).length >= WS_STAFF_MAX) return wsFail(world, 'Demasiado personal en el mapa.');
+    person = {
+      id: wsId('staff'), name, kind: 'human', role: 'Responsable de ' + a.name,
+      areaId: a.id, stationId: (wsArr(a.stations)[0] || {}).id || '',
+      agentId: null, userId: uid, isOwner: true, auto: true,
+    };
+    w0.staff.push(person);
+  } else {
+    person.isOwner = true;
+    person.name = name;
+    if (!wsS(person.role)) person.role = 'Responsable de ' + a.name;
+  }
+  const ai = wsAiCount(w0, a.id);
+  return wsDone(w0, '«' + name + '» responde por «' + a.name + '»'
+    + (ai ? ' y por sus ' + ai + ' agente(s) de IA.' : '.'));
+}
+
+function wsClearAreaOwner(world, areaId) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const prev = wsS(a.ownerId);
+  if (!prev) return wsFail(world, '«' + a.name + '» no tenía responsable.');
+  w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === a.id && p.userId === prev && p.auto));
+  for (const p of wsArr(w0.staff)) if (p.areaId === a.id && p.userId === prev) p.isOwner = false;
+  const ai = wsAiCount(w0, a.id);
+  a.ownerId = ''; a.ownerName = '';
+  return wsDone(w0, '«' + a.name + '» se queda sin responsable.'
+    + (ai ? ' Tiene ' + ai + ' agente(s) de IA trabajando sin nadie que responda por ellos.' : ''));
+}
+
+/** Departamentos con agentes de IA y sin responsable. Es la lista que importa. */
+function wsAreasWithoutOwner(world) {
+  return wsArr(wsObj(world).areas)
+    .filter((a) => !wsS(a.ownerId) && wsAiCount(world, a.id) > 0)
+    .map((a) => ({ id: a.id, name: a.name, agentes: wsAiCount(world, a.id) }));
+}
+
 function wsRemoveStaff(world, staffId) {
   const w0 = wsClone(world);
   const i = wsArr(w0.staff).findIndex((x) => x.id === wsS(staffId) || wsNorm(x.name) === wsNorm(staffId));
   if (i < 0) return wsFail(world, 'No existe en el personal.');
-  const gone = w0.staff.splice(i, 1)[0];
-  return wsDone(w0, '«' + gone.name + '» dado de baja del mapa.');
+  const gone = w0.staff[i];
+  // Dar de baja al responsable deja el departamento sin mando: se dice, y el
+  // área se queda explícitamente sin responsable en vez de apuntar a alguien
+  // que ya no está.
+  let note = '';
+  if (gone.isOwner) {
+    const a = wsArr(w0.areas).find((x) => x.id === gone.areaId);
+    if (a) {
+      a.ownerId = ''; a.ownerName = '';
+      const ai = wsAiCount(w0, a.id);
+      note = ' «' + a.name + '» se queda sin responsable'
+        + (ai ? ', con ' + ai + ' agente(s) de IA dentro.' : '.');
+    }
+  }
+  w0.staff.splice(i, 1);
+  return wsDone(w0, '«' + gone.name + '» dado de baja del mapa.' + note);
 }
 function wsResizeGrid(world, w, h) {
   const w0 = wsClone(world);
@@ -1896,6 +2015,9 @@ function wsWorldSummary(world) {
     agentes: wsArr(w.staff).filter((p) => p.kind === 'ai').length,
     mapa: wsObj(w.grid).w + '×' + wsObj(w.grid).h,
     departamentos: Object.keys(byDep).map((k) => wsDepartmentById(k).label),
+    conResponsable: wsArr(w.areas).filter((a) => wsS(a.ownerId)).length,
+    // Lo que de verdad hay que mirar: equipos de IA sin nadie que responda.
+    sinResponsable: wsAreasWithoutOwner(w).map((x) => x.name),
   };
 }
 
@@ -2159,7 +2281,8 @@ function wsSimInit(world, prev) {
     const seed = wsHash(p.id + p.name);
     return {
       id: p.id, name: p.name, kind: p.kind, role: p.role,
-      agentId: p.agentId || null, areaId: area ? area.id : '',
+      agentId: p.agentId || null, userId: p.userId || null, isOwner: !!p.isOwner,
+      areaId: area ? area.id : '',
       x: old ? old.x : home.x, y: old ? old.y : home.y,
       tx: home.x, ty: home.y,          // destino
       homeX: home.x, homeY: home.y,
@@ -4945,6 +5068,49 @@ export default function mount(shell) {
   }
   function setUi(patch) { ui = Object.assign({}, ui, obj(patch)); emit(); }
 
+  // ── Directorio de usuarios de KIMOS ────────────────────────────────────
+  // El responsable de un departamento NO es texto libre: es un usuario de la
+  // organización. La lista la sirve el host en `/api/identity/actors`, la
+  // misma que usan Kanban y Gantt para asignar trabajo, con el RBAC del
+  // usuario como techo. Solo se guardan en el documento el id y el nombre;
+  // el directorio no se persiste.
+  let directory = { users: [], loaded: false, error: '' };
+
+  async function loadDirectory() {
+    if (typeof shell.authFetch !== 'function') {
+      directory = { users: [], loaded: true,
+        error: 'Este host no expone el directorio de usuarios, así que no se puede elegir responsable.' };
+      return;
+    }
+    try {
+      const res = await shell.authFetch(API + '/api/identity/actors', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const users = arr(obj(data).actors)
+        .filter((a) => obj(a).active !== false && s(obj(a).kind || obj(a).type) !== 'agent')
+        .map((a) => ({ id: s(a.id), name: s(a.displayName || a.name || a.email || a.id), email: s(a.email) }))
+        .filter((a) => a.id);
+      directory = { users, loaded: true,
+        error: users.length ? '' : 'El directorio no devolvió ningún usuario.' };
+    } catch (e) {
+      directory = { users: [], loaded: true,
+        error: 'No se pudo leer el directorio de usuarios: ' + ((e && e.message) || 'error') };
+    }
+    if (!cancelled) emit();
+  }
+
+  /** Busca un usuario por id, nombre o correo. Para la UI y para el agente. */
+  function findUser(needle) {
+    const q = norm(needle);
+    if (!q) return null;
+    const list = arr(directory.users);
+    return list.find((u) => u.id === s(needle))
+      || list.find((u) => norm(u.email) === q)
+      || list.find((u) => norm(u.name) === q)
+      || list.find((u) => norm(u.name).indexOf(q) >= 0)
+      || null;
+  }
+
   // ── Puerto de persistencia de assets y costes (shell.items) ────────────
   const hasItems = shell.items && typeof shell.items.list === 'function';
 
@@ -5244,6 +5410,9 @@ export default function mount(shell) {
       else if (data && data.brief) model = migrate(data);
       await loadItems();
       if (cancelled) return;
+      // El directorio no bloquea la apertura: la app sirve sin él, solo no
+      // deja elegir responsable hasta que llega.
+      loadDirectory();
       reconcileJobs(model, assets);
       // Campaña recién creada: se abre por la Guía. Quien ya tiene trabajo
       // hecho entra directo al Panel, que es lo que espera.
@@ -5364,12 +5533,16 @@ export default function mount(shell) {
       } } },
     { name: 'SET_ORG',
       description: 'Edita el mapa de la organización que se recorre en la vista Organización: áreas (departamentos), '
-        + 'puestos (procesos internos de cada departamento) y personal (personas y agentes de IA). '
+        + 'puestos (procesos internos de cada departamento), personal (personas y agentes de IA) y el RESPONSABLE '
+        + 'de cada departamento, que tiene que ser un usuario de KIMOS. Todo departamento con agentes de IA debe '
+        + 'tener responsable: `organizacion.sinResponsable` del snapshot dice cuáles no lo tienen. '
         + 'Es el mismo mapa en las cuatro ambientaciones: cambiar el aspecto no lo modifica. '
         + 'Los agentes del flujo ya están dentro como personal de IA; para apagarlos usa SET_WORKFLOW, no borres su avatar.',
       inputSchema: { type: 'object', properties: {
         op: { type: 'string', description: 'add_area | update_area | remove_area | add_station | update_station '
-          + '| remove_station | add_staff | update_staff | remove_staff | resize | reseed' },
+          + '| remove_station | add_staff | update_staff | remove_staff | set_owner | clear_owner | resize | reseed' },
+        user: { type: 'string', description: 'Para set_owner: id, nombre o correo de un USUARIO DE KIMOS. '
+          + 'Los usuarios disponibles vienen en el snapshot (organizacion.usuariosKimos). No vale un nombre inventado.' },
         areaId: { type: 'string', description: 'Id o nombre del área.' },
         stationId: { type: 'string', description: 'Id o nombre del puesto.' },
         staffId: { type: 'string', description: 'Id o nombre de la persona/agente.' },
@@ -5814,13 +5987,30 @@ export default function mount(shell) {
           update_staff: (w) => wsUpdateStaff(w, p.staffId, p),
           remove_staff: (w) => wsRemoveStaff(w, p.staffId),
           resize: (w) => wsResizeGrid(w, numOr(p.gridW, obj(w.grid).w), numOr(p.gridH, obj(w.grid).h)),
+          clear_owner: (w) => wsClearAreaOwner(w, p.areaId),
         };
         if (op === 'reseed') {
           patch((m) => { m.world = seedOrgWorld(m); logLine(m, 'info', 'Organización · mapa sembrado de nuevo.'); });
           return { success: true, message: 'Mapa sembrado de nuevo desde el flujo de agentes.',
             data: wsWorldSummary(model.world) };
         }
-        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['reseed']).join(', ') + '.' };
+        // El responsable se resuelve contra el directorio de KIMOS: no se
+        // acepta un nombre inventado, porque entonces la responsabilidad no
+        // apuntaría a nadie con cuenta en la organización.
+        if (op === 'set_owner') {
+          if (!directory.loaded) return { success: false, error: 'El directorio de usuarios todavía no ha cargado. Inténtalo de nuevo.' };
+          if (directory.error) return { success: false, error: directory.error };
+          const who = findUser(p.user || p.staffId);
+          if (!who) {
+            return { success: false, error: 'No hay ningún usuario de KIMOS que case con «' + s(p.user) + '». '
+              + 'Disponibles: ' + arr(directory.users).map((u) => u.name).slice(0, 25).join(', ') + '.' };
+          }
+          const r0 = wsSetAreaOwner(model.world, p.areaId, who);
+          if (!r0.ok) return { success: false, error: s(r0.error) };
+          patch((m) => { m.world = r0.world; logLine(m, 'info', 'Organización · ' + s(r0.message)); });
+          return { success: true, message: s(r0.message), data: wsWorldSummary(model.world) };
+        }
+        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['set_owner', 'reseed']).join(', ') + '.' };
         // Un agente del flujo no se da de baja borrando su avatar: eso dejaría
         // el mapa mintiendo sobre quién trabaja aquí.
         if (op === 'remove_staff') {
@@ -6236,10 +6426,16 @@ export default function mount(shell) {
             areas: arr(model.world.areas).map((a) => ({ id: a.id, nombre: a.name,
               departamento: wsDepartmentById(a.departmentId).label, estructura: a.structure,
               procesos: arr(a.stations).map((x) => x.name),
+              responsable: s(a.ownerId) ? { id: a.ownerId, nombre: a.ownerName } : null,
               ocupantes: arr(model.world.staff).filter((x) => x.areaId === a.id).map((x) => x.name) })),
             personal: arr(model.world.staff).map((x) => ({ id: x.id, nombre: x.name, tipo: x.kind,
               rol: x.role, area: (arr(model.world.areas).find((a) => a.id === x.areaId) || {}).name || null,
-              agente: x.agentId || null })),
+              agente: x.agentId || null, usuarioKimos: x.userId || null, responsable: !!x.isOwner })),
+            sinResponsable: wsAreasWithoutOwner(model.world),
+            // Con quién se puede cumplir: los usuarios de KIMOS que el host
+            // deja ver a esta persona. Si está vacío, el host no lo expone.
+            usuariosKimos: arr(directory.users).map((u) => ({ id: u.id, nombre: u.name, correo: u.email })),
+            directorio: directory.loaded ? (directory.error || 'ok') : 'cargando',
           },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),
@@ -6895,9 +7091,9 @@ export default function mount(shell) {
       const originX = (wsNum(g.h, 12) * T) / 2 + 20;
       return {
         kind, T,
-        to: (cx, cy) => ({ x: (cx - cy) * (T / 2) + originX, y: (cx + cy) * (T / 4) + 34 }),
+        to: (cx, cy) => ({ x: (cx - cy) * (T / 2) + originX, y: (cx + cy) * (T / 4) + 60 }),
         width: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 2) + 40,
-        height: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 4) + 120,
+        height: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 4) + 146,
       };
     }
     // El margen superior deja sitio al rótulo, que va por encima de cada
@@ -6906,7 +7102,7 @@ export default function mount(shell) {
       kind, T,
       to: (cx, cy) => ({ x: cx * T + 14, y: cy * T + 22 }),
       width: wsNum(g.w, 16) * T + 28,
-      height: wsNum(g.h, 12) * T + 42,
+      height: wsNum(g.h, 12) * T + 52,
     };
   }
 
@@ -6932,6 +7128,12 @@ export default function mount(shell) {
     const sel = p.selected;
     const n = wsArr(a.stations).length;
     const sub = wsStructureName(st.id, pr.kind) + ' · ' + n + (n === 1 ? ' puesto' : ' puestos');
+    // Tercera línea: quién responde por esto. Si hay agentes de IA trabajando
+    // y nadie al mando, se dice aquí, no en un informe que nadie abre.
+    const ai = wsNum(p.ai, 0);
+    const owner = wsS(a.ownerName);
+    const rule = owner ? '★ ' + owner : (ai ? '⚠ sin responsable' : '');
+    const ruleClass = owner ? 'ws-struct-owner' : 'ws-struct-orphan';
     if (pr.kind === 'hotel') {
       const pts = wsAreaShape(pr, a);
       const top = pr.to(a.x + a.w / 2, a.y + a.h / 2);
@@ -6943,9 +7145,11 @@ export default function mount(shell) {
         h('line', { key: 'l1', x1: pts.split(' ')[0].split(',')[0], y1: pts.split(' ')[0].split(',')[1],
           x2: pts.split(' ')[0].split(',')[0], y2: Number(pts.split(' ')[0].split(',')[1]) - lift,
           stroke: dep.color, strokeWidth: 1, opacity: 0.6 }),
-        h('text', { key: 't', x: top.x, y: top.y - lift - 12, textAnchor: 'middle', className: 'ws-struct-label' },
+        h('text', { key: 't', x: top.x, y: top.y - lift - 22, textAnchor: 'middle', className: 'ws-struct-label' },
           dep.emoji + ' ' + a.name),
-        h('text', { key: 's', x: top.x, y: top.y - lift - 2, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+        h('text', { key: 's', x: top.x, y: top.y - lift - 12, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+        rule ? h('text', { key: 'o', x: top.x, y: top.y - lift - 2, textAnchor: 'middle',
+          className: cx('ws-struct-sub', ruleClass) }, rule) : null,
       ]);
     }
     const r = wsAreaShape(pr, a);
@@ -6970,6 +7174,8 @@ export default function mount(shell) {
       h('text', { key: 't', x: r.x + r.w / 2, y: r.y - 4, textAnchor: 'middle', className: 'ws-struct-label' },
         dep.emoji + ' ' + a.name),
       h('text', { key: 's', x: r.x + r.w / 2, y: r.y + r.h + 11, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+      rule ? h('text', { key: 'o', x: r.x + r.w / 2, y: r.y + r.h + 21, textAnchor: 'middle',
+        className: cx('ws-struct-sub', ruleClass) }, rule) : null,
     ]);
   }
 
@@ -6992,6 +7198,10 @@ export default function mount(shell) {
         ? h('rect', { key: 'e', x: -2.5, y: -16, width: 5, height: 1.8, fill: col.body })
         : h('rect', { key: 'e', x: 0.4, y: -15.6, width: 1.4, height: 1.4, fill: '#2A2A2A' }),
       a.kind === 'ai' ? h('rect', { key: 'a', x: -0.6, y: -21, width: 1.2, height: 3, fill: col.trim }) : null,
+      // Quien responde por el departamento se distingue de un vistazo: si hay
+      // que buscarlo en una lista, la responsabilidad no está a la vista.
+      a.isOwner ? h('polygon', { key: 'ow', className: 'ws-owner-mark',
+        points: '0,-25 1.9,-21.6 5.6,-21 2.9,-18.4 3.6,-14.8 0,-16.5 -3.6,-14.8 -2.9,-18.4 -5.6,-21 -1.9,-21.6' }) : null,
       a.bubble ? h('g', { key: 'bu', transform: 'translate(7,-20) scale(' + (a.face < 0 ? -1 : 1) + ',1)' }, [
         h('circle', { key: 'c', cx: 0, cy: 0, r: 5.5, fill: '#fff', opacity: 0.92 }),
         h('text', { key: 't', x: 0, y: 2.4, textAnchor: 'middle', className: 'ws-bubble' }, a.bubble),
@@ -7088,6 +7298,7 @@ export default function mount(shell) {
       h('g', { key: 'grid' }, lines),
       h('g', { key: 'areas' }, areas.map((a) => h(WsStructure, {
         key: a.id, area: a, pr, selected: p.selArea === a.id,
+        ai: wsArr(world.staff).filter((x) => x.areaId === a.id && x.kind === 'ai').length,
         onClick: () => p.onSelectArea && p.onSelectArea(a.id),
       }))),
       h('g', { key: 'actors' }, actors.map((a) => {
@@ -8456,6 +8667,68 @@ export default function mount(shell) {
     return { value: x.id, label: x.emoji + '  ' + x.label + (norm(local) === norm(x.label) ? '' : ' · ' + local) };
   });
 
+  // ── Responsable del departamento ───────────────────────────────────────
+  // Un equipo de agentes de IA sin nadie que responda por él es el problema
+  // que esto evita. Y el responsable no se escribe a mano: se elige de los
+  // usuarios de KIMOS, para que sea una persona de verdad con su cuenta.
+
+  const aiIn = (areaId) => arr(model.world.staff).filter((x) => x.areaId === areaId && x.kind === 'ai').length;
+
+  function ownerHelp(area, ai) {
+    const n = ai == null ? aiIn(area.id) : ai;
+    if (s(area.ownerId)) return 'Responde por este departamento' + (n ? ' y por sus ' + n + ' agente(s) de IA.' : '.');
+    return n ? 'Este departamento tiene ' + n + ' agente(s) de IA y nadie que responda por ellos.'
+      : 'Opcional mientras no haya agentes de IA trabajando aquí.';
+  }
+
+  function OwnerPicker(props) {
+    const area = obj(props).area;
+    const dir = directory;
+    const opts = [{ value: '', label: '— Sin responsable —' }]
+      .concat(arr(dir.users).map((u) => ({ value: u.id, label: u.name + (u.email ? '  ·  ' + u.email : '') })));
+    // Si el responsable guardado ya no está en el directorio (se dio de baja,
+    // o el host no responde) se conserva y se dice: perder el dato en
+    // silencio sería peor que enseñarlo desactualizado.
+    const known = arr(dir.users).some((u) => u.id === s(area.ownerId));
+    if (s(area.ownerId) && !known) {
+      opts.push({ value: s(area.ownerId), label: s(area.ownerName) + '  ·  (fuera del directorio)' });
+    }
+    return h('div', { className: 'ws-owner' }, [
+      h(Select, { key: 's', value: s(area.ownerId), options: opts, disabled: !dir.loaded,
+        onChange: (v) => {
+          if (!s(v)) { applyWorld((w) => wsClearAreaOwner(w, area.id)); return; }
+          const u = arr(dir.users).find((x) => x.id === s(v));
+          if (!u) { notify('error', 'Ese usuario ya no está en el directorio.'); return; }
+          applyWorld((w) => wsSetAreaOwner(w, area.id, u));
+        } }),
+      !dir.loaded ? h('span', { className: 'ws-mini', key: 'l' }, 'Cargando usuarios de KIMOS…') : null,
+      dir.loaded && dir.error ? h('span', { className: 'ks-warn ws-mini', key: 'e' }, dir.error) : null,
+    ]);
+  }
+
+  /** Aviso de departamentos con agentes de IA y sin nadie al mando. */
+  function OwnerGaps() {
+    const gaps = wsAreasWithoutOwner(model.world);
+    if (!gaps.length) return null;
+    return h(Card, { className: 'ws-gaps', title: 'Departamentos sin responsable',
+      actions: [h(Chip, { key: 'n', tone: 'bad' }, gaps.length + ' de ' + arr(model.world.areas).length)] }, [
+      h('p', { className: 'ks-lead', key: 'p' },
+        'Estos departamentos tienen agentes de IA trabajando y ninguna persona que responda por ellos. '
+        + 'El responsable se elige entre los usuarios de KIMOS.'),
+      h('div', { className: 'ks-list ws-list', key: 'l' }, gaps.map((g) => h('button', {
+        key: g.id, type: 'button', className: 'ws-row',
+        onClick: () => setUi({ worldArea: g.id, worldStaff: null, worldTab: 'areas' }),
+      }, [
+        h('span', { className: 'ws-row-dot', key: 'd', style: { background: 'var(--ks-bad)' } }),
+        h('span', { className: 'ws-row-body', key: 'b' }, [
+          h('strong', { key: 'n' }, g.name),
+          h('span', { key: 'm' }, plural(g.agentes, 'agente de IA sin responsable', 'agentes de IA sin responsable')),
+        ]),
+        h('span', { className: 'ws-row-tag', key: 't' }, 'Asignar'),
+      ]))),
+    ]);
+  }
+
   // ── Detalle de un área ─────────────────────────────────────────────────
   function AreaEditor(props) {
     const p = obj(props);
@@ -8473,6 +8746,8 @@ export default function mount(shell) {
           h(TextInput, { value: a.name, onChange: (v) => upd({ name: v }) })),
         h(Field, { key: 'd', label: 'Departamento' },
           h(Select, { value: a.departmentId, options: depOptions(), onChange: (v) => upd({ departmentId: v }) })),
+        h(Field, { key: 'own', label: 'Responsable', wide: true, help: ownerHelp(a) },
+          h(OwnerPicker, { area: a })),
         h(Field, { key: 's', label: 'Estructura',
           help: norm(wsStructureName(a.structure, kind)) === norm(wsStructureById(a.structure).label)
             ? '' : 'Aquí se ve como «' + wsStructureName(a.structure, kind) + '».' },
@@ -8560,6 +8835,15 @@ export default function mount(shell) {
         h('div', { key: '3' }, [h('span', { key: 'a' }, 'Escribe'), h('strong', { key: 'b' }, node.writes || '—')]),
       ]) : null,
       node ? h('p', { className: 'ws-mini', key: 'desc' }, node.description) : null,
+      // Quién responde por esta persona o por este agente. Para un agente de
+      // IA es lo primero que hay que poder contestar.
+      area ? h('p', { key: 'own', className: s(area.ownerId) ? 'ws-mini ws-owned' : 'ws-mini ws-orphan' },
+        person.isOwner ? '★ Responde por «' + area.name + '»' + (aiIn(area.id) ? ' y por sus ' + aiIn(area.id) + ' agente(s) de IA.' : '.')
+          : s(area.ownerId) ? '★ Responsable de «' + area.name + '»: ' + s(area.ownerName)
+            : '⚠ «' + area.name + '» no tiene responsable asignado.') : null,
+      area && !s(area.ownerId) ? h(Btn, { key: 'goa', size: 'sm', variant: 'ghost',
+        onClick: () => setUi({ worldArea: area.id, worldStaff: null, worldTab: 'areas' }) },
+        'Asignar responsable') : null,
       h('div', { className: 'ws-actions', key: 'a' }, [
         node ? h(Btn, { key: 'r', size: 'sm', variant: 'primary', disabled: node.disabled || node.blocked,
           onClick: () => runStages([node.id], node.name) }, 'Ponerle a trabajar') : null,
@@ -8647,6 +8931,7 @@ export default function mount(shell) {
         subtitle: plural(sum.areas, 'área', 'áreas') + ' · ' + plural(sum.puestos, 'proceso', 'procesos')
           + ' · ' + plural(sum.agentes, 'agente de IA', 'agentes de IA')
           + ' · ' + plural(sum.personas, 'persona', 'personas')
+          + ' · ' + sum.conResponsable + '/' + sum.areas + ' con responsable'
           + ' · mapa ' + sum.mapa + ' · ' + (KIND_LABEL[kind] || kind),
         actions: [
           h(Btn, { key: 'f', size: 'sm', onClick: () => setUi({ view: 'flow' }) }, 'Ir al flujo'),
@@ -8677,6 +8962,8 @@ export default function mount(shell) {
           [h('i', { key: 'd', style: { background: d.color } }), d.label])))),
       ]),
 
+      h(OwnerGaps, { key: 'gaps' }),
+
       h('div', { className: 'ws-cols', key: 'cols' }, [
         h(Card, { key: 'list', title: 'Qué hay en el mapa', flush: false }, [
           h('div', { className: 'ws-tabs', key: 't' }, [
@@ -8689,6 +8976,8 @@ export default function mount(shell) {
             ? h('div', { className: 'ks-list ws-list', key: 'la' }, arr(world.areas).map((a) => {
               const dep = wsDepartmentById(a.departmentId);
               const here = arr(world.staff).filter((x) => x.areaId === a.id).length;
+              const ai = aiIn(a.id);
+              const orphan = !s(a.ownerId) && ai > 0;
               return h('button', {
                 key: a.id, type: 'button', className: cx('ws-row', ui.worldArea === a.id && 'ws-row-on'),
                 onClick: () => setUi({ worldArea: a.id, worldStaff: null }),
@@ -8699,6 +8988,12 @@ export default function mount(shell) {
                   h('span', { key: 'm' }, wsStructureName(a.structure, kind) + ' · '
                     + plural(arr(a.stations).length, 'proceso', 'procesos') + ' · '
                     + plural(here, 'ocupante', 'ocupantes')),
+                  // Un área sin agentes tampoco necesita responsable: decir
+                  // «sin responsable» en todas convertiría el aviso en ruido.
+                  s(a.ownerId) || orphan
+                    ? h('span', { key: 'o', className: orphan ? 'ws-orphan' : 'ws-owned' },
+                      orphan ? '⚠ sin responsable' : '★ ' + s(a.ownerName))
+                    : null,
                 ]),
                 h('span', { className: 'ws-row-tag', key: 't' }, a.w + '×' + a.h),
               ]);
@@ -8755,6 +9050,7 @@ export default function mount(shell) {
         h('ul', { className: 'ks-list', key: 'l' }, [
           'Cada avatar de IA es un agente del flujo. Su comportamiento sale de su estado real: si se está ejecutando, camina a su puesto y trabaja; si está bloqueado, se planta con un «!»; si lo desactivas, se va a la zona común.',
           'Las personas son tuyas: añádelas, cámbialas de área y repártelas entre procesos. Nadie las ejecuta ni las simula como agentes; están para que se vea quién acompaña a cada máquina.',
+          'Cada departamento con agentes de IA tiene que tener una persona responsable, y esa persona es un usuario de KIMOS: se elige del directorio de la organización, no se escribe a mano. Su avatar lleva una estrella y el mapa marca en rojo los departamentos que se han quedado sin nadie al mando.',
           'Las áreas son departamentos y sus puestos son los procesos internos. Son los mismos datos en las cuatro ambientaciones: cambiar de villa a hotel o a territorio no mueve una sola celda.',
           'El movimiento se pausa cuando la ventana no está a la vista, y no arranca si tu sistema pide menos animación.',
         ].map((x, i) => h('li', { key: i }, x))),

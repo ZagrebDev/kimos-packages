@@ -59,7 +59,29 @@ Una app de KIMOS **puede** adoptar WorldSkin si cumple **todos** estos puntos.
 6. **Su CSS está enclaustrado** bajo una clase raíz propia (`.kimos-<app>`). El
    CSS de WorldSkin se anida bajo esa misma raíz al vendorizarlo.
 
-### 1.2 Descalificantes
+### 1.2 El directorio de personas lo pone el anfitrión
+
+Un departamento con agentes de IA trabajando dentro debe tener una **persona
+responsable**, y esa persona no puede ser texto libre: tiene que ser una cuenta
+real de la organización, para que la responsabilidad apunte a alguien.
+
+El paquete **no hace red**, así que no puede consultar ese directorio. El
+contrato es:
+
+- La app obtiene la lista de usuarios y se la pasa al selector.
+- El paquete guarda en el mundo **solo** `{ ownerId, ownerName }`, y en el
+  avatar correspondiente `userId`. Nada de correos, roles ni permisos.
+- `wsSetAreaOwner(world, areaId, { id, name })` **rechaza** un responsable sin
+  `id`: ahí es donde se corta el nombre inventado.
+- `wsAreasWithoutOwner(world)` devuelve los departamentos con agentes de IA y
+  sin responsable. Enséñalos; es el dato que justifica todo esto.
+
+En KIMOS, ese directorio es `GET /api/identity/actors` vía `shell.authFetch`
+—la misma fuente que usan Kanban y Gantt para asignar trabajo, con el RBAC del
+usuario como techo—. En otro anfitrión, lo que haga las veces. Si no hay
+directorio, la app debe decirlo y **conservar** lo ya asignado, nunca borrarlo.
+
+### 1.3 Descalificantes
 
 No adoptes WorldSkin si tu app:
 
@@ -107,6 +129,10 @@ model.world = wsSeedWorld(workflowPlan(model), {
 
 // 3. Normalizar al cargar, como con el resto del documento.
 out.world = wsMigrateWorld(d.world);
+
+// 4. Nombrar responsable: el usuario sale del directorio del anfitrión.
+const r = wsSetAreaOwner(world, areaId, { id: user.id, name: user.name });
+if (r.ok) world = r.world; else notify('error', r.error);
 ```
 
 ---
@@ -179,6 +205,12 @@ Estas son las promesas que hacen que adoptarlo no sea un riesgo. Las verifica
 10. **Sin permisos nuevos.** WorldSkin no necesita ningún permiso del manifiesto
     que la app no tuviera ya. No lee de otras apps ni escribe fuera de su
     instancia.
+11. **La responsabilidad no se puede falsear.** Un responsable sin identificador
+    de usuario se rechaza; al cargar, la marca de responsable se **recalcula**
+    desde el área, así que un documento manipulado no puede tener dos; al
+    responsable no se le muda de departamento por la puerta de atrás; y darle
+    de baja deja el área explícitamente sin responsable en vez de apuntar a
+    alguien que ya no está.
 
 ---
 

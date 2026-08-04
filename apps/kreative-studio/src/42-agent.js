@@ -79,12 +79,16 @@
       } } },
     { name: 'SET_ORG',
       description: 'Edita el mapa de la organización que se recorre en la vista Organización: áreas (departamentos), '
-        + 'puestos (procesos internos de cada departamento) y personal (personas y agentes de IA). '
+        + 'puestos (procesos internos de cada departamento), personal (personas y agentes de IA) y el RESPONSABLE '
+        + 'de cada departamento, que tiene que ser un usuario de KIMOS. Todo departamento con agentes de IA debe '
+        + 'tener responsable: `organizacion.sinResponsable` del snapshot dice cuáles no lo tienen. '
         + 'Es el mismo mapa en las cuatro ambientaciones: cambiar el aspecto no lo modifica. '
         + 'Los agentes del flujo ya están dentro como personal de IA; para apagarlos usa SET_WORKFLOW, no borres su avatar.',
       inputSchema: { type: 'object', properties: {
         op: { type: 'string', description: 'add_area | update_area | remove_area | add_station | update_station '
-          + '| remove_station | add_staff | update_staff | remove_staff | resize | reseed' },
+          + '| remove_station | add_staff | update_staff | remove_staff | set_owner | clear_owner | resize | reseed' },
+        user: { type: 'string', description: 'Para set_owner: id, nombre o correo de un USUARIO DE KIMOS. '
+          + 'Los usuarios disponibles vienen en el snapshot (organizacion.usuariosKimos). No vale un nombre inventado.' },
         areaId: { type: 'string', description: 'Id o nombre del área.' },
         stationId: { type: 'string', description: 'Id o nombre del puesto.' },
         staffId: { type: 'string', description: 'Id o nombre de la persona/agente.' },
@@ -529,13 +533,30 @@
           update_staff: (w) => wsUpdateStaff(w, p.staffId, p),
           remove_staff: (w) => wsRemoveStaff(w, p.staffId),
           resize: (w) => wsResizeGrid(w, numOr(p.gridW, obj(w.grid).w), numOr(p.gridH, obj(w.grid).h)),
+          clear_owner: (w) => wsClearAreaOwner(w, p.areaId),
         };
         if (op === 'reseed') {
           patch((m) => { m.world = seedOrgWorld(m); logLine(m, 'info', 'Organización · mapa sembrado de nuevo.'); });
           return { success: true, message: 'Mapa sembrado de nuevo desde el flujo de agentes.',
             data: wsWorldSummary(model.world) };
         }
-        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['reseed']).join(', ') + '.' };
+        // El responsable se resuelve contra el directorio de KIMOS: no se
+        // acepta un nombre inventado, porque entonces la responsabilidad no
+        // apuntaría a nadie con cuenta en la organización.
+        if (op === 'set_owner') {
+          if (!directory.loaded) return { success: false, error: 'El directorio de usuarios todavía no ha cargado. Inténtalo de nuevo.' };
+          if (directory.error) return { success: false, error: directory.error };
+          const who = findUser(p.user || p.staffId);
+          if (!who) {
+            return { success: false, error: 'No hay ningún usuario de KIMOS que case con «' + s(p.user) + '». '
+              + 'Disponibles: ' + arr(directory.users).map((u) => u.name).slice(0, 25).join(', ') + '.' };
+          }
+          const r0 = wsSetAreaOwner(model.world, p.areaId, who);
+          if (!r0.ok) return { success: false, error: s(r0.error) };
+          patch((m) => { m.world = r0.world; logLine(m, 'info', 'Organización · ' + s(r0.message)); });
+          return { success: true, message: s(r0.message), data: wsWorldSummary(model.world) };
+        }
+        if (!OPS[op]) return { success: false, error: 'op desconocido. Válidos: ' + Object.keys(OPS).concat(['set_owner', 'reseed']).join(', ') + '.' };
         // Un agente del flujo no se da de baja borrando su avatar: eso dejaría
         // el mapa mintiendo sobre quién trabaja aquí.
         if (op === 'remove_staff') {
@@ -951,10 +972,16 @@
             areas: arr(model.world.areas).map((a) => ({ id: a.id, nombre: a.name,
               departamento: wsDepartmentById(a.departmentId).label, estructura: a.structure,
               procesos: arr(a.stations).map((x) => x.name),
+              responsable: s(a.ownerId) ? { id: a.ownerId, nombre: a.ownerName } : null,
               ocupantes: arr(model.world.staff).filter((x) => x.areaId === a.id).map((x) => x.name) })),
             personal: arr(model.world.staff).map((x) => ({ id: x.id, nombre: x.name, tipo: x.kind,
               rol: x.role, area: (arr(model.world.areas).find((a) => a.id === x.areaId) || {}).name || null,
-              agente: x.agentId || null })),
+              agente: x.agentId || null, usuarioKimos: x.userId || null, responsable: !!x.isOwner })),
+            sinResponsable: wsAreasWithoutOwner(model.world),
+            // Con quién se puede cumplir: los usuarios de KIMOS que el host
+            // deja ver a esta persona. Si está vacío, el host no lo expone.
+            usuariosKimos: arr(directory.users).map((u) => ({ id: u.id, nombre: u.name, correo: u.email })),
+            directorio: directory.loaded ? (directory.error || 'ok') : 'cargando',
           },
           proveedoresDisponibles: CAPABILITIES.reduce((acc, cp) => { acc[cp.id] = providersFor(cp.id).map((x) => x.id); return acc; }, {}),
         }),

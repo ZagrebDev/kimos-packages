@@ -83,7 +83,8 @@ pierde el progreso.
 | `REGISTER_PROVIDER` | Da de alta un modelo nuevo en caliente con una plantilla. |
 | `SET_WORKFLOW` | Reordena y activa/desactiva agentes. Corrige el orden si rompe una dependencia. |
 | `SET_THEME` | Forma (`classic`/`game`) y modo. Solo presentación. |
-| `SET_ORG` | Edita el mapa de la organización: `add_area`, `update_area`, `remove_area`, `add_station`, `update_station`, `remove_station`, `add_staff`, `update_staff`, `remove_staff`, `resize`, `reseed`. Áreas y personas se pueden nombrar por su nombre, no solo por id. Borrar un avatar de agente se rechaza y remite a `SET_WORKFLOW`. |
+| `SET_ORG` | Edita el mapa de la organización: `add_area`, `update_area`, `remove_area`, `add_station`, `update_station`, `remove_station`, `add_staff`, `update_staff`, `remove_staff`, `set_owner`, `clear_owner`, `resize`, `reseed`. Áreas y personas se pueden nombrar por su nombre, no solo por id. Borrar un avatar de agente se rechaza y remite a `SET_WORKFLOW`. |
+| `SET_ORG · set_owner` | Nombra al responsable humano de un departamento. `user` acepta id, nombre o correo, pero **solo** de un usuario de KIMOS: el snapshot los lista en `organizacion.usuariosKimos` y un nombre inventado se rechaza enumerando los válidos. `organizacion.sinResponsable` dice qué departamentos tienen agentes de IA y nadie al mando. |
 
 ### Storyboard
 

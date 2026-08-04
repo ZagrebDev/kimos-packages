@@ -62,12 +62,21 @@ world
 │   ├── departmentId  rrhh · finanzas · marketing · producción · …
 │   ├── structure     sede · oficina · laboratorio · planta · almacén · …
 │   ├── x, y, w, h    celdas que ocupa (iguales en las tres ambientaciones)
-│   └── stations[]    los puestos = procesos internos del departamento
+│   ├── stations[]    los puestos = procesos internos del departamento
+│   └── ownerId/Name  ← la PERSONA que responde por el departamento
 └── staff[]    personas y agentes de IA      hasta 200
     ├── kind        'ai' | 'human'
     ├── areaId, stationId
-    └── agentId     ← enlaza con un agente del flujo de la app
+    ├── agentId     ← enlaza con un agente del flujo de la app
+    ├── userId      ← enlaza con un usuario del anfitrión (KIMOS)
+    └── isOwner     ← es el responsable de su departamento
 ```
+
+**Todo departamento con agentes de IA necesita un responsable humano**, y ese
+responsable es un **usuario del anfitrión**, no un nombre escrito a mano: la app
+pasa `{ id, name }` de su directorio y el paquete rechaza cualquier cosa sin
+identificador. `wsAreasWithoutOwner(world)` devuelve los que están sin cubrir,
+para que se vean en la interfaz en vez de quedar en un informe.
 
 La misma área ocupa las mismas celdas en la villa, en el hotel y en el
 territorio. Cambiar de ambientación **no mueve nada**: solo cambia la proyección.
@@ -85,6 +94,11 @@ let world = wsSeedWorld(workflowPlan(model), { appId: 'mi-app', groups: [
 
 const r = wsAddArea(world, { departmentId: 'rrhh', name: 'Personas', structure: 'training' });
 if (r.ok) world = r.world; else notify('error', r.error);
+
+// El responsable sale del directorio del anfitrión, nunca de un campo de texto.
+const o = wsSetAreaOwner(world, 'Producción', { id: 'u-ana', name: 'Ana Ruiz' });
+if (o.ok) world = o.world;
+wsAreasWithoutOwner(world);   // → equipos de IA sin nadie que responda
 
 // UI (dentro de mount)
 h(WsWorldSurface, {

@@ -85,7 +85,8 @@ function wsSimInit(world, prev) {
     const seed = wsHash(p.id + p.name);
     return {
       id: p.id, name: p.name, kind: p.kind, role: p.role,
-      agentId: p.agentId || null, areaId: area ? area.id : '',
+      agentId: p.agentId || null, userId: p.userId || null, isOwner: !!p.isOwner,
+      areaId: area ? area.id : '',
       x: old ? old.x : home.x, y: old ? old.y : home.y,
       tx: home.x, ty: home.y,          // destino
       homeX: home.x, homeY: home.y,

@@ -838,7 +838,12 @@
   paint-order: stroke; stroke: var(--ks-media); stroke-width: 2.5px; stroke-linejoin: round;
 }
 
+/* Quién responde por el departamento, y quién no responde por nadie. */
+.kimos-kreative .ws-struct-owner { fill: var(--ks-ok); }
+.kimos-kreative .ws-struct-orphan { fill: var(--ks-bad); font-weight: 700; }
+
 /* ── Avatares ────────────────────────────────────────────────────────────── */
+.kimos-kreative .ws-owner-mark { fill: var(--ks-ink, var(--ks-accent)); stroke: rgba(0, 0, 0, .35); stroke-width: .5; }
 .kimos-kreative .ws-actor { cursor: pointer; }
 .kimos-kreative .ws-actor-off { opacity: .55; }
 .kimos-kreative .ws-actor-sel rect:nth-of-type(1) { stroke: var(--ks-ink, var(--ks-accent)); stroke-width: 1.4; }
@@ -878,6 +883,13 @@
 }
 .kimos-kreative .ws-tab-on { background: var(--ks-accent); border-color: var(--ks-accent); color: #05171A; font-weight: 600; }
 .kimos-kreative .ws-mini { font-size: 11.5px; color: var(--ks-txt3); margin: 0; line-height: 1.5; }
+.kimos-kreative .ws-owner { display: flex; flex-direction: column; gap: 5px; }
+.kimos-kreative .ws-owned { color: var(--ks-ok); }
+.kimos-kreative .ws-orphan { color: var(--ks-bad); font-weight: 600; }
+.kimos-kreative .ws-row-body .ws-owned,
+.kimos-kreative .ws-row-body .ws-orphan { font-size: 11px; }
+.kimos-kreative .ws-gaps { border-color: var(--ks-bad); }
+.kimos-kreative .ws-gaps .ws-row { border-left: 3px solid var(--ks-bad); }
 .kimos-kreative .ws-subhead {
   margin: 14px 0 4px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--ks-txt3); font-weight: 700;

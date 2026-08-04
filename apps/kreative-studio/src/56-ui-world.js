@@ -27,6 +27,68 @@
     return { value: x.id, label: x.emoji + '  ' + x.label + (norm(local) === norm(x.label) ? '' : ' · ' + local) };
   });
 
+  // ── Responsable del departamento ───────────────────────────────────────
+  // Un equipo de agentes de IA sin nadie que responda por él es el problema
+  // que esto evita. Y el responsable no se escribe a mano: se elige de los
+  // usuarios de KIMOS, para que sea una persona de verdad con su cuenta.
+
+  const aiIn = (areaId) => arr(model.world.staff).filter((x) => x.areaId === areaId && x.kind === 'ai').length;
+
+  function ownerHelp(area, ai) {
+    const n = ai == null ? aiIn(area.id) : ai;
+    if (s(area.ownerId)) return 'Responde por este departamento' + (n ? ' y por sus ' + n + ' agente(s) de IA.' : '.');
+    return n ? 'Este departamento tiene ' + n + ' agente(s) de IA y nadie que responda por ellos.'
+      : 'Opcional mientras no haya agentes de IA trabajando aquí.';
+  }
+
+  function OwnerPicker(props) {
+    const area = obj(props).area;
+    const dir = directory;
+    const opts = [{ value: '', label: '— Sin responsable —' }]
+      .concat(arr(dir.users).map((u) => ({ value: u.id, label: u.name + (u.email ? '  ·  ' + u.email : '') })));
+    // Si el responsable guardado ya no está en el directorio (se dio de baja,
+    // o el host no responde) se conserva y se dice: perder el dato en
+    // silencio sería peor que enseñarlo desactualizado.
+    const known = arr(dir.users).some((u) => u.id === s(area.ownerId));
+    if (s(area.ownerId) && !known) {
+      opts.push({ value: s(area.ownerId), label: s(area.ownerName) + '  ·  (fuera del directorio)' });
+    }
+    return h('div', { className: 'ws-owner' }, [
+      h(Select, { key: 's', value: s(area.ownerId), options: opts, disabled: !dir.loaded,
+        onChange: (v) => {
+          if (!s(v)) { applyWorld((w) => wsClearAreaOwner(w, area.id)); return; }
+          const u = arr(dir.users).find((x) => x.id === s(v));
+          if (!u) { notify('error', 'Ese usuario ya no está en el directorio.'); return; }
+          applyWorld((w) => wsSetAreaOwner(w, area.id, u));
+        } }),
+      !dir.loaded ? h('span', { className: 'ws-mini', key: 'l' }, 'Cargando usuarios de KIMOS…') : null,
+      dir.loaded && dir.error ? h('span', { className: 'ks-warn ws-mini', key: 'e' }, dir.error) : null,
+    ]);
+  }
+
+  /** Aviso de departamentos con agentes de IA y sin nadie al mando. */
+  function OwnerGaps() {
+    const gaps = wsAreasWithoutOwner(model.world);
+    if (!gaps.length) return null;
+    return h(Card, { className: 'ws-gaps', title: 'Departamentos sin responsable',
+      actions: [h(Chip, { key: 'n', tone: 'bad' }, gaps.length + ' de ' + arr(model.world.areas).length)] }, [
+      h('p', { className: 'ks-lead', key: 'p' },
+        'Estos departamentos tienen agentes de IA trabajando y ninguna persona que responda por ellos. '
+        + 'El responsable se elige entre los usuarios de KIMOS.'),
+      h('div', { className: 'ks-list ws-list', key: 'l' }, gaps.map((g) => h('button', {
+        key: g.id, type: 'button', className: 'ws-row',
+        onClick: () => setUi({ worldArea: g.id, worldStaff: null, worldTab: 'areas' }),
+      }, [
+        h('span', { className: 'ws-row-dot', key: 'd', style: { background: 'var(--ks-bad)' } }),
+        h('span', { className: 'ws-row-body', key: 'b' }, [
+          h('strong', { key: 'n' }, g.name),
+          h('span', { key: 'm' }, plural(g.agentes, 'agente de IA sin responsable', 'agentes de IA sin responsable')),
+        ]),
+        h('span', { className: 'ws-row-tag', key: 't' }, 'Asignar'),
+      ]))),
+    ]);
+  }
+
   // ── Detalle de un área ─────────────────────────────────────────────────
   function AreaEditor(props) {
     const p = obj(props);
@@ -44,6 +106,8 @@
           h(TextInput, { value: a.name, onChange: (v) => upd({ name: v }) })),
         h(Field, { key: 'd', label: 'Departamento' },
           h(Select, { value: a.departmentId, options: depOptions(), onChange: (v) => upd({ departmentId: v }) })),
+        h(Field, { key: 'own', label: 'Responsable', wide: true, help: ownerHelp(a) },
+          h(OwnerPicker, { area: a })),
         h(Field, { key: 's', label: 'Estructura',
           help: norm(wsStructureName(a.structure, kind)) === norm(wsStructureById(a.structure).label)
             ? '' : 'Aquí se ve como «' + wsStructureName(a.structure, kind) + '».' },
@@ -131,6 +195,15 @@
         h('div', { key: '3' }, [h('span', { key: 'a' }, 'Escribe'), h('strong', { key: 'b' }, node.writes || '—')]),
       ]) : null,
       node ? h('p', { className: 'ws-mini', key: 'desc' }, node.description) : null,
+      // Quién responde por esta persona o por este agente. Para un agente de
+      // IA es lo primero que hay que poder contestar.
+      area ? h('p', { key: 'own', className: s(area.ownerId) ? 'ws-mini ws-owned' : 'ws-mini ws-orphan' },
+        person.isOwner ? '★ Responde por «' + area.name + '»' + (aiIn(area.id) ? ' y por sus ' + aiIn(area.id) + ' agente(s) de IA.' : '.')
+          : s(area.ownerId) ? '★ Responsable de «' + area.name + '»: ' + s(area.ownerName)
+            : '⚠ «' + area.name + '» no tiene responsable asignado.') : null,
+      area && !s(area.ownerId) ? h(Btn, { key: 'goa', size: 'sm', variant: 'ghost',
+        onClick: () => setUi({ worldArea: area.id, worldStaff: null, worldTab: 'areas' }) },
+        'Asignar responsable') : null,
       h('div', { className: 'ws-actions', key: 'a' }, [
         node ? h(Btn, { key: 'r', size: 'sm', variant: 'primary', disabled: node.disabled || node.blocked,
           onClick: () => runStages([node.id], node.name) }, 'Ponerle a trabajar') : null,
@@ -218,6 +291,7 @@
         subtitle: plural(sum.areas, 'área', 'áreas') + ' · ' + plural(sum.puestos, 'proceso', 'procesos')
           + ' · ' + plural(sum.agentes, 'agente de IA', 'agentes de IA')
           + ' · ' + plural(sum.personas, 'persona', 'personas')
+          + ' · ' + sum.conResponsable + '/' + sum.areas + ' con responsable'
           + ' · mapa ' + sum.mapa + ' · ' + (KIND_LABEL[kind] || kind),
         actions: [
           h(Btn, { key: 'f', size: 'sm', onClick: () => setUi({ view: 'flow' }) }, 'Ir al flujo'),
@@ -248,6 +322,8 @@
           [h('i', { key: 'd', style: { background: d.color } }), d.label])))),
       ]),
 
+      h(OwnerGaps, { key: 'gaps' }),
+
       h('div', { className: 'ws-cols', key: 'cols' }, [
         h(Card, { key: 'list', title: 'Qué hay en el mapa', flush: false }, [
           h('div', { className: 'ws-tabs', key: 't' }, [
@@ -260,6 +336,8 @@
             ? h('div', { className: 'ks-list ws-list', key: 'la' }, arr(world.areas).map((a) => {
               const dep = wsDepartmentById(a.departmentId);
               const here = arr(world.staff).filter((x) => x.areaId === a.id).length;
+              const ai = aiIn(a.id);
+              const orphan = !s(a.ownerId) && ai > 0;
               return h('button', {
                 key: a.id, type: 'button', className: cx('ws-row', ui.worldArea === a.id && 'ws-row-on'),
                 onClick: () => setUi({ worldArea: a.id, worldStaff: null }),
@@ -270,6 +348,12 @@
                   h('span', { key: 'm' }, wsStructureName(a.structure, kind) + ' · '
                     + plural(arr(a.stations).length, 'proceso', 'procesos') + ' · '
                     + plural(here, 'ocupante', 'ocupantes')),
+                  // Un área sin agentes tampoco necesita responsable: decir
+                  // «sin responsable» en todas convertiría el aviso en ruido.
+                  s(a.ownerId) || orphan
+                    ? h('span', { key: 'o', className: orphan ? 'ws-orphan' : 'ws-owned' },
+                      orphan ? '⚠ sin responsable' : '★ ' + s(a.ownerName))
+                    : null,
                 ]),
                 h('span', { className: 'ws-row-tag', key: 't' }, a.w + '×' + a.h),
               ]);
@@ -326,6 +410,7 @@
         h('ul', { className: 'ks-list', key: 'l' }, [
           'Cada avatar de IA es un agente del flujo. Su comportamiento sale de su estado real: si se está ejecutando, camina a su puesto y trabaja; si está bloqueado, se planta con un «!»; si lo desactivas, se va a la zona común.',
           'Las personas son tuyas: añádelas, cámbialas de área y repártelas entre procesos. Nadie las ejecuta ni las simula como agentes; están para que se vea quién acompaña a cada máquina.',
+          'Cada departamento con agentes de IA tiene que tener una persona responsable, y esa persona es un usuario de KIMOS: se elige del directorio de la organización, no se escribe a mano. Su avatar lleva una estrella y el mapa marca en rojo los departamentos que se han quedado sin nadie al mando.',
           'Las áreas son departamentos y sus puestos son los procesos internos. Son los mismos datos en las cuatro ambientaciones: cambiar de villa a hotel o a territorio no mueve una sola celda.',
           'El movimiento se pausa cuando la ventana no está a la vista, y no arranca si tu sistema pide menos animación.',
         ].map((x, i) => h('li', { key: i }, x))),

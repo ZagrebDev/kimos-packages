@@ -76,6 +76,49 @@ export default function mount(shell) {
   }
   function setUi(patch) { ui = Object.assign({}, ui, obj(patch)); emit(); }
 
+  // ── Directorio de usuarios de KIMOS ────────────────────────────────────
+  // El responsable de un departamento NO es texto libre: es un usuario de la
+  // organización. La lista la sirve el host en `/api/identity/actors`, la
+  // misma que usan Kanban y Gantt para asignar trabajo, con el RBAC del
+  // usuario como techo. Solo se guardan en el documento el id y el nombre;
+  // el directorio no se persiste.
+  let directory = { users: [], loaded: false, error: '' };
+
+  async function loadDirectory() {
+    if (typeof shell.authFetch !== 'function') {
+      directory = { users: [], loaded: true,
+        error: 'Este host no expone el directorio de usuarios, así que no se puede elegir responsable.' };
+      return;
+    }
+    try {
+      const res = await shell.authFetch(API + '/api/identity/actors', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const users = arr(obj(data).actors)
+        .filter((a) => obj(a).active !== false && s(obj(a).kind || obj(a).type) !== 'agent')
+        .map((a) => ({ id: s(a.id), name: s(a.displayName || a.name || a.email || a.id), email: s(a.email) }))
+        .filter((a) => a.id);
+      directory = { users, loaded: true,
+        error: users.length ? '' : 'El directorio no devolvió ningún usuario.' };
+    } catch (e) {
+      directory = { users: [], loaded: true,
+        error: 'No se pudo leer el directorio de usuarios: ' + ((e && e.message) || 'error') };
+    }
+    if (!cancelled) emit();
+  }
+
+  /** Busca un usuario por id, nombre o correo. Para la UI y para el agente. */
+  function findUser(needle) {
+    const q = norm(needle);
+    if (!q) return null;
+    const list = arr(directory.users);
+    return list.find((u) => u.id === s(needle))
+      || list.find((u) => norm(u.email) === q)
+      || list.find((u) => norm(u.name) === q)
+      || list.find((u) => norm(u.name).indexOf(q) >= 0)
+      || null;
+  }
+
   // ── Puerto de persistencia de assets y costes (shell.items) ────────────
   const hasItems = shell.items && typeof shell.items.list === 'function';
 
@@ -375,6 +418,9 @@ export default function mount(shell) {
       else if (data && data.brief) model = migrate(data);
       await loadItems();
       if (cancelled) return;
+      // El directorio no bloquea la apertura: la app sirve sin él, solo no
+      // deja elegir responsable hasta que llega.
+      loadDirectory();
       reconcileJobs(model, assets);
       // Campaña recién creada: se abre por la Guía. Quien ya tiene trabajo
       // hecho entra directo al Panel, que es lo que espera.

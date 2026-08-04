@@ -20,9 +20,9 @@
       const originX = (wsNum(g.h, 12) * T) / 2 + 20;
       return {
         kind, T,
-        to: (cx, cy) => ({ x: (cx - cy) * (T / 2) + originX, y: (cx + cy) * (T / 4) + 34 }),
+        to: (cx, cy) => ({ x: (cx - cy) * (T / 2) + originX, y: (cx + cy) * (T / 4) + 60 }),
         width: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 2) + 40,
-        height: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 4) + 120,
+        height: (wsNum(g.w, 16) + wsNum(g.h, 12)) * (T / 4) + 146,
       };
     }
     // El margen superior deja sitio al rótulo, que va por encima de cada
@@ -31,7 +31,7 @@
       kind, T,
       to: (cx, cy) => ({ x: cx * T + 14, y: cy * T + 22 }),
       width: wsNum(g.w, 16) * T + 28,
-      height: wsNum(g.h, 12) * T + 42,
+      height: wsNum(g.h, 12) * T + 52,
     };
   }
 
@@ -57,6 +57,12 @@
     const sel = p.selected;
     const n = wsArr(a.stations).length;
     const sub = wsStructureName(st.id, pr.kind) + ' · ' + n + (n === 1 ? ' puesto' : ' puestos');
+    // Tercera línea: quién responde por esto. Si hay agentes de IA trabajando
+    // y nadie al mando, se dice aquí, no en un informe que nadie abre.
+    const ai = wsNum(p.ai, 0);
+    const owner = wsS(a.ownerName);
+    const rule = owner ? '★ ' + owner : (ai ? '⚠ sin responsable' : '');
+    const ruleClass = owner ? 'ws-struct-owner' : 'ws-struct-orphan';
     if (pr.kind === 'hotel') {
       const pts = wsAreaShape(pr, a);
       const top = pr.to(a.x + a.w / 2, a.y + a.h / 2);
@@ -68,9 +74,11 @@
         h('line', { key: 'l1', x1: pts.split(' ')[0].split(',')[0], y1: pts.split(' ')[0].split(',')[1],
           x2: pts.split(' ')[0].split(',')[0], y2: Number(pts.split(' ')[0].split(',')[1]) - lift,
           stroke: dep.color, strokeWidth: 1, opacity: 0.6 }),
-        h('text', { key: 't', x: top.x, y: top.y - lift - 12, textAnchor: 'middle', className: 'ws-struct-label' },
+        h('text', { key: 't', x: top.x, y: top.y - lift - 22, textAnchor: 'middle', className: 'ws-struct-label' },
           dep.emoji + ' ' + a.name),
-        h('text', { key: 's', x: top.x, y: top.y - lift - 2, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+        h('text', { key: 's', x: top.x, y: top.y - lift - 12, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+        rule ? h('text', { key: 'o', x: top.x, y: top.y - lift - 2, textAnchor: 'middle',
+          className: cx('ws-struct-sub', ruleClass) }, rule) : null,
       ]);
     }
     const r = wsAreaShape(pr, a);
@@ -95,6 +103,8 @@
       h('text', { key: 't', x: r.x + r.w / 2, y: r.y - 4, textAnchor: 'middle', className: 'ws-struct-label' },
         dep.emoji + ' ' + a.name),
       h('text', { key: 's', x: r.x + r.w / 2, y: r.y + r.h + 11, textAnchor: 'middle', className: 'ws-struct-sub' }, sub),
+      rule ? h('text', { key: 'o', x: r.x + r.w / 2, y: r.y + r.h + 21, textAnchor: 'middle',
+        className: cx('ws-struct-sub', ruleClass) }, rule) : null,
     ]);
   }
 
@@ -117,6 +127,10 @@
         ? h('rect', { key: 'e', x: -2.5, y: -16, width: 5, height: 1.8, fill: col.body })
         : h('rect', { key: 'e', x: 0.4, y: -15.6, width: 1.4, height: 1.4, fill: '#2A2A2A' }),
       a.kind === 'ai' ? h('rect', { key: 'a', x: -0.6, y: -21, width: 1.2, height: 3, fill: col.trim }) : null,
+      // Quien responde por el departamento se distingue de un vistazo: si hay
+      // que buscarlo en una lista, la responsabilidad no está a la vista.
+      a.isOwner ? h('polygon', { key: 'ow', className: 'ws-owner-mark',
+        points: '0,-25 1.9,-21.6 5.6,-21 2.9,-18.4 3.6,-14.8 0,-16.5 -3.6,-14.8 -2.9,-18.4 -5.6,-21 -1.9,-21.6' }) : null,
       a.bubble ? h('g', { key: 'bu', transform: 'translate(7,-20) scale(' + (a.face < 0 ? -1 : 1) + ',1)' }, [
         h('circle', { key: 'c', cx: 0, cy: 0, r: 5.5, fill: '#fff', opacity: 0.92 }),
         h('text', { key: 't', x: 0, y: 2.4, textAnchor: 'middle', className: 'ws-bubble' }, a.bubble),
@@ -213,6 +227,7 @@
       h('g', { key: 'grid' }, lines),
       h('g', { key: 'areas' }, areas.map((a) => h(WsStructure, {
         key: a.id, area: a, pr, selected: p.selArea === a.id,
+        ai: wsArr(world.staff).filter((x) => x.areaId === a.id && x.kind === 'ai').length,
         onClick: () => p.onSelectArea && p.onSelectArea(a.id),
       }))),
       h('g', { key: 'actors' }, actors.map((a) => {

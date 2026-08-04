@@ -7,6 +7,12 @@
 // IA y personas. Es el mismo modelo en las tres ambientaciones — la villa, el
 // hotel y el territorio son solo formas de dibujarlo.
 //
+// RESPONSABLE: un departamento con agentes de IA trabajando dentro tiene que
+// tener una persona que responda por él. Ese responsable no es texto libre:
+// es un USUARIO DEL ANFITRIÓN (en KIMOS, un usuario de la organización), y
+// aquí se guardan solo su identificador y su nombre. El paquete NO hace red:
+// el directorio de usuarios lo aporta la app (ver docs/CONTRATO.md).
+//
 // Todas las mutaciones son puras: reciben el mundo y devuelven uno nuevo con
 // `{ world, ok, error }`. Nunca lanzan por datos del usuario.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -34,6 +40,8 @@ function wsMigrateWorld(raw) {
       x: wsClamp(wsNum(a.x, 0), 0, w - 1), y: wsClamp(wsNum(a.y, 0), 0, h - 1),
       w: wsClamp(wsNum(a.w, st.w), 1, 8), h: wsClamp(wsNum(a.h, st.h), 1, 8),
       note: wsS(a.note),
+      ownerId: wsS(a.ownerId),           // usuario del anfitrión responsable
+      ownerName: wsS(a.ownerName),       // su nombre, cacheado para el mapa
       stations: wsArr(a.stations).slice(0, 12).map((p, j) => ({
         id: wsS(p.id) || 'st-' + i + '-' + j,
         name: wsS(p.name) || 'Puesto ' + (j + 1),
@@ -46,6 +54,7 @@ function wsMigrateWorld(raw) {
     const areaId = areaIds.has(wsS(p.areaId)) ? wsS(p.areaId) : (areas[0] ? areas[0].id : '');
     const area = areas.find((a) => a.id === areaId);
     const stIds = area ? area.stations.map((x) => x.id) : [];
+    const userId = wsS(p.userId) || null;
     return {
       id: wsS(p.id) || 'staff-' + i,
       name: wsS(p.name) || 'Sin nombre',
@@ -54,6 +63,11 @@ function wsMigrateWorld(raw) {
       areaId,
       stationId: stIds.indexOf(wsS(p.stationId)) >= 0 ? wsS(p.stationId) : (stIds[0] || ''),
       agentId: wsS(p.agentId) || null,     // enlaza con un agente del flujo
+      userId,                              // enlaza con un usuario del anfitrión
+      // La marca de responsable se deriva del área, no se cree a ciegas: así
+      // un documento manipulado no puede tener dos responsables en un área.
+      isOwner: !!userId && !!area && userId === wsS(area.ownerId),
+      auto: !!p.auto,                      // avatar creado al asignar el mando
     };
   });
   return { schema: 1, wsVersion: WS_VERSION, grid: { w, h }, areas, staff, seededFrom: wsS(d.seededFrom) };
@@ -113,7 +127,7 @@ function wsAddArea(world, spec) {
     departmentId: dep.id,
     structure: st.id,
     w: wsClamp(wsNum(sp.w, st.w), 1, 8), h: wsClamp(wsNum(sp.h, st.h), 1, 8),
-    note: wsS(sp.note),
+    note: wsS(sp.note), ownerId: '', ownerName: '',
     stations: wsArr(sp.stations).length
       ? wsArr(sp.stations).map((x, j) => ({ id: wsId('st'), name: wsS(x.name) || 'Puesto ' + (j + 1), process: wsS(x.process) }))
       : [{ id: wsId('st'), name: 'Puesto 1', process: '' }],
@@ -128,7 +142,12 @@ function wsAddArea(world, spec) {
     area.x = alt.x; area.y = alt.y;
   }
   w0.areas.push(area);
-  return wsDone(w0, 'Área «' + area.name + '» creada en (' + area.x + ',' + area.y + ').');
+  const created = 'Área «' + area.name + '» creada en (' + area.x + ',' + area.y + ').';
+  if (wsS(wsObj(sp.owner).id)) {
+    const withOwner = wsSetAreaOwner(w0, area.id, sp.owner);
+    if (withOwner.ok) return wsDone(withOwner.world, created + ' ' + withOwner.message);
+  }
+  return wsDone(w0, created);
 }
 
 /** Edición: nombre, departamento, estructura, tamaño, posición o nota. */
@@ -162,12 +181,16 @@ function wsRemoveArea(world, areaId) {
   if (i < 0) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
   const gone = w0.areas.splice(i, 1)[0];
   const dest = w0.areas[0] || null;
+  // El avatar que se creó solo al nombrar responsable se va con el área; el
+  // resto del personal se reubica, que para eso son personas de la empresa.
+  w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === gone.id && p.auto && p.isOwner));
   let moved = 0;
   for (const p of wsArr(w0.staff)) {
     if (p.areaId !== gone.id) continue;
     moved++;
     p.areaId = dest ? dest.id : '';
     p.stationId = dest && dest.stations[0] ? dest.stations[0].id : '';
+    p.isOwner = !!p.userId && !!dest && p.userId === wsS(dest.ownerId);
   }
   return wsDone(w0, 'Área «' + gone.name + '» eliminada.'
     + (moved ? ' ' + moved + ' persona(s) reubicadas' + (dest ? ' en «' + dest.name + '».' : ', sin área.') : ''));
@@ -219,7 +242,11 @@ function wsAddStaff(world, spec) {
     role: wsS(sp.role), areaId: area.id,
     stationId: (area.stations.find((x) => x.id === wsS(sp.stationId)) || area.stations[0] || {}).id || '',
     agentId: wsS(sp.agentId) || null,
+    userId: wsS(sp.userId) || null,
+    isOwner: false, auto: !!sp.auto,
   };
+  if (p.kind === 'ai') p.userId = null;    // un agente no es un usuario
+  p.isOwner = !!p.userId && p.userId === wsS(area.ownerId);
   w0.staff.push(p);
   return wsDone(w0, (p.kind === 'ai' ? 'Agente' : 'Persona') + ' «' + p.name + '» en «' + area.name + '».');
 }
@@ -234,6 +261,13 @@ function wsUpdateStaff(world, staffId, patch) {
   if (q.areaId !== undefined) {
     const a = wsArr(w0.areas).find((x) => x.id === wsS(q.areaId) || wsNorm(x.name) === wsNorm(q.areaId));
     if (!a) return wsFail(world, 'No existe el área destino.');
+    // Mudar al responsable dejaría su departamento sin nadie que responda sin
+    // que se note. Se cambia el responsable, no se muda el avatar.
+    if (p.isOwner && a.id !== p.areaId) {
+      const from = wsArr(w0.areas).find((x) => x.id === p.areaId);
+      return wsFail(world, '«' + p.name + '» es responsable de «' + (from ? from.name : 'su área')
+        + '». Cambia antes el responsable de ese departamento.');
+    }
     p.areaId = a.id;
     p.stationId = (a.stations[0] || {}).id || '';
   }
@@ -243,12 +277,97 @@ function wsUpdateStaff(world, staffId, patch) {
   }
   return wsDone(w0, '«' + p.name + '» actualizado.');
 }
+// ── Responsable de un departamento ────────────────────────────────────────
+// Un equipo de agentes de IA sin nadie que responda por él es exactamente el
+// problema que esta parte evita. El responsable es un usuario del anfitrión,
+// no un nombre escrito a mano: la app pasa `{ id, name }` de su directorio.
+
+/** ¿Cuántos agentes de IA trabajan en esa área? */
+const wsAiCount = (world, areaId) =>
+  wsArr(wsObj(world).staff).filter((p) => p.areaId === wsS(areaId) && p.kind === 'ai').length;
+
+function wsSetAreaOwner(world, areaId, user) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const u = wsObj(user);
+  const uid = wsS(u.id).trim();
+  if (!uid) {
+    return wsFail(world, 'El responsable tiene que ser un usuario del anfitrión: falta su identificador. '
+      + 'Elígelo del directorio, no lo escribas a mano.');
+  }
+  const name = wsS(u.name).trim() || uid;
+
+  const prev = wsS(a.ownerId);
+  if (prev && prev !== uid) {
+    // El avatar que creamos al asignar el mando se va con el mando; el que
+    // puso el usuario a mano se queda, solo pierde la marca.
+    w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === a.id && p.userId === prev && p.auto));
+    for (const p of wsArr(w0.staff)) if (p.areaId === a.id && p.userId === prev) p.isOwner = false;
+  }
+  a.ownerId = uid;
+  a.ownerName = name;
+
+  let person = wsArr(w0.staff).find((p) => p.areaId === a.id && p.userId === uid);
+  if (!person) {
+    if (wsArr(w0.staff).length >= WS_STAFF_MAX) return wsFail(world, 'Demasiado personal en el mapa.');
+    person = {
+      id: wsId('staff'), name, kind: 'human', role: 'Responsable de ' + a.name,
+      areaId: a.id, stationId: (wsArr(a.stations)[0] || {}).id || '',
+      agentId: null, userId: uid, isOwner: true, auto: true,
+    };
+    w0.staff.push(person);
+  } else {
+    person.isOwner = true;
+    person.name = name;
+    if (!wsS(person.role)) person.role = 'Responsable de ' + a.name;
+  }
+  const ai = wsAiCount(w0, a.id);
+  return wsDone(w0, '«' + name + '» responde por «' + a.name + '»'
+    + (ai ? ' y por sus ' + ai + ' agente(s) de IA.' : '.'));
+}
+
+function wsClearAreaOwner(world, areaId) {
+  const w0 = wsClone(world);
+  const a = wsArr(w0.areas).find((x) => x.id === wsS(areaId) || wsNorm(x.name) === wsNorm(areaId));
+  if (!a) return wsFail(world, 'No existe el área «' + wsS(areaId) + '».');
+  const prev = wsS(a.ownerId);
+  if (!prev) return wsFail(world, '«' + a.name + '» no tenía responsable.');
+  w0.staff = wsArr(w0.staff).filter((p) => !(p.areaId === a.id && p.userId === prev && p.auto));
+  for (const p of wsArr(w0.staff)) if (p.areaId === a.id && p.userId === prev) p.isOwner = false;
+  const ai = wsAiCount(w0, a.id);
+  a.ownerId = ''; a.ownerName = '';
+  return wsDone(w0, '«' + a.name + '» se queda sin responsable.'
+    + (ai ? ' Tiene ' + ai + ' agente(s) de IA trabajando sin nadie que responda por ellos.' : ''));
+}
+
+/** Departamentos con agentes de IA y sin responsable. Es la lista que importa. */
+function wsAreasWithoutOwner(world) {
+  return wsArr(wsObj(world).areas)
+    .filter((a) => !wsS(a.ownerId) && wsAiCount(world, a.id) > 0)
+    .map((a) => ({ id: a.id, name: a.name, agentes: wsAiCount(world, a.id) }));
+}
+
 function wsRemoveStaff(world, staffId) {
   const w0 = wsClone(world);
   const i = wsArr(w0.staff).findIndex((x) => x.id === wsS(staffId) || wsNorm(x.name) === wsNorm(staffId));
   if (i < 0) return wsFail(world, 'No existe en el personal.');
-  const gone = w0.staff.splice(i, 1)[0];
-  return wsDone(w0, '«' + gone.name + '» dado de baja del mapa.');
+  const gone = w0.staff[i];
+  // Dar de baja al responsable deja el departamento sin mando: se dice, y el
+  // área se queda explícitamente sin responsable en vez de apuntar a alguien
+  // que ya no está.
+  let note = '';
+  if (gone.isOwner) {
+    const a = wsArr(w0.areas).find((x) => x.id === gone.areaId);
+    if (a) {
+      a.ownerId = ''; a.ownerName = '';
+      const ai = wsAiCount(w0, a.id);
+      note = ' «' + a.name + '» se queda sin responsable'
+        + (ai ? ', con ' + ai + ' agente(s) de IA dentro.' : '.');
+    }
+  }
+  w0.staff.splice(i, 1);
+  return wsDone(w0, '«' + gone.name + '» dado de baja del mapa.' + note);
 }
 function wsResizeGrid(world, w, h) {
   const w0 = wsClone(world);
@@ -325,5 +444,8 @@ function wsWorldSummary(world) {
     agentes: wsArr(w.staff).filter((p) => p.kind === 'ai').length,
     mapa: wsObj(w.grid).w + '×' + wsObj(w.grid).h,
     departamentos: Object.keys(byDep).map((k) => wsDepartmentById(k).label),
+    conResponsable: wsArr(w.areas).filter((a) => wsS(a.ownerId)).length,
+    // Lo que de verdad hay que mirar: equipos de IA sin nadie que responda.
+    sinResponsable: wsAreasWithoutOwner(w).map((x) => x.name),
   };
 }
