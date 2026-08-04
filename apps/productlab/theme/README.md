@@ -372,7 +372,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.13.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.13.1**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.
