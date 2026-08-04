@@ -3970,8 +3970,14 @@ export default function mount(shell) {
           onClick: () => setEditing({}) }, movil ? '+' : '+ Componente'),
         h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente',
           onClick: () => setPickingStore(true) }, movil ? '🛒' : '+ Desde la tienda'),
+        // El filtro solo ofrece tipos CON componentes: los tipos definidos en
+        // Parámetros que nadie usa (p. ej. los sembrados por defecto) no son
+        // más que ruido aquí. Si el elegido quedó vacío, se mantiene visible
+        // para poder salir de él.
         h('select', { key: 't', className: 'gp-select', style: { maxWidth: movil ? 140 : 180 }, value: filterType, onChange: (e) => setFilterType(e.target.value) },
-          [h('option', { key: '', value: '' }, movil ? 'Tipos' : 'Todos los tipos')].concat(types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
+          [h('option', { key: '', value: '' }, movil ? 'Tipos' : 'Todos los tipos')].concat(
+            types().filter((t) => t.id === filterType || state.components.some((c) => c.type === t.id))
+              .map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
         // Buscador: en móvil es un icono que expande el campo a lo ancho.
         movil
           ? h('button', { key: 's', className: 'gp-btn' + (buscarAbierto || search ? ' gp-btn-dark' : ''), title: 'Buscar',
@@ -4075,7 +4081,9 @@ export default function mount(shell) {
               ]);
             }));
           })()
-        : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
+        // La tabla lleva su propio chrome (vidrio + borde + radio): directa
+        // sobre el fondo, como las cards de productos — sin card que la doble.
+        : h('div', { key: 'tbl', style: { marginBottom: 16 } },
             h('table', { className: 'gp-table gp-table-comp' }, [
               h('thead', { key: 'h' }, h('tr', null, [
                 h('th', { key: 'sel' }, h('input', { type: 'checkbox',
@@ -4329,9 +4337,12 @@ export default function mount(shell) {
     const accentFg = /^#[0-9a-fA-F]{6}$/.test(accRaw)
       ? (isDarkHex(accRaw) ? '#fff' : '#111')
       : (accRaw ? '#fff' : 'var(--gp-acento-fg)');
-    const pvBlanco = edit ? 'var(--gp-blanco)' : '#fff';
+    // En el Estudio las superficies son las de la app (vidrio, radio del
+    // tema): integrado, sin marco de "tienda simulada". Fuera del Estudio
+    // se emula la tienda (blanco, radio exacto del estilo).
+    const pvBlanco = edit ? 'var(--gp-vidrio)' : '#fff';
     const pvFondo = edit ? 'var(--gp-fondo)' : '#fff';
-    const radius = Math.max(0, num(st.radius, 0));
+    const radius = edit ? Math.max(10, num(st.radius, 0)) : Math.max(0, num(st.radius, 0));
     const compact = st.cardStyle === 'compact';
     const asList = st.cardStyle === 'list';
     const fixed = isFixedPrice(draft);
@@ -4402,7 +4413,13 @@ export default function mount(shell) {
       // en escritorio debe ser visible: un ancestro con overflow:auto sería
       // el contenedor de scroll del panel sticky y lo dejaría sin efecto.
       h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: mob ? 'auto' : 'visible', '--pv-radius': radius + 'px' } },
-        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : (edit ? 'none' : 980), margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || pvFondo, padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
+        // En el Estudio NO hay marco: pasos y resumen flotan directo sobre el
+        // fondo de la app, como las cards de Productos. El rectángulo que
+        // emula la tienda (borde + fondo del estilo) queda para el
+        // previsualizador de Estilos y de la ficha.
+        h('div', { style: Object.assign({ width: mob ? 375 : '100%', maxWidth: mob ? 375 : (edit ? 'none' : 980), margin: '0 auto', display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 }, edit
+          ? {}
+          : { border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || pvFondo, padding: mob ? 10 : 16 }) }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
               ? h('div', null, [
@@ -4440,7 +4457,7 @@ export default function mount(shell) {
                     h('div', { key: 'cards', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
                       presets.map((pz) => {
                         const precio = precioDe(pz.selection || {});
-                        return h('div', { key: pz.id, style: { border: '1px solid var(--gp-gris-claro)', background: 'var(--gp-blanco)', padding: 8, width: 180, borderRadius: 6 } }, [
+                        return h('div', { key: pz.id, style: { border: '1px solid var(--gp-borde-suave)', background: pvBlanco, padding: 8, width: 180 } }, [
                           h(TextInput, { key: 'n', value: pz.name, style: { fontWeight: 600, fontSize: 12.5, marginBottom: 4 },
                             onChange: (e) => upLista(presets.map((x) => (x.id === pz.id ? Object.assign({}, x, { name: e.target.value }) : x))) }),
                           h('div', { key: 'p', style: { fontFamily: 'monospace', fontSize: 12.5, color: 'var(--gp-negro)', margin: '2px 0 6px' } }, fmtMoney(precio)),
@@ -4472,7 +4489,7 @@ export default function mount(shell) {
                   ]),
                   h('div', { key: 'vals', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
                     (edit.baseComps || []).map((c) => h('div', { key: c.id, style: {
-                      border: '1px solid var(--gp-gris-claro)', background: 'var(--gp-blanco)', padding: compact ? 6 : 8, width: cardW,
+                      border: '1px solid var(--gp-borde-suave)', background: pvBlanco, padding: compact ? 6 : 8, width: cardW,
                     } }, [
                       c.imageUrl
                         ? h('img', { key: 'i', src: c.imageUrl, alt: '', style: { width: '100%', height: compact ? 44 : 64, objectFit: 'contain', background: '#fff', borderRadius: 4 } })
@@ -4554,7 +4571,7 @@ export default function mount(shell) {
           // El panel de resumen queda PEGAJOSO dentro del scroll del preview:
           // precio, selección y botón siempre a la vista mientras se recorren
           // los pasos (en móvil va en flujo normal, es una columna).
-          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: pvBlanco, padding: 12, alignSelf: 'flex-start', position: mob ? 'static' : 'sticky', top: 8 } }, [
+          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid ' + (edit ? 'var(--gp-borde-suave)' : 'var(--gp-gris-claro)'), background: pvBlanco, padding: 12, alignSelf: 'flex-start', position: mob ? 'static' : 'sticky', top: 8 } }, [
             photo ? h('img', { key: 'ph', src: photo, alt: '', style: { width: '100%', maxHeight: 160, objectFit: 'contain', marginBottom: 8 } }) : null,
             h('div', { key: 'nm', style: { fontWeight: 700, fontSize: 13, marginBottom: 4 } }, draft.name || 'Producto'),
             h('div', { key: 'pr', className: 'gp-price', style: { fontSize: 20 } }, fmtMoney(price)),
@@ -6053,7 +6070,7 @@ export default function mount(shell) {
             })))
         : state.productos.length === 0
         ? h('div', { key: 'e', className: 'gp-card gp-muted' }, 'Aún no hay productos. Un producto enlaza un producto de la tienda con sus pasos de personalización (componentes elegibles y default por paso) y calcula su precio desde los costos.')
-        : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
+        : h('div', { key: 'tbl', style: { marginBottom: 16 } },
             h('table', { className: 'gp-table' }, [
               h('thead', { key: 'h' }, h('tr', null, ['', 'Producto', 'SKU', 'Pasos', 'Precio', 'Recalculado', 'Entrega', 'Tienda', ''].map((c, i) => h('th', { key: i }, c)))),
               h('tbody', { key: 'b' }, state.productos.map((eq) => {
