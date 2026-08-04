@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.13.1';
+  var VERSION = '5.13.2';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1797,21 +1797,10 @@
     var pedidoAR = /[?&]kimos_ar=1/.test(location.search);
     var pedidoConf = /[?&]kimos_conf=1/.test(location.search);
     var current = pedidoAR || pedidoConf || !(hasHero || hasSpecs || hasFotos) ? 'configurar' : 'explorar';
-    // Texto del botón que lleva al personalizador: el mismo en la barra y en
-    // la invitación del final del landing (se cambia una sola vez).
+    // Texto del botón que lleva al personalizador (barra superior).
     var etiquetaConfigurar = function () {
       return tabsCfg.comprar || String(style.buyLabel || '').trim() || 'Configurar';
     };
-    // Enlace directo al personalizador de ESTE producto, para compartir.
-    function compartirConfigurador() {
-      var u = location.origin + location.pathname + '?kimos_conf=1';
-      var titulo = entry.name || prod.name || document.title;
-      if (navigator.share) { navigator.share({ title: titulo, url: u }).catch(function () {}); return; }
-      var listo = function () { showNotice('Enlace copiado: pégalo donde quieras compartirlo.'); };
-      var aMano = function () { window.prompt('Copia el enlace del configurador:', u); };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(listo, aMano);
-      else aMano();
-    }
     var anclas = {};   // sección → nodo, para bajar hasta ella
     var ctx = {
       name: prod.name, sku: entry.sku || prod.sku || '',
@@ -2166,20 +2155,11 @@
           panelCta = el('button', 'kc-btn kc-btn-primary');
           panelCta.type = 'button';
           panelCta.addEventListener('click', alCarro);
-          // Compartir: enlace directo a ESTE personalizador (?kimos_conf=1).
-          // Va junto al carro, también en la barra inferior del móvil.
-          var btnShare = el('button', 'kc-btn kc-share', 'Compartir');
-          btnShare.type = 'button';
-          btnShare.title = 'Copiar o compartir el enlace directo a este configurador';
-          btnShare.addEventListener('click', compartirConfigurador);
-          var acciones = el('div', 'kc-acciones');
-          acciones.appendChild(panelCta);
-          acciones.appendChild(btnShare);
           cuerpo.appendChild(panelPrecio);
           cuerpo.appendChild(panelEntrega);
           cuerpo.appendChild(panelResumen);
           cuerpo.appendChild(panelStock);
-          cuerpo.appendChild(acciones);
+          cuerpo.appendChild(panelCta);
           panelBox.appendChild(confView);
           panelBox.appendChild(cab);
           panelBox.appendChild(cuerpo);

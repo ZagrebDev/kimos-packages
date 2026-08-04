@@ -398,13 +398,6 @@
 .kimos-cfg .kc-panel-exp { display: none; }
 /* Volver (dentro del personalizador): único elemento a la izquierda de la barra. */
 .kimos-cfg .kc-volver { font-weight: 600; }
-/* Compartir: botón secundario junto al carro (enlace directo ?kimos_conf=1). */
-.kimos-cfg .kc-share {
-  border: 1px solid var(--kc-borde); background: transparent; color: inherit;
-  font-size: 13px; padding: 10px 16px;
-}
-.kimos-cfg .kc-share:hover { border-color: var(--kc-accent); color: var(--kc-accent); }
-.kimos-cfg .kc-acciones .kc-share { margin-top: 8px; }
 /* ══ Móvil: el panel baja a una barra fija al ras de la pantalla ══
    Reparto: la foto a la izquierda y, a su derecha, nombre, precio y entrega;
    el botón de carro debajo, a todo el ancho. Con `display: contents` en el
@@ -452,25 +445,22 @@
   .kimos-cfg .kc-summary { display: none; }
   .kimos-cfg .kc-stockmsg { grid-column: 1 / -1; margin: 2px 0 0; }
   .kimos-cfg .kc-stockmsg:empty { display: none; }
-  /* Carro + Compartir en una fila: el carro es más chico y va a la
-     IZQUIERDA (nada de botón a todo el ancho hasta el borde del chat). */
-  .kimos-cfg .kc-acciones {
-    grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  /* El carro es más chico y va a la IZQUIERDA (nada de botón a todo el
+     ancho hasta el borde del chat). */
+  .kimos-cfg .kc-panel .kc-btn {
+    grid-column: 1 / -1; justify-self: start;
+    width: auto; margin-top: 8px; padding: 11px 18px;
   }
-  .kimos-cfg .kc-panel .kc-btn { width: auto; margin-top: 0; padding: 11px 18px; }
-  .kimos-cfg .kc-acciones .kc-share { padding: 11px 14px; font-size: 12px; }
   /* La flecha del detalle se SOBREPONE a la barra: arriba y al medio, medio
-     afuera, como asa para tirar del panel. Viste los tokens del THEME (acento
-     y radio del sitio), igual que los demás botones de la ficha. */
+     afuera, como asa para tirar del panel. Mismos colores que la barra y los
+     tokens del theme para borde y radio — sin sombras ni redondeados ajenos
+     al estilo del sitio. */
   .kimos-cfg .kc-panel-exp {
     display: flex; position: absolute; left: 50%; top: 0;
     transform: translate(-50%, -60%);
     width: 52px; height: 28px; align-items: center; justify-content: center;
-    border: 0; cursor: pointer; font-size: 12px;
-    background: var(--kc-accent, var(--kc-fg, #1D1D1B));
-    color: var(--kc-accent-fg, var(--kc-bg, #fff));
-    border-radius: var(--kc-radius);
-    box-shadow: 0 -4px 12px rgba(0,0,0,.15);
+    border: 1px solid var(--kc-borde); background: var(--kc-bg, #fff); color: inherit;
+    cursor: pointer; font-size: 12px; border-radius: var(--kc-radius);
   }
   /* Desplegado: la foto crece y aparece TODO lo elegido, paso por paso. */
   .kimos-cfg .kc-panel.kc-open .kc-panel-img { max-height: 130px; }

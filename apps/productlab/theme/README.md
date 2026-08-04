@@ -353,15 +353,16 @@ actualiza los tres scripts del kit a la versión actual.
 - Dentro del personalizador, la izquierda de la barra cambia a **"← Volver"**
   (regresa a la ficha principal) y el **footer del theme se oculta** solo ahí
   — al salir vuelve a verse; el resto de la tienda no se toca.
-- **Enlace directo**: junto al botón de carro hay un botón **Compartir** que
-  copia (o comparte con el share nativo del teléfono) un enlace con
-  `?kimos_conf=1` — quien lo abra aterriza directo en el personalizador.
+- **Enlace directo**: la URL del producto con `?kimos_conf=1` aterriza
+  directo en el personalizador (es la misma vía que usa el QR de AR con
+  `?kimos_ar=1`).
 - En **móvil**, la barra inferior deja una franja libre a la derecha para la
-  burbuja de chat de la tienda: los textos no llegan al borde, el botón de
-  carro es más chico y va a la izquierda (con Compartir al lado), y la flecha
-  que abre el detalle se sobrepone a la barra — arriba y al medio, como asa —
-  vestida con el acento y el radio del theme. El último paso guarda su
-  distancia de la barra (el hueco al pie suma el asa y un colchón real).
+  burbuja de chat de la tienda: los textos no llegan al borde y el botón de
+  carro es más chico y va a la izquierda. La flecha que abre el detalle se
+  sobrepone a la barra — arriba y al medio, como asa — con los mismos colores
+  de la barra y el borde y radio de los tokens del theme (sin sombras ni
+  redondeados ajenos al sitio). El último paso guarda su distancia de la
+  barra (el hueco al pie suma el asa y un colchón real).
 
 En ambos casos **el precio y el carro siguen siendo los del theme**. La ficha
 completa no calcula precios ni arma su propio carro: al elegir un valor escribe
@@ -372,7 +373,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.13.1**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.13.2**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

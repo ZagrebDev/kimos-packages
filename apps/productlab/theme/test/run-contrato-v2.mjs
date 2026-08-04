@@ -468,8 +468,8 @@ console.log('\n— ancestro con transform: barra y panel se mudan a <body> —')
   t('dentro: la izquierda de la barra es "← Volver"', !!d.querySelector('.kc-volver'));
   t('dentro: el footer del theme se oculta',
     d.querySelector('footer.footer').style.display === 'none');
-  t('compartir junto al carro, con enlace directo (?kimos_conf=1)',
-    !!d.querySelector('.kc-share') && /kimos_conf=1/.test(SRC));
+  t('enlace directo soportado (?kimos_conf=1), sin botón compartir',
+    /kimos_conf=1/.test(SRC) && !d.querySelector('.kc-share'));
   d.querySelector('.kc-volver').click();
   await new Promise((r) => setTimeout(r, 20));
   t('Volver regresa a la ficha principal (hero de vuelta)', !!d.querySelector('.kc-hero'));

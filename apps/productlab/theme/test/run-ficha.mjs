@@ -222,7 +222,6 @@ ok('dentro del configurador el botón es el del carro', /carro/i.test(cta2), cta
 ok('dentro: solo el personalizador (sin hero)',
   (await page.$$('.kc-hero')).length === 0);
 ok('la izquierda de la barra es "← Volver"', (await page.$$('.kc-volver')).length === 1);
-ok('compartir presente junto al carro', (await page.$$('.kc-share')).length >= 1);
 await page.click('.kc-volver');
 
 // Las anclas bajan a la sección DENTRO de Explorar, sin cambiar de panel.
