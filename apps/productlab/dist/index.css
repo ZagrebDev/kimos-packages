@@ -299,6 +299,33 @@
 .kimos-productlab .gp-icard-edit .gp-input { padding: 5px 6px; font-size: 11px; min-width: 0; }
 .kimos-productlab .gp-icard-edit .gp-btn { padding: 5px 8px; flex-shrink: 0; }
 
+/* ── Estudio vivo: edición sobre la previsualización ── */
+.kimos-productlab .gp-vivo-editor {
+  margin: 10px 0 4px; padding: 14px;
+  background: var(--gp-fondo); border: 1px dashed var(--gp-acento);
+  border-radius: calc(var(--gp-radius) + 2px);
+}
+.kimos-productlab .gp-vivo-addval {
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--gp-gris-claro); background: none; cursor: pointer;
+  color: var(--gp-gris); font: 600 13px/1.2 'Inter', sans-serif;
+  border-radius: var(--gp-radius); padding: 8px;
+  transition: border-color .15s ease, color .15s ease;
+}
+.kimos-productlab .gp-vivo-addval:hover { border-color: var(--gp-acento); color: var(--gp-acento); }
+.kimos-productlab .gp-vivo-acciones { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+
+/* ── Galería del producto: pestaña completa, fotos en grande ── */
+.kimos-productlab .gp-gal-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;
+}
+.kimos-productlab .gp-gal-item {
+  position: relative; background: var(--gp-plata);
+  border: 1px solid var(--gp-gris-claro); border-radius: var(--gp-radius); overflow: hidden;
+  aspect-ratio: 1 / 1;
+}
+.kimos-productlab .gp-gal-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 /* ── Producto → General: foto a la izquierda (abre la Galería) ── */
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr);

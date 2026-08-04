@@ -4246,7 +4246,7 @@ export default function mount(shell) {
     ]);
   }
 
-  function ConfigPreview({ draft }) {
+  function ConfigPreview({ draft, edit }) {
     const [sel, setSel] = useState({});      // groupId → valueId elegido
     const [mob, setMob] = useState(false);
     // El previsualizador muestra lo que verá la tienda: si el producto usa
@@ -4259,9 +4259,9 @@ export default function mount(shell) {
     const fixed = isFixedPrice(draft);
     // Los valores de RELLENO no se ofrecen (solo sostienen las variantes en las
     // que el paso está oculto): el previsualizador enseña lo que verá el cliente.
-    const groups = (draft.groups || []).filter((g) => g.baseStep !== true).map((g) => ({
+    const groups = (draft.groups || []).filter((g) => edit || g.baseStep !== true).map((g) => ({
       g, vals: groupValues(g).filter((v) => valueAvailable(v) && v.fallback !== true),
-    })).filter((x) => x.vals.length);
+    })).filter((x) => edit || x.vals.length);
     const selMap = {};
     groups.forEach(({ g }) => {
       const vals = groupValues(g).filter(valueAvailable);
@@ -4327,14 +4327,40 @@ export default function mount(shell) {
         h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : 980, margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
-              ? h('div', { className: 'gp-muted' }, 'Sin pasos aún: agrega pasos arriba para previsualizar el configurador.')
+              ? h('div', null, [
+                  h('div', { key: 't', className: 'gp-muted' }, edit ? 'Sin pasos aún: crea el primero.' : 'Sin pasos aún: agrega pasos para previsualizar el configurador.'),
+                  edit ? h('div', { key: 'a', className: 'gp-vivo-acciones' },
+                    h('button', { className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
+                ])
               : groups.map(({ g, vals }, gi) => {
-                  if (!visibleOf(g)) return h('div', { key: g.id, className: 'gp-muted', style: { padding: '6px 0', fontSize: 11, opacity: .65 } },
-                    'PASO ' + String(gi + 1).padStart(2, '0') + ' · ' + (g.label || typeLabel(g.typeId)) + ' — oculto por dependencia (la tienda usa su valor por defecto)');
+                  // Edición sobre la previsualización: ⚙ abre el editor
+                  // completo del paso inline, debajo de sus cards.
+                  const idx = (draft.groups || []).indexOf(g);
+                  const btnCfg = edit ? h('button', { key: 'cfg',
+                    className: 'gp-btn gp-btn-sm' + (edit.abierto === g.id ? ' gp-btn-dark' : ''),
+                    style: { marginLeft: 10 }, title: 'Editar este paso',
+                    onClick: () => edit.abrir(g.id) }, edit.abierto === g.id ? '✕ Cerrar' : '⚙ Editar') : null;
+                  const editor = edit && edit.abierto === g.id
+                    ? h('div', { key: 'ed', className: 'gp-vivo-editor' }, edit.renderEditorPaso(g, idx)) : null;
+                  if (edit && g.baseStep === true) return h('div', { key: g.id, style: { marginBottom: 14 } }, [
+                    h('div', { key: 'h', className: 'gp-muted', style: { padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center' } }, [
+                      h('span', { key: 't' }, (g.label || typeLabel(g.typeId)) + ' — componente base (incluido siempre; el cliente no lo ve)'),
+                      btnCfg,
+                    ]),
+                    editor,
+                  ]);
+                  if (!visibleOf(g)) return h('div', { key: g.id, style: { marginBottom: 14 } }, [
+                    h('div', { key: 'h', className: 'gp-muted', style: { padding: '6px 0', fontSize: 11, opacity: .8, display: 'flex', alignItems: 'center' } }, [
+                      h('span', { key: 't' }, 'PASO ' + String(gi + 1).padStart(2, '0') + ' · ' + (g.label || typeLabel(g.typeId)) + ' — oculto por dependencia (la tienda usa su valor por defecto)'),
+                      btnCfg,
+                    ]),
+                    editor,
+                  ]);
                   return h('div', { key: g.id, style: { marginBottom: 14 } }, [
-                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6 } }, [
+                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
                       h('span', { key: 'n', style: { color: accent } }, 'PASO ' + String(gi + 1).padStart(2, '0')),
                       h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
+                      btnCfg,
                     ]),
                     h('div', { key: 'vals', style: asList ? { display: 'flex', flexDirection: 'column', gap: 6 } : { display: 'flex', flexWrap: 'wrap', gap: 8 } }, vals.map((v) => {
                       const on = selMap[g.id] === v.id;
@@ -4360,9 +4386,16 @@ export default function mount(shell) {
                         h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label + (valueQty(v) > 1 ? ' (×' + valueQty(v) + ')' : '')),
                         deltaTxt ? h('div', { key: 'd', style: { fontSize: 10, opacity: .8, marginLeft: asList ? 'auto' : 0, whiteSpace: 'nowrap' } }, deltaTxt) : null,
                       ]);
-                    })),
+                    }).concat(edit ? [h('button', { key: '__addv', className: 'gp-vivo-addval',
+                      title: 'Agregar un valor a este paso',
+                      style: asList ? {} : { width: cardW, minHeight: compact ? 74 : 104 },
+                      onClick: () => edit.agregarValor(g) }, '+ Valor')] : [])),
+                    editor,
                   ]);
-                })),
+                }).concat(edit ? [h('div', { key: '__acciones', className: 'gp-vivo-acciones' }, [
+                  h('button', { key: 'add', className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso'),
+                  edit.extra || null,
+                ])] : [])),
           // El panel de resumen queda PEGAJOSO dentro del scroll del preview:
           // precio, selección y botón siempre a la vista mientras se recorren
           // los pasos (en móvil va en flujo normal, es una columna).
@@ -4413,6 +4446,7 @@ export default function mount(shell) {
     // cuenta — un solo scroll por panel y el preview siempre entero a la
     // vista, en vez de página larga + panel con su propio scroll encima.
     const paneRef = useRef(null);
+    const [pasoEdit, setPasoEdit] = useState(null);   // paso con su editor abierto en el Estudio
     const [paneH, setPaneH] = useState(0);
     const [angosto, setAngosto] = useState(false);
     useEffect(() => {
@@ -4525,181 +4559,10 @@ export default function mount(shell) {
       });
     });
     useEffect(() => () => setHdrExtra(null), []);
-    return h('div', { className: 'gp-editor' }, [
-      // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
-      // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
-      h('div', { key: 'top', className: 'gp-editor-top' }, [
-        h('span', { key: 'sp', style: { flex: 1 } }),
-        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
-      ]),
-      // El agente cambió este producto y aquí hay edición sin guardar: se
-      // decide a mano, porque cualquiera de las dos opciones pierde algo.
-      conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
-        h('span', { key: 't', style: { flex: 1, minWidth: 220 } },
-          '⚠ El agente cambió este producto mientras lo editabas. Si guardas ahora, tus cambios pisarán los suyos.'),
-        h('button', { key: 'r', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => cargarVivo(conflicto) }, 'Cargar lo del agente (pierdo lo mío)'),
-        h('button', { key: 'k', className: 'gp-btn gp-btn-sm', onClick: () => { baseRef.current = JSON.stringify(d); setConflicto(null); } }, 'Mantener lo mío'),
-      ]),
-      // ── Cuerpo: una sección a la vez, a todo el ancho ──
-      h('div', { key: 'body', className: 'gp-editor-body' }, [
-        h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
-      // General: la foto del producto a la IZQUIERDA (un toque abre la
-      // Galería) y a su lado la identidad del producto.
-      h('div', { key: 'glay', className: 'gp-general-lay' }, [
-      h('div', { key: 'foto', className: 'gp-general-foto', role: 'button', tabIndex: 0,
-        title: 'Abrir la galería del producto', onClick: () => setNav({ tab: 'galeria' }) }, [
-        productoImage(d)
-          ? h('img', { key: 'i', src: productoImage(d), alt: d.name || '' })
-          : h('span', { key: 'ph', className: 'gp-muted' }, 'Sin foto aún'),
-        h('span', { key: 'cta', className: 'gp-general-foto-cta' }, 'Ver galería →'),
-      ]),
-      h('div', { key: 'campos', className: 'gp-general-campos' }, [
-      // Enlace con el producto de la app products (que sincroniza con Jumpseller)
-      h('div', { key: 'link', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
-        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Producto de la tienda']),
-        legacy && h('div', { key: 'legacy', className: 'gp-warnbox' },
-          'Enlace de la versión anterior detectado (JS #' + legacy.sourceId + '). Re-enlaza con "Enlazar producto…" para poder aplicar opciones y variantes.'),
-        ref
-          ? h('div', { key: 'st', className: 'gp-compline' }, [
-              h(Thumb, { key: 'img', url: productoImage(d) }),
-              h('span', { key: 'c', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'producto local'),
-              h('span', { key: 'nm', style: { fontWeight: 600 } }, (productItemFor(d) || {}).name || ref.name || ref.itemId),
-              h('span', { key: 'm', className: 'gp-muted grow' }, '"Aplicar a la tienda" escribe precio, opciones y variantes en este producto (vía app Productos → Jumpseller).'),
-              h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => up({ storeRef: null }) }, 'Desenlazar'),
-            ])
-          : h('div', { key: 'no', className: 'gp-compline' }, [
-              h('span', { key: 'm', className: 'gp-muted grow' }, 'Sin enlace: el producto no se aplica a la tienda todavía.'),
-              h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => setPicking(true) }, 'Enlazar producto…'),
-            ]),
-      ]),
-      h('div', { key: 'g1', className: 'gp-grid2' }, [
-        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Camisa Clásica · Escritorio Nórdico' })),
-        h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PPRO-N1-2026' })),
-        h(Row, { key: 'su', label: 'URL del producto (vacío = automática: URL base de la tienda + permalink del producto sincronizado)' },
-          h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
-            placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
-      ]),
-      ]),
-      ]),
-      ]),
-      // ── Base y costos adicionales: viven en el ESTUDIO, junto a los pasos
-      // (el General queda con identidad, precio y entrega solamente). ──
-      h('div', { key: 'gbase', style: sec === 'pasos' ? null : { display: 'none' } }, [
-      h('div', { key: 'basecard', className: 'gp-card' }, [
-        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
-        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (confección, montaje, embalaje, etc.) y usan el "margen de costos adicionales" de la pestaña Precios.'),
-        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'gp-compline' }, [
-          h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, c.name),
-          h('span', { key: 'ty', className: 'gp-chip neg' }, typeLabel(c.type)),
-          !compAvailable(c) && h('span', { key: 'w', className: 'gp-chip err' }, 'no disponible'),
-          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(componentSale(c))),
-          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
-        ]))),
-        h('div', { key: 'addbc', className: 'gp-compline', style: { borderBottom: 0, marginTop: 6 } }, [
-          h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
-            [h('option', { key: '', value: '' }, 'Elegir componente del catálogo…')].concat(
-              types().map((t) => {
-                const opts = model.components.filter((c) => c.type === t.id && (d.baseComponentIds || []).indexOf(c.id) === -1);
-                return opts.length
-                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtMoney(componentSale(c)))))
-                  : null;
-              }).filter(Boolean))),
-          h('button', { key: 'add', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !baseSel, onClick: () => {
-            if (!baseSel) return;
-            up({ baseComponentIds: (d.baseComponentIds || []).concat([baseSel]) });
-            setBaseSel('');
-          } }, '+ Componente base'),
-        ]),
-        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'gp-compline' }, [
-          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Confección, montaje, control de calidad)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
-          h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, value: x.cost, style: { width: 120 }, onChange: (e) => upExtra(x.id, { cost: e.target.value }) }),
-          h('select', { key: 'm', className: 'gp-select', style: { width: 90 }, value: x.currency || rules().currency, onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
-            costCurrencies().map((c) => h('option', { key: c, value: c }, c))),
-          h('span', { key: 'sp', className: 'grow' }),
-          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
-        ]))),
-        h('div', { key: 'bact', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
-          h('button', { key: 'addec', className: 'gp-btn gp-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: rules().currency }]) }) }, '+ Costo adicional'),
-          h('span', { key: 'sp', className: 'grow' }),
-          h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
-        ]),
-      ]),
-      ]),
-      // ── General (continuación): precio y entrega ──
-      h('div', { key: 'g2', style: sec === 'general' ? null : { display: 'none' } }, [
-        // ── Cómo se fija el precio ──
-        // Calcular desde costos es una opción, no una obligación: hay
-        // productos (packs, precio de lista) donde el precio se decide.
-        (function () {
-          const modo = priceModeOf(d);
-          const catItem = productItemFor(d);
-          const catPrice = catItem && catItem.price != null ? num(catItem.price) : null;
-          const catCost = catItem && catItem.costPerItem != null ? num(catItem.costPerItem) : null;
-          return h('div', { key: 'pm', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
-            h(Row, { key: 'm', label: 'Cómo se fija el precio de este producto' },
-              h('select', { className: 'gp-select', value: modo, onChange: (e) => up({ priceMode: e.target.value }) }, [
-                h('option', { key: 'a', value: 'auto' }, 'Calculado desde los costos y las reglas de margen'),
-                h('option', { key: 'f', value: 'fixed' }, 'Precio fijo — lo escribo yo (no depende de los costos)'),
-                h('option', { key: 's', value: 'store' }, 'El precio que ya tiene el producto en la tienda'),
-              ])),
-            modo === 'fixed' && h(Row, { key: 'fp', label: 'Precio fijo (' + rules().currency + ')' },
-              h('div', { className: 'gp-verify-cost' }, [
-                h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, value: d.fixedPrice == null ? '' : d.fixedPrice,
-                  onChange: (e) => up({ fixedPrice: e.target.value }) }),
-                catPrice != null ? h('button', { key: 'c', className: 'gp-btn gp-btn-sm', title: 'Copiar el precio actual del producto en la tienda',
-                  onClick: () => up({ fixedPrice: catPrice }) }, 'Usar el de la tienda (' + fmtMoney(catPrice) + ')') : null,
-              ])),
-            modo === 'store' && h('div', { key: 'sp', className: 'gp-muted' },
-              catPrice != null
-                ? 'Precio actual del producto en la tienda: ' + fmtMoney(catPrice) + '. Se toma de la app Productos en cada cálculo.'
-                : 'Aún no se puede leer el precio del catálogo (¿producto enlazado y catálogo cargado?). Mientras tanto se usa el precio fijo guardado.'),
-            modo !== 'auto' && h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 6 } },
-              'Los pasos y el visor 3D siguen funcionando igual: sirven para personalizar. Todas las combinaciones valen lo mismo, salvo los valores a los que les pongas un recargo.'),
-            catCost != null && h('div', { key: 'cc', className: 'gp-muted', style: { marginTop: 6 } },
-              'Dato de la tienda: costo por unidad en Jumpseller ' + fmtMoney(catCost) + '. Puedes usarlo como referencia sin cargar el detalle de componentes.'),
-            // Aviso temprano: si el precio calculado es 0, aplicar a la tienda
-            // se va a negar. Mejor verlo aquí que al pulsar "Aplicar".
-            !(num(productoComputedPrice(d)) > 0) && h('div', { key: 'w0', className: 'gp-warnbox', style: { marginTop: 8 } },
-              '⚠ El precio calculado es ' + fmtMoney(productoComputedPrice(d)) + '. Así NO se puede aplicar a la tienda (dejaría el producto a $0 a la venta). '
-              + (modo === 'auto'
-                ? 'En precio automático hace falta al menos un costo: componentes base, costos adicionales, o componentes en los valores por defecto de los pasos. Los pasos generados desde el modelo 3D no llevan costo por sí solos.'
-                : modo === 'store'
-                  ? 'No hay precio legible en el producto de la tienda: ponle precio en la app Productos, o cambia a precio fijo.'
-                  : 'Escribe el precio fijo aquí arriba.')),
-          ]);
-        })(),
-        h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
-          h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
-        h(Row, { key: 'dm', label: 'Cálculo de entrega' },
-          h('select', { className: 'gp-select', value: d.deliveryMode === 'sum' ? 'sum' : 'max', onChange: (e) => up({ deliveryMode: e.target.value }) }, [
-            h('option', { key: 'max', value: 'max' }, 'En paralelo — manda el componente más lento (producción propia)'),
-            h('option', { key: 'sum', value: 'sum' }, 'En serie — los días se SUMAN (dropshipping / logística encadenada)'),
-          ])),
-      ]),
-        // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
-        // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
-        // El layout va INLINE (no en una clase): si el CSS de la app llega
-        // cacheado de una versión vieja, un layout por clase se cae y las
-        // columnas se apilan con el preview arriba. La clase gp-col-scroll
-        // solo aporta la cosmética del scrollbar (pseudo-elementos,
-        // imposibles inline) y es mejora progresiva.
-        h('div', { key: 'p', ref: paneRef, style: sec === 'pasos'
-          ? (angosto
-            ? { display: 'flex', flexDirection: 'column', gap: 12 }
-            : { display: 'grid', gridTemplateColumns: 'minmax(0, 7fr) minmax(360px, 5fr)', gap: 12,
-                alignItems: 'stretch', height: paneH > 0 ? paneH : 'auto', overflow: 'hidden' })
-          : { display: 'none' } }, [
-        h('div', { key: 'pv-lado', className: 'gp-col-scroll',
-          style: angosto ? { order: 2 } : { order: 2, minHeight: 0, overflowY: 'auto' } },
-          h(ConfigPreview, { draft: d })),
-        h('div', { key: 'ed-lado', className: 'gp-col-scroll',
-          style: angosto ? { order: 1, minWidth: 0 } : { order: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', paddingRight: 4 } }, [
-      // Pasos: valores genéricos (lo que ve el cliente) con pool de alternativas
-      h('div', { key: 'gh', className: 'gp-card-title', style: { marginTop: 6 } }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Pasos, valores y alternativas']),
-      h('div', { key: 'ghelp', className: 'gp-muted', style: { marginBottom: 8 } },
-        'Cada paso tiene VALORES genéricos (la etiqueta que ve el cliente, sin marca: "Roble natural") y cada valor un pool de componentes ALTERNATIVOS de distintos proveedores. El precio usa siempre la alternativa más económica disponible (activa y con stock); sus specs e imagen alimentan el detalle en la tienda.'),
-      h(React.Fragment, { key: 'groups' }, d.groups.map((g, gi) => {
+    // ── Editor COMPLETO de un paso (era el cuerpo del map de la columna
+    // izquierda): ahora lo abre el ⚙ de cada paso DENTRO de la
+    // previsualización — se edita sobre lo que ve el cliente. ──
+    const renderEditorPaso = (g, gi) => {
         const candidates = model.components.filter((c) => c.type === g.typeId);
         const vals = groupValues(g);
         const dv = groupDefaultValue(g);
@@ -4973,14 +4836,185 @@ export default function mount(shell) {
             h('button', { key: 'addv', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 }, onClick: () => upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: '', componentIds: [] }]) }) }, '+ Valor'),
           ]),
         ]);
-      })),
-      h('div', { key: 'gact', className: 'gp-compline', style: { borderBottom: 0 } }, [
-        h('button', { key: 'addg', className: 'gp-btn', onClick: () => up({ groups: d.groups.concat([{ id: newId('grp'), typeId: types()[0].id, label: '', values: [], defaultValueId: null }]) }) }, '+ Agregar paso'),
-        // Previsualizador en vivo: el paso a paso tal como lo verá el cliente.
-        h('div', { key: 'cfgpv', style: { marginTop: 14 } }, h(ConfigPreview, { draft: d })),
-        // Mismo atajo que la tool BUILD_3D_STEPS del agente: un paso por parte
-        // del modelo, con un valor por acabado y el vínculo 3D ya hecho.
-        has3d(d) && ((d.model3d.finishes || []).length > 0) && h('button', { key: 'gen3d', className: 'gp-btn gp-btn-dark',
+    };
+    return h('div', { className: 'gp-editor' }, [
+      // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
+      // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
+      h('div', { key: 'top', className: 'gp-editor-top' }, [
+        h('span', { key: 'sp', style: { flex: 1 } }),
+        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
+      ]),
+      // El agente cambió este producto y aquí hay edición sin guardar: se
+      // decide a mano, porque cualquiera de las dos opciones pierde algo.
+      conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
+        h('span', { key: 't', style: { flex: 1, minWidth: 220 } },
+          '⚠ El agente cambió este producto mientras lo editabas. Si guardas ahora, tus cambios pisarán los suyos.'),
+        h('button', { key: 'r', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => cargarVivo(conflicto) }, 'Cargar lo del agente (pierdo lo mío)'),
+        h('button', { key: 'k', className: 'gp-btn gp-btn-sm', onClick: () => { baseRef.current = JSON.stringify(d); setConflicto(null); } }, 'Mantener lo mío'),
+      ]),
+      // ── Cuerpo: una sección a la vez, a todo el ancho ──
+      h('div', { key: 'body', className: 'gp-editor-body' }, [
+        h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
+      // General: la foto del producto a la IZQUIERDA (un toque abre la
+      // Galería) y a su lado la identidad del producto.
+      h('div', { key: 'glay', className: 'gp-general-lay' }, [
+      h('div', { key: 'foto', className: 'gp-general-foto', role: 'button', tabIndex: 0,
+        title: 'Abrir la galería del producto', onClick: () => setNav({ tab: 'galeria' }) }, [
+        productoImage(d)
+          ? h('img', { key: 'i', src: productoImage(d), alt: d.name || '' })
+          : h('span', { key: 'ph', className: 'gp-muted' }, 'Sin foto aún'),
+        h('span', { key: 'cta', className: 'gp-general-foto-cta' }, 'Ver galería →'),
+      ]),
+      h('div', { key: 'campos', className: 'gp-general-campos' }, [
+      // Enlace con el producto de la app products (que sincroniza con Jumpseller)
+      h('div', { key: 'link', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Producto de la tienda']),
+        legacy && h('div', { key: 'legacy', className: 'gp-warnbox' },
+          'Enlace de la versión anterior detectado (JS #' + legacy.sourceId + '). Re-enlaza con "Enlazar producto…" para poder aplicar opciones y variantes.'),
+        ref
+          ? h('div', { key: 'st', className: 'gp-compline' }, [
+              h(Thumb, { key: 'img', url: productoImage(d) }),
+              h('span', { key: 'c', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'producto local'),
+              h('span', { key: 'nm', style: { fontWeight: 600 } }, (productItemFor(d) || {}).name || ref.name || ref.itemId),
+              h('span', { key: 'm', className: 'gp-muted grow' }, '"Aplicar a la tienda" escribe precio, opciones y variantes en este producto (vía app Productos → Jumpseller).'),
+              h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => up({ storeRef: null }) }, 'Desenlazar'),
+            ])
+          : h('div', { key: 'no', className: 'gp-compline' }, [
+              h('span', { key: 'm', className: 'gp-muted grow' }, 'Sin enlace: el producto no se aplica a la tienda todavía.'),
+              h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => setPicking(true) }, 'Enlazar producto…'),
+            ]),
+      ]),
+      h('div', { key: 'g1', className: 'gp-grid2' }, [
+        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Camisa Clásica · Escritorio Nórdico' })),
+        h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PPRO-N1-2026' })),
+        h(Row, { key: 'su', label: 'URL del producto (vacío = automática: URL base de la tienda + permalink del producto sincronizado)' },
+          h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
+            placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
+      ]),
+      ]),
+      ]),
+      ]),
+      // ── Base y costos adicionales: viven en el ESTUDIO, junto a los pasos
+      // (el General queda con identidad, precio y entrega solamente). ──
+      h('div', { key: 'gbase', style: sec === 'pasos' ? null : { display: 'none' } }, [
+      h('div', { key: 'basecard', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (confección, montaje, embalaje, etc.) y usan el "margen de costos adicionales" de la pestaña Precios.'),
+        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'gp-compline' }, [
+          h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, c.name),
+          h('span', { key: 'ty', className: 'gp-chip neg' }, typeLabel(c.type)),
+          !compAvailable(c) && h('span', { key: 'w', className: 'gp-chip err' }, 'no disponible'),
+          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(componentSale(c))),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
+        ]))),
+        h('div', { key: 'addbc', className: 'gp-compline', style: { borderBottom: 0, marginTop: 6 } }, [
+          h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
+            [h('option', { key: '', value: '' }, 'Elegir componente del catálogo…')].concat(
+              types().map((t) => {
+                const opts = model.components.filter((c) => c.type === t.id && (d.baseComponentIds || []).indexOf(c.id) === -1);
+                return opts.length
+                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtMoney(componentSale(c)))))
+                  : null;
+              }).filter(Boolean))),
+          h('button', { key: 'add', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !baseSel, onClick: () => {
+            if (!baseSel) return;
+            up({ baseComponentIds: (d.baseComponentIds || []).concat([baseSel]) });
+            setBaseSel('');
+          } }, '+ Componente base'),
+        ]),
+        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Confección, montaje, control de calidad)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
+          h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, value: x.cost, style: { width: 120 }, onChange: (e) => upExtra(x.id, { cost: e.target.value }) }),
+          h('select', { key: 'm', className: 'gp-select', style: { width: 90 }, value: x.currency || rules().currency, onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
+            costCurrencies().map((c) => h('option', { key: c, value: c }, c))),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
+        ]))),
+        h('div', { key: 'bact', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
+          h('button', { key: 'addec', className: 'gp-btn gp-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: rules().currency }]) }) }, '+ Costo adicional'),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
+        ]),
+      ]),
+      ]),
+      // ── General (continuación): precio y entrega ──
+      h('div', { key: 'g2', style: sec === 'general' ? null : { display: 'none' } }, [
+        // ── Cómo se fija el precio ──
+        // Calcular desde costos es una opción, no una obligación: hay
+        // productos (packs, precio de lista) donde el precio se decide.
+        (function () {
+          const modo = priceModeOf(d);
+          const catItem = productItemFor(d);
+          const catPrice = catItem && catItem.price != null ? num(catItem.price) : null;
+          const catCost = catItem && catItem.costPerItem != null ? num(catItem.costPerItem) : null;
+          return h('div', { key: 'pm', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+            h(Row, { key: 'm', label: 'Cómo se fija el precio de este producto' },
+              h('select', { className: 'gp-select', value: modo, onChange: (e) => up({ priceMode: e.target.value }) }, [
+                h('option', { key: 'a', value: 'auto' }, 'Calculado desde los costos y las reglas de margen'),
+                h('option', { key: 'f', value: 'fixed' }, 'Precio fijo — lo escribo yo (no depende de los costos)'),
+                h('option', { key: 's', value: 'store' }, 'El precio que ya tiene el producto en la tienda'),
+              ])),
+            modo === 'fixed' && h(Row, { key: 'fp', label: 'Precio fijo (' + rules().currency + ')' },
+              h('div', { className: 'gp-verify-cost' }, [
+                h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, value: d.fixedPrice == null ? '' : d.fixedPrice,
+                  onChange: (e) => up({ fixedPrice: e.target.value }) }),
+                catPrice != null ? h('button', { key: 'c', className: 'gp-btn gp-btn-sm', title: 'Copiar el precio actual del producto en la tienda',
+                  onClick: () => up({ fixedPrice: catPrice }) }, 'Usar el de la tienda (' + fmtMoney(catPrice) + ')') : null,
+              ])),
+            modo === 'store' && h('div', { key: 'sp', className: 'gp-muted' },
+              catPrice != null
+                ? 'Precio actual del producto en la tienda: ' + fmtMoney(catPrice) + '. Se toma de la app Productos en cada cálculo.'
+                : 'Aún no se puede leer el precio del catálogo (¿producto enlazado y catálogo cargado?). Mientras tanto se usa el precio fijo guardado.'),
+            modo !== 'auto' && h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 6 } },
+              'Los pasos y el visor 3D siguen funcionando igual: sirven para personalizar. Todas las combinaciones valen lo mismo, salvo los valores a los que les pongas un recargo.'),
+            catCost != null && h('div', { key: 'cc', className: 'gp-muted', style: { marginTop: 6 } },
+              'Dato de la tienda: costo por unidad en Jumpseller ' + fmtMoney(catCost) + '. Puedes usarlo como referencia sin cargar el detalle de componentes.'),
+            // Aviso temprano: si el precio calculado es 0, aplicar a la tienda
+            // se va a negar. Mejor verlo aquí que al pulsar "Aplicar".
+            !(num(productoComputedPrice(d)) > 0) && h('div', { key: 'w0', className: 'gp-warnbox', style: { marginTop: 8 } },
+              '⚠ El precio calculado es ' + fmtMoney(productoComputedPrice(d)) + '. Así NO se puede aplicar a la tienda (dejaría el producto a $0 a la venta). '
+              + (modo === 'auto'
+                ? 'En precio automático hace falta al menos un costo: componentes base, costos adicionales, o componentes en los valores por defecto de los pasos. Los pasos generados desde el modelo 3D no llevan costo por sí solos.'
+                : modo === 'store'
+                  ? 'No hay precio legible en el producto de la tienda: ponle precio en la app Productos, o cambia a precio fijo.'
+                  : 'Escribe el precio fijo aquí arriba.')),
+          ]);
+        })(),
+        h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
+          h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
+        h(Row, { key: 'dm', label: 'Cálculo de entrega' },
+          h('select', { className: 'gp-select', value: d.deliveryMode === 'sum' ? 'sum' : 'max', onChange: (e) => up({ deliveryMode: e.target.value }) }, [
+            h('option', { key: 'max', value: 'max' }, 'En paralelo — manda el componente más lento (producción propia)'),
+            h('option', { key: 'sum', value: 'sum' }, 'En serie — los días se SUMAN (dropshipping / logística encadenada)'),
+          ])),
+      ]),
+        // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
+        // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
+        // El layout va INLINE (no en una clase): si el CSS de la app llega
+        // cacheado de una versión vieja, un layout por clase se cae y las
+        // columnas se apilan con el preview arriba. La clase gp-col-scroll
+        // solo aporta la cosmética del scrollbar (pseudo-elementos,
+        // imposibles inline) y es mejora progresiva.
+        // ── ESTUDIO: UNA columna con la previsualización EN GRANDE, tal
+        // cual la verá el cliente (con su switch Escritorio/Móvil), y la
+        // edición SOBRE ella: ⚙ por paso abre el editor completo inline,
+        // "+ Valor" agrega en el paso y "+ Agregar paso" al final. ──
+        h('div', { key: 'p', style: sec === 'pasos' ? { maxWidth: 1240, margin: '0 auto' } : { display: 'none' } }, [
+          h(ConfigPreview, { key: 'vivo', draft: d, edit: {
+            abierto: pasoEdit,
+            abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
+            renderEditorPaso,
+            agregarValor: (g) => {
+              upGroup(g.id, { values: groupValues(g).concat([{ id: newId('val'), label: 'Nuevo valor', componentIds: [] }]) });
+              setPasoEdit(g.id);
+            },
+            agregarPaso: () => {
+              const ng = { id: newId('grp'), typeId: types()[0].id, label: '', values: [], defaultValueId: null };
+              up({ groups: d.groups.concat([ng]) });
+              setPasoEdit(ng.id);
+            },
+            extra: has3d(d) && ((d.model3d.finishes || []).length > 0) && h('button', { key: 'gen3d', className: 'gp-btn gp-btn-dark',
           title: 'Crea un paso por cada parte del modelo, con un valor por cada acabado, ya vinculados al 3D',
           onClick: () => {
             const m = d.model3d;
@@ -4999,22 +5033,21 @@ export default function mount(shell) {
             const replace = !d.groups.length || window.confirm('¿Reemplazar los pasos actuales por los generados desde el modelo 3D?\n\nAceptar = reemplazar · Cancelar = agregarlos al final');
             up({ groups: replace ? gen : d.groups.concat(gen) });
           } }, '⚡ Generar pasos desde el modelo 3D'),
-      ]),
-      ]),
-      ]),
+          } }),
+        ]),
         // ── Galería: pestaña propia (fotos de Jumpseller + subidas) ──
         h('div', { key: 'gal', style: sec === 'galeria' ? null : { display: 'none' } }, [
       h('div', { key: 'galeria', className: 'gp-card', style: { marginTop: 12 } }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Galería del producto']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
           'Biblioteca de imágenes de ESTE producto: lo que subas aquí o en cualquier campo de imagen (fondos de hero, fotos de valores) queda disponible en los pickers "Galería…" para reutilizarlo en otras secciones, junto a las fotos del producto en Jumpseller (marcadas JS).'),
-        h('div', { key: 'grid', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+        h('div', { key: 'grid', className: 'gp-gal-grid' },
           productoGallery.length
             ? productoGallery.map((u, i) => {
                 const own = (d.galleryImages || []).indexOf(u) !== -1;
                 const isProd = prodImgs.indexOf(u) !== -1;
-                return h('div', { key: i, style: { position: 'relative' } }, [
-                  h('img', { key: 'i', src: u, alt: '', title: u, style: { width: 84, height: 84, objectFit: 'cover', border: '1px solid var(--gp-gris-claro)', background: '#fff', display: 'block' } }),
+                return h('div', { key: i, className: 'gp-gal-item' }, [
+                  h('img', { key: 'i', src: u, alt: '', title: u }),
                   isProd ? h('span', { key: 'p', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, bottom: 2 } }, 'JS') : null,
                   own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)', style: { position: 'absolute', top: 2, right: 2, padding: '2px 5px' }, onClick: () => up({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) }) }, '✕') : null,
                 ]);
