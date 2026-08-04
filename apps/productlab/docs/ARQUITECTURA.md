@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.14.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v3.0.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
