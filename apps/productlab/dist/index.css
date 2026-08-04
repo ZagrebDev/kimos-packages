@@ -374,7 +374,7 @@
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px; align-items: stretch;
-  min-height: 420px;   /* el alto real lo mide y lo fija el JS */
+  height: 100%; min-height: 0;
 }
 .kimos-productlab .gp-general-foto {
   position: relative; display: flex; align-items: center; justify-content: center;
@@ -393,7 +393,7 @@
   backdrop-filter: blur(6px); pointer-events: none;
 }
 .kimos-productlab .gp-general-campos {
-  min-width: 0; height: 100%; overflow-y: auto;
+  min-width: 0; height: 100%; min-height: 0; overflow-y: auto;
   background: var(--gp-vidrio); border: 1px solid var(--gp-borde-suave);
   backdrop-filter: blur(10px); border-radius: calc(var(--gp-radius) + 4px);
   padding: 28px 32px;
@@ -426,7 +426,11 @@
 .kimos-productlab .gp-general-campos .gp-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--gp-gris); }
 /* El nombre es el TITULAR de la ficha. */
 .kimos-productlab .gp-general-campos .gp-ficha-titulo .gp-input { font-size: 30px; font-weight: 700; letter-spacing: -.02em; min-height: 48px; }
-@media (max-width: 900px) { .kimos-productlab .gp-general-lay { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .kimos-productlab .gp-general-lay { grid-template-columns: 1fr; height: auto; }
+  .kimos-productlab .gp-general-foto { min-height: 300px; max-height: 50vh; }
+  .kimos-productlab .gp-general-campos { height: auto; overflow: visible; }
+}
 .kimos-productlab .gp-filters .gp-input, .kimos-productlab .gp-filters .gp-select { width: auto; min-width: 140px; }
 
 /* ── Modal ── */
@@ -477,10 +481,11 @@
 /* ── Editor de equipo a pantalla completa ── */
 .kimos-productlab .gp-editor {
   margin: -16px;
-  min-height: calc(100% + 32px);
+  height: calc(100% + 32px);
   display: flex;
   flex-direction: column;
   background: transparent;
+  overflow: hidden;
 }
 .kimos-productlab .gp-editor-top {
   position: sticky;
@@ -520,7 +525,7 @@
 }
 .kimos-productlab .gp-etab:hover { color: var(--gp-negro); }
 .kimos-productlab .gp-etab.on { color: var(--gp-negro); border-bottom-color: var(--gp-fucsia); }
-.kimos-productlab .gp-editor-body { flex: 1; padding: 16px; }
+.kimos-productlab .gp-editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
 .kimos-productlab .gp-editor-body > div > .gp-card:first-child { margin-top: 0; }
 /* La barra inferior del editor NO existe: precio y acciones viven en el
    header (hdrExtra). La clase queda por si algún test viejo la busca. */

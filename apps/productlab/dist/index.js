@@ -4533,23 +4533,9 @@ export default function mount(shell) {
     // (El split de dos columnas del Estudio se retiró: ahora es una sola
     // columna con la previsualización editable.)
     const [pasoEdit, setPasoEdit] = useState(null);   // paso con su editor abierto en el Estudio
-    // General: el alto de la ficha se MIDE (la app corre dentro de una
-    // ventana del shell: 100vh miente y dejaba un scroll de página). La foto
-    // llena su columna y solo la ficha derecha scrollea.
-    const layRef = useRef(null);
-    const [layH, setLayH] = useState(0);
-    useEffect(() => {
-      if (sec !== 'general') return undefined;
-      const calc = () => {
-        const nodo = layRef.current;
-        if (!nodo) return;
-        setLayH(Math.max(420, Math.round(window.innerHeight - nodo.getBoundingClientRect().top - 24)));
-      };
-      calc();
-      const tt = setTimeout(calc, 60);
-      window.addEventListener('resize', calc);
-      return () => { clearTimeout(tt); window.removeEventListener('resize', calc); };
-    }, [sec]);
+    // General: dos contenedores independientes (foto | ficha) con la cadena
+    // de altos en CSS puro — el alto viene del cuerpo del editor, la foto se
+    // contiene y SOLO la ficha scrollea.
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
@@ -4996,11 +4982,10 @@ export default function mount(shell) {
       ]),
       // ── Cuerpo: una sección a la vez, a todo el ancho ──
       h('div', { key: 'body', className: 'gp-editor-body' }, [
-        h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
+        h('div', { key: 'g', style: sec === 'general' ? { height: '100%' } : { display: 'none' } }, [
       // General: la foto del producto a la IZQUIERDA (un toque abre la
       // Galería) y a su lado la identidad del producto.
-      h('div', { key: 'glay', className: 'gp-general-lay', ref: layRef,
-        style: layH > 0 ? { height: layH } : null }, [
+      h('div', { key: 'glay', className: 'gp-general-lay' }, [
       h('div', { key: 'foto', className: 'gp-general-foto', role: 'button', tabIndex: 0,
         title: 'Abrir la galería del producto', onClick: () => setNav({ tab: 'galeria' }) }, [
         productoImage(d)
