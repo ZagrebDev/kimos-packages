@@ -4329,7 +4329,15 @@ export default function mount(shell) {
                   edit ? h('div', { key: 'a', className: 'gp-vivo-acciones' },
                     h('button', { className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
                 ])
-              : groups.map(({ g, vals }, gi) => {
+              : (edit ? [h('div', { key: '__base', style: { marginBottom: 14 } }, [
+                  h('div', { key: 'h', className: 'gp-muted', style: { padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center' } }, [
+                    h('span', { key: 't' }, 'PASO 00 · Componentes base — incluidos siempre (' + (edit.resumenBase || '') + '; el cliente no los ve)'),
+                    h('button', { key: 'cfg', className: 'gp-btn gp-btn-sm' + (edit.abierto === '__base' ? ' gp-btn-dark' : ''),
+                      style: { marginLeft: 10 }, title: 'Editar componentes base y costos adicionales',
+                      onClick: () => edit.abrir('__base') }, edit.abierto === '__base' ? '✕ Cerrar' : '⚙ Editar'),
+                  ]),
+                  edit.abierto === '__base' ? h('div', { key: 'ed', className: 'gp-vivo-editor' }, edit.renderEditorBase()) : null,
+                ])] : []).concat(groups.map(({ g, vals }, gi) => {
                   // Edición sobre la previsualización: ⚙ abre el editor
                   // completo del paso inline, debajo de sus cards.
                   const idx = (draft.groups || []).indexOf(g);
@@ -4389,7 +4397,7 @@ export default function mount(shell) {
                       onClick: () => edit.agregarValor(g) }, '+ Valor')] : [])),
                     editor,
                   ]);
-                }).concat(edit ? [h('div', { key: '__acciones', className: 'gp-vivo-acciones' }, [
+                })).concat(edit ? [h('div', { key: '__acciones', className: 'gp-vivo-acciones' }, [
                   h('button', { key: 'add', className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso'),
                   edit.extra || null,
                 ])] : [])),
@@ -4534,6 +4542,51 @@ export default function mount(shell) {
       });
     });
     useEffect(() => () => setHdrExtra(null), []);
+    // ── Editor de los COMPONENTES BASE (paso 0 del Estudio): la card de
+    // base + costos adicionales de siempre, abierta por el ⚙ del paso 0
+    // dentro de la previsualización. El cliente jamás la ve. ──
+    const renderEditorBase = () => (
+      h('div', { key: 'basecard', className: 'gp-card' }, [
+        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
+        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
+          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (confección, montaje, embalaje, etc.) y usan el "margen de costos adicionales" de la pestaña Precios.'),
+        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'gp-compline' }, [
+          h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, c.name),
+          h('span', { key: 'ty', className: 'gp-chip neg' }, typeLabel(c.type)),
+          !compAvailable(c) && h('span', { key: 'w', className: 'gp-chip err' }, 'no disponible'),
+          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(componentSale(c))),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
+        ]))),
+        h('div', { key: 'addbc', className: 'gp-compline', style: { borderBottom: 0, marginTop: 6 } }, [
+          h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
+            [h('option', { key: '', value: '' }, 'Elegir componente del catálogo…')].concat(
+              types().map((t) => {
+                const opts = model.components.filter((c) => c.type === t.id && (d.baseComponentIds || []).indexOf(c.id) === -1);
+                return opts.length
+                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtMoney(componentSale(c)))))
+                  : null;
+              }).filter(Boolean))),
+          h('button', { key: 'add', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !baseSel, onClick: () => {
+            if (!baseSel) return;
+            up({ baseComponentIds: (d.baseComponentIds || []).concat([baseSel]) });
+            setBaseSel('');
+          } }, '+ Componente base'),
+        ]),
+        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Confección, montaje, control de calidad)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
+          h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, value: x.cost, style: { width: 120 }, onChange: (e) => upExtra(x.id, { cost: e.target.value }) }),
+          h('select', { key: 'm', className: 'gp-select', style: { width: 90 }, value: x.currency || rules().currency, onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
+            costCurrencies().map((c) => h('option', { key: c, value: c }, c))),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
+        ]))),
+        h('div', { key: 'bact', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
+          h('button', { key: 'addec', className: 'gp-btn gp-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: rules().currency }]) }) }, '+ Costo adicional'),
+          h('span', { key: 'sp', className: 'grow' }),
+          h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
+        ]),
+      ])
+    );
     // ── Editor COMPLETO de un paso (era el cuerpo del map de la columna
     // izquierda): ahora lo abre el ⚙ de cada paso DENTRO de la
     // previsualización — se edita sobre lo que ve el cliente. ──
@@ -4867,50 +4920,6 @@ export default function mount(shell) {
       ]),
       ]),
       ]),
-      // ── Base y costos adicionales: viven en el ESTUDIO, junto a los pasos
-      // (el General queda con identidad, precio y entrega solamente). ──
-      h('div', { key: 'gbase', style: sec === 'pasos' ? null : { display: 'none' } }, [
-      h('div', { key: 'basecard', className: 'gp-card' }, [
-        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
-        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          'Los componentes base van siempre incluidos y definen el costo base (cada uno con el margen de su tipo). Los costos adicionales son manuales (confección, montaje, embalaje, etc.) y usan el "margen de costos adicionales" de la pestaña Precios.'),
-        h(React.Fragment, { key: 'bc' }, (d.baseComponentIds || []).map(compById).filter(Boolean).map((c) => h('div', { key: c.id, className: 'gp-compline' }, [
-          h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, c.name),
-          h('span', { key: 'ty', className: 'gp-chip neg' }, typeLabel(c.type)),
-          !compAvailable(c) && h('span', { key: 'w', className: 'gp-chip err' }, 'no disponible'),
-          h('span', { key: 'p', className: 'gp-price' }, fmtMoney(componentSale(c))),
-          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ baseComponentIds: d.baseComponentIds.filter((id) => id !== c.id) }) }, '✕'),
-        ]))),
-        h('div', { key: 'addbc', className: 'gp-compline', style: { borderBottom: 0, marginTop: 6 } }, [
-          h('select', { key: 'sel', className: 'gp-select', style: { maxWidth: 360 }, value: baseSel, onChange: (e) => setBaseSel(e.target.value) },
-            [h('option', { key: '', value: '' }, 'Elegir componente del catálogo…')].concat(
-              types().map((t) => {
-                const opts = model.components.filter((c) => c.type === t.id && (d.baseComponentIds || []).indexOf(c.id) === -1);
-                return opts.length
-                  ? h('optgroup', { key: t.id, label: t.label }, opts.map((c) => h('option', { key: c.id, value: c.id }, c.name + ' — ' + fmtMoney(componentSale(c)))))
-                  : null;
-              }).filter(Boolean))),
-          h('button', { key: 'add', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !baseSel, onClick: () => {
-            if (!baseSel) return;
-            up({ baseComponentIds: (d.baseComponentIds || []).concat([baseSel]) });
-            setBaseSel('');
-          } }, '+ Componente base'),
-        ]),
-        h(React.Fragment, { key: 'ec' }, (d.extraCosts || []).map((x) => h('div', { key: x.id, className: 'gp-compline' }, [
-          h(TextInput, { key: 'l', value: x.label, placeholder: 'Concepto (ej: Confección, montaje, control de calidad)', style: { width: 220 }, onChange: (e) => upExtra(x.id, { label: e.target.value }) }),
-          h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, value: x.cost, style: { width: 120 }, onChange: (e) => upExtra(x.id, { cost: e.target.value }) }),
-          h('select', { key: 'm', className: 'gp-select', style: { width: 90 }, value: x.currency || rules().currency, onChange: (e) => upExtra(x.id, { currency: e.target.value }) },
-            costCurrencies().map((c) => h('option', { key: c, value: c }, c))),
-          h('span', { key: 'sp', className: 'grow' }),
-          h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ extraCosts: d.extraCosts.filter((y) => y.id !== x.id) }) }, '✕'),
-        ]))),
-        h('div', { key: 'bact', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
-          h('button', { key: 'addec', className: 'gp-btn gp-btn-sm', onClick: () => up({ extraCosts: (d.extraCosts || []).concat([{ id: newId('ec'), label: '', cost: 0, currency: rules().currency }]) }) }, '+ Costo adicional'),
-          h('span', { key: 'sp', className: 'grow' }),
-          h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
-        ]),
-      ]),
-      ]),
       // ── General (continuación): precio y entrega ──
       h('div', { key: 'g2', style: sec === 'general' ? null : { display: 'none' } }, [
         // ── Cómo se fija el precio ──
@@ -4978,6 +4987,8 @@ export default function mount(shell) {
             abierto: pasoEdit,
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
             renderEditorPaso,
+            renderEditorBase,
+            resumenBase: (d.baseComponentIds || []).length + ' componente(s) base · ' + (d.extraCosts || []).length + ' costo(s) adicional(es)',
             agregarValor: (g) => {
               upGroup(g.id, { values: groupValues(g).concat([{ id: newId('val'), label: 'Nuevo valor', componentIds: [] }]) });
               setPasoEdit(g.id);
@@ -6506,15 +6517,18 @@ export default function mount(shell) {
     return h('div', { key: 'hd', className: 'gp-hd' }, [
       h('div', { key: 'nav', className: 'gp-hd-nav' }, [
         atras ? h('button', { key: 'atras', className: 'gp-hd-ico', title: 'Volver', onClick: atras }, h(ICONO_ATRAS)) : null,
-        h('nav', { key: 'crumbs', className: 'gp-crumbs', 'aria-label': 'breadcrumb' }, [
-          h('button', { key: 'casa', className: 'gp-crumb gp-hd-ico', title: 'Inicio',
-            onClick: () => setNav({ sec: 'productos', det: null, tab: null }) }, h(ICONO_CASA)),
-          h('span', { key: 's1', className: 'gp-crumb-sep' }, '›'),
-          h('button', { key: 'sec', className: 'gp-crumb' + (n.det || (n.sec === 'config' && n.tab) ? '' : ' on'),
-            onClick: () => setNav({ det: null, tab: null }) }, secLabel),
-          n.det ? h('span', { key: 's2', className: 'gp-crumb-sep' }, '›') : null,
-          n.det ? h('span', { key: 'det', className: 'gp-crumb on' }, n.det.nombre || (n.det.tipo === 'producto' ? 'Nuevo producto' : 'Nuevo componente')) : null,
-        ]),
+        (function () {
+          const dentro = !!n.det || (n.sec === 'config' && !!n.tab);
+          return h('nav', { key: 'crumbs', className: 'gp-crumbs', 'aria-label': 'breadcrumb' }, [
+            h('button', { key: 'casa', className: 'gp-crumb gp-hd-ico', title: 'Inicio',
+              onClick: () => setNav({ sec: 'productos', det: null, tab: null }) }, h(ICONO_CASA)),
+            h('span', { key: 's1', className: 'gp-crumb-sep' }, '›'),
+            dentro ? h('button', { key: 'sec', className: 'gp-crumb',
+              onClick: () => setNav({ det: null, tab: null }) }, secLabel) : null,
+            n.det ? h('span', { key: 's2', className: 'gp-crumb-sep' }, '›') : null,
+            n.det ? h('span', { key: 'det', className: 'gp-crumb on' }, n.det.nombre || (n.det.tipo === 'producto' ? 'Nuevo producto' : 'Nuevo componente')) : null,
+          ]);
+        })(),
       ]),
       h('div', { key: 'tabs', className: 'gp-bigtabs', role: 'tablist' }, tabs.map(([id, label]) =>
         h('button', { key: id, role: 'tab', 'aria-selected': activo === id,
