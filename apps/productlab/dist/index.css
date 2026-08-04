@@ -232,24 +232,13 @@
   flex-wrap: wrap;
 }
 
-/* ── Pasos: editor a la izquierda, previsualizador al lado ── */
-.kimos-productlab .gp-pasos-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
-  gap: 16px;
-  align-items: start;
-}
 /* ── Previsualizador pegajoso junto al editor de pasos ──
-   El alto descuenta la barra inferior fija (para que no la tape) y el
-   scrollbar propio solo aparece al pasar el mouse: sin él quedaban dos
-   scrollbars adyacentes en el borde derecho. La rueda funciona siempre. */
+   El layout (grid, sticky, alto) va inline en la app — así funciona aunque
+   este CSS llegue cacheado de una versión vieja. Aquí solo la cosmética del
+   scrollbar propio: invisible en reposo y fino al pasar el mouse, para no
+   tener dos scrollbars adyacentes en el borde derecho. La rueda funciona
+   siempre. */
 .kimos-productlab .gp-preview-lado {
-  position: sticky;
-  /* Debajo de la cabecera sticky del editor (gp-editor-top) y por encima de
-     la barra inferior fija (gp-editor-bottom): ni tapado ni tapando. */
-  top: 34px;
-  max-height: calc(100vh - 128px);
-  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
   padding-right: 6px;
@@ -259,11 +248,6 @@
 .kimos-productlab .gp-preview-lado::-webkit-scrollbar-track { background: transparent; }
 .kimos-productlab .gp-preview-lado::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
 .kimos-productlab .gp-preview-lado:hover::-webkit-scrollbar-thumb { background: var(--gp-gris-claro); }
-/* En angosto no cabe la columna lateral: el previsualizador baja (order:2). */
-@media (max-width: 1100px) {
-  .kimos-productlab .gp-pasos-grid { display: flex; flex-direction: column; align-items: stretch; }
-  .kimos-productlab .gp-preview-lado { position: static; max-height: none; overflow: visible; padding-right: 0; }
-}
 
 /* ── Modo compacto (⚙️ Configurar → Tablas compactas) ── */
 .kimos-productlab.gp-dense .gp-table td,
