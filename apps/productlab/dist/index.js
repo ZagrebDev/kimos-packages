@@ -4325,7 +4325,7 @@ export default function mount(shell) {
       // en escritorio debe ser visible: un ancestro con overflow:auto sería
       // el contenedor de scroll del panel sticky y lo dejaría sin efecto.
       h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: mob ? 'auto' : 'visible', '--pv-radius': radius + 'px' } },
-        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : 980, margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
+        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : (edit ? 'none' : 980), margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
               ? h('div', null, [
@@ -4915,17 +4915,16 @@ export default function mount(shell) {
             ]),
       ]),
       h('div', { key: 'g1', className: 'gp-grid2' }, [
-        h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Camisa Clásica · Escritorio Nórdico' })),
+        h('div', { key: 'n', className: 'gp-row gp-ficha-titulo' }, [
+          h('span', { key: 'l', className: 'gp-label' }, 'Nombre *'),
+          h(TextInput, { key: 'i', value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Nombre del producto' }),
+        ]),
         h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PPRO-N1-2026' })),
         h(Row, { key: 'su', label: 'URL del producto (vacío = automática: URL base de la tienda + permalink del producto sincronizado)' },
           h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
             placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
       ]),
-      ]),
-      ]),
-      ]),
-      // ── General (continuación): precio y entrega ──
-      h('div', { key: 'g2', style: sec === 'general' ? null : { display: 'none' } }, [
+      // ── Precio y entrega: parte de la misma ficha ──
         // ── Cómo se fija el precio ──
         // Calcular desde costos es una opción, no una obligación: hay
         // productos (packs, precio de lista) donde el precio se decide.
@@ -4975,6 +4974,8 @@ export default function mount(shell) {
             h('option', { key: 'sum', value: 'sum' }, 'En serie — los días se SUMAN (dropshipping / logística encadenada)'),
           ])),
       ]),
+      ]),
+      ]),
         // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
         // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
         // El layout va INLINE (no en una clase): si el CSS de la app llega
@@ -4986,7 +4987,7 @@ export default function mount(shell) {
         // cual la verá el cliente (con su switch Escritorio/Móvil), y la
         // edición SOBRE ella: ⚙ por paso abre el editor completo inline,
         // "+ Valor" agrega en el paso y "+ Agregar paso" al final. ──
-        h('div', { key: 'p', style: sec === 'pasos' ? { maxWidth: 1240, margin: '0 auto' } : { display: 'none' } }, [
+        h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
           h(ConfigPreview, { key: 'vivo', draft: d, edit: {
             abierto: pasoEdit,
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
