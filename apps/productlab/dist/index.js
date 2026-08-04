@@ -4321,12 +4321,14 @@ export default function mount(shell) {
     // El previsualizador muestra lo que verá la tienda: si el producto usa
     // una plantilla del catálogo, manda la plantilla, no su estilo guardado.
     const st = resolveStyle(draft);
-    // En el Estudio (edit) el preview acompaña al TEMA de KIMOS: acento del
-    // sistema y superficies día/noche; sin estilo explícito no se inventa un
-    // verde. Fuera del Estudio emula la tienda (fondo blanco del theme).
-    const accent = /^#[0-9a-fA-F]{6}$/.test(s(st.accentColor).trim()) ? s(st.accentColor).trim()
-      : (edit ? 'var(--gp-acento)' : '#19ACB1');
-    const accentFg = edit ? 'var(--gp-acento-fg)' : '#fff';
+    // Acento: el ELEGIDO en el estilo/plantilla manda siempre, en cualquier
+    // formato CSS (#abc, rgb(), nombre) — igual que hace el kit en la tienda.
+    // Vacío = acento del sistema KIMOS; jamás se inventa un verde genérico.
+    const accRaw = s(st.accentColor).trim();
+    const accent = accRaw || 'var(--gp-acento)';
+    const accentFg = /^#[0-9a-fA-F]{6}$/.test(accRaw)
+      ? (isDarkHex(accRaw) ? '#fff' : '#111')
+      : (accRaw ? '#fff' : 'var(--gp-acento-fg)');
     const pvBlanco = edit ? 'var(--gp-blanco)' : '#fff';
     const pvFondo = edit ? 'var(--gp-fondo)' : '#fff';
     const radius = Math.max(0, num(st.radius, 0));

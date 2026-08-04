@@ -244,6 +244,9 @@
   border: 1px solid hsl(var(--input, 214.3 18% 72%));
   background: var(--gp-fondo); color: var(--gp-negro);
   font: 400 14px/1.4 'Inter', sans-serif; padding: 8px 12px; min-height: 40px; width: 100%;
+  /* max-width evita que un select con opciones largas (width:auto inline)
+     desborde su card en pantallas angostas: se recorta, no rompe el layout. */
+  max-width: 100%;
   border-radius: calc(var(--gp-radius) + 2px);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
