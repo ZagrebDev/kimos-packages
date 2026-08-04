@@ -326,6 +326,17 @@ cada valor usa el mismo patrón: chips de lo elegido + buscador sobre todo el
 catálogo, navegación por tipo (`tipo:` o los chips de tipos) con stock y precio
 a la vista, y aviso «⚠ incompatible con…» contra los tags de lo ya elegido.
 
+## 9.a.3 Presets (3.3)
+
+`producto.presets[] { id, name, imageUrl, selection: { groupId: valueId } }`:
+configuraciones sugeridas que el cliente ve ANTES del paso a paso (capa
+opcional del kit; sin presets va directo al selector). Se gestionan en el
+Estudio (bloque PRESETS: guardar la selección actual del previsualizador,
+Ver/actualizar/eliminar) y viajan en el JSON público RESUELTOS por nombres
+(`selection: [{group, value}]`), saltándose pasos base, comodines y valores
+desaparecidos. El kit (5.14) los casa por nombre y aplica en los selects
+nativos — el precio de cada card sale de la variante de Jumpseller.
+
 ## 9.b Pasos dependientes: comodín automático e invisible (2.14, antes 2.10)
 
 Jumpseller exige **un valor de cada opción en cada variante**: no existe la

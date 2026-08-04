@@ -1081,6 +1081,14 @@ export default function mount(shell) {
   function normalizeProductoShape(raw, comps) {
     const lookup = (id) => (comps || model.components).find((c) => c.id === id) || null;
     const eq = Object.assign({}, raw);
+    // PRESETS: configuraciones sugeridas que el cliente ve ANTES del paso a
+    // paso (capa opcional; sin presets la ficha va directo al selector).
+    eq.presets = (Array.isArray(eq.presets) ? eq.presets : []).filter(Boolean).map((pz) => ({
+      id: pz.id || newId('pre'),
+      name: s(pz.name).trim() || 'Configuración',
+      imageUrl: s(pz.imageUrl).trim(),
+      selection: (pz.selection && typeof pz.selection === 'object') ? pz.selection : {},
+    }));
     eq.groups = (eq.groups || []).map((g) => {
       if (Array.isArray(g.values)) return g;
       const values = (g.componentIds || []).map((cid) => {
@@ -1959,6 +1967,20 @@ export default function mount(shell) {
           storefront: eq.storefront
             ? Object.assign({}, eq.storefront, { style: resolveStyle(eq) })
             : null,
+          // PRESETS: configuraciones sugeridas, resueltas por NOMBRES (el kit
+          // casa pasos y valores por nombre, igual que el resto del contrato).
+          // Solo viajan las selecciones que apuntan a pasos/valores vigentes.
+          presets: (eq.presets || []).map((pz) => {
+            const seleccion = [];
+            Object.keys(pz.selection || {}).forEach((gid) => {
+              const g = (eq.groups || []).find((x) => x.id === gid);
+              if (!g || g.baseStep === true) return;
+              const v = groupValues(g).find((x) => x.id === pz.selection[gid]);
+              if (!v || v.fallback === true) return;
+              seleccion.push({ group: g.label || typeLabel(g.typeId), value: v.label });
+            });
+            return seleccion.length ? { id: pz.id, name: pz.name, imageUrl: pz.imageUrl || '', selection: seleccion } : null;
+          }).filter(Boolean),
           // Contrato 3D para el theme: el mismo que consume el motor
           // (assets/engine3d.js), así la tienda reutiliza el núcleo tal cual.
           model3d: pubModel3d ? {
@@ -4326,7 +4348,56 @@ export default function mount(shell) {
                   edit ? h('div', { key: 'a', className: 'gp-vivo-acciones' },
                     h('button', { className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
                 ])
-              : (edit ? [h('div', { key: '__base', style: { marginBottom: 14 } }, [
+              : (edit ? [
+                // ── PRESETS: configuraciones sugeridas (capa previa del cliente) ──
+                (function () {
+                  const presets = edit.presets || [];
+                  const precioDe = (map) => {
+                    let gg = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
+                    (draft.groups || []).filter((g) => g.baseStep === true).forEach((g) => {
+                      const dvb = groupDefaultValue(g);
+                      if (dvb) gg += fixed ? valueExtra(draft, g, dvb) : (valueGross(dvb) || 0);
+                    });
+                    groups.forEach(({ g }) => {
+                      if (g.baseStep === true) return;
+                      if (!groupVisibleFor(draft, g, map)) return;
+                      const v = groupValues(g).find((x) => x.id === map[g.id]) || groupDefaultValue(g);
+                      if (v) gg += fixed ? valueExtra(draft, g, v) : (valueGross(v) || 0);
+                    });
+                    return fixed ? Math.round(gg) : roundFinal(gg);
+                  };
+                  const upLista = edit.upPresets;
+                  return h('div', { key: '__presets', style: { marginBottom: 18 } }, [
+                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                      h('span', { key: 'n', style: { color: accent } }, 'PRESETS'),
+                      h('span', { key: 'l' }, ' · Configuraciones sugeridas'),
+                      h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } },
+                        'capa previa OPCIONAL: el cliente elige una y la edita, o parte de cero; sin presets va directo al paso a paso'),
+                    ]),
+                    h('div', { key: 'cards', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+                      presets.map((pz) => {
+                        const precio = precioDe(pz.selection || {});
+                        return h('div', { key: pz.id, style: { border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 8, width: 180, borderRadius: 6 } }, [
+                          h(TextInput, { key: 'n', value: pz.name, style: { fontWeight: 600, fontSize: 12.5, marginBottom: 4 },
+                            onChange: (e) => upLista(presets.map((x) => (x.id === pz.id ? Object.assign({}, x, { name: e.target.value }) : x))) }),
+                          h('div', { key: 'p', style: { fontFamily: 'monospace', fontSize: 12.5, color: '#1b1b1b', margin: '2px 0 6px' } }, fmtMoney(precio)),
+                          h('div', { key: 'a', style: { display: 'flex', gap: 4 } }, [
+                            h('button', { key: 'v', className: 'gp-btn gp-btn-sm', title: 'Cargar esta configuración en el previsualizador',
+                              onClick: () => setSel(Object.assign({}, pz.selection)) }, 'Ver'),
+                            h('button', { key: 'u', className: 'gp-btn gp-btn-sm', title: 'Reemplazar este preset con la selección ACTUAL del previsualizador',
+                              onClick: () => upLista(presets.map((x) => (x.id === pz.id ? Object.assign({}, x, { selection: Object.assign({}, selMap) }) : x))) }, '↺'),
+                            h('span', { key: 'sp', style: { flex: 1 } }),
+                            h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Eliminar preset',
+                              onClick: () => upLista(presets.filter((x) => x.id !== pz.id)) }, '✕'),
+                          ]),
+                        ]);
+                      }).concat([h('button', { key: '__add', className: 'gp-vivo-addval', style: { width: 180, minHeight: 92 },
+                        title: 'Crea un preset con la selección ACTUAL del previsualizador (elige valores abajo y guarda)',
+                        onClick: () => upLista(presets.concat([{ id: newId('pre'), name: 'Configuración ' + (presets.length + 1), imageUrl: '', selection: Object.assign({}, selMap) }])) },
+                        '+ Preset con la selección actual')])),
+                  ]);
+                })(),
+                h('div', { key: '__base', style: { marginBottom: 14 } }, [
                   h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
                     h('span', { key: 'n', style: { color: accent } }, 'PASO 00'),
                     h('span', { key: 'l' }, ' · Componentes base'),
@@ -5018,6 +5089,8 @@ export default function mount(shell) {
             renderEditorPaso,
             renderEditorBase,
             baseComps: (d.baseComponentIds || []).map(compById).filter(Boolean),
+            presets: d.presets || [],
+            upPresets: (lista) => up({ presets: lista }),
             agregarValor: (g) => {
               upGroup(g.id, { values: groupValues(g).concat([{ id: newId('val'), label: 'Nuevo valor', componentIds: [] }]) });
               setPasoEdit(g.id);

@@ -470,6 +470,30 @@
   .kimos-cfg .kc-panel.kc-open .kc-canvas { display: block; }
 }
 
+/* ══ Presets: capa previa del personalizador (configuraciones sugeridas) ══ */
+.kimos-cfg .kc-presets { max-width: 1100px; margin: 0 auto; }
+.kimos-cfg .kc-presets-t { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.kimos-cfg .kc-presets-s { font-size: 13px; color: var(--kc-gris); margin-bottom: 18px; }
+.kimos-cfg .kc-presets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.kimos-cfg .kc-preset {
+  display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;
+  padding: 16px; cursor: pointer;
+  background: var(--kc-card); border: 1px solid var(--kc-borde); border-radius: var(--kc-radius);
+  color: inherit; font: inherit;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kimos-cfg .kc-preset:hover { border-color: var(--kc-accent); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.kimos-cfg .kc-preset-img { width: 100%; height: 130px; object-fit: contain; background: #fff; border-radius: var(--kc-radius); }
+.kimos-cfg .kc-preset-n { font-weight: 700; font-size: 15px; }
+.kimos-cfg .kc-preset-p { font-family: var(--kc-font-num); font-size: 18px; font-weight: 600; }
+.kimos-cfg .kc-preset-cta { pointer-events: none; padding: 9px 18px; font-size: 13px; }
+.kimos-cfg .kc-preset-cero { justify-content: center; border-style: dashed; min-height: 180px; }
+.kimos-cfg .kc-preset-d { font-size: 12px; color: var(--kc-gris); }
+.kimos-cfg .kc-presets-volver {
+  margin-bottom: 12px; font-size: 12.5px; padding: 8px 14px; cursor: pointer;
+  border: 1px solid var(--kc-borde); background: none; color: inherit; border-radius: var(--kc-radius);
+}
+
 /* Pasos: título en versalitas con el número en acento y filete discontinuo. */
 .kimos-cfg .kc-step {
   margin-bottom: 26px; padding-bottom: 22px;

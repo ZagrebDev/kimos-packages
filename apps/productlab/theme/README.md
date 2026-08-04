@@ -394,6 +394,18 @@ de video" solo con la placa que la admite). Qué hace la ficha:
   "Ajustado automáticamente" ni valores de relleno ("No aplica") — la app
   los publica y el kit los gestiona por debajo.
 
+### Presets: configuraciones sugeridas (v5.14)
+
+La app puede publicar por producto una lista de **presets** (`presets[]`,
+resueltos por nombres de paso/valor). Si llegan, al entrar al personalizador
+el cliente ve primero una capa de cards — nombre, foto, precio de la variante
+y "Elegir y editar" — más la card **"Personalizar desde cero"**. Elegir un
+preset escribe la selección en los selects nativos y deja el paso a paso
+listo para ajustar; siempre hay un enlace "‹ Configuraciones sugeridas" para
+volver. **Sin presets no cambia nada**: el paso a paso aparece directo. Los
+presets se definen en la app: Estudio → PRESETS ("+ Preset con la selección
+actual").
+
 ### Caché del JSON público (60 s)
 
 El kit guarda el JSON de la app en `localStorage` con TTL de 60 segundos: las

@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.13.2';
+  var VERSION = '5.14.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -2176,7 +2176,100 @@
           confPanel.appendChild(confSteps);
           confPanel.appendChild(panelBox);
       }
+      pintarPasos();
+    }
+
+    /**
+     * PRESETS — capa previa OPCIONAL dentro del personalizador: la app puede
+     * publicar configuraciones sugeridas (entry.presets, resueltas por
+     * nombres). Si existen, al entrar se ofrecen como cards con su precio de
+     * variante y un "Personalizar desde cero"; elegir una escribe la
+     * selección en los selects nativos y deja el paso a paso listo para
+     * editar. Sin presets, el paso a paso aparece directo, como siempre.
+     */
+    var hayPresets = Array.isArray(entry.presets) && entry.presets.length > 0;
+    var presetVisto = !hayPresets;
+    function idsDePreset(pz) {
+      var ids = {};
+      (pz.selection || []).forEach(function (sv) {
+        var g = groups.filter(function (x) { return norm(x.name) === norm(sv.group); })[0];
+        if (!g) return;
+        var val = g.values.filter(function (v) { return norm(v.name) === norm(sv.value); })[0];
+        if (val) ids[g.id] = String(val.id);
+      });
+      return ids;
+    }
+    function precioPreset(pz) {
+      if (!VARIANTES.length) return null;
+      // Selección actual + el preset encima: los pasos que el preset no toca
+      // conservan su valor (los ocultos, su comodín).
+      var sel = readSelection(groups);
+      var pre = idsDePreset(pz);
+      var ids = groups.map(function (g) { return String(pre[g.id] || sel[g.id] || ''); }).filter(Boolean);
+      if (ids.length !== groups.length) return null;
+      for (var i = 0; i < VARIANTES.length; i++) {
+        var e = VARIANTES[i] || {};
+        var crudos = e.values || e.options || [];
+        var vals = [];
+        for (var k = 0; k < crudos.length; k++) {
+          var x = crudos[k] || {};
+          var vid = (x.value && x.value.id != null) ? x.value.id
+            : (x.value_id != null ? x.value_id : x.id);
+          if (vid != null) vals.push(String(vid));
+        }
+        if (vals.length !== ids.length) continue;
+        var todos = true;
+        for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+        if (todos) return precioDeVariante(e.variant || e);
+      }
+      return null;
+    }
+    function aplicarPreset(pz) {
+      var pre = idsDePreset(pz);
+      groups.forEach(function (g) { if (pre[g.id] != null) applyNative(g, pre[g.id]); });
+      presetVisto = true;
+      ajustar(false);
+      pintarPasos();
+      pintarPanel();
+      paintBar();
+      if (viewer) viewer.setState(build3dState(entry, groups));
+    }
+    function renderPresets() {
+      var wrap = el('div', 'kc-presets');
+      wrap.appendChild(el('div', 'kc-presets-t', tabsCfg.presetsTitulo || 'Elige un punto de partida'));
+      wrap.appendChild(el('div', 'kc-presets-s', 'Configuraciones listas para comprar — elige una y ajústala a tu gusto, o parte desde cero.'));
+      var grid = el('div', 'kc-presets-grid');
+      (entry.presets || []).forEach(function (pz) {
+        var card = el('button', 'kc-preset');
+        card.type = 'button';
+        var foto = pz.imageUrl || entry.imageUrl || (images && images[0]) || '';
+        if (foto) { var im = el('img', 'kc-preset-img'); im.src = foto; im.alt = ''; card.appendChild(im); }
+        card.appendChild(el('div', 'kc-preset-n', pz.name || 'Configuración'));
+        var precio = precioPreset(pz);
+        if (precio != null) card.appendChild(el('div', 'kc-preset-p', fmtMonto(precio)));
+        card.appendChild(el('span', 'kc-btn kc-btn-primary kc-preset-cta', 'Elegir y editar'));
+        card.addEventListener('click', function () { aplicarPreset(pz); });
+        grid.appendChild(card);
+      });
+      var cero = el('button', 'kc-preset kc-preset-cero');
+      cero.type = 'button';
+      cero.appendChild(el('div', 'kc-preset-n', 'Personalizar desde cero'));
+      cero.appendChild(el('div', 'kc-preset-d', 'Elige componente por componente, paso a paso.'));
+      cero.addEventListener('click', function () { presetVisto = true; pintarPasos(); });
+      grid.appendChild(cero);
+      wrap.appendChild(grid);
+      return wrap;
+    }
+    function pintarPasos() {
+      if (!confSteps) return;
       confSteps.innerHTML = '';
+      if (!presetVisto) { confSteps.appendChild(renderPresets()); medirBarra(); return; }
+      if (hayPresets) {
+        var volverP = el('button', 'kc-btn kc-presets-volver', '‹ Configuraciones sugeridas');
+        volverP.type = 'button';
+        volverP.addEventListener('click', function () { presetVisto = false; pintarPasos(); medirBarra(); });
+        confSteps.appendChild(volverP);
+      }
       confSteps.appendChild(renderSteps(entry, groups, ctx));
     }
 
@@ -2230,10 +2323,9 @@
       if (enforcing) return;   // cambio provocado por el propio ajuste
       ajustar(true);
       if (viewer) viewer.setState(build3dState(entry, groups));
-      // El configurador vive también en el landing: se repinta esté donde esté.
+      // Se repinta respetando la capa de presets (si sigue a la vista).
       if (confSteps) {
-        confSteps.innerHTML = '';
-        confSteps.appendChild(renderSteps(entry, groups, ctx));
+        if (presetVisto) pintarPasos();
         pintarPanel();
       }
       paintBar();

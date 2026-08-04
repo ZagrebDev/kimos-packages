@@ -479,6 +479,38 @@ console.log('\n— ancestro con transform: barra y panel se mudan a <body> —')
 }
 
 // ═══ Escenario 2: JSON v1 (alias `equipos`, sin deps ni style) ═════════════
+console.log('\n— presets: capa previa dentro del personalizador —');
+{
+  const conHero = { specs: [], photosNote: '', tabs: {},
+    pageSections: [{ id: 'h1', kind: 'hero', pattern: 'apilado', slots: { top: [{ type: 'title' }] } }] };
+  const def = { version: 2, currency: 'CLP', store: 'i1', productos: [producto({ groups: grupos(false), storefront: conHero, presets: [
+    { id: 'p1', name: 'Gamer listo', imageUrl: '', selection: [
+      { group: 'Modelo', value: 'Pro' }, { group: 'Tarjeta de video', value: 'RTX 4060' }] },
+  ] })] };
+  const w = await montar(def);
+  const d = w.document;
+  d.querySelector('.kc-bar-cta').click();
+  await new Promise((r) => setTimeout(r, 20));
+  t('con presets, primero la capa de elección (sin pasos aún)',
+    !!d.querySelector('.kc-presets') && !d.querySelector('.kc-step'));
+  t('cards: el preset y "Personalizar desde cero"', d.querySelectorAll('.kc-preset').length === 2);
+  d.querySelectorAll('.kc-preset')[0].click();
+  await new Promise((r) => setTimeout(r, 20));
+  t('elegir un preset escribe los selects nativos',
+    d.querySelector('select[data-optionid="900"]').value === '9002'
+    && d.querySelector('select[data-optionid="910"]').value === '9101');
+  t('y deja el paso a paso a la vista para editar', d.querySelectorAll('.kc-step').length >= 1);
+  t('con enlace de vuelta a las configuraciones', !!d.querySelector('.kc-presets-volver'));
+  d.querySelector('.kc-presets-volver').click();
+  t('que reabre la capa', !!d.querySelector('.kc-presets'));
+  const w2 = await montar(def);
+  const d2 = w2.document;
+  d2.querySelector('.kc-bar-cta').click();
+  await new Promise((r) => setTimeout(r, 20));
+  d2.querySelector('.kc-preset-cero').click();
+  t('desde cero va directo a los pasos', d2.querySelectorAll('.kc-step').length >= 1);
+}
+
 console.log('\n— v1: degradación elegante (equipos, deltas por defecto) —');
 {
   const def = {
