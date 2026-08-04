@@ -3906,10 +3906,7 @@ export default function mount(shell) {
     };
     return h('div', null, [
       h('div', { key: 'f', className: 'gp-filters gp-filters-centro' }, [
-        h('div', { key: 'sw', className: 'gp-vswitch' }, [
-          h('button', { key: 'c', className: 'gp-btn gp-btn-sm' + (vista === 'cards' ? ' gp-btn-dark' : ''), onClick: () => setVista('cards') }, 'Cards'),
-          h('button', { key: 't', className: 'gp-btn gp-btn-sm' + (vista === 'tabla' ? ' gp-btn-dark' : ''), onClick: () => setVista('tabla') }, 'Tabla'),
-        ]),
+        h(VistaSwitch, { key: 'sw', vista, onChange: setVista }),
         h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Componente'),
         h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente', onClick: () => setPickingStore(true) }, '+ Desde la tienda'),
         h('select', { key: 't', className: 'gp-select', style: { maxWidth: 180 }, value: filterType, onChange: (e) => setFilterType(e.target.value) },
@@ -4818,10 +4815,8 @@ export default function mount(shell) {
     return h('div', { className: 'gp-editor' }, [
       // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
       // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
-      h('div', { key: 'top', className: 'gp-editor-top' }, [
-        h('span', { key: 'sp', style: { flex: 1 } }),
-        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
-      ]),
+      h('div', { key: 'top', className: 'gp-editor-top' },
+        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace')),
       // El agente cambió este producto y aquí hay edición sin guardar: se
       // decide a mano, porque cualquiera de las dos opciones pierde algo.
       conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
@@ -5807,10 +5802,7 @@ export default function mount(shell) {
     }
     return h('div', null, [
       h('div', { key: 'f', className: 'gp-filters gp-filters-centro' }, [
-        h('div', { key: 'sw', className: 'gp-vswitch' }, [
-          h('button', { key: 'c', className: 'gp-btn gp-btn-sm' + (vista === 'cards' ? ' gp-btn-dark' : ''), onClick: () => setVista('cards') }, 'Cards'),
-          h('button', { key: 't', className: 'gp-btn gp-btn-sm' + (vista === 'tabla' ? ' gp-btn-dark' : ''), onClick: () => setVista('tabla') }, 'Tabla'),
-        ]),
+        h(VistaSwitch, { key: 'sw', vista, onChange: setVista }),
         h('span', { key: 'n', className: 'gp-muted' }, state.productos.length + ' producto(s)'),
       ]),
       vista === 'cards'
@@ -6436,7 +6428,9 @@ export default function mount(shell) {
       };
     }, []);
     // El acento configurado gana sobre el default del CSS.
-    const rootStyle = cfg && cfg.accent ? { '--gp-acento': s(cfg.accent) } : undefined;
+    // App oficial: el acento es SIEMPRE el --primary del tema de KIMOS.
+    // (El accent por empresa del ⚙ viejo dejaba un color ajeno al tema.)
+    const rootStyle = undefined;
     if (!instanceId) {
       return h('div', { className: 'kimos-productlab', style: rootStyle },
         h('div', { className: 'gp-empty' }, 'Crea un documento desde la pantalla de bienvenida: cada instancia es un catálogo de productos independiente, con sus propias reglas de margen, moneda e impuesto (normalmente basta una por tienda o línea de negocio).'));
@@ -6457,6 +6451,18 @@ export default function mount(shell) {
           : cfgTab === 'datos' ? h(DatosTab, { key: 'dat', state })
           : h(PublicacionTab, { key: 'pub', state }),
       ]),
+    ]);
+  }
+
+  // ── Switch visual Cards/Tabla (color de acento) ──────────────────────────
+  function VistaSwitch({ vista, onChange }) {
+    const on = vista === 'tabla';
+    return h('div', { className: 'gp-vista-sw' }, [
+      h('span', { key: 'c', className: 'gp-vista-sw-l' + (!on ? ' on' : ''), onClick: () => onChange('cards') }, 'Cards'),
+      h('button', { key: 's', className: 'gp-sw' + (on ? ' on' : ''), type: 'button', role: 'switch', 'aria-checked': on,
+        title: 'Cambiar entre vista de cards y tabla',
+        onClick: () => onChange(on ? 'cards' : 'tabla') }, h('span', { className: 'gp-sw-thumb' })),
+      h('span', { key: 't', className: 'gp-vista-sw-l' + (on ? ' on' : ''), onClick: () => onChange('tabla') }, 'Tabla'),
     ]);
   }
 
