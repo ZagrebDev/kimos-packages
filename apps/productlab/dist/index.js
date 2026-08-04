@@ -3849,8 +3849,8 @@ export default function mount(shell) {
     const [stockDrafts, setStockDrafts] = useState({}); // stock inline por fila
     const [selIds, setSelIds] = useState({});           // selección para acciones masivas
     const [bulkStock, setBulkStock] = useState('');
-    // Inventario tipo videojuego: CARDS por tipo (default) o la tabla densa.
-    const [vista, setVista] = useState('cards');
+    // Vista por defecto: TABLA densa; el inventario de cards queda a un toque.
+    const [vista, setVista] = useState('tabla');
     const [verTodo, setVerTodo] = useState({});         // tipo → mostrar todos
     const r = rules();
     const list = state.components
@@ -3980,6 +3980,10 @@ export default function mount(shell) {
                     h('div', { key: 'n', className: 'gp-icard-nombre', onClick: () => setEditing(c), title: c.name }, c.name),
                     h('div', { key: 'p', className: 'gp-icard-precio' }, fmtMoney(componentSale(c))),
                     stale ? h('span', { key: 'w', className: 'gp-chip warn', style: { fontSize: 9, alignSelf: 'center' } }, 'por verificar') : null,
+                    c.supplierUrl ? h('a', { key: 'prov', className: 'gp-btn gp-btn-sm gp-icard-prov',
+                      href: c.supplierUrl, target: '_blank', rel: 'noreferrer',
+                      title: 'Ver el producto en el proveedor' + (c.supplierName ? ' (' + c.supplierName + ')' : ''),
+                      onClick: (ev) => ev.stopPropagation() }, 'Ver en proveedor ↗') : null,
                     h('div', { key: 'e', className: 'gp-icard-edit' }, [
                       h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, title: 'Costo proveedor',
                         value: cDraft == null ? num(c.cost) : cDraft, onChange: (ev) => setCostDraft(c.id, ev.target.value) }),
