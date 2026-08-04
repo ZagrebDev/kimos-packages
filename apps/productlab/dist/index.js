@@ -4081,9 +4081,10 @@ export default function mount(shell) {
     };
     const cardW = compact ? 96 : 128;
     return h('div', { className: 'gp-card' }, [
-      h('div', { key: 't', className: 'gp-card-title' }, [
+      h('div', { key: 't', className: 'gp-card-title',
+        title: 'Interactivo y en vivo: prueba selecciones, dependencias, cantidades, recargos y el estilo de Ficha → Estilo. El precio simulado usa las mismas reglas que "Aplicar a la tienda"; el cobro real es siempre el de la variante en el ecommerce.' }, [
         h('span', { key: 'n', className: 'gp-num' }, 'PREVISUALIZADOR'),
-        'Así verá el cliente el paso a paso',
+        'Así lo verá el cliente',
         h('span', { key: 'sp', style: { flex: 1 } }),
         h('div', { key: 'vm', className: 'gp-editor-tabs' }, [
           h('button', { key: 'd', className: 'gp-etab' + (!mob ? ' on' : ''), onClick: () => setMob(false) }, 'Escritorio'),
@@ -4091,9 +4092,10 @@ export default function mount(shell) {
         ]),
         h('button', { key: 'rst', className: 'gp-btn gp-btn-sm', style: { marginLeft: 8 }, onClick: () => setSel({}) }, 'Restablecer'),
       ]),
-      h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-        'Interactivo y en vivo: prueba selecciones, dependencias (los pasos aparecen según lo elegido), cantidades, recargos y el estilo definido en Ficha → Estilo. El precio simulado usa las mismas reglas que "Aplicar a la tienda"; el cobro real es siempre el de la variante en el ecommerce.'),
-      h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: 'auto', '--pv-radius': radius + 'px' } },
+      // overflowX solo en la vista móvil (el marco de 375px puede no caber);
+      // en escritorio debe ser visible: un ancestro con overflow:auto sería
+      // el contenedor de scroll del panel sticky y lo dejaría sin efecto.
+      h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: mob ? 'auto' : 'visible', '--pv-radius': radius + 'px' } },
         h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : 980, margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
@@ -4133,7 +4135,10 @@ export default function mount(shell) {
                     })),
                   ]);
                 })),
-          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 12, alignSelf: 'flex-start' } }, [
+          // El panel de resumen queda PEGAJOSO dentro del scroll del preview:
+          // precio, selección y botón siempre a la vista mientras se recorren
+          // los pasos (en móvil va en flujo normal, es una columna).
+          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 12, alignSelf: 'flex-start', position: mob ? 'static' : 'sticky', top: 8 } }, [
             photo ? h('img', { key: 'ph', src: photo, alt: '', style: { width: '100%', maxHeight: 160, objectFit: 'contain', marginBottom: 8 } }) : null,
             h('div', { key: 'nm', style: { fontWeight: 700, fontSize: 13, marginBottom: 4 } }, draft.name || 'Producto'),
             h('div', { key: 'pr', className: 'gp-price', style: { fontSize: 20 } }, fmtMoney(price)),
@@ -4174,6 +4179,30 @@ export default function mount(shell) {
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
     const [tplName, setTplName] = useState('');       // nombre de la plantilla de estilo a crear
     const [compSearch, setCompSearch] = useState({}); // buscador de componentes por valor
+    // Split de la pestaña Pasos: la sección ocupa EXACTAMENTE el alto libre de
+    // la ventana y cada columna (editor / previsualizador) scrollea por su
+    // cuenta — un solo scroll por panel y el preview siempre entero a la
+    // vista, en vez de página larga + panel con su propio scroll encima.
+    const paneRef = useRef(null);
+    const [paneH, setPaneH] = useState(0);
+    const [angosto, setAngosto] = useState(false);
+    useEffect(() => {
+      if (sec !== 'pasos') return undefined;
+      const calc = () => {
+        setAngosto(window.innerWidth < 1100);
+        const el = paneRef.current;
+        if (!el) return;
+        const top = el.getBoundingClientRect().top;
+        const bb = document.querySelector('.kimos-productlab .gp-editor-bottom');
+        const bbH = bb ? bb.getBoundingClientRect().height : 64;
+        setPaneH(Math.max(360, Math.round(window.innerHeight - top - bbH - 8)));
+      };
+      calc();
+      const t = setTimeout(calc, 60); // remedir tras el primer pintado
+      window.addEventListener('resize', calc);
+      window.addEventListener('scroll', calc, { passive: true });
+      return () => { clearTimeout(t); window.removeEventListener('resize', calc); window.removeEventListener('scroll', calc); };
+    }, [sec]);
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
@@ -4379,15 +4408,20 @@ export default function mount(shell) {
         // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
         // El layout va INLINE (no en una clase): si el CSS de la app llega
         // cacheado de una versión vieja, un layout por clase se cae y las
-        // columnas se apilan con el preview arriba. La clase solo aporta la
-        // cosmética del scrollbar (pseudo-elementos, imposibles inline).
-        h('div', { key: 'p', style: sec === 'pasos'
-          ? { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(340px, 2fr)', gap: 16, alignItems: 'start' }
+        // columnas se apilan con el preview arriba. La clase gp-col-scroll
+        // solo aporta la cosmética del scrollbar (pseudo-elementos,
+        // imposibles inline) y es mejora progresiva.
+        h('div', { key: 'p', ref: paneRef, style: sec === 'pasos'
+          ? (angosto
+            ? { display: 'flex', flexDirection: 'column', gap: 12 }
+            : { display: 'grid', gridTemplateColumns: 'minmax(0, 7fr) minmax(360px, 5fr)', gap: 12,
+                alignItems: 'stretch', height: paneH > 0 ? paneH : 'auto', overflow: 'hidden' })
           : { display: 'none' } }, [
-        h('div', { key: 'pv-lado', className: 'gp-preview-lado',
-          style: { order: 2, position: 'sticky', top: 34, maxHeight: 'calc(100vh - 128px)', overflowY: 'auto' } },
+        h('div', { key: 'pv-lado', className: 'gp-col-scroll',
+          style: angosto ? { order: 2 } : { order: 2, minHeight: 0, overflowY: 'auto' } },
           h(ConfigPreview, { draft: d })),
-        h('div', { key: 'ed-lado', style: { order: 1, minWidth: 0 } }, [
+        h('div', { key: 'ed-lado', className: 'gp-col-scroll',
+          style: angosto ? { order: 1, minWidth: 0 } : { order: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', paddingRight: 4 } }, [
       // Pasos: valores genéricos (lo que ve el cliente) con pool de alternativas
       h('div', { key: 'gh', className: 'gp-card-title', style: { marginTop: 6 } }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Pasos, valores y alternativas']),
       h('div', { key: 'ghelp', className: 'gp-muted', style: { marginBottom: 8 } },

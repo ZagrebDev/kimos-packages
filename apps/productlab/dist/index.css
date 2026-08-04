@@ -232,22 +232,21 @@
   flex-wrap: wrap;
 }
 
-/* ── Previsualizador pegajoso junto al editor de pasos ──
-   El layout (grid, sticky, alto) va inline en la app — así funciona aunque
-   este CSS llegue cacheado de una versión vieja. Aquí solo la cosmética del
-   scrollbar propio: invisible en reposo y fino al pasar el mouse, para no
-   tener dos scrollbars adyacentes en el borde derecho. La rueda funciona
-   siempre. */
-.kimos-productlab .gp-preview-lado {
+/* ── Split de la pestaña Pasos: editor y previsualizador lado a lado ──
+   El layout (grid de altura exacta, columnas con overflow) va inline en la
+   app — así funciona aunque este CSS llegue cacheado de una versión vieja.
+   Aquí solo la cosmética del scrollbar de cada columna: invisible en reposo
+   y fino al pasar el mouse, para no ver dos scrollbars a la vez. La rueda
+   funciona siempre. */
+.kimos-productlab .gp-col-scroll {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  padding-right: 6px;
 }
-.kimos-productlab .gp-preview-lado:hover { scrollbar-color: var(--gp-gris-claro) transparent; }
-.kimos-productlab .gp-preview-lado::-webkit-scrollbar { width: 6px; }
-.kimos-productlab .gp-preview-lado::-webkit-scrollbar-track { background: transparent; }
-.kimos-productlab .gp-preview-lado::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
-.kimos-productlab .gp-preview-lado:hover::-webkit-scrollbar-thumb { background: var(--gp-gris-claro); }
+.kimos-productlab .gp-col-scroll:hover { scrollbar-color: var(--gp-gris-claro) transparent; }
+.kimos-productlab .gp-col-scroll::-webkit-scrollbar { width: 6px; }
+.kimos-productlab .gp-col-scroll::-webkit-scrollbar-track { background: transparent; }
+.kimos-productlab .gp-col-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.kimos-productlab .gp-col-scroll:hover::-webkit-scrollbar-thumb { background: var(--gp-gris-claro); }
 
 /* ── Modo compacto (⚙️ Configurar → Tablas compactas) ── */
 .kimos-productlab.gp-dense .gp-table td,
