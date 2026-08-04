@@ -4377,10 +4377,8 @@ export default function mount(shell) {
       ]),
         // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
         // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
-        h('div', { key: 'p', style: sec === 'pasos'
-          ? { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16, alignItems: 'start' }
-          : { display: 'none' } }, [
-        h('div', { key: 'pv-lado', style: { order: 2, position: 'sticky', top: 8, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' } },
+        h('div', { key: 'p', className: 'gp-pasos-grid', style: sec === 'pasos' ? null : { display: 'none' } }, [
+        h('div', { key: 'pv-lado', className: 'gp-preview-lado', style: { order: 2 } },
           h(ConfigPreview, { draft: d })),
         h('div', { key: 'ed-lado', style: { order: 1, minWidth: 0 } }, [
       // Pasos: valores genéricos (lo que ve el cliente) con pool de alternativas
