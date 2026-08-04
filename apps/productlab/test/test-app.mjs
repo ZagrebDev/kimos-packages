@@ -842,7 +842,11 @@ const pubCaj = pubMod.groups.find((g) => g.label === 'Cajones');
 if (!pubCaj.dependsOn || pubCaj.dependsOn.groupId !== pubMod.groups[0].id || pubCaj.dependsOn.valueIds.length !== 1) {
   throw new Error('dependsOn no publicado: ' + JSON.stringify(pubCaj.dependsOn));
 }
-expectEq('valores publicados de Cajones (qty sin stock suficiente excluido)', pubCaj.values.length, 2);
+// Reales: 2 (el de qty sin stock queda fuera). El tercero es el COMODÍN que
+// el sistema sintetiza para las variantes donde el paso está oculto: viaja
+// marcado fallback y la ficha no lo ofrece.
+expectEq('valores publicados de Cajones (qty sin stock suficiente excluido)', pubCaj.values.filter((v) => !v.fallback).length, 2);
+expectEq('el paso dependiente publica su comodín', pubCaj.values.filter((v) => v.fallback === true).length, 1);
 expectEq('qty publicada', pubCaj.values.find((v) => v.name === '2 cajones').qty, 2);
 console.log('ProductLab: qty, pasos dependientes y publicación v2 OK');
 
@@ -952,60 +956,30 @@ expectEq('sin plantilla vuelve el estilo propio',
   store.get('definition').public.data.productos.find((e) => e.sku === 'PL-MOD').storefront.style.accentColor, '#0FA36B');
 console.log('ProductLab: plantillas de estilo (crear, aplicar, editar, por defecto y borrar) OK');
 
-// ── Aviso del paso dependiente con default de pago ────────────────────────
-// Un paso oculto SIGUE aportando su default a la variante (Jumpseller exige un
-// valor por opción en cada combinación): si ese default cuesta, se cobra sin
-// verse. El aviso tiene que decirlo con nombres y con el importe.
+// ── Paso dependiente SIN rituales: el comodín se gestiona solo ────────────
+// El usuario define el paso con sus valores reales y nada más: ni "No aplica"
+// ni marcas raras. El sistema sintetiza el comodín al aplicar y al publicar.
 await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
   { label: 'Plataforma', type: 'tela', values: [
     { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
     { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
   ] },
   { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] }, values: [
-    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
+    { label: 'Ryzen 5', components: [], priceDelta: 120000 },
+    { label: 'Ryzen 7', components: [], priceDelta: 200000 },
   ] },
 ] });
-const avisosDep = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').warnings || [];
-const avisoDep = avisosDep.filter((w) => /Procesador AMD/.test(w))[0] || '';
-if (!/depende de "Plataforma"/.test(avisoDep) || !/Jumpseller exige/.test(avisoDep) || !/No aplica/.test(avisoDep)) {
-  throw new Error('el aviso del paso dependiente no explica el caso: ' + avisoDep);
-}
-console.log('aviso del paso dependiente:', avisoDep.slice(0, 80) + '…');
-// Con un default sin costo, el aviso desaparece.
-await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
-  { label: 'Plataforma', type: 'tela', values: [
-    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
-    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
-  ] },
-  { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] },
-    default: 'No aplica', values: [
-    { label: 'No aplica', components: [] },
-    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
-  ] },
-] });
-const sinAviso = (agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').warnings || [])
-  .filter((w) => /default con precio|cuesta/.test(w) && /Procesador AMD/.test(w));
-expectEq('con un default "No aplica" el aviso desaparece', sinAviso.length, 0);
-// El relleno NO se vende: marcarlo como tal es lo que impide que alguien que sí
-// eligió plataforma pueda comprar "sin procesador". El JSON lo publica.
-await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
-  { label: 'Plataforma', type: 'tela', values: [
-    { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
-    { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
-  ] },
-  { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] },
-    default: 'No aplica', values: [
-    { label: 'No aplica', components: [], fallback: true },
-    { label: 'Ryzen 5', components: ['Botón nácar (Prov. B)'] },
-  ] },
-] });
+const snapNA = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');
+// Sin avisos de rellenos ni de defaults con precio: ese ritual ya no existe.
+expectEq('sin avisos de relleno/default', (snapNA.warnings || []).filter((w) => /relleno|default con precio|No aplica/.test(w)).length, 0);
+// Combos: AMD×2 procesadores + Intel×1 (comodín) = 3.
+expectEq('combos con comodín automático', snapNA.variantCombos, 3);
 await act('PUBLISH_CONFIG', { enabled: true });
-const pubPackFB = store.get('definition').public.data.productos.find((e) => e.name === 'Pack 2 Pisos');
-const gPub = (pubPackFB.groups || []).find((g) => g.label === 'Procesador AMD') || { values: [] };
-const relleno = gPub.values.filter((v) => v.fallback === true);
-expectEq('el relleno viaja marcado en el JSON', relleno.length, 1);
-expectEq('y es el valor por defecto del paso', relleno[0].isDefault, true);
-console.log('ProductLab: aviso del paso dependiente explicado y resuelto OK');
+const pubNA = store.get('definition').public.data.productos.find((e) => e.name === 'Pack 2 Pisos');
+const gNA = pubNA.groups.find((g) => g.label === 'Procesador AMD');
+expectEq('el comodín viaja publicado y marcado', gNA.values.filter((v) => v.fallback === true).length, 1);
+expectEq('los valores reales no llevan marca', gNA.values.filter((v) => !v.fallback).length, 2);
+console.log('ProductLab: comodín automático del paso dependiente OK');
 
 // ── Solo se publican las combinaciones ALCANZABLES ────────────────────────
 // El caso real: dos plataformas y una familia de procesador por cada una. El
@@ -1045,12 +1019,13 @@ console.log('ProductLab: solo se publican combinaciones alcanzables OK');
 // "Procesador" en UN paso: cada valor SUMA CPU + placa (bundle), sin pasos
 // dependientes. Y los tags vetan solos las combinaciones imposibles.
 await act('UPSERT_COMPONENT', { name: 'CPU R5', type: 'avios', cost: 100000, tags: 'plataforma:amd' });
-await act('UPSERT_COMPONENT', { name: 'Placa AM5', type: 'avios', cost: 50000, tags: 'socket:am5' });
+await act('UPSERT_COMPONENT', { name: 'CPU R5 (prov. B)', type: 'avios', cost: 90000, tags: 'plataforma:amd' });
+await act('UPSERT_COMPONENT', { name: 'Placa AM5', type: 'acabado', cost: 50000, tags: 'socket:am5' });
 await act('UPSERT_COMPONENT', { name: 'RAM DDR5', type: 'acabado', cost: 30000, requires: 'plataforma:amd' });
 await act('UPSERT_COMPONENT', { name: 'RAM DDR4', type: 'acabado', cost: 20000, excludes: 'plataforma:amd' });
 await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
   { label: 'Procesador', type: 'avios', values: [
-    { label: 'Ryzen 5 + AM5', components: ['CPU R5', 'Placa AM5'], bundle: true },
+    { label: 'Ryzen 5 + AM5', components: ['CPU R5', 'CPU R5 (prov. B)', 'Placa AM5'], bundle: true },
     { label: 'Solo CPU', components: ['CPU R5'] },
   ] },
   { label: 'Memoria', type: 'acabado', values: [
@@ -1064,7 +1039,13 @@ const vB = pasoB.values.find((x) => x.label === 'Ryzen 5 + AM5');
 // La suma: (100000×1.3×1.19 + 50000×1.3×1.19) redondeado a deltaRoundTo… se
 // comprueba vía el precio relativo: el conjunto cuesta MÁS que "Solo CPU".
 const vSolo = pasoB.values.find((x) => x.label === 'Solo CPU');
+// El conjunto SUMA tipos distintos (CPU + placa) y dentro del mismo tipo usa
+// la alternativa más barata (prov. B a 90000 gana sobre 100000): el total es
+// mayor que "Solo CPU" pero menor que CPU cara + placa.
 if (!(vB.salePrice > vSolo.salePrice)) throw new Error('el conjunto no suma: ' + vB.salePrice + ' vs ' + vSolo.salePrice);
+// min(CPUs)=90000×1.3×1.19=139230 · placa=50000×1.3×1.19=77350 → suma ≈ 216600
+const esperadoConj = Math.round((90000 * 1.3 * 1.19 + 50000 * 1.3 * 1.19) / 100) * 100;
+if (Math.abs(vB.salePrice - esperadoConj) > 200) throw new Error('conjunto mal sumado: ' + vB.salePrice + ' ≠ ~' + esperadoConj);
 // Compatibilidad: DDR5 requiere plataforma:amd (la aporta la CPU, presente en
 // ambos valores del paso 1) y DDR4 la excluye → de 2×2=4 combos quedan 2.
 expectEq('combos tras el filtro de tags', snapB.variantCombos, 2);

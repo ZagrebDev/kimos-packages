@@ -480,21 +480,44 @@ export default function mount(shell) {
   // distinto —y legítimo— del valor que SÍ declara alternativas pero las
   // tiene todas inactivas o sin stock, que sigue quedando fuera de la tienda.
   function valueIsFree(v) { return !((v.componentIds || []).length); }
+  /**
+   * CONJUNTO: qué incluye de verdad un valor bundle.
+   *
+   * Regla: los componentes de TIPOS DISTINTOS se suman, y dentro de un mismo
+   * tipo son ALTERNATIVAS entre sí (se usa la más económica disponible). Así
+   * "Pack extra → teclado + mouse" lleva varios teclados y varios mouse como
+   * alternativas, y el precio es min(teclados) + min(mouse). Si algún tipo se
+   * queda sin alternativas disponibles, el valor entero no está disponible.
+   */
+  function bundleComps(v) {
+    const q = valueQty(v);
+    const porTipo = new Map();
+    valueAlts(v).forEach((c) => {
+      const k = c.type || 'other';
+      if (!porTipo.has(k)) porTipo.set(k, []);
+      porTipo.get(k).push(c);
+    });
+    const out = [];
+    for (const [, lista] of porTipo) {
+      const avail = lista.filter((c) => compAvailableQty(c, q));
+      if (!avail.length) return null;   // un tipo sin stock tumba el conjunto
+      out.push(avail.reduce((best, c) => (componentGross(c) < componentGross(best) ? c : best), avail[0]));
+    }
+    return out;
+  }
   function valueChosen(v) {
+    if (v && v.bundle === true) { const bc = bundleComps(v); return bc ? bc[0] : null; }
     const q = valueQty(v);
     const avail = valueAlts(v).filter((c) => compAvailableQty(c, q));
     if (!avail.length) return null;
-    // CONJUNTO: los componentes se SUMAN (CPU + placa madre en un solo paso);
-    // como "elegido" (foto, specs, proveedor) representa el primero.
-    if (v.bundle === true) return avail.length === valueAlts(v).length ? avail[0] : null;
     return avail.reduce((best, c) => (componentGross(c) < componentGross(best) ? c : best), avail[0]);
   }
   /**
-   * Componentes que este valor INCLUYE de verdad: en modo conjunto, todos;
-   * en modo alternativas, solo el elegido (el más económico disponible).
+   * Componentes que este valor INCLUYE de verdad: en conjunto, uno por tipo
+   * (el más económico); en alternativas, solo el elegido.
    */
   function valueComps(v) {
-    if (v && v.bundle === true) return valueAlts(v);
+    if (v && v.bundle === true) return bundleComps(v) || [];
     const c = valueChosen(v);
     return c ? [c] : [];
   }
@@ -510,15 +533,30 @@ export default function mount(shell) {
     const manual = num(v && v.priceDelta, 0);
     if (valueIsFree(v)) return manual;
     if (v.bundle === true) {
-      // Conjunto: TODOS los componentes, sumados (× cantidad cada uno).
-      if (valueChosen(v) == null) return null;   // alguno inactivo/sin stock
-      return valueAlts(v).reduce((a, c) => a + componentGross(c) * valueQty(v), 0) + manual;
+      // Conjunto: un componente POR TIPO (el más económico disponible de cada
+      // uno), sumados. Dentro del mismo tipo son alternativas.
+      const bc = bundleComps(v);
+      if (!bc) return null;   // algún tipo sin alternativas disponibles
+      return bc.reduce((a, c) => a + componentGross(c) * valueQty(v), 0) + manual;
     }
     const c = valueChosen(v);
     return c ? componentGross(c) * valueQty(v) + manual : null;
   }
   function valueSale(v) { const g = valueGross(v); return g == null ? null : roundStep(g, rules().deltaRoundTo); }
   function valueAvailable(v) { return valueIsFree(v) || valueChosen(v) != null; }
+  /**
+   * COMODÍN de un paso dependiente. Cuando el paso está oculto, Jumpseller
+   * igual exige un valor de esa opción en la variante: este es ese valor, no
+   * cuesta nada y NO existe para el usuario — se sintetiza al aplicar y al
+   * publicar, y la ficha jamás lo ofrece. (Antes había que crearlo a mano
+   * como "No aplica" + "solo relleno": nadie entendía qué era ni por qué.)
+   * Si el paso ya trae un valor marcado fallback (datos antiguos), se usa ese.
+   */
+  function comodinDe(g) {
+    const propio = groupValues(g).find((v) => v.fallback === true);
+    if (propio) return propio;
+    return { id: 'na::' + g.id, label: 'No aplica', componentIds: [], qty: 1, priceDelta: 0, fallback: true, sintetico: true };
+  }
   function groupDefaultValue(g) {
     const vals = groupValues(g).filter(valueAvailable);
     return vals.find((v) => v.id === g.defaultValueId) || vals[0] || null;
@@ -616,7 +654,12 @@ export default function mount(shell) {
   function productoComputedPrice(eq) {
     if (isFixedPrice(eq)) return basePriceOf(eq); // el default vale exactamente lo fijado
     let gross = baseBreakdown(eq).gross;
+    // Selección por defecto, para saber qué pasos dependientes están OCULTOS
+    // en la configuración base: esos no suman nada (su comodín vale 0).
+    const selDef = {};
+    (eq.groups || []).forEach((g) => { const dv = groupDefaultValue(g); if (dv) selDef[g.id] = dv.id; });
     (eq.groups || []).forEach((g) => {
+      if (!groupVisibleFor(eq, g, selDef)) return;
       const dv = groupDefaultValue(g);
       const vg = dv ? valueGross(dv) : null;
       if (vg != null) gross += vg;
@@ -704,26 +747,7 @@ export default function mount(shell) {
           const dvg = dv ? valueGross(dv) : null;
           const nOrden = (eq.groups || []).indexOf(g) + 1;
           const nombreDe = (x) => (x.label || typeLabel(x.typeId));
-          // Un relleno que no es el default no sirve de nada: el paso oculto
-          // seguirá usando (y cobrando) el default de verdad.
-          const rellenos = vals.filter((v) => v.fallback === true);
-          if (rellenos.length && !(dv && dv.fallback === true)) {
-            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '": el valor de relleno "'
-              + rellenos[0].label + '" no está marcado como INCLUIDO (default), así que el paso oculto seguirá usando "'
-              + (dv ? dv.label : '—') + '". Marca el relleno como incluido.');
-          }
-          if (rellenos.length === vals.length) {
-            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '": todos sus valores son de relleno, '
-              + 'así que cuando el paso se muestre no habrá nada que elegir.');
-          }
-          if (dvg != null && dvg > 0) {
-            warns.push('PASO ' + String(nOrden).padStart(2, '0') + ' "' + label + '" (depende de "' + nombreDe(target) + '"): '
-              + 'su valor por defecto es "' + dv.label + '", que cuesta ' + fmtMoney(dvg) + '. '
-              + 'Jumpseller exige un valor de CADA opción en cada combinación, así que cuando este paso quede oculto la variante seguirá llevando —y cobrando— ese valor. '
-              + 'No se trata de que los ' + label.toLowerCase() + ' sean gratis: hace falta un valor "No aplica" sin componentes ni recargo, marcado como default, para las combinaciones donde este paso no se muestra. '
-              + 'Ese valor va marcado como SOLO RELLENO, así que la tienda no se lo ofrece a quien sí ve el paso: nadie podrá comprar sin ' + label.toLowerCase() + '. '
-              + 'El botón "⚠ Añadir default sin costo" de la cabecera del paso lo crea ya marcado.');
-          }
+          void dv; void nOrden; void nombreDe;
         }
       }
     });
@@ -1563,16 +1587,14 @@ export default function mount(shell) {
         ramas = paso.vals.filter((v) => v.fallback !== true);
         if (!ramas.length) ramas = paso.vals;
       } else {
-        const relleno = paso.vals.find((v) => v.fallback === true)
-          || (groupDefaultValue(paso.g) && paso.vals.find((v) => v.id === groupDefaultValue(paso.g).id))
-          || paso.vals[0];
-        ramas = [relleno];
+        // Oculto → el comodín, que no suma nada. Se gestiona solo.
+        ramas = [comodinDe(paso.g)];
       }
       ramas.forEach((v) => {
         if (truncado) return;
         const sel2 = Object.assign({}, sel); sel2[paso.g.id] = v.id;
         const opts2 = Object.assign({}, opts); opts2[paso.label] = v.label;
-        baja(i + 1, sel2, opts2, extra + valueExtra(eq, paso.g, v));
+        baja(i + 1, sel2, opts2, extra + (v.sintetico ? 0 : valueExtra(eq, paso.g, v)));
       });
     };
     baja(0, {}, {}, 0);
@@ -1643,7 +1665,12 @@ export default function mount(shell) {
       const exVals = new Map();
       ((ex.values) || []).forEach((v) => { if (v && v.name) exVals.set(norm(v.name), v); });
       // Los valores de la tienda son las ETIQUETAS genéricas (sin marca).
-      const odef = { name: label, optionType: 'option', values: groupValues(g).filter(valueAvailable).map((v) => {
+      const lista = groupValues(g).filter(valueAvailable);
+      // Paso dependiente: además de sus valores, la opción necesita el comodín
+      // (las variantes de las ramas ocultas lo usan). Sintetizado aquí: el
+      // usuario no lo crea ni lo ve en la app.
+      if (groupDependsOn(g) && !lista.some((v) => v.fallback === true)) lista.push(comodinDe(g));
+      const odef = { name: label, optionType: 'option', values: lista.map((v) => {
         const exv = exVals.get(norm(v.label));
         const out = { name: v.label };
         if (exv && exv.sourceValueId) out.sourceValueId = exv.sourceValueId;
@@ -1879,6 +1906,10 @@ export default function mount(shell) {
           } : null,
           groups: (eq.groups || []).map((g) => {
             const dv = groupDefaultValue(g);
+            const comodin = groupDependsOn(g) && !groupValues(g).some((v) => v.fallback === true)
+              ? [{ id: 'na::' + g.id, name: 'No aplica', qty: 1, delta: 0, desc: '', swatchColor: '', imageUrl: '',
+                  deliveryDays: 0, tags: [], requires: [], excludes: [], isDefault: false, fallback: true }]
+              : [];
             return {
               id: g.id,
               label: g.label || typeLabel(g.typeId),
@@ -1917,7 +1948,7 @@ export default function mount(shell) {
                   // su modelo (si no, el theme no tendría qué hacer con ellos).
                   model3d: pubModel3d ? (v.model3d || []) : undefined,
                 };
-              }),
+              }).concat(comodin),
             };
           })
           // Igual que en la tienda: un paso sin valores disponibles no se
@@ -3549,6 +3580,9 @@ export default function mount(shell) {
       tags: [], requires: [], excludes: [], active: true, notes: '',
     }, initial || {}));
     const [busy, setBusy] = useState(false);
+    // Texto en curso y foco del buscador de tags (uno por campo).
+    const [tagTx, setTagTx] = useState({});
+    const [tagFoco, setTagFoco] = useState('');
     const up = (patch) => setD(Object.assign({}, d, patch));
     const preview = componentSale(normalizeComponent(Object.assign({}, d, { id: d.id || 'x' })));
     return h('div', null, [
@@ -3579,29 +3613,55 @@ export default function mount(shell) {
         h(Row, { key: 'su', label: 'Link del proveedor (para verificar precio)' }, h(TextInput, { mono: true, value: d.supplierUrl, onChange: (e) => up({ supplierUrl: e.target.value }), placeholder: 'https://…' })),
       ]),
       // ── Compatibilidades por tags ──
-      // Un desplegable con los tags YA usados en el catálogo (más los que se
-      // escriban aquí): elegir uno lo añade a la lista. Escribir a mano sigue
-      // funcionando — el desplegable existe para no tener que recordar la
-      // ortografía exacta ("plataforma:amd" vs "plataforma: AMD").
+      // Chips (con ✕ para quitar) + buscador con sugerencias, igual que el
+      // buscador de componentes: al enfocar se ven los tags ya usados en el
+      // catálogo, al escribir se filtran, y Enter (o clic) agrega. Nada de
+      // recordar la ortografía exacta ("plataforma:amd" vs "plataforma: AMD").
       (function () {
         const usados = Array.from(new Set(model.components.reduce((a, c) =>
           a.concat(c.tags || [], c.requires || [], c.excludes || []), []))).sort();
-        const CampoTags = ({ campo, valor }) => h('div', { className: 'gp-verify-cost', style: { width: '100%' } }, [
-          h(TextInput, { key: 'i', mono: true, value: joinList(valor), style: { flex: 1, minWidth: 120 },
-            onChange: (e) => up({ [campo]: e.target.value }),
-            placeholder: campo === 'tags' ? 'plataforma:amd, socket:am5' : 'plataforma:amd' }),
-          usados.length ? h('select', { key: 's', className: 'gp-select', style: { width: 34, flex: 'none' }, value: '',
-            title: 'Agregar un tag ya usado en el catálogo',
-            onChange: (e) => {
-              const t = e.target.value; if (!t) return;
-              const lista = joinList(valor); up({ [campo]: lista ? lista + ', ' + t : t });
-            } }, [h('option', { key: '', value: '' }, '+')].concat(
-              usados.map((t) => h('option', { key: t, value: t }, t)))) : null,
-        ]);
+        const CampoTags = ({ campo, valor }) => {
+          const lista = Array.isArray(valor) ? valor : parseList(valor);
+          const tx = s(tagTx[campo]);
+          const setTx = (t) => setTagTx(Object.assign({}, tagTx, { [campo]: t }));
+          const agregar = (t) => {
+            t = s(t).trim().toLowerCase();
+            if (t && lista.indexOf(t) === -1) up({ [campo]: lista.concat([t]) });
+            setTx('');
+          };
+          const q = tx.trim().toLowerCase();
+          const sug = usados.filter((t) => lista.indexOf(t) === -1 && (!q || t.indexOf(q) !== -1)).slice(0, 12);
+          return h('div', { style: { width: '100%' } }, [
+            lista.length ? h('div', { key: 'chips', style: { display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 } },
+              lista.map((t) => h('span', { key: t, className: 'gp-chip gris', style: { display: 'inline-flex', alignItems: 'center', gap: 4 } }, [
+                h('span', { key: 'n' }, t),
+                h('button', { key: 'x', className: 'gp-btn gp-btn-sm', style: { padding: '0 5px', lineHeight: 1.2 }, title: 'Quitar',
+                  onClick: () => up({ [campo]: lista.filter((x) => x !== t) }) }, '✕'),
+              ]))) : null,
+            h('div', { key: 'in', style: { position: 'relative' } }, [
+              h(TextInput, { key: 'i', mono: true, value: tx,
+                placeholder: campo === 'tags' ? 'ej: plataforma:amd — Enter agrega' : 'ej: plataforma:amd',
+                onChange: (e) => setTx(e.target.value),
+                onFocus: () => setTagFoco(campo),
+                onBlur: (e) => { if (s(e.target.value).trim()) agregar(e.target.value); setTagFoco(''); },
+                onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); agregar(tx); } } }),
+              (tagFoco === campo && sug.length) ? h('div', { key: 'dd', style: {
+                position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
+                maxHeight: 200, overflowY: 'auto',
+                background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+              } }, sug.map((t) => h('div', { key: t,
+                style: { padding: '5px 10px', cursor: 'pointer', fontFamily: 'monospace', fontSize: 12, borderBottom: '1px solid var(--gp-plata)' },
+                onMouseDown: (e) => { e.preventDefault(); agregar(t); } }, t))) : null,
+            ]),
+          ]);
+        };
+        // OJO: CampoTags se llama como función (no como componente montado):
+        // se redefine en cada render y montarla haría que React desmonte y
+        // remonte el input en cada tecla, perdiendo el foco al escribir.
         return h('div', { key: 'g4', className: 'gp-grid3' }, [
-          h(Row, { key: 'tg', label: 'Aporta (tags: lo que este componente ES)' }, h(CampoTags, { campo: 'tags', valor: d.tags })),
-          h(Row, { key: 'rq', label: 'Requiere (un tag de OTRO componente)' }, h(CampoTags, { campo: 'requires', valor: d.requires })),
-          h(Row, { key: 'ex', label: 'Incompatible con (tag que lo veta)' }, h(CampoTags, { campo: 'excludes', valor: d.excludes })),
+          h(Row, { key: 'tg', label: 'Aporta (tags: lo que este componente ES)' }, CampoTags({ campo: 'tags', valor: d.tags })),
+          h(Row, { key: 'rq', label: 'Requiere (un tag de OTRO componente)' }, CampoTags({ campo: 'requires', valor: d.requires })),
+          h(Row, { key: 'ex', label: 'Incompatible con (tag que lo veta)' }, CampoTags({ campo: 'excludes', valor: d.excludes })),
         ]);
       })(),
       h('div', { key: 'g4h', className: 'gp-muted', style: { marginTop: -4 } },
@@ -3999,11 +4059,11 @@ export default function mount(shell) {
     const sumMode = deliveryModeOf(draft) === 'sum';
     let dd = productoBaseDelivery(draft);
     groups.forEach(({ g }) => {
-      const vid = visibleOf(g) ? selMap[g.id] : (groupDefaultValue(g) || {}).id;
-      const v = groupValues(g).find((x) => x.id === vid);
+      // Paso oculto: no suma nada (en la tienda su comodín vale 0).
+      if (!visibleOf(g)) return;
+      const v = groupValues(g).find((x) => x.id === selMap[g.id]);
       if (v) gross += fixed ? valueExtra(draft, g, v) : (valueGross(v) || 0);
-      const c = v && valueChosen(v);
-      const n = c ? num(c.deliveryDays, 0) : 0;
+      const n = v ? valueDeliveryDays(v) : 0;
       dd = sumMode ? dd + n : Math.max(dd, n);
     });
     dd += numOr(draft.deliveryExtraDays, rules().leadTimeDays);
@@ -4103,7 +4163,6 @@ export default function mount(shell) {
     const [busy, setBusy] = useState(false);
     const [picking, setPicking] = useState(false);
     const [baseSel, setBaseSel] = useState('');
-    const [quickSel, setQuickSel] = useState({});
     const [sec, setSec] = useState('general');
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
     const [blockSel, setBlockSel] = useState({}); // builder: sección id → tipo de bloque a agregar
@@ -4114,6 +4173,7 @@ export default function mount(shell) {
     const [try3d, setTry3d] = useState({});           // probar configuración: grupo → valor
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
     const [tplName, setTplName] = useState('');       // nombre de la plantilla de estilo a crear
+    const [compSearch, setCompSearch] = useState({}); // buscador de componentes por valor
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
@@ -4315,7 +4375,14 @@ export default function mount(shell) {
           ])),
       ]),
       ]),
-        h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
+        // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
+        // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
+        h('div', { key: 'p', style: sec === 'pasos'
+          ? { display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16, alignItems: 'start' }
+          : { display: 'none' } }, [
+        h('div', { key: 'pv-lado', style: { order: 2, position: 'sticky', top: 8, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' } },
+          h(ConfigPreview, { draft: d })),
+        h('div', { key: 'ed-lado', style: { order: 1, minWidth: 0 } }, [
       // Pasos: valores genéricos (lo que ve el cliente) con pool de alternativas
       h('div', { key: 'gh', className: 'gp-card-title', style: { marginTop: 6 } }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Pasos, valores y alternativas']),
       h('div', { key: 'ghelp', className: 'gp-muted', style: { marginBottom: 8 } },
@@ -4358,24 +4425,6 @@ export default function mount(shell) {
             gi < d.groups.length - 1 && h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar este paso', onClick: () => {
               const gs = d.groups.slice(); const t = gs[gi + 1]; gs[gi + 1] = gs[gi]; gs[gi] = t; up({ groups: gs });
             } }, '↓'),
-            // Un paso dependiente que se oculta SIGUE aportando su valor por
-            // defecto a la variante (Jumpseller exige un valor por opción en
-            // cada combinación). Si ese default cuesta, el cliente paga algo
-            // que no ve. Aquí se arregla de un clic: un valor "No aplica" sin
-            // costo, puesto por defecto.
-            (function () {
-              if (!groupDependsOn(g)) return null;
-              const def = groupDefaultValue(g);
-              if (!def || !(valueGross(def) > 0)) return null;
-              return h('button', {
-                key: 'fix', className: 'gp-btn gp-btn-sm', style: { borderColor: 'var(--gp-err)', color: 'var(--gp-err)' },
-                title: 'Al ocultarse este paso, la tienda cobra igual su valor por defecto. Con este botón se agrega un valor sin costo y se deja como default.',
-                onClick: () => {
-                  const nuevo = { id: newId('val'), label: 'No aplica', componentIds: [], priceDelta: 0, qty: 1, fallback: true };
-                  upGroup(g.id, { values: [nuevo].concat(vals), defaultValueId: nuevo.id });
-                },
-              }, '⚠ Añadir default sin costo');
-            })(),
             h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
           ]),
           h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -4396,7 +4445,7 @@ export default function mount(shell) {
                   h('span', { key: 's' }, tv.label || '(sin nombre)'),
                 ]))),
                 h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 4 } },
-                  'Cuando el paso quede oculto, la tienda usa su valor por defecto. Hazlo SIN costo (un valor sin componentes ni recargo, ej. "Sin ' + (g.label || typeLabel(g.typeId)).toLowerCase() + '") para no recargar precio a quien no lo ve.'),
+                  'Cuando este paso no se muestra, no suma nada al precio: se gestiona solo. Define aquí únicamente los valores reales.'),
               ]);
             })(),
             vals.length === 0 && h('div', { key: 'e', className: 'gp-muted' },
@@ -4415,8 +4464,8 @@ export default function mount(shell) {
                   h(TextInput, { key: 'qty', mono: true, type: 'number', min: 1, style: { width: 52 },
                     title: 'Cantidad: cuántas unidades del componente elegido incluye este valor (ej. 2 para ofrecer "2×8GB" en un solo paso). Multiplica el precio y exige stock suficiente.',
                     value: v.qty == null ? 1 : v.qty, onChange: (e) => upValue(v.id, { qty: e.target.value }) }),
-                  alts.length > 1 ? h('label', { key: 'bd', className: 'gp-switch', style: { margin: 0 },
-                    title: 'Conjunto: los componentes marcados se SUMAN (ej. "Procesador" = CPU + su placa madre en un solo paso). Sin marcar, son alternativas de proveedores y se usa la más económica disponible.' }, [
+                  alts.length > 0 ? h('label', { key: 'bd', className: 'gp-switch', style: { margin: 0 },
+                    title: 'Conjunto: los componentes de TIPOS DISTINTOS se SUMAN, y los del mismo tipo son alternativas entre sí (se usa el más económico). Ej: "Pack teclado + mouse" con 2 teclados y 2 mouse cuesta min(teclados) + min(mouse). Sin marcar, todos son alternativas y se usa el más económico.' }, [
                     h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
                     h('span', { key: 's' }, 'conjunto (suman)'),
                   ]) : null,
@@ -4437,12 +4486,6 @@ export default function mount(shell) {
                   isDef
                     ? h('span', { key: 'd', className: 'gp-chip fuc' }, 'incluido')
                     : h('span', { key: 'd', className: 'gp-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
-                  groupDependsOn(g) ? h('label', { key: 'fb', className: 'gp-switch', style: { margin: 0 },
-                    title: 'Valor de RELLENO: solo sostiene las combinaciones en las que este paso queda oculto. Cuando el paso se ve, la tienda no lo ofrece — así nadie compra "sin procesador" habiendo elegido plataforma.' }, [
-                    h('input', { key: 'c', type: 'checkbox', checked: v.fallback === true,
-                      onChange: (e) => upValue(v.id, { fallback: e.target.checked }) }),
-                    h('span', { key: 's' }, 'solo relleno'),
-                  ]) : null,
                   // Orden de los valores DENTRO del paso: es el orden en que el
                   // cliente los ve en la tienda y en el previsualizador.
                   vi > 0 && h('button', { key: 'vu', className: 'gp-btn gp-btn-sm', title: 'Subir este valor', onClick: () => {
@@ -4486,42 +4529,114 @@ export default function mount(shell) {
                     h('button', { key: 'add', className: 'gp-btn gp-btn-sm', onClick: () => upFx(fx.concat([{ partId: parts[0].id, type: 'color', color: v.swatchColor || '#cccccc' }])) }, '+ Efecto 3D'),
                   ];
                 })()),
-                h('div', { key: 'l2', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px', paddingLeft: 26, marginTop: 4 } },
-                  candidates.length === 0
-                    ? [h('span', { key: 'none', className: 'gp-muted' }, 'No hay componentes de tipo "' + typeLabel(g.typeId) + '". Créalos en Componentes.')]
-                    : candidates.map((c) => {
-                        const inSet = (v.componentIds || []).indexOf(c.id) !== -1;
-                        const isChosen = !!(chosen && chosen.id === c.id);
-                        return h('label', { key: c.id, className: 'gp-switch', style: { margin: 0, opacity: compAvailable(c) ? 1 : .5 } }, [
-                          h('input', { key: 'c', type: 'checkbox', checked: inSet, onChange: (e) => upValue(v.id, { componentIds: e.target.checked ? (v.componentIds || []).concat([c.id]) : (v.componentIds || []).filter((x) => x !== c.id) }) }),
-                          h('span', { key: 's' }, [
-                            c.name + ' (' + fmtMoney(componentSale(c)) + ')',
-                            h('span', { key: 'st', className: 'gp-chip ' + (compAvailable(c) ? (c.stock == null ? 'gris' : 'ok') : 'err'), style: { marginLeft: 5 } },
-                              c.active === false ? 'inactivo' : c.stock == null ? 'stock ∞' : num(c.stock) > 0 ? 'stock ' + num(c.stock) : 'sin stock'),
-                            isChosen ? h('span', { key: 'b', className: 'gp-chip fuc', style: { marginLeft: 4 } }, 'elegida') : null,
-                          ]),
+                // ── Componentes del valor: SOLO lo elegido, y un buscador ──
+                // Antes se listaba el catálogo entero en checkboxes (cientos
+                // de casillas repetidas valor por valor): abrumador e
+                // inmanejable. Ahora se ven los componentes DEL VALOR como
+                // chips y se agregan buscando por nombre — sobre TODO el
+                // catálogo, sin filtrar por tipo, para poder armar conjuntos
+                // (CPU + placa madre) en un mismo valor.
+                (function () {
+                  const q = s(compSearch[v.id]).trim().toLowerCase();
+                  const setQ = (t) => { const o = Object.assign({}, compSearch); o[v.id] = t; setCompSearch(o); };
+                  const enSet = new Set(v.componentIds || []);
+                  // Navegar por TIPO además de buscar por texto: escribir
+                  // "tipo:<id>" lista el tipo completo (los chips de abajo lo
+                  // escriben por ti). Sirve para comparar precios y stock.
+                  const porTipo = q.indexOf('tipo:') === 0 ? q.slice(5).trim() : null;
+                  const resultados = (porTipo
+                    ? model.components.filter((c) => !enSet.has(c.id) && norm(typeLabel(c.type)).indexOf(porTipo) !== -1)
+                    : q.length < 2 ? [] : model.components.filter((c) => !enSet.has(c.id) && (c.name || '').toLowerCase().indexOf(q) !== -1)
+                  ).slice(0, porTipo ? 30 : 8);
+                  // Compatibilidad con lo YA elegido en el valor: un candidato
+                  // que choca por tags se marca antes de agregarlo.
+                  const tagsSel = new Set();
+                  (v.componentIds || []).forEach((cid) => { const c = compById(cid); if (c) (c.tags || []).forEach((t) => tagsSel.add(t)); });
+                  const choque = (c) => {
+                    for (const t of (c.excludes || [])) if (tagsSel.has(t)) return 'incompatible con ' + t;
+                    for (const cid of (v.componentIds || [])) {
+                      const otro = compById(cid);
+                      if (otro) for (const t of (otro.excludes || [])) if ((c.tags || []).indexOf(t) !== -1) return 'incompatible con ' + otro.name;
+                    }
+                    return null;
+                  };
+                  return h('div', { key: 'l2', style: { paddingLeft: 26, marginTop: 4 } }, [
+                    h('div', { key: 'chips', style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 } },
+                      (v.componentIds || []).length === 0
+                        ? [h('span', { key: 'none', className: 'gp-muted' }, 'Sin componentes: opción sin costo (usa el recargo si quieres cobrarla). Busca abajo para agregar.')]
+                        : (v.componentIds || []).map((cid) => {
+                            const c = compById(cid);
+                            if (!c) return null;
+                            const isChosen = !!(chosen && chosen.id === c.id);
+                            return h('span', { key: cid, className: 'gp-chip ' + (compAvailable(c) ? (isChosen || v.bundle === true ? 'fuc' : 'gris') : 'err'),
+                              title: (c.active === false ? 'Inactivo. ' : c.stock == null ? '' : 'Stock ' + num(c.stock) + '. ')
+                                + (v.bundle === true ? 'En conjunto: se suma.' : isChosen ? 'Alternativa elegida (la más económica disponible).' : 'Alternativa de reserva.'),
+                              style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 7px' } }, [
+                              h('span', { key: 'n' }, c.name + ' · ' + fmtMoney(componentSale(c))),
+                              h('button', { key: 'x', className: 'gp-btn gp-btn-sm', style: { padding: '0 5px', lineHeight: 1.2 },
+                                title: 'Quitar del valor',
+                                onClick: () => upValue(v.id, { componentIds: (v.componentIds || []).filter((x) => x !== cid) }) }, '✕'),
+                            ]);
+                          })),
+                    h('div', { key: 'buscar', style: { position: 'relative', maxWidth: 420 } }, [
+                      h(TextInput, { key: 'q', value: compSearch[v.id] || '', placeholder: '🔍 buscar componente para agregar (cualquier tipo)…',
+                        onChange: (e) => setQ(e.target.value) }),
+                      resultados.length > 0 && h('div', { key: 'res', style: {
+                        position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
+                        maxHeight: 280, overflowY: 'auto',
+                        background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+                      } }, resultados.map((c) => {
+                        const conflicto = choque(c);
+                        return h('div', { key: c.id,
+                          style: { padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'baseline', borderBottom: '1px solid var(--gp-plata)', opacity: compAvailable(c) ? 1 : .55 },
+                          title: conflicto || '',
+                          onMouseDown: () => { upValue(v.id, { componentIds: (v.componentIds || []).concat([c.id]) }); setQ(''); },
+                        }, [
+                          h('span', { key: 'n', style: { fontWeight: 600 } }, c.name),
+                          h('span', { key: 't', className: 'gp-muted', style: { fontSize: 11 } }, typeLabel(c.type)),
+                          conflicto ? h('span', { key: 'w', className: 'gp-chip err', style: { fontSize: 10 } }, '⚠ ' + conflicto) : null,
+                          h('span', { key: 'st', className: 'gp-chip ' + (compAvailable(c) ? (c.stock == null ? 'gris' : 'ok') : 'err'), style: { fontSize: 10 } },
+                            c.active === false ? 'inactivo' : c.stock == null ? '∞' : 'stock ' + num(c.stock)),
+                          h('span', { key: 'p', style: { marginLeft: 'auto', fontSize: 12 } }, fmtMoney(componentSale(c))),
                         ]);
                       })),
+                    ]),
+                    // Chips de tipos: un clic lista el tipo completo para comparar.
+                    h('div', { key: 'tipos', style: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 } },
+                      types().filter((t) => model.components.some((c) => c.type === t.id)).map((t) =>
+                        h('button', { key: t.id, className: 'gp-btn gp-btn-sm', style: { fontSize: 10, padding: '2px 7px' },
+                          title: 'Listar todos los componentes de ' + t.label,
+                          onClick: () => setQ('tipo:' + t.label.toLowerCase()) }, t.label))),
+                  ]);
+                })(),
               ]);
             })),
-            // Creación rápida: varios valores de una (1 componente = 1 valor editable)
-            candidates.length > 0 && (function () {
-              const sel = quickSel[g.id] || {};
-              const marked = Object.keys(sel).filter((k) => sel[k]);
+            // Creación rápida: buscar un componente y crear su valor de un clic
+            // (nombre editable después). Sin muros de checkboxes.
+            (function () {
+              const clave = 'quick::' + g.id;
+              const q = s(compSearch[clave]).trim().toLowerCase();
+              const setQ = (t) => { const o = Object.assign({}, compSearch); o[clave] = t; setCompSearch(o); };
+              const yaUsados = new Set(vals.reduce((a, x) => a.concat(x.componentIds || []), []));
+              const resultados = q.length < 2 ? [] : model.components
+                .filter((c) => !yaUsados.has(c.id) && (c.name || '').toLowerCase().indexOf(q) !== -1)
+                .slice(0, 8);
               return h('div', { key: 'quick', style: { borderTop: '1px dashed var(--gp-linea)', marginTop: 10, paddingTop: 8 } }, [
-                h('div', { key: 't', className: 'gp-label', style: { marginBottom: 5 } }, 'Creación rápida: marca componentes y crea un valor por cada uno (nombre editable después)'),
-                h('div', { key: 'list', style: { display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } }, candidates.map((c) => h('label', { key: c.id, className: 'gp-switch', style: { margin: 0 } }, [
-                  h('input', { key: 'i', type: 'checkbox', checked: !!sel[c.id], onChange: (e) => {
-                    const next = Object.assign({}, sel); next[c.id] = e.target.checked;
-                    const q = Object.assign({}, quickSel); q[g.id] = next; setQuickSel(q);
-                  } }),
-                  h('span', { key: 's' }, c.name),
-                ]))),
-                h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', style: { marginTop: 6 }, disabled: !marked.length, onClick: () => {
-                  const nuevos = marked.map((cid) => { const c = compById(cid); return { id: newId('val'), label: c ? c.name : cid, componentIds: [cid] }; });
-                  upGroup(g.id, { values: vals.concat(nuevos) });
-                  const q = Object.assign({}, quickSel); q[g.id] = {}; setQuickSel(q);
-                } }, '+ Crear ' + marked.length + ' valor(es)'),
+                h('div', { key: 't', className: 'gp-label', style: { marginBottom: 5 } }, 'Agregar valores desde un componente (un clic = un valor)'),
+                h('div', { key: 'buscar', style: { position: 'relative', maxWidth: 420 } }, [
+                  h(TextInput, { key: 'q', value: compSearch[clave] || '', placeholder: '🔍 buscar componente…', onChange: (e) => setQ(e.target.value) }),
+                  resultados.length > 0 && h('div', { key: 'res', style: {
+                    position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
+                    background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+                  } }, resultados.map((c) => h('div', { key: c.id,
+                    style: { padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'baseline', borderBottom: '1px solid var(--gp-plata)' },
+                    onMouseDown: () => { upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: c.name, componentIds: [c.id] }]) }); },
+                  }, [
+                    h('span', { key: 'n', style: { fontWeight: 600 } }, c.name),
+                    h('span', { key: 't2', className: 'gp-muted', style: { fontSize: 11 } }, typeLabel(c.type)),
+                    h('span', { key: 'p', style: { marginLeft: 'auto', fontSize: 12 } }, fmtMoney(componentSale(c))),
+                  ]))),
+                ]),
               ]);
             })(),
             h('button', { key: 'addv', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 }, onClick: () => upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: '', componentIds: [] }]) }) }, '+ Valor'),
@@ -4553,6 +4668,7 @@ export default function mount(shell) {
             const replace = !d.groups.length || window.confirm('¿Reemplazar los pasos actuales por los generados desde el modelo 3D?\n\nAceptar = reemplazar · Cancelar = agregarlos al final');
             up({ groups: replace ? gen : d.groups.concat(gen) });
           } }, '⚡ Generar pasos desde el modelo 3D'),
+      ]),
       ]),
       ]),
         h('div', { key: 'f', style: sec === 'ficha' ? null : { display: 'none' } }, [
@@ -5309,9 +5425,7 @@ export default function mount(shell) {
           h('span', { key: 'l', className: 'gp-label' }, 'Precio configuración base'),
           h('div', { key: 'p', className: 'gp-price gp-price-big' }, fmtMoney(price)),
           h('div', { key: 'm', className: 'gp-muted', style: { fontSize: 11 } },
-            combos + ' variante(s)'
-            + (comboCartesiano(d) > combos ? ' (de ' + comboCartesiano(d) + ' sin dependencias: ' + (comboCartesiano(d) - combos) + ' imposibles que NO se publican)' : '')
-            + ' · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
+            combos + ' variante(s) en la tienda · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
             (initial && num(initial.price) !== price ? ' · guardado: ' + fmtMoney(initial.price) + ' →' : '') +
             (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s) arriba' : '')),
         ]),

@@ -353,7 +353,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.11.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.12.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.
@@ -370,8 +370,18 @@ de video" solo con la placa que la admite). Qué hace la ficha:
   controles, así que un oculto desincronizado cobraría lo que no se ve.
 - Las **cadenas** (A oculta a B, y B oculta a C) se re-evalúan hasta
   estabilizar, con tope de pasadas.
-- Si un cambio del cliente fuerza ajustes, se avisa con un cartel discreto
-  ("Ajustado automáticamente: …"). El ajuste al cargar es silencioso.
+- Los ajustes son **silenciosos**: el cliente nunca ve carteles de
+  "Ajustado automáticamente" ni valores de relleno ("No aplica") — la app
+  los publica y el kit los gestiona por debajo.
+
+### Caché del JSON público (60 s)
+
+El kit guarda el JSON de la app en `localStorage` con TTL de 60 segundos: las
+visitas siguientes pintan la ficha al instante sin esperar a KIMOS, y un cambio
+publicado desde la app se ve en la tienda en un minuto como mucho. Si KIMOS no
+responde, se usa la última copia buena aunque esté vencida: la ficha nunca se
+cae por una caída del panel (el precio y el carro ya venían del theme, así que
+la compra no depende de KIMOS en ningún caso).
 
 ### Estilo por producto (`storefront.style`)
 

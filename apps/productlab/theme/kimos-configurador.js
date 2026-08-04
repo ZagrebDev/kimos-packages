@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.11.0';
+  var VERSION = '5.12.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -135,11 +135,35 @@
     return out.id == null ? null : out;
   }
 
+  // El JSON público se cachea en localStorage con TTL corto (60 s): la ficha
+  // arranca al instante en visitas seguidas y los cambios hechos en KIMOS se
+  // ven en un minuto como mucho. Si KIMOS no responde, se usa la última copia
+  // buena aunque esté vencida — la tienda nunca se queda sin ficha por una
+  // caída del panel.
+  var DEF_TTL = 60000;
+  function defCacheKey() { return 'kc-def::' + CFG.url; }
+  function defCacheRead() {
+    try {
+      var raw = localStorage.getItem(defCacheKey());
+      if (!raw) return null;
+      var c = JSON.parse(raw);
+      return (c && c.def) ? c : null;
+    } catch (e) { return null; }
+  }
+  function defCacheWrite(def) {
+    try { localStorage.setItem(defCacheKey(), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
+  }
   function loadDefinition() {
-    var bust = Math.floor(Date.now() / 300000);
+    var hit = defCacheRead();
+    if (hit && (Date.now() - hit.t) < DEF_TTL) return Promise.resolve(hit.def);
+    var bust = Math.floor(Date.now() / DEF_TTL);
     return fetch(CFG.url + (CFG.url.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (j) { return j && j.data ? j.data : j; });
+      .then(function (j) { var def = j && j.data ? j.data : j; defCacheWrite(def); return def; })
+      .catch(function (err) {
+        if (hit) { console.warn(LOG, 'KIMOS no responde; usando copia local', err); return hit.def; }
+        throw err;
+      });
   }
 
   function findEntry(def, prod) {

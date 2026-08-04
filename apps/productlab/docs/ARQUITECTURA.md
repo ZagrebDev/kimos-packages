@@ -1,4 +1,4 @@
-# ProductLab — Arquitectura, herencia y funcionamiento (v2.13.0)
+# ProductLab — Arquitectura, herencia y funcionamiento (v2.14.0)
 
 Documento de continuidad: todo lo necesario para seguir desarrollando
 ProductLab sin perder el conocimiento adquirido en sus tres antecesores.
@@ -308,42 +308,51 @@ se queda en aviso, no vacía el catálogo). Etiquetar bien es la alternativa a
 los pasos dependientes: "RAM DDR5 requiere plataforma:amd" mata solas las
 combinaciones Intel×DDR5, sin `dependsOn` ni rellenos.
 
-**Valores conjunto (`bundle: true`).** Los `componentIds` del valor se SUMAN
-en lugar de ser alternativas: "Procesador → Ryzen 5" = CPU + su placa madre en
-un solo paso. Disponible = todos disponibles; entrega = el más lento; el
-"elegido" (foto/specs) es el primero. En la UI es el interruptor «conjunto
-(suman)» del valor; el agente lo pasa como `bundle`/`conjunto`.
+**Valores conjunto (`bundle: true`), regla por TIPO (2.14).** En un valor
+conjunto los componentes se agrupan por tipo: componentes del **mismo tipo son
+alternativas entre sí** (se usa el más barato disponible, como en un valor
+normal) y **tipos distintos se suman**. Así "Pack extra → teclado + mouse"
+lleva sus alternativas de teclado y de mouse en el mismo valor; si un tipo se
+queda sin stock, el conjunto entero deja de estar disponible. Entrega = el más
+lento de lo sumado; foto/specs = el primer componente. En la UI es el
+interruptor «conjunto (suman)» del valor; el agente lo pasa como
+`bundle`/`conjunto`.
 
-**Tags con desplegable.** Los campos aporta/requiere/incompatible ofrecen un
-`+` con los tags ya usados en el catálogo — el error típico era la ortografía
-("plataforma:amd" vs "plataforma: AMD").
+**Tags con chips y buscador (2.14).** Los campos aporta/requiere/incompatible
+muestran lo ya puesto como chips (✕ quita) y un buscador con sugerencias de los
+tags usados en el catálogo (Enter o clic agrega) — el error típico era la
+ortografía ("plataforma:amd" vs "plataforma: AMD"). El picker de componentes de
+cada valor usa el mismo patrón: chips de lo elegido + buscador sobre todo el
+catálogo, navegación por tipo (`tipo:` o los chips de tipos) con stock y precio
+a la vista, y aviso «⚠ incompatible con…» contra los tags de lo ya elegido.
 
-## 9.b Pasos dependientes: el default SIEMPRE se cobra (2.10)
+## 9.b Pasos dependientes: comodín automático e invisible (2.14, antes 2.10)
 
 Jumpseller exige **un valor de cada opción en cada variante**: no existe la
 combinación "sin este paso". Por eso un paso oculto por `dependsOn` sigue
-aportando su valor por defecto a la variante — y si ese valor cuesta, el
-cliente paga algo que no ve. No es un caso raro: es lo que pasa al modelar
-"Procesador AMD" / "Procesador Intel" dependientes de la placa.
+aportando un valor a la variante — y si ese valor cuesta, el cliente pagaría
+algo que no ve. No es un caso raro: es lo que pasa al modelar "Procesador AMD"
+/ "Procesador Intel" dependientes de la placa.
 
-La solución es un valor **"No aplica"** sin componentes ni recargo, marcado
-como default de ese paso **y como `fallback: true`** (*solo relleno*). Ese
-segundo marcado es el que hace que la solución no abra un agujero: sin él, el
-"No aplica" quedaría a la venta también cuando el paso SÍ se muestra, y quien
-eligiera AMD podría comprar sin procesador.
+Desde 2.14 esto **se gestiona solo y no aparece en la UI**: todo paso con
+`dependsOn` recibe un comodín sintético "No aplica" (`comodinDe(g)`: id
+`na::<grupo>`, sin componentes, sin recargo, `fallback: true`) que se inyecta
+al enumerar combos, al aplicar a la tienda y al publicar el JSON. El gestor
+define solo los valores reales; los conceptos "solo relleno" / "añadir default
+sin costo" desaparecieron del editor (los valores `fallback` creados a mano en
+instalaciones viejas se siguen respetando y evitan el sintético).
 
-Con `fallback`, el valor:
+Comportamiento del comodín (igual que el `fallback` manual de 2.10):
 
-- **sostiene** las combinaciones en las que el paso está oculto (que es para lo
-  único que existe) y sigue entrando en la matriz de variantes;
-- **no se pinta** como opción en la ficha ni en el previsualizador;
-- y si el paso pasa a ser visible con el relleno elegido, la selección **salta
-  sola** al primer valor real (en la tienda, escribiendo en el select nativo).
+- **sostiene** las combinaciones en las que el paso está oculto y entra en la
+  matriz de variantes con precio 0 para ese paso;
+- **no se pinta** como opción en la ficha ni en el previsualizador, y el
+  precio calculado ignora los pasos ocultos;
+- si el paso pasa a ser visible con el comodín elegido, la selección **salta
+  sola y en silencio** al primer valor real (en la tienda, escribiendo en el
+  select nativo — sin carteles al cliente).
 
-El aviso del producto lo explica con nombres (qué paso, de cuál depende, qué
-default y cuánto cuesta) y la cabecera del paso ofrece el botón **⚠ Añadir
-default sin costo**, que crea el valor ya marcado como relleno y por defecto.
-`SET_PRODUCTO_STEPS` acepta `fallback` (alias `relleno`) por valor.
+`SET_PRODUCTO_STEPS` sigue aceptando `fallback` (alias `relleno`) por valor.
 
 ## 9.c Cuando la tienda no responde (2.10)
 
@@ -353,6 +362,11 @@ el `sync-push` se reintentan solos (3 intentos, espera 1,2 s → 2,4 s) y la
 respuesta HTML de la caché se traduce a un mensaje legible en vez de volcarse
 en pantalla. Cuantas más combinaciones tenga el producto, más fácil es toparse
 con ese corte: es el argumento práctico para no pasarse de variantes.
+
+En la otra dirección — cuando el que no responde es KIMOS — la tienda no se
+resiente: el kit cachea el JSON público en `localStorage` (TTL 60 s, copia
+vieja si el fetch falla) y el precio y el carro vienen siempre del theme, así
+que la compra nunca depende de que KIMOS esté arriba (ver README del theme).
 
 ## 10. Deuda conocida y roadmap corto
 
