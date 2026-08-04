@@ -4533,6 +4533,23 @@ export default function mount(shell) {
     // (El split de dos columnas del Estudio se retiró: ahora es una sola
     // columna con la previsualización editable.)
     const [pasoEdit, setPasoEdit] = useState(null);   // paso con su editor abierto en el Estudio
+    // General: el alto de la ficha se MIDE (la app corre dentro de una
+    // ventana del shell: 100vh miente y dejaba un scroll de página). La foto
+    // llena su columna y solo la ficha derecha scrollea.
+    const layRef = useRef(null);
+    const [layH, setLayH] = useState(0);
+    useEffect(() => {
+      if (sec !== 'general') return undefined;
+      const calc = () => {
+        const nodo = layRef.current;
+        if (!nodo) return;
+        setLayH(Math.max(420, Math.round(window.innerHeight - nodo.getBoundingClientRect().top - 24)));
+      };
+      calc();
+      const tt = setTimeout(calc, 60);
+      window.addEventListener('resize', calc);
+      return () => { clearTimeout(tt); window.removeEventListener('resize', calc); };
+    }, [sec]);
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
@@ -4982,7 +4999,8 @@ export default function mount(shell) {
         h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
       // General: la foto del producto a la IZQUIERDA (un toque abre la
       // Galería) y a su lado la identidad del producto.
-      h('div', { key: 'glay', className: 'gp-general-lay' }, [
+      h('div', { key: 'glay', className: 'gp-general-lay', ref: layRef,
+        style: layH > 0 ? { height: layH } : null }, [
       h('div', { key: 'foto', className: 'gp-general-foto', role: 'button', tabIndex: 0,
         title: 'Abrir la galería del producto', onClick: () => setNav({ tab: 'galeria' }) }, [
         productoImage(d)
@@ -6583,12 +6601,18 @@ export default function mount(shell) {
   // Estética de menú de videojuego: textos grandes, objetivos táctiles y los
   // tokens del tema de KIMOS (día/noche y acento van con el shell).
   const CFG_TABS = [['precios', 'Precios'], ['estilos', 'Estilos'], ['publicacion', 'Publicación'], ['datos', 'Datos']];
-  const PROD_TABS = [['general', 'General'], ['galeria', 'Galería'], ['pasos', 'Estudio'], ['ficha', 'Experiencia']];
+  const PROD_TABS = [['general', 'General'], ['pasos', 'Estudio'], ['ficha', 'Experiencia'], ['galeria', 'Galería']];
   const COMP_TABS = [['general', 'General'], ['alternativos', 'Alternativos'], ['compatibles', 'Compatibles']];
   const ICONO_CASA = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     [h('path', { key: 'p', d: 'M3 10.5 12 3l9 7.5' }), h('path', { key: 'q', d: 'M5 9.5V21h14V9.5' })]);
   const ICONO_ATRAS = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     [h('path', { key: 'p', d: 'M15 5l-7 7 7 7' })]);
+  void ICONO_ATRAS;
+  // Bolsa de tienda: el icono de "Aplicar a la tienda".
+  const ICONO_TIENDA = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
+    h('path', { key: 'b', d: 'M6 7h12l1.2 13H4.8L6 7z' }),
+    h('path', { key: 'a', d: 'M9 10V6a3 3 0 0 1 6 0v4' }),
+  ]);
   function Header({ state }) {
     const n = useNav();
     const extra = useHdrExtra();
@@ -6611,13 +6635,9 @@ export default function mount(shell) {
     } else {
       tabs = SECS; activo = n.sec; onTab = (id) => setNav({ sec: id, det: null, tab: null });
     }
-    // Un nivel hacia arriba: detalle → lista; config sub → mosaico; raíz → inicio.
-    const atras = n.det ? () => setNav({ det: null, tab: null })
-      : (n.sec === 'config' && n.tab) ? () => setNav({ tab: null })
-      : null;
+    // Sin botón volver: la casa y la miga de la sección ya navegan arriba.
     return h('div', { key: 'hd', className: 'gp-hd' }, [
       h('div', { key: 'nav', className: 'gp-hd-nav' }, [
-        atras ? h('button', { key: 'atras', className: 'gp-hd-ico', title: 'Volver', onClick: atras }, h(ICONO_ATRAS)) : null,
         (function () {
           const dentro = !!n.det || (n.sec === 'config' && !!n.tab);
           return h('nav', { key: 'crumbs', className: 'gp-crumbs', 'aria-label': 'breadcrumb' }, [
@@ -6642,8 +6662,10 @@ export default function mount(shell) {
             h('span', { key: 's', className: 'gp-hd-precio-s' }, extra.sub),
           ]),
           h('button', { key: 'g', className: 'gp-btn', disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.etiquetaGuardar),
-          extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary', disabled: !extra.puedeAplicar,
-            onClick: extra.aplicar }, extra.busy ? 'Aplicando…' : 'Aplicar a la tienda') : null,
+          extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary gp-hd-aplicar', disabled: !extra.puedeAplicar,
+            title: extra.busy ? 'Aplicando…' : 'Aplicar a la tienda (precio, opciones y variantes en Jumpseller)',
+            'aria-label': 'Aplicar a la tienda',
+            onClick: extra.aplicar }, extra.busy ? '…' : h(ICONO_TIENDA)) : null,
         ]) : null,
         !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
           title: 'Publicar el JSON del configurador para la tienda, sin pasar por Parámetros → Publicación',

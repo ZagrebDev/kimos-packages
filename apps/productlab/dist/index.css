@@ -93,6 +93,11 @@
 }
 .kimos-productlab .gp-hd-acciones { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .kimos-productlab .gp-hd-pub { min-height: 44px; padding: 0 22px; font-size: 13px; border-radius: var(--gp-radius); }
+/* Aplicar a la tienda como icono: compacto, con el acento y tooltip. */
+.kimos-productlab .gp-hd-aplicar {
+  width: 44px; min-height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 /* Precio vivo + acciones del detalle abierto (reemplazan a la barra inferior). */
 .kimos-productlab .gp-hd-extra { display: flex; align-items: center; gap: 10px; }
 .kimos-productlab .gp-hd-precio { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
@@ -369,11 +374,11 @@
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px; align-items: stretch;
-  height: calc(100vh - 185px); min-height: 480px;
+  min-height: 420px;   /* el alto real lo mide y lo fija el JS */
 }
 .kimos-productlab .gp-general-foto {
   position: relative; display: flex; align-items: center; justify-content: center;
-  height: 100%; min-height: 0; padding: 24px; cursor: pointer;
+  height: 100%; min-height: 0; max-height: 100%; overflow: hidden; padding: 24px; cursor: pointer;
   background: #fff; border: 1px solid var(--gp-borde-suave);
   border-radius: calc(var(--gp-radius) + 4px);
   transition: border-color .15s ease, box-shadow .15s ease;
@@ -400,20 +405,22 @@
 .kimos-productlab .gp-general-campos .gp-input,
 .kimos-productlab .gp-general-campos .gp-select,
 .kimos-productlab .gp-general-campos .gp-textarea {
-  background: transparent; border: 1px solid transparent;
-  border-bottom: 1px solid var(--gp-linea); border-radius: 0;
-  padding-left: 0; padding-right: 0; min-height: 40px;
+  background: hsl(var(--muted, 220 14% 89%) / .35);
+  border: 1px solid transparent;
+  border-bottom: 1px solid var(--gp-gris-claro);
+  border-radius: var(--gp-radius) var(--gp-radius) 0 0;
+  padding-left: 10px; padding-right: 10px; min-height: 40px;
   font-size: 15.5px;
-  transition: border-color .15s ease, background .15s ease, padding .15s ease;
+  transition: border-color .15s ease, background .15s ease;
 }
 .kimos-productlab .gp-general-campos .gp-input:hover,
 .kimos-productlab .gp-general-campos .gp-select:hover,
-.kimos-productlab .gp-general-campos .gp-textarea:hover { border-bottom-color: var(--gp-gris-claro); }
+.kimos-productlab .gp-general-campos .gp-textarea:hover { border-bottom-color: var(--gp-gris); }
 .kimos-productlab .gp-general-campos .gp-input:focus,
 .kimos-productlab .gp-general-campos .gp-select:focus,
 .kimos-productlab .gp-general-campos .gp-textarea:focus {
-  background: hsl(var(--muted, 220 14% 89%) / .35);
-  border-color: var(--gp-acento); padding-left: 10px; padding-right: 10px;
+  background: hsl(var(--muted, 220 14% 89%) / .5);
+  border-bottom-color: var(--gp-acento);
   box-shadow: none;
 }
 .kimos-productlab .gp-general-campos .gp-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--gp-gris); }
