@@ -214,19 +214,12 @@ ok('a la izquierda: el producto + anclas, sin Configurar',
 ok('Especificaciones y Fotos son anclas, no pestañas',
   tabs.indexOf('Especificaciones') !== -1 && tabs.indexOf('Fotos') !== -1);
 ok('a la derecha, el botón entra al configurador', cta === 'Configurar', cta);
-// El landing termina en la invitación + la sección del personalizador.
-ok('el landing invita a configurar antes de la sección',
-  (await page.$$('.kc-goconf-btn')).length === 1);
-ok('el personalizador es la última sección del landing',
-  await page.$eval('.kc-body', (n) => !!n.lastElementChild && n.lastElementChild.classList.contains('kc-conf')));
-ok('el footer del theme queda oculto',
-  await page.$eval('footer.footer', (n) => getComputedStyle(n).display === 'none').catch(() => true));
 
-// Al pulsarlo se BLOQUEA el personalizador y el botón pasa a ser el carro real.
+// Al pulsarlo se entra al personalizador y el botón pasa a ser el carro real.
 await page.click('.kc-bar-cta');
 const cta2 = await page.$eval('.kc-bar-cta', (n) => n.textContent.trim());
 ok('dentro del configurador el botón es el del carro', /carro/i.test(cta2), cta2);
-ok('bloqueado: solo queda el personalizador (sin hero)',
+ok('dentro: solo el personalizador (sin hero)',
   (await page.$$('.kc-hero')).length === 0);
 ok('la izquierda de la barra es "← Volver"', (await page.$$('.kc-volver')).length === 1);
 ok('compartir presente junto al carro', (await page.$$('.kc-share')).length >= 1);

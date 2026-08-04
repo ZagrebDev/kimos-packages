@@ -396,11 +396,8 @@
 .kimos-cfg .kc-stockmsg { font-size: 11.5px; color: #C40000; margin-top: 6px; }
 .kimos-cfg .kc-panel .kc-btn { width: 100%; margin-top: 12px; }
 .kimos-cfg .kc-panel-exp { display: none; }
-/* Volver (personalizador bloqueado): único elemento a la izquierda de la barra. */
+/* Volver (dentro del personalizador): único elemento a la izquierda de la barra. */
 .kimos-cfg .kc-volver { font-weight: 600; }
-/* Invitación a personalizar: cierre del landing, antes de la sección. */
-.kimos-cfg .kc-goconf { display: flex; justify-content: center; padding: 6px 20px 34px; }
-.kimos-cfg .kc-goconf-btn { min-width: 240px; padding: 15px 30px; font-size: 15px; }
 /* Compartir: botón secundario junto al carro (enlace directo ?kimos_conf=1). */
 .kimos-cfg .kc-share {
   border: 1px solid var(--kc-borde); background: transparent; color: inherit;
@@ -416,9 +413,12 @@
 @media (max-width: 991px) {
   /* El hueco al pie es el ALTO REAL del panel (lo mide el JS): con un número
      fijo, el último valor del último paso quedaba debajo del panel flotante. */
+  /* Sin el footer del theme debajo (en el personalizador se oculta), el
+     último paso terminaba justo donde arranca la barra flotante: el hueco
+     al pie suma también el asa que sobresale y un colchón de aire real. */
   .kimos-cfg .kc-conf {
     grid-template-columns: 1fr;
-    padding-bottom: calc(var(--kc-panel-h, 150px) + 32px);
+    padding-bottom: calc(var(--kc-panel-h, 150px) + 72px);
   }
   /* El padding derecho deja una FRANJA LIBRE para la burbuja de chat de la
      tienda (que flota fija en esa esquina): ni los textos ni los botones
@@ -460,13 +460,16 @@
   .kimos-cfg .kc-panel .kc-btn { width: auto; margin-top: 0; padding: 11px 18px; }
   .kimos-cfg .kc-acciones .kc-share { padding: 11px 14px; font-size: 12px; }
   /* La flecha del detalle se SOBREPONE a la barra: arriba y al medio, medio
-     afuera, como asa para tirar del panel. */
+     afuera, como asa para tirar del panel. Viste los tokens del THEME (acento
+     y radio del sitio), igual que los demás botones de la ficha. */
   .kimos-cfg .kc-panel-exp {
     display: flex; position: absolute; left: 50%; top: 0;
     transform: translate(-50%, -60%);
     width: 52px; height: 28px; align-items: center; justify-content: center;
-    border: 1px solid var(--kc-borde); background: var(--kc-bg, #fff); color: inherit;
-    cursor: pointer; font-size: 12px; border-radius: 999px;
+    border: 0; cursor: pointer; font-size: 12px;
+    background: var(--kc-accent, var(--kc-fg, #1D1D1B));
+    color: var(--kc-accent-fg, var(--kc-bg, #fff));
+    border-radius: var(--kc-radius);
     box-shadow: 0 -4px 12px rgba(0,0,0,.15);
   }
   /* Desplegado: la foto crece y aparece TODO lo elegido, paso por paso. */
@@ -475,17 +478,6 @@
     display: block; grid-column: 1 / -1; max-height: 34vh; overflow-y: auto;
   }
   .kimos-cfg .kc-panel.kc-open .kc-canvas { display: block; }
-  /* En el LANDING (sección inline, sin bloquear) el panel no flota: es una
-     card normal al final de la sección. La barra flotante y su flecha son
-     solo del personalizador bloqueado. */
-  .kimos-cfg .kc-conf-inline { padding-bottom: 40px; }
-  .kimos-cfg .kc-conf-inline .kc-panel {
-    position: static !important; box-shadow: none; padding: 12px;
-    border: 1px solid var(--kc-fg, #1D1D1B); border-radius: var(--kc-radius);
-  }
-  .kimos-cfg .kc-conf-inline .kc-panel-img { max-height: 150px; }
-  .kimos-cfg .kc-conf-inline .kc-panel-exp { display: none; }
-  .kimos-cfg .kc-conf-inline .kc-summary { display: block; grid-column: 1 / -1; }
 }
 
 /* Pasos: título en versalitas con el número en acento y filete discontinuo. */

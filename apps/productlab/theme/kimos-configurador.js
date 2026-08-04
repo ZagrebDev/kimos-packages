@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.13.0';
+  var VERSION = '5.13.1';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1823,6 +1823,20 @@
       refresh: function () { paint(); },
     };
 
+    // El footer del theme: visible en la ficha principal, oculto SOLO en el
+    // personalizador. Se localiza una vez y se conmuta al cambiar de vista.
+    var footerNodo = (function () {
+      var sels = ['footer.footer', '#footer', '.site-footer', 'footer[role="contentinfo"]', 'footer'];
+      for (var i = 0; i < sels.length; i++) {
+        var f = document.querySelector(sels[i]);
+        if (f && !f.contains(root) && !root.contains(f)) return f;
+      }
+      return null;
+    })();
+    function mostrarFooter(si) {
+      if (footerNodo) footerNodo.style.display = si ? '' : 'none';
+    }
+
     // Aviso no bloqueante (mismo patrón que el aviso de AR): se pinta unos
     // segundos y se retira solo. Lo usa el ajuste automático de dependencias.
     function showNotice(txt) {
@@ -2191,9 +2205,9 @@
       body.innerHTML = '';
       var enConf = current === 'configurar';
       if (!enConf) {
-        // Landing: specs y fotos van AQUÍ DENTRO, en el orden del builder, y
-        // las pestañas de arriba solo bajan hasta ellas. Tenerlas como
-        // pestañas aparte rompía la lectura de la ficha en trozos inconexos.
+        // Ficha principal: specs y fotos van AQUÍ DENTRO, en el orden del
+        // builder, y las pestañas de arriba solo bajan hasta ellas. Tenerlas
+        // como pestañas aparte rompía la lectura en trozos inconexos.
         anclas = {};
         secs.forEach(function (s) {
           var n = null;
@@ -2204,36 +2218,24 @@
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
-        // Invitación a personalizar antes de la sección: mismo texto que el
-        // botón de la barra, para que sea UN solo concepto.
-        if (conPasos) {
-          var invita = el('div', 'kc-goconf');
-          var bInv = el('button', 'kc-btn kc-btn-primary kc-goconf-btn', etiquetaConfigurar());
-          bInv.type = 'button';
-          bInv.addEventListener('click', function () { setTab('configurar'); });
-          invita.appendChild(bInv);
-          body.appendChild(invita);
-        }
-      }
-      // El personalizador es la ÚLTIMA sección del landing. Al pulsar
-      // Configurar (barra o invitación) queda BLOQUEADO: se pinta él solo,
-      // con "← Volver" en la barra como único camino de regreso.
-      if (conPasos) {
+      } else if (conPasos) {
+        // Personalizador: sección propia (botón Configurar de la barra), con
+        // "← Volver" en la barra como camino de regreso.
         construirConf();
-        confPanel.classList.toggle('kc-conf-inline', !enConf);
-        // En el landing el panel vive DENTRO de la sección (en flujo normal,
-        // ahí `fixed` no pinta nada); solo bloqueado y con un theme que rompe
-        // `fixed` se muda al anfitrión de <body>.
-        if (!enConf && panelBox && panelBox.parentNode !== confPanel) confPanel.appendChild(panelBox);
         body.appendChild(confPanel);
-        if (enConf) hostearPanel();
+        hostearPanel();
         pintarPanel();
       }
-      if (viewer) {
+      if (viewer && enConf) {
         viewer.setState(build3dState(entry, groups));
         viewer.resize();
       }
-      if (panelBox) panelBox.style.display = '';
+      // Vive en <body> cuando el theme rompe `fixed`: al salir del
+      // personalizador hay que esconderlo a mano.
+      if (panelBox) panelBox.style.display = enConf ? '' : 'none';
+      // El footer del theme se ve en la ficha principal y se OCULTA solo en
+      // el personalizador (ahí abajo no aporta y quitaba sitio a los pasos).
+      mostrarFooter(!enConf);
       // El alto de la barra y el anclaje del panel dependen de lo que se acaba
       // de pintar: se recalculan al final, nunca antes.
       medirBarra();
@@ -2313,17 +2315,6 @@
       console.warn(LOG, 'la tienda y ProductLab no coinciden — ' + faltan.join(' · ')
         + '. La ficha solo puede ofrecer lo que la tienda tiene (es lo que se cobra): '
         + 'abre el producto en ProductLab y pulsa "Guardar y aplicar a la tienda" para crear las opciones y variantes que faltan.');
-    })();
-
-    // Los productos ProductLab son un landing completo que termina en el
-    // personalizador: el footer del theme sobra debajo y se oculta (solo en
-    // estas fichas; el resto de la tienda no se toca).
-    (function esconderFooter() {
-      var sels = ['footer.footer', '#footer', '.site-footer', 'footer[role="contentinfo"]', 'footer'];
-      for (var i = 0; i < sels.length; i++) {
-        var f = document.querySelector(sels[i]);
-        if (f && !f.contains(root) && !root.contains(f)) { f.style.display = 'none'; return; }
-      }
     })();
 
     // Al cargar, los pasos ocultos por dependencia quedan ya en su default
