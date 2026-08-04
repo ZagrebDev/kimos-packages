@@ -483,6 +483,13 @@ export default function mount(shell) {
   // y disponibilidad continua. Sus specs/imagen alimentan el detalle público.
   function groupValues(g) { return Array.isArray(g.values) ? g.values : []; }
   /**
+   * Un paso puede ser COMPONENTE BASE (g.baseStep): forma parte del armado
+   * pero el cliente no elige — no crea opción ni variantes en Jumpseller y
+   * su valor por defecto suma SIEMPRE al precio (como los componentes base
+   * clásicos). Los personalizables son los que publican opciones.
+   */
+  function gruposPersonalizables(eq) { return (eq.groups || []).filter((g) => g && g.baseStep !== true); }
+  /**
    * Pool efectivo de componentes de un valor: los declarados MÁS los
    * ALTERNATIVOS enlazados de cada uno (Componentes → Alternativos), salvo
    * que el componente esté en `v.soloExacto` (no acepta sustitutos). Los
@@ -1622,7 +1629,7 @@ export default function mount(shell) {
    */
   function enumerarCombos(eq, tope) {
     const limite = Math.max(1, tope || (MAX_COMBOS * 4));
-    const pasos = (eq.groups || [])
+    const pasos = gruposPersonalizables(eq)
       .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
       .filter((x) => x.vals.length > 0);
     if (!pasos.length) return { combos: [], truncado: false };
@@ -1716,7 +1723,7 @@ export default function mount(shell) {
   function buildStoreOptions(eq, existing) {
     const exByName = new Map();
     (((existing || {}).options) || []).forEach((o) => { if (o && o.name) exByName.set(norm(o.name), o); });
-    return (eq.groups || []).map((g) => {
+    return gruposPersonalizables(eq).map((g) => {
       const label = g.label || typeLabel(g.typeId);
       const ex = exByName.get(norm(label)) || {};
       const exVals = new Map();
@@ -1746,7 +1753,7 @@ export default function mount(shell) {
     // costo. En ambos casos cada paso suma lo que corresponda (nada, si los
     // valores no tienen recargo → todas las combinaciones al mismo precio).
     const baseGross = fixed ? basePriceOf(eq) : baseBreakdown(eq).gross;
-    const groups = (eq.groups || [])
+    const groups = gruposPersonalizables(eq)
       .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
       .filter((x) => x.vals.length > 0);
     if (!groups.length) return [];
@@ -4241,7 +4248,7 @@ export default function mount(shell) {
     const fixed = isFixedPrice(draft);
     // Los valores de RELLENO no se ofrecen (solo sostienen las variantes en las
     // que el paso está oculto): el previsualizador enseña lo que verá el cliente.
-    const groups = (draft.groups || []).map((g) => ({
+    const groups = (draft.groups || []).filter((g) => g.baseStep !== true).map((g) => ({
       g, vals: groupValues(g).filter((v) => valueAvailable(v) && v.fallback !== true),
     })).filter((x) => x.vals.length);
     const selMap = {};
@@ -4260,6 +4267,12 @@ export default function mount(shell) {
     });
     // Precio: mismas reglas que buildStoreVariants (oculto = default del paso).
     let gross = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
+    // Pasos COMPONENTE BASE: no se eligen, pero su default suma siempre
+    // (misma regla que buildStoreVariants con el precio calculado).
+    (draft.groups || []).filter((g) => g.baseStep === true).forEach((g) => {
+      const dvb = groupDefaultValue(g);
+      if (dvb) gross += fixed ? valueExtra(draft, g, dvb) : (valueGross(dvb) || 0);
+    });
     const sumMode = deliveryModeOf(draft) === 'sum';
     let dd = productoBaseDelivery(draft);
     groups.forEach(({ g }) => {
@@ -4660,6 +4673,11 @@ export default function mount(shell) {
             h('label', { key: 'ph', className: 'gp-switch', style: { margin: 0 }, title: 'La selección de este paso cambia la foto del producto en la tienda (usa la foto de cada valor — ideal para colores)' }, [
               h('input', { key: 'c', type: 'checkbox', checked: g.photoStep === true, onChange: (e) => upGroup(g.id, { photoStep: e.target.checked }) }),
               h('span', { key: 's' }, 'cambia foto'),
+            ]),
+            h('label', { key: 'bs', className: 'gp-switch', style: { margin: 0 },
+              title: 'Componente BASE: forma parte del armado pero el cliente no lo elige — no crea opción ni variantes en la tienda y su valor por defecto suma siempre al precio. Sin marcar = paso PERSONALIZABLE (el cliente elige y se publican variantes).' }, [
+              h('input', { key: 'c', type: 'checkbox', checked: g.baseStep === true, onChange: (e) => upGroup(g.id, { baseStep: e.target.checked }) }),
+              h('span', { key: 's' }, 'componente base'),
             ]),
             // Paso dependiente (ProductLab): visible solo si un paso ANTERIOR
             // tiene elegido alguno de los valores marcados abajo.
