@@ -1784,6 +1784,26 @@ export default function mount(shell) {
       return v;
     });
   }
+  // El candado del SKU promete esto: al guardar con el SKU desbloqueado, el
+  // cambio se escribe también en el item del producto (app Productos) y se
+  // empuja a Jumpseller.
+  async function pushSkuTienda(eq, sku) {
+    const ref = storeRefOf(eq);
+    if (!ref || !shell.authFetch) return { success: false };
+    try {
+      const r = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku, syncStatus: 'pending' }),
+      });
+      if (!r.ok) return { success: false };
+      await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds: [ref.itemId] }),
+      });
+      return { success: true };
+    } catch (e) { return { success: false }; }
+  }
+
   async function applyToStore(eq) {
     const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
@@ -4525,6 +4545,8 @@ export default function mount(shell) {
     }, initial ? normalizeProductoShape(initial) : {}));
     const [busy, setBusy] = useState(false);
     const [picking, setPicking] = useState(false);
+    const [skuLibre, setSkuLibre] = useState(false);   // candado del SKU (heredado de la tienda)
+    const [editUrl, setEditUrl] = useState(false);     // editor manual de la URL de tienda
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
@@ -4631,6 +4653,12 @@ export default function mount(shell) {
         guardar: async () => {
           setBusy(true);
           const r = await saveProducto(d);
+          if (r.success && skuLibre && ref && s(d.sku).trim() && (!initial || s(initial.sku) !== s(d.sku))) {
+            const rr = await pushSkuTienda(d, s(d.sku).trim());
+            shell.notify(rr.success
+              ? { level: 'success', text: 'SKU actualizado también en el producto de la tienda.' }
+              : { level: 'warn', text: 'El SKU se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
+          }
           setBusy(false);
           if (r.success) {
             if (r.item) adoptar(r.item);
@@ -5022,10 +5050,45 @@ export default function mount(shell) {
           h('span', { key: 'l', className: 'gp-label' }, 'Nombre *'),
           h(TextInput, { key: 'i', value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Nombre del producto' }),
         ]),
-        h(Row, { key: 's', label: 'SKU (debe calzar con la tienda)' }, h(TextInput, { mono: true, value: d.sku, onChange: (e) => up({ sku: e.target.value }), placeholder: 'PPRO-N1-2026' })),
-        h(Row, { key: 'su', label: 'URL del producto (vacío = automática: URL base de la tienda + permalink del producto sincronizado)' },
-          h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
-            placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
+        // SKU: heredado del producto de la tienda y BLOQUEADO. El candado lo
+        // libera; al guardar, el cambio se escribe también en el item de la
+        // tienda (y se empuja a Jumpseller).
+        h('div', { key: 's', className: 'gp-row' }, [
+          h('span', { key: 'l', className: 'gp-label' }, 'SKU'),
+          h('div', { key: 'w', style: { display: 'flex', gap: 6, alignItems: 'center' } }, [
+            h(TextInput, { key: 'i', mono: true, value: d.sku, disabled: !skuLibre,
+              onChange: (e) => up({ sku: e.target.value }),
+              placeholder: ref ? 'heredado de la tienda' : 'PPRO-N1-2026',
+              style: !skuLibre ? { opacity: .7 } : null }),
+            h('button', { key: 'lk', className: 'gp-btn gp-btn-sm', style: { flexShrink: 0 },
+              title: skuLibre
+                ? 'Bloquear el SKU (al guardar, el cambio se escribe TAMBIÉN en el producto de la tienda)'
+                : 'El SKU se hereda del producto de la tienda. Clic para desbloquear y editarlo — al guardar se actualiza también en la tienda.',
+              onClick: () => setSkuLibre(!skuLibre) }, skuLibre ? '🔓' : '🔒'),
+          ]),
+        ]),
+        // URL: un botón "Ver en tienda" (la URL sale sola del producto
+        // sincronizado); si el producto no está integrado, el ✎ deja pegar
+        // una URL manual que queda guardada y activa el botón.
+        h('div', { key: 'su', className: 'gp-row' }, [
+          h('span', { key: 'l', className: 'gp-label' }, 'Producto en la tienda'),
+          h('div', { key: 'w', style: { display: 'flex', gap: 6, alignItems: 'center' } }, [
+            (function () {
+              const u = productoStoreUrl(d);
+              return u
+                ? h('a', { key: 'ver', className: 'gp-btn', style: { textDecoration: 'none' },
+                    href: u, target: '_blank', rel: 'noreferrer', title: u }, 'Ver en tienda ↗')
+                : h('button', { key: 'ver', className: 'gp-btn', disabled: true,
+                    title: 'Sin URL: el producto no está integrado a la tienda. Usa ✎ para pegar una URL manual.' }, 'Ver en tienda ↗');
+            })(),
+            h('button', { key: 'ed', className: 'gp-btn gp-btn-sm', style: { flexShrink: 0 },
+              title: editUrl ? 'Cerrar el editor de URL' : 'Editar la URL manualmente',
+              onClick: () => setEditUrl(!editUrl) }, '✎'),
+          ]),
+          editUrl ? h(TextInput, { key: 'i', mono: true, value: d.storeUrl || '',
+            onChange: (e) => up({ storeUrl: e.target.value }),
+            placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'https://tu-tienda.cl/mi-producto'; })() }) : null,
+        ]),
       ]),
       // ── Precio y entrega: parte de la misma ficha ──
         // ── Cómo se fija el precio ──
