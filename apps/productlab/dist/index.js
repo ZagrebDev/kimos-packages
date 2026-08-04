@@ -4304,6 +4304,17 @@ export default function mount(shell) {
       // ── Cuerpo: una sección a la vez, a todo el ancho ──
       h('div', { key: 'body', className: 'gp-editor-body' }, [
         h('div', { key: 'g', style: sec === 'general' ? null : { display: 'none' } }, [
+      // General: la foto del producto a la IZQUIERDA (un toque abre la
+      // Galería) y a su lado la identidad del producto.
+      h('div', { key: 'glay', className: 'gp-general-lay' }, [
+      h('div', { key: 'foto', className: 'gp-general-foto', role: 'button', tabIndex: 0,
+        title: 'Abrir la galería del producto', onClick: () => setNav({ tab: 'galeria' }) }, [
+        productoImage(d)
+          ? h('img', { key: 'i', src: productoImage(d), alt: d.name || '' })
+          : h('span', { key: 'ph', className: 'gp-muted' }, 'Sin foto aún'),
+        h('span', { key: 'cta', className: 'gp-general-foto-cta' }, 'Ver galería →'),
+      ]),
+      h('div', { key: 'campos', className: 'gp-general-campos' }, [
       // Enlace con el producto de la app products (que sincroniza con Jumpseller)
       h('div', { key: 'link', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Producto de la tienda']),
@@ -4329,7 +4340,12 @@ export default function mount(shell) {
           h(TextInput, { mono: true, value: d.storeUrl || '', onChange: (e) => up({ storeUrl: e.target.value }),
             placeholder: (function () { const auto = productoStoreUrl(Object.assign({}, d, { storeUrl: '' })); return auto || 'automática al sincronizar (o pégala aquí)'; })() })),
       ]),
-      // ── Base: componentes reales incluidos + costos adicionales manuales ──
+      ]),
+      ]),
+      ]),
+      // ── Base y costos adicionales: viven en el ESTUDIO, junto a los pasos
+      // (el General queda con identidad, precio y entrega solamente). ──
+      h('div', { key: 'gbase', style: sec === 'pasos' ? null : { display: 'none' } }, [
       h('div', { key: 'basecard', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'BASE'), 'Componentes base y costos adicionales']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
@@ -4369,6 +4385,10 @@ export default function mount(shell) {
           h('span', { key: 'sp', className: 'grow' }),
           h('span', { key: 'tot', className: 'gp-muted' }, 'Base bruta (margen + ' + rules().salesTaxLabel + ', sin redondeo): ' + fmtMoney(baseBreakdown(d).gross)),
         ]),
+      ]),
+      ]),
+      // ── General (continuación): precio y entrega ──
+      h('div', { key: 'g2', style: sec === 'general' ? null : { display: 'none' } }, [
         // ── Cómo se fija el precio ──
         // Calcular desde costos es una opción, no una obligación: hay
         // productos (packs, precio de lista) donde el precio se decide.
@@ -4417,7 +4437,6 @@ export default function mount(shell) {
             h('option', { key: 'max', value: 'max' }, 'En paralelo — manda el componente más lento (producción propia)'),
             h('option', { key: 'sum', value: 'sum' }, 'En serie — los días se SUMAN (dropshipping / logística encadenada)'),
           ])),
-      ]),
       ]),
         // Pasos: editor a la IZQUIERDA y previsualizador vivo PEGAJOSO a la
         // derecha — se edita mirando el resultado, no yendo a buscarlo abajo.
@@ -5530,6 +5549,10 @@ export default function mount(shell) {
     const setEditing = (eq) => setNav(eq == null
       ? { det: null, tab: null }
       : { det: { tipo: 'producto', draft: eq, nombre: eq.name || 'Nuevo producto' }, tab: 'general' });
+    // Vista por defecto: CARDS visuales (foto + datos), estilo menú de juego.
+    // La tabla clásica queda a un toque para trabajo denso. (Antes del return
+    // condicional del editor: las reglas de hooks piden orden estable.)
+    const [vista, setVista] = useState('cards');
     // Editor a pantalla completa: usa todo el espacio de la app, sin modal.
     if (editing != null) {
       return h(ProductoForm, {
@@ -5540,11 +5563,35 @@ export default function mount(shell) {
       });
     }
     return h('div', null, [
-      h('div', { key: 'f', className: 'gp-filters' }, [
-        h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Producto'),
-        h('span', { key: 'n', className: 'gp-muted', style: { marginLeft: 'auto' } }, state.productos.length + ' producto(s)'),
+      h('div', { key: 'f', className: 'gp-filters gp-filters-centro' }, [
+        h('div', { key: 'sw', className: 'gp-vswitch' }, [
+          h('button', { key: 'c', className: 'gp-btn gp-btn-sm' + (vista === 'cards' ? ' gp-btn-dark' : ''), onClick: () => setVista('cards') }, 'Cards'),
+          h('button', { key: 't', className: 'gp-btn gp-btn-sm' + (vista === 'tabla' ? ' gp-btn-dark' : ''), onClick: () => setVista('tabla') }, 'Tabla'),
+        ]),
+        h('span', { key: 'n', className: 'gp-muted' }, state.productos.length + ' producto(s)'),
       ]),
-      state.productos.length === 0
+      vista === 'cards'
+        ? h('div', { key: 'cards', className: 'gp-cards-grid' },
+            [h('button', { key: '__add', className: 'gp-pcard gp-pcard-add', onClick: () => setEditing({}),
+              title: 'Crear un producto nuevo (se enlaza a un producto de Jumpseller como siempre)' }, [
+              h('span', { key: 'i', className: 'gp-pcard-add-ico' }, '+'),
+              h('span', { key: 't', className: 'gp-pcard-add-txt' }, 'Añadir producto'),
+            ])].concat(state.productos.map((eq) => {
+              const foto = productoImage(eq);
+              const ref2 = eq.storeRef && eq.storeRef.itemId ? eq.storeRef : null;
+              return h('button', { key: eq.id, className: 'gp-pcard', onClick: () => setEditing(eq) }, [
+                h('div', { key: 'f', className: 'gp-pcard-foto' },
+                  foto ? h('img', { src: foto, alt: '' }) : h('span', { className: 'gp-muted' }, 'Sin foto')),
+                h('div', { key: 'n', className: 'gp-pcard-nombre' }, eq.name || '—'),
+                h('div', { key: 'p', className: 'gp-pcard-precio' }, fmtMoney(productoComputedPrice(eq))),
+                h('div', { key: 'm', className: 'gp-pcard-meta' }, [
+                  h('span', { key: 'g', className: 'gp-chip gris' }, (eq.groups || []).length + ' paso(s)'),
+                  ref2 ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref2.sourceId ? 'JS #' + ref2.sourceId : 'enlazado')
+                       : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
+                ]),
+              ]);
+            })))
+        : state.productos.length === 0
         ? h('div', { key: 'e', className: 'gp-card gp-muted' }, 'Aún no hay productos. Un producto enlaza un producto de la tienda con sus pasos de personalización (componentes elegibles y default por paso) y calcula su precio desde los costos.')
         : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
             h('table', { className: 'gp-table' }, [

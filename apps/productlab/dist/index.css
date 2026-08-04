@@ -201,6 +201,63 @@
 
 /* ── Barra de filtros ── */
 .kimos-productlab .gp-filters { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+/* Filtros alineados al medio (vistas cards y tabla del rediseño). */
+.kimos-productlab .gp-filters-centro { justify-content: center; }
+.kimos-productlab .gp-vswitch { display: inline-flex; gap: 0; }
+.kimos-productlab .gp-vswitch .gp-btn { border-radius: 0; }
+.kimos-productlab .gp-vswitch .gp-btn:first-child { border-radius: var(--gp-radius) 0 0 var(--gp-radius); }
+.kimos-productlab .gp-vswitch .gp-btn:last-child { border-radius: 0 var(--gp-radius) var(--gp-radius) 0; }
+
+/* ── Productos: grilla de cards estilo menú de videojuego ── */
+.kimos-productlab .gp-cards-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 16px; max-width: 1280px; margin: 0 auto;
+}
+.kimos-productlab .gp-pcard {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px; text-align: center;
+  background: var(--gp-blanco); border: 1px solid var(--gp-gris-claro); cursor: pointer;
+  border-radius: calc(var(--gp-radius) + 4px); color: inherit; font: inherit;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+.kimos-productlab .gp-pcard:hover {
+  border-color: var(--gp-acento);
+  box-shadow: 0 0 18px hsl(var(--primary, 178 96% 59%) / .25);
+  transform: translateY(-2px);
+}
+.kimos-productlab .gp-pcard-foto {
+  height: 150px; display: flex; align-items: center; justify-content: center;
+  background: var(--gp-plata); border-radius: var(--gp-radius); overflow: hidden;
+}
+.kimos-productlab .gp-pcard-foto img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.kimos-productlab .gp-pcard-nombre { font: 600 15px/1.25 'Inter', sans-serif; }
+.kimos-productlab .gp-pcard-precio { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 16px; font-weight: 600; }
+.kimos-productlab .gp-pcard-meta { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.kimos-productlab .gp-pcard-add { justify-content: center; border-style: dashed; min-height: 258px; }
+.kimos-productlab .gp-pcard-add-ico { font-size: 44px; line-height: 1; color: var(--gp-acento); }
+.kimos-productlab .gp-pcard-add-txt { font: 600 15px/1.2 'Orbitron', 'Inter', sans-serif; letter-spacing: .04em; }
+
+/* ── Producto → General: foto a la izquierda (abre la Galería) ── */
+.kimos-productlab .gp-general-lay {
+  display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr);
+  gap: 16px; align-items: start;
+}
+.kimos-productlab .gp-general-foto {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  min-height: 280px; padding: 12px; cursor: pointer;
+  background: var(--gp-blanco); border: 1px solid var(--gp-gris-claro);
+  border-radius: calc(var(--gp-radius) + 4px);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kimos-productlab .gp-general-foto:hover { border-color: var(--gp-acento); box-shadow: 0 0 18px hsl(var(--primary, 178 96% 59%) / .25); }
+.kimos-productlab .gp-general-foto img { max-width: 100%; max-height: 360px; object-fit: contain; border-radius: var(--gp-radius); }
+.kimos-productlab .gp-general-foto-cta {
+  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+  font: 600 12px/1 'Inter', sans-serif; color: var(--gp-acento-fg);
+  background: var(--gp-acento); padding: 7px 14px; border-radius: var(--gp-radius);
+  opacity: .92; pointer-events: none;
+}
+.kimos-productlab .gp-general-campos { min-width: 0; }
+@media (max-width: 900px) { .kimos-productlab .gp-general-lay { grid-template-columns: 1fr; } }
 .kimos-productlab .gp-filters .gp-input, .kimos-productlab .gp-filters .gp-select { width: auto; min-width: 140px; }
 
 /* ── Modal ── */
