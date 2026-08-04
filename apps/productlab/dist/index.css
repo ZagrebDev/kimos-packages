@@ -111,12 +111,12 @@
 
 /* ── Mosaico de Parámetros (2×2) ── */
 .kimos-productlab .gp-mosaico {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
-  margin: 24px 8px; min-height: calc(100% - 48px); align-content: stretch;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 20px; margin: 0; height: calc(100% - 4px);
 }
 .kimos-productlab .gp-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  min-height: 240px; padding: 32px; cursor: pointer; text-align: center;
+  padding: 32px; cursor: pointer; text-align: center; height: 100%;
   background: var(--gp-vidrio); border: 1px solid var(--gp-borde-suave);
   backdrop-filter: blur(10px);
   border-radius: calc(var(--gp-radius) + 4px);
@@ -368,11 +368,12 @@
 /* ── Producto → General: foto a la izquierda (abre la Galería) ── */
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px; align-items: stretch;
+  gap: 32px; align-items: stretch;
+  min-height: calc(100vh - 200px);
 }
 .kimos-productlab .gp-general-foto {
   position: relative; display: flex; align-items: center; justify-content: center;
-  min-height: min(72vh, 640px); padding: 20px; cursor: pointer;
+  height: 100%; min-height: calc(100vh - 200px); padding: 24px; cursor: pointer;
   background: #fff; border: 1px solid var(--gp-borde-suave);
   border-radius: calc(var(--gp-radius) + 4px);
   transition: border-color .15s ease, box-shadow .15s ease;

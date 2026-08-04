@@ -563,21 +563,19 @@ export default function mount(shell) {
     }
     return out;
   }
-  function valueChosen(v) {
-    if (v && v.bundle === true) { const bc = bundleComps(v); return bc ? bc[0] : null; }
-    const q = valueQty(v);
-    const avail = valueAlts(v).filter((c) => compAvailableQty(c, q));
-    if (!avail.length) return null;
-    return avail.reduce((best, c) => (componentGross(c) < componentGross(best) ? c : best), avail[0]);
-  }
   /**
-   * Componentes que este valor INCLUYE de verdad: en conjunto, uno por tipo
-   * (el más económico); en alternativas, solo el elegido.
+   * Regla ÚNICA para todo valor (la marca bundle quedó como legado): dentro
+   * del mismo tipo los componentes son ALTERNATIVAS (gana el más económico
+   * disponible) y los TIPOS DISTINTOS SE SUMAN — "Procesador + placa" en un
+   * valor incluye ambos. Un valor de un solo tipo se comporta como siempre.
    */
+  function valueChosen(v) {
+    const bc = bundleComps(v);
+    return bc ? bc[0] : null;
+  }
+  /** Componentes que este valor INCLUYE de verdad: uno por tipo, sumados. */
   function valueComps(v) {
-    if (v && v.bundle === true) return bundleComps(v) || [];
-    const c = valueChosen(v);
-    return c ? [c] : [];
+    return bundleComps(v) || [];
   }
   // Días de entrega del valor: en conjunto manda el componente más lento.
   function valueDeliveryDays(v) {
@@ -590,15 +588,10 @@ export default function mount(shell) {
   function valueGross(v) {
     const manual = num(v && v.priceDelta, 0);
     if (valueIsFree(v)) return manual;
-    if (v.bundle === true) {
-      // Conjunto: un componente POR TIPO (el más económico disponible de cada
-      // uno), sumados. Dentro del mismo tipo son alternativas.
-      const bc = bundleComps(v);
-      if (!bc) return null;   // algún tipo sin alternativas disponibles
-      return bc.reduce((a, c) => a + componentGross(c) * valueQty(v), 0) + manual;
-    }
-    const c = valueChosen(v);
-    return c ? componentGross(c) * valueQty(v) + manual : null;
+    // Un componente POR TIPO (el más económico disponible), sumados.
+    const bc = bundleComps(v);
+    if (!bc) return null;   // algún tipo sin alternativas disponibles
+    return bc.reduce((a, c) => a + componentGross(c) * valueQty(v), 0) + manual;
   }
   function valueSale(v) { const g = valueGross(v); return g == null ? null : roundStep(g, rules().deltaRoundTo); }
   function valueAvailable(v) { return valueIsFree(v) || valueChosen(v) != null; }
@@ -4309,11 +4302,11 @@ export default function mount(shell) {
       return a == null || b == null ? 0 : a - b;
     };
     const cardW = compact ? 96 : 128;
-    return h('div', { className: 'gp-card' }, [
+    return h('div', { className: edit ? null : 'gp-card' }, [
       h('div', { key: 't', className: 'gp-card-title',
         title: 'Interactivo y en vivo: prueba selecciones, dependencias, cantidades, recargos y el estilo de Ficha → Estilo. El precio simulado usa las mismas reglas que "Aplicar a la tienda"; el cobro real es siempre el de la variante en el ecommerce.' }, [
-        h('span', { key: 'n', className: 'gp-num' }, 'PREVISUALIZADOR'),
-        'Así lo verá el cliente',
+        !edit ? h('span', { key: 'n', className: 'gp-num' }, 'PREVISUALIZADOR') : null,
+        !edit ? 'Así lo verá el cliente' : null,
         h('span', { key: 'sp', style: { flex: 1 } }),
         h('div', { key: 'vm', className: 'gp-editor-tabs' }, [
           h('button', { key: 'd', className: 'gp-etab' + (!mob ? ' on' : ''), onClick: () => setMob(false) }, 'Escritorio'),
@@ -4334,12 +4327,26 @@ export default function mount(shell) {
                     h('button', { className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
                 ])
               : (edit ? [h('div', { key: '__base', style: { marginBottom: 14 } }, [
-                  h('div', { key: 'h', className: 'gp-muted', style: { padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center' } }, [
-                    h('span', { key: 't' }, 'PASO 00 · Componentes base — incluidos siempre (' + (edit.resumenBase || '') + '; el cliente no los ve)'),
+                  h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                    h('span', { key: 'n', style: { color: accent } }, 'PASO 00'),
+                    h('span', { key: 'l' }, ' · Componentes base'),
+                    h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'incluidos siempre — invisibles para el cliente'),
                     h('button', { key: 'cfg', className: 'gp-btn gp-btn-sm' + (edit.abierto === '__base' ? ' gp-btn-dark' : ''),
                       style: { marginLeft: 10 }, title: 'Editar componentes base y costos adicionales',
                       onClick: () => edit.abrir('__base') }, edit.abierto === '__base' ? '✕ Cerrar' : '⚙ Editar'),
                   ]),
+                  h('div', { key: 'vals', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+                    (edit.baseComps || []).map((c) => h('div', { key: c.id, style: {
+                      border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: compact ? 6 : 8, width: cardW,
+                    } }, [
+                      c.imageUrl
+                        ? h('img', { key: 'i', src: c.imageUrl, alt: '', style: { width: '100%', height: compact ? 44 : 64, objectFit: 'contain', background: '#fff' } })
+                        : h('div', { key: 'i', style: { width: '100%', height: 44, background: '#f4f4f4' } }),
+                      h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: 4, minWidth: 0, color: '#1b1b1b' } }, c.name),
+                    ])).concat([h('button', { key: '__addb', className: 'gp-vivo-addval',
+                      title: 'Agregar un componente base',
+                      style: { width: cardW, minHeight: compact ? 74 : 104 },
+                      onClick: () => edit.abrir('__base') }, '+ Componente')])),
                   edit.abierto === '__base' ? h('div', { key: 'ed', className: 'gp-vivo-editor' }, edit.renderEditorBase()) : null,
                 ])] : []).concat(groups.map(({ g, vals }, gi) => {
                   // Edición sobre la previsualización: ⚙ abre el editor
@@ -4352,8 +4359,10 @@ export default function mount(shell) {
                   const editor = edit && edit.abierto === g.id
                     ? h('div', { key: 'ed', className: 'gp-vivo-editor' }, edit.renderEditorPaso(g, idx)) : null;
                   if (edit && g.baseStep === true) return h('div', { key: g.id, style: { marginBottom: 14 } }, [
-                    h('div', { key: 'h', className: 'gp-muted', style: { padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center' } }, [
-                      h('span', { key: 't' }, (g.label || typeLabel(g.typeId)) + ' — componente base (incluido siempre; el cliente no lo ve)'),
+                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                      h('span', { key: 'n', style: { color: accent } }, 'PASO ' + String(gi + 1).padStart(2, '0')),
+                      h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
+                      h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'componente base — invisible para el cliente'),
                       btnCfg,
                     ]),
                     editor,
@@ -4897,7 +4906,7 @@ export default function mount(shell) {
       ]),
       h('div', { key: 'campos', className: 'gp-general-campos' }, [
       // Enlace con el producto de la app products (que sincroniza con Jumpseller)
-      h('div', { key: 'link', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+      h('div', { key: 'link', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Producto de la tienda']),
         legacy && h('div', { key: 'legacy', className: 'gp-warnbox' },
           'Enlace de la versión anterior detectado (JS #' + legacy.sourceId + '). Re-enlaza con "Enlazar producto…" para poder aplicar opciones y variantes.'),
@@ -4933,7 +4942,7 @@ export default function mount(shell) {
           const catItem = productItemFor(d);
           const catPrice = catItem && catItem.price != null ? num(catItem.price) : null;
           const catCost = catItem && catItem.costPerItem != null ? num(catItem.costPerItem) : null;
-          return h('div', { key: 'pm', className: 'gp-card', style: { background: 'var(--gp-plata)' } }, [
+          return h('div', { key: 'pm', className: 'gp-card' }, [
             h(Row, { key: 'm', label: 'Cómo se fija el precio de este producto' },
               h('select', { className: 'gp-select', value: modo, onChange: (e) => up({ priceMode: e.target.value }) }, [
                 h('option', { key: 'a', value: 'auto' }, 'Calculado desde los costos y las reglas de margen'),
@@ -4993,7 +5002,7 @@ export default function mount(shell) {
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
             renderEditorPaso,
             renderEditorBase,
-            resumenBase: (d.baseComponentIds || []).length + ' componente(s) base · ' + (d.extraCosts || []).length + ' costo(s) adicional(es)',
+            baseComps: (d.baseComponentIds || []).map(compById).filter(Boolean),
             agregarValor: (g) => {
               upGroup(g.id, { values: groupValues(g).concat([{ id: newId('val'), label: 'Nuevo valor', componentIds: [] }]) });
               setPasoEdit(g.id);
@@ -6517,7 +6526,6 @@ export default function mount(shell) {
     // Un nivel hacia arriba: detalle → lista; config sub → mosaico; raíz → inicio.
     const atras = n.det ? () => setNav({ det: null, tab: null })
       : (n.sec === 'config' && n.tab) ? () => setNav({ tab: null })
-      : n.sec !== 'productos' ? () => setNav({ sec: 'productos', det: null, tab: null })
       : null;
     return h('div', { key: 'hd', className: 'gp-hd' }, [
       h('div', { key: 'nav', className: 'gp-hd-nav' }, [
