@@ -4268,7 +4268,14 @@ export default function mount(shell) {
     // El previsualizador muestra lo que verá la tienda: si el producto usa
     // una plantilla del catálogo, manda la plantilla, no su estilo guardado.
     const st = resolveStyle(draft);
-    const accent = /^#[0-9a-fA-F]{6}$/.test(s(st.accentColor).trim()) ? s(st.accentColor).trim() : '#19ACB1';
+    // En el Estudio (edit) el preview acompaña al TEMA de KIMOS: acento del
+    // sistema y superficies día/noche; sin estilo explícito no se inventa un
+    // verde. Fuera del Estudio emula la tienda (fondo blanco del theme).
+    const accent = /^#[0-9a-fA-F]{6}$/.test(s(st.accentColor).trim()) ? s(st.accentColor).trim()
+      : (edit ? 'var(--gp-acento)' : '#19ACB1');
+    const accentFg = edit ? 'var(--gp-acento-fg)' : '#fff';
+    const pvBlanco = edit ? 'var(--gp-blanco)' : '#fff';
+    const pvFondo = edit ? 'var(--gp-fondo)' : '#fff';
     const radius = Math.max(0, num(st.radius, 0));
     const compact = st.cardStyle === 'compact';
     const asList = st.cardStyle === 'list';
@@ -4340,7 +4347,7 @@ export default function mount(shell) {
       // en escritorio debe ser visible: un ancestro con overflow:auto sería
       // el contenedor de scroll del panel sticky y lo dejaría sin efecto.
       h('div', { key: 'pv', className: 'gp-storepv', style: { overflowX: mob ? 'auto' : 'visible', '--pv-radius': radius + 'px' } },
-        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : (edit ? 'none' : 980), margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || '#fff', padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
+        h('div', { style: { width: mob ? 375 : '100%', maxWidth: mob ? 375 : (edit ? 'none' : 980), margin: '0 auto', border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || pvFondo, padding: mob ? 10 : 16, display: 'flex', flexDirection: mob ? 'column' : 'row', gap: 16 } }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
             groups.length === 0
               ? h('div', null, [
@@ -4408,12 +4415,12 @@ export default function mount(shell) {
                   ]),
                   h('div', { key: 'vals', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
                     (edit.baseComps || []).map((c) => h('div', { key: c.id, style: {
-                      border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: compact ? 6 : 8, width: cardW,
+                      border: '1px solid var(--gp-gris-claro)', background: 'var(--gp-blanco)', padding: compact ? 6 : 8, width: cardW,
                     } }, [
                       c.imageUrl
-                        ? h('img', { key: 'i', src: c.imageUrl, alt: '', style: { width: '100%', height: compact ? 44 : 64, objectFit: 'contain', background: '#fff' } })
-                        : h('div', { key: 'i', style: { width: '100%', height: 44, background: '#f4f4f4' } }),
-                      h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: 4, minWidth: 0, color: '#1b1b1b' } }, c.name),
+                        ? h('img', { key: 'i', src: c.imageUrl, alt: '', style: { width: '100%', height: compact ? 44 : 64, objectFit: 'contain', background: '#fff', borderRadius: 4 } })
+                        : h('div', { key: 'i', style: { width: '100%', height: 44, background: 'var(--gp-plata)' } }),
+                      h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: 4, minWidth: 0 } }, c.name),
                     ])).concat([h('button', { key: '__addb', className: 'gp-vivo-addval',
                       title: 'Agregar un componente base',
                       style: { width: cardW, minHeight: compact ? 74 : 104 },
@@ -4464,7 +4471,7 @@ export default function mount(shell) {
                         style: Object.assign({
                           cursor: 'pointer',
                           border: on ? '2px solid ' + accent : '1px solid var(--gp-gris-claro)',
-                          background: '#fff', padding: compact ? 6 : 8,
+                          background: pvBlanco, padding: compact ? 6 : 8,
                         }, asList ? { display: 'flex', alignItems: 'center', gap: 10 } : { width: cardW }),
                       }, [
                         g.photoStep && v.swatchColor
@@ -4488,7 +4495,7 @@ export default function mount(shell) {
           // El panel de resumen queda PEGAJOSO dentro del scroll del preview:
           // precio, selección y botón siempre a la vista mientras se recorren
           // los pasos (en móvil va en flujo normal, es una columna).
-          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 12, alignSelf: 'flex-start', position: mob ? 'static' : 'sticky', top: 8 } }, [
+          h('div', { key: 'panel', style: { flex: 1, minWidth: mob ? 0 : 240, border: '1px solid var(--gp-gris-claro)', background: pvBlanco, padding: 12, alignSelf: 'flex-start', position: mob ? 'static' : 'sticky', top: 8 } }, [
             photo ? h('img', { key: 'ph', src: photo, alt: '', style: { width: '100%', maxHeight: 160, objectFit: 'contain', marginBottom: 8 } }) : null,
             h('div', { key: 'nm', style: { fontWeight: 700, fontSize: 13, marginBottom: 4 } }, draft.name || 'Producto'),
             h('div', { key: 'pr', className: 'gp-price', style: { fontSize: 20 } }, fmtMoney(price)),
@@ -4502,7 +4509,7 @@ export default function mount(shell) {
                 ]);
               })),
             h('div', { key: 'cta', style: { marginTop: 10 } },
-              h('span', { style: { display: 'inline-block', width: '100%', textAlign: 'center', padding: '9px 12px', fontWeight: 600, fontSize: 12, color: '#fff', background: accent, cursor: 'default', boxSizing: 'border-box' } },
+              h('span', { style: { display: 'inline-block', width: '100%', textAlign: 'center', padding: '9px 12px', fontWeight: 600, fontSize: 12, color: accentFg, background: accent, cursor: 'default', boxSizing: 'border-box' } },
                 (((draft.storefront || {}).tabs || {}).comprar) || 'Agregar al carro')),
           ]),
         ])),
@@ -4968,10 +4975,8 @@ export default function mount(shell) {
         ]);
     };
     return h('div', { className: 'gp-editor' }, [
-      // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
-      // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
-      h('div', { key: 'top', className: 'gp-editor-top' },
-        ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace')),
+      // Sin franja de chip: el estado del enlace con la tienda ya se ve en el
+      // bloque TIENDA del General (repetirlo en cada pestaña era redundante).
       // El agente cambió este producto y aquí hay edición sin guardar: se
       // decide a mano, porque cualquiera de las dos opciones pierde algo.
       conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
