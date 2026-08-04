@@ -259,6 +259,17 @@ export default function mount(shell) {
     nav = Object.assign({}, nav, patch);
     navListeners.forEach((f) => f(nav));
   }
+  // Acciones del detalle abierto (precio vivo + guardar/aplicar): las publica
+  // el editor y las pinta el HEADER — sin barras inferiores en la pantalla.
+  let hdrExtra = null;
+  const hdrExtraListeners = new Set();
+  function setHdrExtra(x) { hdrExtra = x; hdrExtraListeners.forEach((f) => f(x)); }
+  function useHdrExtra() {
+    const [x, setX] = useState(hdrExtra);
+    useEffect(() => { hdrExtraListeners.add(setX); return () => hdrExtraListeners.delete(setX); }, []);
+    return x;
+  }
+
   function useNav() {
     const [n, setN] = useState(nav);
     useEffect(() => { navListeners.add(setN); return () => navListeners.delete(setN); }, []);
@@ -4485,6 +4496,35 @@ export default function mount(shell) {
     const price = productoComputedPrice(d);
     const combos = comboCount(d);
     const warns = productoWarnings(d);
+    // El precio vivo y Guardar/Aplicar se publican al HEADER (nada de barras
+    // inferiores). Sin deps: cada render deja los closures frescos.
+    useEffect(() => {
+      setHdrExtra({
+        precio: fmtMoney(price),
+        sub: combos + ' variante(s) · entrega ' + productoDelivery(d) + 'd' + (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s)' : ''),
+        busy,
+        puedeGuardar: !busy && !!s(d.name).trim(),
+        puedeAplicar: !!ref && !busy && !!s(d.name).trim() && combos > 0 && combos <= MAX_COMBOS,
+        conTienda: !!ref,
+        etiquetaGuardar: initial ? 'Guardar' : 'Crear producto',
+        guardar: async () => {
+          setBusy(true);
+          const r = await saveProducto(d);
+          setBusy(false);
+          if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
+        },
+        aplicar: async () => {
+          setBusy(true);
+          const saved = await saveProducto(d);
+          if (!saved.success) { setBusy(false); return; }
+          const r = await applyToStore(saved.item);
+          setBusy(false);
+          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });
+          if (r.success) onDone();
+        },
+      });
+    });
+    useEffect(() => () => setHdrExtra(null), []);
     return h('div', { className: 'gp-editor' }, [
       // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
       // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
@@ -5712,34 +5752,8 @@ export default function mount(shell) {
         })()),
       warns.length > 0 && h('div', { key: 'w', className: 'gp-warnbox' }, warns.map((w, i) => h('div', { key: i }, '• ' + w))),
       ]),
-      // ── Barra inferior fija: precio vivo + acciones ──
-      h('div', { key: 'bottom', className: 'gp-editor-bottom' }, [
-        h('div', { key: 'info' }, [
-          h('span', { key: 'l', className: 'gp-label' }, 'Precio configuración base'),
-          h('div', { key: 'p', className: 'gp-price gp-price-big' }, fmtMoney(price)),
-          h('div', { key: 'm', className: 'gp-muted', style: { fontSize: 11 } },
-            combos + ' variante(s) en la tienda · entrega ' + productoDelivery(d) + 'd · margen ' + (rules().marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') +
-            (initial && num(initial.price) !== price ? ' · guardado: ' + fmtMoney(initial.price) + ' →' : '') +
-            (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s) arriba' : '')),
-        ]),
-        h('div', { key: 'a', className: 'gp-actions', style: { margin: 0 } }, [
-        h('button', { key: 'save', className: 'gp-btn', disabled: busy || !s(d.name).trim(), onClick: async () => {
-          setBusy(true);
-          const r = await saveProducto(d);
-          setBusy(false);
-          if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
-        } }, initial ? 'Guardar' : 'Crear producto'),
-        ref && h('button', { key: 'apply', className: 'gp-btn gp-btn-primary', disabled: busy || !s(d.name).trim() || combos === 0 || combos > MAX_COMBOS, onClick: async () => {
-          setBusy(true);
-          const saved = await saveProducto(d);
-          if (!saved.success) { setBusy(false); return; }
-          const r = await applyToStore(saved.item);
-          setBusy(false);
-          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });
-          if (r.success) onDone();
-        } }, busy ? 'Aplicando…' : 'Guardar y aplicar a la tienda'),
-        ]),
-      ]),
+      // Sin barra inferior: el precio vivo y Guardar/Aplicar los pinta el
+      // HEADER (hdrExtra, publicado en el useEffect de acciones).
       picking && h(ProductPicker, { key: 'picker', onClose: () => setPicking(false), onPick: (p) => {
         setPicking(false);
         const js = (p.sourceLinks || []).find((x) => x && x.integration === 'jumpseller');
@@ -6447,6 +6461,7 @@ export default function mount(shell) {
     [h('path', { key: 'p', d: 'M15 5l-7 7 7 7' })]);
   function Header({ state }) {
     const n = useNav();
+    const extra = useHdrExtra();
     const [pubBusy, setPubBusy] = useState(false);
     const SECS = [
       ['productos', 'Productos' + (state.productos.length ? ' · ' + state.productos.length : '')],
@@ -6488,6 +6503,16 @@ export default function mount(shell) {
         h('button', { key: id, role: 'tab', 'aria-selected': activo === id,
           className: 'gp-bigtab' + (activo === id ? ' on' : ''), onClick: () => onTab(id) }, label))),
       h('div', { key: 'acciones', className: 'gp-hd-acciones' }, [
+        // Detalle abierto con acciones publicadas: precio vivo + Guardar/Aplicar.
+        extra && n.det ? h('div', { key: 'extra', className: 'gp-hd-extra' }, [
+          h('div', { key: 'precio', className: 'gp-hd-precio' }, [
+            h('span', { key: 'p', className: 'gp-hd-precio-n' }, extra.precio),
+            h('span', { key: 's', className: 'gp-hd-precio-s' }, extra.sub),
+          ]),
+          h('button', { key: 'g', className: 'gp-btn', disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.etiquetaGuardar),
+          extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary', disabled: !extra.puedeAplicar,
+            onClick: extra.aplicar }, extra.busy ? 'Aplicando…' : 'Aplicar a la tienda') : null,
+        ]) : null,
         !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
           title: 'Publicar el JSON del configurador para la tienda, sin pasar por Parámetros → Publicación',
           onClick: async () => {
