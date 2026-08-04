@@ -364,9 +364,25 @@ export default function mount(shell) {
     return t || ('HTTP ' + (status || '?') + ' al hablar con la tienda.');
   }
 
-  async function saveDefinition(next) {
-    const def = Object.assign({}, next, { id: 'definition', kind: 'definition' });
-    const existed = model.defExists;
+  /**
+   * Guarda la definición con read-modify-write: la base es SIEMPRE lo último
+   * del servidor y de `next` solo se aplican las claves de `keys` (si vienen).
+   * Sin esto, la app abierta en DOS ventanas a la vez se pisaba la definición
+   * completa: borrar un tipo en una ventana y publicar (o guardar cualquier
+   * cosa) desde la otra lo revivía, porque su copia vieja viajaba entera.
+   */
+  async function saveDefinition(next, keys) {
+    let fresh = null;
+    try {
+      const items = await shell.items.list();
+      fresh = (items || []).find((i) => i.id === 'definition' || i.kind === 'definition') || null;
+    } catch (e) { /* sin red: se sigue con la copia local */ }
+    const base = fresh || model.def || {};
+    const cambios = Array.isArray(keys) && keys.length
+      ? keys.reduce((o, k) => { if (next[k] !== undefined) o[k] = next[k]; return o; }, {})
+      : next;
+    const def = Object.assign({}, base, cambios, { id: 'definition', kind: 'definition' });
+    const existed = model.defExists || !!fresh;
     setModel({ def, defExists: true });
     try {
       if (existed) await shell.items.update('definition', def);
@@ -2095,7 +2111,9 @@ export default function mount(shell) {
   async function publish(enabled) {
     const def = Object.assign({}, model.def || defaultDefinition());
     def.public = { enabled: !!enabled, channels: [], data: enabled ? buildPublicData() : (def.public && def.public.data) || null };
-    return saveDefinition(def);
+    // Solo `public`: publicar es lo que MÁS se escribe (auto-republish) y no
+    // debe arrastrar el resto de la definición de esta copia.
+    return saveDefinition(def, ['public']);
   }
   // Payload exacto que se escribe en el item de la app products al aplicar
   // (inspección/depuración desde la pestaña Publicación).
@@ -2320,7 +2338,7 @@ export default function mount(shell) {
         if (!s(cur.styleDefaultId).trim() && s(inDef.styleDefaultId).trim()) next.styleDefaultId = s(inDef.styleDefaultId).trim();
       }
       if (inDef.storeCustomField && !cur.storeCustomField) next.storeCustomField = inDef.storeCustomField;
-      const r = await saveDefinition(next);
+      const r = await saveDefinition(next, ['rules', 'types', 'brandName', 'storeName', 'storeBaseUrl', 'styleTemplates', 'styleDefaultId', 'storeCustomField']);
       if (!r.success) res.errors.push('Reglas: ' + r.error);
     }
 
@@ -2349,7 +2367,7 @@ export default function mount(shell) {
       const cur = model.def || defaultDefinition();
       const merged = (cur.types || []).slice();
       nuevosTipos.forEach((t) => { if (!merged.some((x) => x.id === t.id)) { merged.push(t); res.types++; } });
-      await saveDefinition(Object.assign({}, cur, { types: merged }));
+      await saveDefinition(Object.assign({}, cur, { types: merged }), ['types']);
     }
     setModel({ components: model.components.slice() });
 
@@ -2925,7 +2943,7 @@ export default function mount(shell) {
               def.rules.marginByType = Object.assign({}, def.rules.marginByType, {});
               def.rules.marginByType[t] = pct;
             }
-            const r = await saveDefinition(def);
+            const r = await saveDefinition(def, ['rules']);
             return r.success ? { success: true, message: 'Margen de "' + t + '" fijado en ' + pct + '%. Usa RECALC_PRICES para aplicar a los productos.' } : { success: false, error: r.error };
           }
           if (type === 'RECALC_PRICES') {
@@ -3233,7 +3251,7 @@ export default function mount(shell) {
             const next = previa ? lista.map((t) => (t.id === previa.id ? item : t)) : lista.concat([item]);
             const defId = p.setDefault === true ? item.id
               : (p.setDefault === false && s((model.def || {}).styleDefaultId) === item.id ? '' : s((model.def || {}).styleDefaultId));
-            const r = await saveDefinition(Object.assign({}, model.def || defaultDefinition(), { styleTemplates: next, styleDefaultId: defId }));
+            const r = await saveDefinition(Object.assign({}, model.def || defaultDefinition(), { styleTemplates: next, styleDefaultId: defId }), ['styleTemplates', 'styleDefaultId']);
             if (!r.success) return r;
             scheduleRepublish();
             const usan = model.productos.filter((eq) => s((eq.storefront || {}).styleId).trim() === item.id).length;
@@ -3249,7 +3267,7 @@ export default function mount(shell) {
             const defId = s((model.def || {}).styleDefaultId) === t.id ? '' : s((model.def || {}).styleDefaultId);
             const r = await saveDefinition(Object.assign({}, model.def || defaultDefinition(), {
               styleTemplates: lista.filter((x) => x.id !== t.id), styleDefaultId: defId,
-            }));
+            }), ['styleTemplates', 'styleDefaultId']);
             if (!r.success) return r;
             scheduleRepublish();
             return { success: true, message: 'Plantilla «' + t.name + '» borrada. Los productos que la usaban vuelven a su estilo propio.' };
@@ -4026,7 +4044,7 @@ export default function mount(shell) {
               if (j < 0 || j >= ids.length) return;
               const xs = ids.slice(); const tmp = xs[i]; xs[i] = xs[j]; xs[j] = tmp;
               await saveDefinition(Object.assign({}, state.def || defaultDefinition(),
-                { ui: Object.assign({}, (state.def || {}).ui, { compTypeOrder: xs }) }));
+                { ui: Object.assign({}, (state.def || {}).ui, { compTypeOrder: xs }) }), ['ui']);
             };
             const LIM = 12;
             return h('div', { key: 'inv', className: 'gp-inv' }, tipos.map((t, ti) => {
@@ -6263,7 +6281,7 @@ export default function mount(shell) {
         h('button', { key: 'b', className: 'gp-btn gp-btn-primary', disabled: !dirty || busy, onClick: async () => {
           setBusy(true);
           const next = Object.assign({}, state.def || defaultDefinition(), { rules: draft.rules, types: draft.types });
-          const res = await saveDefinition(next);
+          const res = await saveDefinition(next, ['rules', 'types']);
           setBusy(false);
           if (res.success) { setDirty(false); shell.notify({ level: 'success', text: 'Reglas guardadas. Revisa el recálculo de productos más abajo.' }); }
         } }, 'Guardar reglas'),
@@ -6326,7 +6344,7 @@ export default function mount(shell) {
       const base = state.def || defaultDefinition();
       const next = Object.assign({}, base, { styleTemplates: lista });
       if (nuevoDef !== undefined) next.styleDefaultId = nuevoDef;
-      const r = await saveDefinition(next);
+      const r = await saveDefinition(next, nuevoDef !== undefined ? ['styleTemplates', 'styleDefaultId'] : ['styleTemplates']);
       setBusy(false);
       if (!r.success) shell.notify({ level: 'error', text: r.error });
       else scheduleRepublish();
@@ -6444,7 +6462,7 @@ export default function mount(shell) {
               onBlur: async (e) => {
                 const v = e.target.value.trim();
                 if (v === s((state.def || {}).brandName)) return;
-                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { brandName: v }));
+                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { brandName: v }), ['brandName']);
                 if (r.success) shell.notify({ level: 'success', text: 'Marca guardada.' });
               } })),
           h(Row, { key: 'sn', label: 'Nombre corto de la tienda (viaja en el JSON público)' },
@@ -6453,7 +6471,7 @@ export default function mount(shell) {
               onBlur: async (e) => {
                 const v = e.target.value.trim();
                 if (v === s((state.def || {}).storeName)) return;
-                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { storeName: v }));
+                const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { storeName: v }), ['storeName']);
                 if (r.success) shell.notify({ level: 'success', text: 'Nombre de la tienda guardado.' });
               } })),
         ]),
@@ -6463,7 +6481,7 @@ export default function mount(shell) {
             onBlur: async (e) => {
               const v = e.target.value.trim();
               if (v === s((state.def || {}).storeBaseUrl)) return;
-              const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { storeBaseUrl: v }));
+              const r = await saveDefinition(Object.assign({}, state.def || defaultDefinition(), { storeBaseUrl: v }), ['storeBaseUrl']);
               if (r.success) shell.notify({ level: 'success', text: 'URL base de la tienda guardada.' });
             } })),
         h(Row, { key: 'url', label: 'URL pública (para configurador.js del theme)' },
