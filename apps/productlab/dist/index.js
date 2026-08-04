@@ -248,6 +248,22 @@ export default function mount(shell) {
     catalogError: null,
   };
   const listeners = new Set();
+
+  // ── Navegación global (header único: breadcrumb + tabs grandes) ──────────
+  // sec: sección raíz ('productos' | 'componentes' | 'config').
+  // det: detalle abierto (null | { tipo: 'producto'|'componente', draft, nombre }).
+  // tab: subpestaña del contexto (detalle o config); null = raíz de la sección.
+  let nav = { sec: 'productos', det: null, tab: null };
+  const navListeners = new Set();
+  function setNav(patch) {
+    nav = Object.assign({}, nav, patch);
+    navListeners.forEach((f) => f(nav));
+  }
+  function useNav() {
+    const [n, setN] = useState(nav);
+    useEffect(() => { navListeners.add(setN); return () => navListeners.delete(setN); }, []);
+    return n;
+  }
   function setModel(patch) { model = Object.assign({}, model, patch); listeners.forEach((l) => l(model)); }
 
   // Última acción del agente: qué sección del editor tocó. El agente escribe
@@ -3573,7 +3589,8 @@ export default function mount(shell) {
   }
 
   // ── Formulario de componente ──────────────────────────────────────────────
-  function ComponentForm({ initial, onDone }) {
+  function ComponentForm({ initial, onDone, sec }) {
+    void sec;   // pestañas del componente: General (Alternativos/Compatibles llegan aparte)
     const [d, setD] = useState(() => Object.assign({
       name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, taxPct: 0,
       supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, storeRef: null,
@@ -3692,7 +3709,12 @@ export default function mount(shell) {
     const [filterType, setFilterType] = useState('');
     const [search, setSearch] = useState('');
     const [onlyStale, setOnlyStale] = useState(false);
-    const [editing, setEditing] = useState(null); // null | {} | draft | component
+    // El detalle vive en el nav store (breadcrumb + pestañas en el header).
+    const n = useNav();
+    const editing = n.det && n.det.tipo === 'componente' && n.sec === 'componentes' ? n.det.draft : null;
+    const setEditing = (c) => setNav(c == null
+      ? { det: null, tab: null }
+      : { det: { tipo: 'componente', draft: c, nombre: c.name || 'Nuevo componente' }, tab: 'general' });
     const [pickingStore, setPickingStore] = useState(false);
     const [costDrafts, setCostDrafts] = useState({}); // verificación rápida por fila
     const [stockDrafts, setStockDrafts] = useState({}); // stock inline por fila
@@ -3709,16 +3731,12 @@ export default function mount(shell) {
     const setCostDraft = (id, v) => { const o = Object.assign({}, costDrafts); o[id] = v; setCostDrafts(o); };
     if (editing != null) {
       const isEdit = !!(editing.id || editing.name);
-      return h('div', { className: 'gp-editor' }, [
-        h('div', { key: 'top', className: 'gp-editor-top' }, [
-          h('span', { key: 'sp', style: { flex: 1 } }),
-          h('span', { key: 't', className: 'gp-editor-title' }, editing.id ? 'Editar: ' + (editing.name || '') : 'Nuevo componente'),
-          h('button', { key: 'back', className: 'gp-btn gp-btn-sm', onClick: () => setEditing(null) }, '← Volver'),
-        ]),
+      // Título y volver los pone el header (breadcrumb); aquí solo el cuerpo,
+      // grande y centrado, a todo el espacio disponible.
+      return h('div', { className: 'gp-editor' },
         h('div', { key: 'body', className: 'gp-editor-body' },
-          h('div', { className: 'gp-card', style: { maxWidth: 900 } },
-            h(ComponentForm, { initial: isEdit ? editing : null, onDone: () => setEditing(null) }))),
-      ]);
+          h('div', { className: 'gp-card gp-comp-ficha' },
+            h(ComponentForm, { initial: isEdit ? editing : null, sec: n.tab || 'general', onDone: () => setEditing(null) }))));
     }
     const saveStock = async (c) => {
       const draft = stockDrafts[c.id];
@@ -4160,7 +4178,8 @@ export default function mount(shell) {
   }
 
   // ── Formulario de producto ──────────────────────────────────────────────────
-  function ProductoForm({ initial, onDone }) {
+  function ProductoForm({ initial, onDone, sec }) {
+    sec = sec || 'general';
     const [d, setD] = useState(() => Object.assign({
       name: '', sku: '', status: 'active', imageUrl: '',
       baseComponentIds: [], extraCosts: [], groups: [], storeRef: null, deliveryExtraDays: null,
@@ -4168,7 +4187,7 @@ export default function mount(shell) {
     const [busy, setBusy] = useState(false);
     const [picking, setPicking] = useState(false);
     const [baseSel, setBaseSel] = useState('');
-    const [sec, setSec] = useState('general');
+    // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
     const [blockSel, setBlockSel] = useState({}); // builder: sección id → tipo de bloque a agregar
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
@@ -4223,7 +4242,7 @@ export default function mount(shell) {
       baseRef.current = JSON.stringify(nd);
       setD(nd);
       setConflicto(null);
-      if (agentEdit.section) setSec(agentEdit.section);
+      if (agentEdit.section) setNav({ tab: agentEdit.section });
     };
     useEffect(() => {
       const q = decidirRecarga(d, vivo, baseRef.current);
@@ -4267,16 +4286,12 @@ export default function mount(shell) {
     const price = productoComputedPrice(d);
     const combos = comboCount(d);
     const warns = productoWarnings(d);
-    const SECTIONS = [['general', 'General'], ['pasos', 'Pasos y componentes'], ['ficha', 'Ficha de tienda'], ['modelo3d', 'Visor 3D']];
     return h('div', { className: 'gp-editor' }, [
-      // ── Barra superior: volver + título + secciones ──
+      // Las pestañas, el título y el volver viven en el HEADER (breadcrumb +
+      // tabs grandes). Aquí solo queda el estado del enlace con la tienda.
       h('div', { key: 'top', className: 'gp-editor-top' }, [
-        h('div', { key: 'tabs', className: 'gp-editor-tabs' }, SECTIONS.map(([id, label]) =>
-          h('button', { key: id, className: 'gp-etab' + (sec === id ? ' on' : ''), onClick: () => setSec(id) }, label))),
         h('span', { key: 'sp', style: { flex: 1 } }),
         ref ? h('span', { key: 'js', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'enlazado') : h('span', { key: 'js', className: 'gp-chip gris' }, 'sin enlace'),
-        h('span', { key: 't', className: 'gp-editor-title' }, d.name || 'Nuevo producto'),
-        h('button', { key: 'back', className: 'gp-btn gp-btn-sm', onClick: onDone }, '← Volver'),
       ]),
       // El agente cambió este producto y aquí hay edición sin guardar: se
       // decide a mano, porque cualquiera de las dos opciones pierde algo.
@@ -4710,8 +4725,8 @@ export default function mount(shell) {
       ]),
       ]),
       ]),
-        h('div', { key: 'f', style: sec === 'ficha' ? null : { display: 'none' } }, [
-      // ── Ficha: galería del producto ──
+        // ── Galería: pestaña propia (fotos de Jumpseller + subidas) ──
+        h('div', { key: 'gal', style: sec === 'galeria' ? null : { display: 'none' } }, [
       h('div', { key: 'galeria', className: 'gp-card', style: { marginTop: 12 } }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Galería del producto']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
@@ -4764,6 +4779,8 @@ export default function mount(shell) {
           ]),
         ]),
       ]),
+      ]),
+        h('div', { key: 'f', style: sec === 'ficha' ? null : { display: 'none' } }, [
       // ── Ficha: BUILDER de descripción del producto ──
       h('div', { key: 'builder', className: 'gp-card', style: { marginTop: 12 } }, [
         h('div', { key: 't', className: 'gp-card-title' }, [
@@ -5506,12 +5523,19 @@ export default function mount(shell) {
 
   // ── Pestaña: Productos ──────────────────────────────────────────────────────
   function ProductosTab({ state }) {
-    const [editing, setEditing] = useState(null);
+    // El detalle vive en el nav store: el header pinta el breadcrumb y las
+    // pestañas del producto abierto (General/Galería/Estudio/Experiencia).
+    const n = useNav();
+    const editing = n.det && n.det.tipo === 'producto' && n.sec === 'productos' ? n.det.draft : null;
+    const setEditing = (eq) => setNav(eq == null
+      ? { det: null, tab: null }
+      : { det: { tipo: 'producto', draft: eq, nombre: eq.name || 'Nuevo producto' }, tab: 'general' });
     // Editor a pantalla completa: usa todo el espacio de la app, sin modal.
     if (editing != null) {
       return h(ProductoForm, {
         key: editing.id || 'new',
         initial: editing.id ? editing : null,
+        sec: n.tab || 'general',
         onDone: () => setEditing(null),
       });
     }
@@ -6100,7 +6124,6 @@ export default function mount(shell) {
   // ── Raíz ──────────────────────────────────────────────────────────────────
   function Component() {
     const [state, setState] = useState(model);
-    const [tab, setTab] = useState('productos');
     // Preferencias del host (⚙️ Configurar): color de acento por empresa.
     const [cfg, setCfg] = useState({});
     useEffect(() => {
@@ -6128,43 +6151,106 @@ export default function mount(shell) {
       return h('div', { className: 'kimos-productlab', style: rootStyle },
         h('div', { className: 'gp-empty' }, 'Crea un documento desde la pantalla de bienvenida: cada instancia es un catálogo de productos independiente, con sus propias reglas de margen, moneda e impuesto (normalmente basta una por tienda o línea de negocio).'));
     }
-    const r = rules();
-    const staleCount = state.components.filter((c) => daysSince(c.verifiedAt) > r.staleDays).length;
-    const tabs = [
-      ['productos', 'Productos' + (state.productos.length ? ' (' + state.productos.length + ')' : '')],
-      ['componentes', 'Componentes' + (state.components.length ? ' (' + state.components.length + ')' : '') + (staleCount ? ' · ⚠' + staleCount + ' por verificar' : '')],
-      ['precios', 'Precios'],
-      ['estilos', 'Estilos' + (styleTemplates().length ? ' (' + styleTemplates().length + ')' : '')],
-      ['publicacion', 'Publicación'],
-      ['datos', 'Datos'],
-    ];
+    const n = useNav();
+    const cfgTab = n.sec === 'config' ? n.tab : null;
     return h('div', { className: 'kimos-productlab' + (cfg && cfg.denseTables ? ' gp-dense' : ''), style: rootStyle }, [
-      h('div', { key: 'top', className: 'gp-top' }, [
-        h('span', { key: 'b', className: 'gp-brand' }, [brandName(), h('i', { key: 'i' }, '.')]),
-        h('span', { key: 's', className: 'gp-sep' }),
-        h('span', { key: 't', className: 'gp-sub' }, 'Gestión avanzada de productos · costos, configuración y precios'),
-        h('div', { key: 'r', className: 'gp-right' },
-          h('span', { key: 'env', className: 'gp-sub' }, !state.catalogLoaded
-            ? 'CATÁLOGO · CARGANDO'
-            : state.catalog.length
-              ? 'CATÁLOGO · ' + state.catalog.length + ' PRODUCTOS'
-              : 'CATÁLOGO · SIN ACCESO')),
-      ]),
-      h('div', { key: 'tabs', className: 'gp-tabs' },
-        tabs.map(([id, label]) => h('button', { key: id, className: 'gp-tab' + (tab === id ? ' on' : ''), onClick: () => setTab(id) }, label))
-          .concat([h('button', { key: 'r', className: 'gp-tab gp-tab-right', title: 'Actualizar', onClick: () => { void load(); void loadCatalog(); } }, '⟳')])),
+      h(Header, { key: 'hd', state }),
       h('div', { key: 'body', className: 'gp-body' }, [
         state.error && h('div', { key: 'err', className: 'gp-errbox' }, state.error),
         !state.loaded
           ? h('div', { key: 'l', className: 'gp-empty' }, 'Cargando…')
-          : tab === 'componentes' ? h(ComponentesTab, { key: 'c', state })
-          : tab === 'productos' ? h(ProductosTab, { key: 'e', state })
-          : tab === 'precios' ? h(PreciosTab, { key: 'pr', state })
-          : tab === 'estilos' ? h(EstilosTab, { key: 'sty', state })
-          : tab === 'datos' ? h(DatosTab, { key: 'dat', state })
+          : n.sec === 'componentes' ? h(ComponentesTab, { key: 'c', state })
+          : n.sec === 'productos' ? h(ProductosTab, { key: 'e', state })
+          : !cfgTab ? h(ConfigMosaico, { key: 'cm' })
+          : cfgTab === 'precios' ? h(PreciosTab, { key: 'pr', state })
+          : cfgTab === 'estilos' ? h(EstilosTab, { key: 'sty', state })
+          : cfgTab === 'datos' ? h(DatosTab, { key: 'dat', state })
           : h(PublicacionTab, { key: 'pub', state }),
       ]),
     ]);
+  }
+
+  // ── Header único: breadcrumb + tabs grandes + acciones rápidas ────────────
+  // Estética de menú de videojuego: textos grandes, objetivos táctiles y los
+  // tokens del tema de KIMOS (día/noche y acento van con el shell).
+  const CFG_TABS = [['precios', 'Precios'], ['estilos', 'Estilos'], ['publicacion', 'Publicación'], ['datos', 'Datos']];
+  const PROD_TABS = [['general', 'General'], ['galeria', 'Galería'], ['pasos', 'Estudio'], ['ficha', 'Experiencia']];
+  // Alternativos y Compatibles se suman en la fase de componentes enlazados.
+  const COMP_TABS = [['general', 'General']];
+  const ICONO_CASA = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+    [h('path', { key: 'p', d: 'M3 10.5 12 3l9 7.5' }), h('path', { key: 'q', d: 'M5 9.5V21h14V9.5' })]);
+  const ICONO_ATRAS = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+    [h('path', { key: 'p', d: 'M15 5l-7 7 7 7' })]);
+  function Header({ state }) {
+    const n = useNav();
+    const [pubBusy, setPubBusy] = useState(false);
+    const SECS = [
+      ['productos', 'Productos' + (state.productos.length ? ' · ' + state.productos.length : '')],
+      ['componentes', 'Componentes' + (state.components.length ? ' · ' + state.components.length : '')],
+      ['config', 'Parámetros'],
+    ];
+    const secLabel = n.sec === 'config' ? 'Parámetros' : n.sec === 'componentes' ? 'Componentes' : 'Productos';
+    // Tabs del contexto: raíz → secciones; detalle → sus pestañas; config → sus 4.
+    let tabs, activo, onTab;
+    if (n.det && n.det.tipo === 'producto') {
+      tabs = PROD_TABS.concat((n.det.draft && n.det.draft.model3d) || n.tab === 'modelo3d' ? [['modelo3d', 'Visor 3D']] : []);
+      activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
+    } else if (n.det && n.det.tipo === 'componente') {
+      tabs = COMP_TABS; activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
+    } else if (n.sec === 'config' && n.tab) {
+      tabs = CFG_TABS; activo = n.tab; onTab = (id) => setNav({ tab: id });
+    } else {
+      tabs = SECS; activo = n.sec; onTab = (id) => setNav({ sec: id, det: null, tab: null });
+    }
+    // Un nivel hacia arriba: detalle → lista; config sub → mosaico; raíz → inicio.
+    const atras = n.det ? () => setNav({ det: null, tab: null })
+      : (n.sec === 'config' && n.tab) ? () => setNav({ tab: null })
+      : n.sec !== 'productos' ? () => setNav({ sec: 'productos', det: null, tab: null })
+      : null;
+    return h('div', { key: 'hd', className: 'gp-hd' }, [
+      h('div', { key: 'nav', className: 'gp-hd-nav' }, [
+        atras ? h('button', { key: 'atras', className: 'gp-hd-ico', title: 'Volver', onClick: atras }, h(ICONO_ATRAS)) : null,
+        h('nav', { key: 'crumbs', className: 'gp-crumbs', 'aria-label': 'breadcrumb' }, [
+          h('button', { key: 'casa', className: 'gp-crumb gp-hd-ico', title: 'Inicio',
+            onClick: () => setNav({ sec: 'productos', det: null, tab: null }) }, h(ICONO_CASA)),
+          h('span', { key: 's1', className: 'gp-crumb-sep' }, '›'),
+          h('button', { key: 'sec', className: 'gp-crumb' + (n.det || (n.sec === 'config' && n.tab) ? '' : ' on'),
+            onClick: () => setNav({ det: null, tab: null }) }, secLabel),
+          n.det ? h('span', { key: 's2', className: 'gp-crumb-sep' }, '›') : null,
+          n.det ? h('span', { key: 'det', className: 'gp-crumb on' }, n.det.nombre || (n.det.tipo === 'producto' ? 'Nuevo producto' : 'Nuevo componente')) : null,
+        ]),
+      ]),
+      h('div', { key: 'tabs', className: 'gp-bigtabs', role: 'tablist' }, tabs.map(([id, label]) =>
+        h('button', { key: id, role: 'tab', 'aria-selected': activo === id,
+          className: 'gp-bigtab' + (activo === id ? ' on' : ''), onClick: () => onTab(id) }, label))),
+      h('div', { key: 'acciones', className: 'gp-hd-acciones' }, [
+        !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
+          title: 'Publicar el JSON del configurador para la tienda, sin pasar por Parámetros → Publicación',
+          onClick: async () => {
+            setPubBusy(true);
+            const r = await publish(true);
+            setPubBusy(false);
+            if (r.success) shell.notify({ level: 'success', text: 'Publicado (' + buildPublicData().productos.length + ' productos).' });
+          } }, pubBusy ? 'Publicando…' : 'Publicar') : null,
+        h('button', { key: 'r', className: 'gp-hd-ico', title: 'Actualizar datos',
+          onClick: () => { void load(); void loadCatalog(); } }, '⟳'),
+      ]),
+    ]);
+  }
+
+  // ── Parámetros: mosaico 2×2 que entra a cada sección ──────────────────────
+  function ConfigMosaico() {
+    const DESC = {
+      precios: 'Margen, moneda, impuestos y reglas de redondeo del cálculo de precios.',
+      estilos: 'Plantillas de estilo del configurador: colores, cards y barra de la tienda.',
+      publicacion: 'El JSON público que lee el theme, la marca y el estado de publicación.',
+      datos: 'Exportar e importar componentes y productos; migración entre instancias.',
+    };
+    return h('div', { className: 'gp-mosaico' }, CFG_TABS.map(([id, label]) =>
+      h('button', { key: id, className: 'gp-tile', onClick: () => setNav({ tab: id }) }, [
+        h('span', { key: 'l', className: 'gp-tile-title' }, label),
+        h('span', { key: 'd', className: 'gp-tile-desc' }, DESC[id]),
+      ])));
   }
 
   return {
