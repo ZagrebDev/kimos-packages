@@ -5037,7 +5037,7 @@ export default function mount(shell) {
               h(Thumb, { key: 'img', url: productoImage(d) }),
               h('span', { key: 'c', className: 'gp-chip fuc' }, ref.sourceId ? 'JS #' + ref.sourceId : 'producto local'),
               h('span', { key: 'nm', style: { fontWeight: 600 } }, (productItemFor(d) || {}).name || ref.name || ref.itemId),
-              h('span', { key: 'm', className: 'gp-muted grow' }, '"Aplicar a la tienda" escribe precio, opciones y variantes en este producto (vía app Productos → Jumpseller).'),
+              h('span', { key: 'm', className: 'grow' }),
               h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => up({ storeRef: null }) }, 'Desenlazar'),
             ])
           : h('div', { key: 'no', className: 'gp-compline' }, [
@@ -5194,10 +5194,7 @@ export default function mount(shell) {
         ]),
         // ── Galería: pestaña propia (fotos de Jumpseller + subidas) ──
         h('div', { key: 'gal', style: sec === 'galeria' ? null : { display: 'none' } }, [
-      h('div', { key: 'galeria', className: 'gp-card', style: { marginTop: 12 } }, [
-        h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Galería del producto']),
-        h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          'Biblioteca de imágenes de ESTE producto: lo que subas aquí o en cualquier campo de imagen (fondos de hero, fotos de valores) queda disponible en los pickers "Galería…" para reutilizarlo en otras secciones, junto a las fotos del producto en Jumpseller (marcadas JS).'),
+      h('div', { key: 'galeria' }, [
         h('div', { key: 'grid', className: 'gp-gal-grid' },
           productoGallery.length
             ? productoGallery.map((u, i) => {
@@ -5224,7 +5221,7 @@ export default function mount(shell) {
               ? 'De la tienda solo llega ' + (n ? 'la foto principal' : 'ninguna foto') + '. La galería completa la trae la app Productos al sincronizar: abre Productos → "' + (p.name || d.name) + '" → sincronizar (pull) desde Jumpseller, y vuelve aquí. Mientras tanto puedes subir fotos a mano con "+ Subir imágenes…".'
               : null);
         })(),
-        h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 8 } }, [
+        h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 14, justifyContent: 'center' } }, [
           h('label', { key: 'up', className: 'gp-btn gp-btn-sm gp-btn-dark', style: { cursor: 'pointer' } }, [
             h('span', { key: 's' }, galBusy ? 'Subiendo…' : '+ Subir imágenes…'),
             h('input', { key: 'f', type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' }, disabled: galBusy, onChange: async (e) => {

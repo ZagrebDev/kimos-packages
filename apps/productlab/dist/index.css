@@ -361,13 +361,16 @@
 
 /* ── Galería del producto: pestaña completa, fotos en grande ── */
 .kimos-productlab .gp-gal-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px;
 }
 .kimos-productlab .gp-gal-item {
   position: relative; background: #fff;
-  border: 1px solid var(--gp-gris-claro); border-radius: var(--gp-radius); overflow: hidden;
+  border: 1px solid var(--gp-borde-suave); border-radius: calc(var(--gp-radius) + 4px); overflow: hidden;
   aspect-ratio: 1 / 1;
+  box-shadow: var(--gp-shadow-sm);
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
+.kimos-productlab .gp-gal-item:hover { border-color: hsl(var(--primary, 178 96% 59%) / .45); box-shadow: var(--gp-shadow-md); }
 .kimos-productlab .gp-gal-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ── Producto → General: foto a la izquierda (abre la Galería) ── */
