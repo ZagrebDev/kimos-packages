@@ -5047,13 +5047,26 @@ export default function mount(shell) {
   const emit = () => { listeners.forEach((l) => { try { l({}); } catch (e) { /* componente desmontado */ } }); };
 
   let saveTimer = null;
+  let savePending = false;
   function scheduleSave() {
     if (typeof shell.saveData !== 'function') return;
+    savePending = true;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      model.updatedAt = nowIso();
-      Promise.resolve(shell.saveData({ campaign: model })).catch((e) => notify('error', 'No se pudo guardar: ' + ((e && e.message) || 'error')));
-    }, 700);
+    saveTimer = setTimeout(flushSave, 700);
+  }
+  /**
+   * Guarda ya lo que estuviera esperando al debounce.
+   *
+   * Se llama también al desmontar: si la ventana se cierra dentro de la
+   * ventana de 700 ms, el último cambio del usuario se perdía sin decir nada.
+   */
+  function flushSave() {
+    clearTimeout(saveTimer);
+    if (!savePending || typeof shell.saveData !== 'function') return;
+    savePending = false;
+    model.updatedAt = nowIso();
+    Promise.resolve(shell.saveData({ campaign: model }))
+      .catch((e) => notify('error', 'No se pudo guardar: ' + ((e && e.message) || 'error')));
   }
 
   /** Mutación central: UI y agente pasan siempre por aquí. */
@@ -5074,6 +5087,7 @@ export default function mount(shell) {
   // misma que usan Kanban y Gantt para asignar trabajo, con el RBAC del
   // usuario como techo. Solo se guardan en el documento el id y el nombre;
   // el directorio no se persiste.
+  const DIRECTORY_MAX = 500;
   let directory = { users: [], loaded: false, error: '' };
 
   async function loadDirectory() {
@@ -5086,10 +5100,15 @@ export default function mount(shell) {
       const res = await shell.authFetch(API + '/api/identity/actors', { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
+      // Acotado: el directorio es dato externo y en una organización grande
+      // puede traer miles de cuentas. Un desplegable de mil opciones no se
+      // usa, y el sitio para buscar personas es el propio KIMOS.
       const users = arr(obj(data).actors)
         .filter((a) => obj(a).active !== false && s(obj(a).kind || obj(a).type) !== 'agent')
-        .map((a) => ({ id: s(a.id), name: s(a.displayName || a.name || a.email || a.id), email: s(a.email) }))
-        .filter((a) => a.id);
+        .map((a) => ({ id: s(a.id), name: s(a.displayName || a.name || a.email || a.id).slice(0, 80),
+          email: s(a.email).slice(0, 120) }))
+        .filter((a) => a.id)
+        .slice(0, DIRECTORY_MAX);
       directory = { users, loaded: true,
         error: users.length ? '' : 'El directorio no devolvió ningún usuario.' };
     } catch (e) {
@@ -9365,6 +9384,9 @@ export default function mount(shell) {
     Component,
     unmount() {
       cancelled = true;
+      // Antes de nada, guardar lo que quedara pendiente del debounce: cerrar
+      // la ventana no puede costarle al usuario su último cambio.
+      try { flushSave(); } catch (e) { /* host sin saveData */ }
       clearTimeout(saveTimer);
       clearInterval(clockTimer);
       listeners.clear();

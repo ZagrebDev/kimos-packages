@@ -86,6 +86,7 @@ function check(name, cond, detail) {
 const eq = (name, a, b) => check(name, a === b, 'esperado ' + JSON.stringify(b) + ', recibido ' + JSON.stringify(a));
 const gte = (name, a, b) => check(name, a >= b, 'esperado ≥ ' + b + ', recibido ' + a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const arrayOf = (v) => (Array.isArray(v) ? v : []);
 
 const mod = await import('../dist/index.js');
 const app = mod.default(shell);
@@ -1023,8 +1024,16 @@ check('EXPORT render_bundle funciona', r.success && r.data.length > 500, JSON.st
   }
 }
 
+// El guardado va con debounce de 700 ms. Cerrar la ventana dentro de esa
+// ventana no puede costarle al usuario su último cambio: `unmount` vacía lo
+// pendiente antes de soltar los temporizadores.
+const ultimoCambio = 'u-luis';
 app.unmount();
 check('unmount desregistra el agente', agentReg === null);
+check('unmount guarda lo que quedaba pendiente del debounce',
+  !!saved && !!saved.campaign
+  && (saved.campaign.world.areas.find((a) => a.name === 'Marketing') || {}).ownerId === ultimoCambio,
+  JSON.stringify((saved && saved.campaign && saved.campaign.world.areas.find((a) => a.name === 'Marketing')) || null));
 
 // ── 16. Host reducido (AppShell v1 mínimo) ───────────────────────────────
 // Sin items, sin agente, sin authFetch, sin config ni documents: la app debe
@@ -1047,6 +1056,75 @@ check('unmount desregistra el agente', agentReg === null);
     check('no se registra agente si el host no lo ofrece', agentReg === null);
     try { minApp.unmount(); check('unmount tolera un host reducido', true); }
     catch (e) { check('unmount tolera un host reducido', false, e.message); }
+  }
+}
+
+// ── 17. El directorio de usuarios falla ──────────────────────────────────
+// Un host sin `/api/identity/actors`, o que responde 403, no puede tumbar la
+// app ni —mucho menos— borrar los responsables ya asignados.
+{
+  // La app principal ya está desmontada, así que el documento se toma del
+  // último guardado: es exactamente lo que el host volvería a cargar.
+  const doc = JSON.parse(JSON.stringify((saved && saved.campaign) || {}));
+  const conResponsable = arrayOf(doc.world && doc.world.areas).filter((a) => a.ownerId).length;
+  gte('el documento de partida trae responsables asignados', conResponsable, 2);
+
+  for (const [caso, fetchImpl] of [
+    ['sin authFetch', null],
+    ['403 del host', async () => ({ ok: false, status: 403, json: async () => ({}) })],
+    ['la red se cae', async () => { throw new Error('network down'); }],
+  ]) {
+    const notices2 = [];
+    let saved2 = null;
+    const host = {
+      app: { appId: 'kreative-studio', instanceId: 'i2', teamId: 't2' },
+      notify: (m) => notices2.push(m.text),
+      saveData: async (p) => { saved2 = p; },
+      loadData: async () => ({ campaign: doc }),
+      agent: { register: (reg) => { host.reg = reg; return () => {}; } },
+    };
+    if (fetchImpl) host.authFetch = fetchImpl;
+
+    let a2 = null;
+    try { a2 = mod.default(host); } catch (e) { check('monta con ' + caso, false, e.message); }
+    if (!a2) continue;
+    await sleep(30);
+    check('monta con ' + caso, true);
+
+    // Lo esencial: lo ya asignado sigue ahí.
+    const w2 = a2 && host.reg ? host.reg.getSnapshot().organizacion : null;
+    eq('los responsables sobreviven ' + caso,
+      (w2 ? w2.areas.filter((x) => x.responsable).length : -1), conResponsable);
+    eq('el directorio vacío no ofrece a nadie ' + caso, (w2 ? w2.usuariosKimos.length : -1), 0);
+
+    // Y nombrar responsable se rechaza con un motivo, no con una excepción.
+    let rr = null;
+    try {
+      rr = await host.reg.dispatchAction({ type: 'SET_ORG',
+        payload: { op: 'set_owner', areaId: 'Tecnología', user: 'Ana Ruiz' } });
+    } catch (e) { check('nombrar responsable no lanza ' + caso, false, e.message); }
+    if (rr) {
+      check('nombrar responsable no lanza ' + caso, true);
+      eq('se rechaza sin directorio ' + caso, rr.success, false);
+      check('y el motivo lo explica ' + caso, /directorio|usuario/i.test(rr.error || ''), rr.error);
+    }
+
+    // La vista Organización se sigue pintando.
+    renderErrors = [];
+    try {
+      const painted = renderDeep(a2.Component(), 0);
+      const nav = painted.filter((n) => n && n.p && typeof n.p.onClick === 'function'
+        && typeof n.p.className === 'string' && n.p.className.indexOf('ks-navitem') >= 0);
+      const btn = nav.find((b) => renderDeep(b, 0)
+        .some((n) => n && n.p && n.p.className === 'ks-navitem-label' && String(n.c) === 'Organización'));
+      if (btn) btn.p.onClick();
+      renderErrors = [];
+      const again = renderDeep(a2.Component(), 0);
+      check('la Organización se pinta ' + caso, again.length > 20 && renderErrors.length === 0,
+        renderErrors.join(' · '));
+    } catch (e) { check('la Organización se pinta ' + caso, false, e.message); }
+
+    try { a2.unmount(); } catch (e) { check('unmount tolera ' + caso, false, e.message); }
   }
 }
 

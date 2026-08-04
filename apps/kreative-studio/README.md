@@ -204,7 +204,7 @@ No escribe nada en ProductLab.
 
 ```bash
 node apps/kreative-studio/build.mjs                        # src/ + worldskin → dist/
-node apps/kreative-studio/test/test-app.mjs                # 307 comprobaciones, sin dependencias
+node apps/kreative-studio/test/test-app.mjs                # 330 comprobaciones, sin dependencias
 node packages/kimos-worldskin/test/test-worldskin.mjs      # 174 del paquete y su contrato
 node apps/kreative-studio/test/test-render.mjs             # render REAL (requiere ffmpeg)
 node tools/pack.mjs apps/kreative-studio                   # → kreative-studio-1.0.0.kapp

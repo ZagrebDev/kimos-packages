@@ -103,6 +103,9 @@
     Component,
     unmount() {
       cancelled = true;
+      // Antes de nada, guardar lo que quedara pendiente del debounce: cerrar
+      // la ventana no puede costarle al usuario su último cambio.
+      try { flushSave(); } catch (e) { /* host sin saveData */ }
       clearTimeout(saveTimer);
       clearInterval(clockTimer);
       listeners.clear();
