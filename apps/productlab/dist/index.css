@@ -136,6 +136,20 @@
      bloque gigante más alto que las cards reales. */
   .kimos-productlab .gp-pcard-add { min-height: 92px; flex-direction: row; justify-content: center; gap: 12px; }
   .kimos-productlab .gp-pcard-add-ico { font-size: 30px; }
+  /* Breadcrumb móvil: SOLO la casita (la sección viva en los tabs). */
+  .kimos-productlab .gp-crumbs .gp-crumb:not(.gp-hd-ico),
+  .kimos-productlab .gp-crumb-sep { display: none; }
+  /* Tabla de componentes compacta: fuera selección, tipo, proveedor y
+     verificación — quedan foto, nombre, costo, venta, stock y acciones,
+     sin desplazamientos horizontales gigantes. */
+  .kimos-productlab .gp-table-comp th:nth-child(1), .kimos-productlab .gp-table-comp td:nth-child(1),
+  .kimos-productlab .gp-table-comp th:nth-child(4), .kimos-productlab .gp-table-comp td:nth-child(4),
+  .kimos-productlab .gp-table-comp th:nth-child(8), .kimos-productlab .gp-table-comp td:nth-child(8),
+  .kimos-productlab .gp-table-comp th:nth-child(9), .kimos-productlab .gp-table-comp td:nth-child(9),
+  .kimos-productlab .gp-table-comp th:nth-child(10), .kimos-productlab .gp-table-comp td:nth-child(10) { display: none; }
+  .kimos-productlab .gp-table-comp th, .kimos-productlab .gp-table-comp td { padding: 6px 6px; font-size: 12.5px; }
+  /* El inventario de cards respira mejor con celdas más chicas. */
+  .kimos-productlab .gp-inv-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
 }
 
 /* ── Mosaico de Parámetros (2×2) ── */

@@ -270,6 +270,17 @@ export default function mount(shell) {
     return x;
   }
 
+  // ¿Ventana angosta (móvil)? Con listener: la UI compacta reacciona al vuelo.
+  function useMovil() {
+    const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 720);
+    useEffect(() => {
+      const f = () => setM(window.innerWidth < 720);
+      window.addEventListener('resize', f);
+      return () => window.removeEventListener('resize', f);
+    }, []);
+    return m;
+  }
+
   function useNav() {
     const [n, setN] = useState(nav);
     useEffect(() => { navListeners.add(setN); return () => navListeners.delete(setN); }, []);
@@ -3884,8 +3895,10 @@ export default function mount(shell) {
     const [stockDrafts, setStockDrafts] = useState({}); // stock inline por fila
     const [selIds, setSelIds] = useState({});           // selección para acciones masivas
     const [bulkStock, setBulkStock] = useState('');
-    // Vista por defecto: TABLA densa; el inventario de cards queda a un toque.
-    const [vista, setVista] = useState('tabla');
+    // Vista por defecto: TABLA densa en escritorio, CARDS en móvil.
+    const movil = useMovil();
+    const [vista, setVista] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 720) ? 'cards' : 'tabla');
+    const [buscarAbierto, setBuscarAbierto] = useState(false);   // buscador expandible (móvil)
     const [verTodo, setVerTodo] = useState({});         // tipo → mostrar todos
     const r = rules();
     const list = state.components
@@ -3942,16 +3955,25 @@ export default function mount(shell) {
     return h('div', null, [
       h('div', { key: 'f', className: 'gp-filters gp-filters-centro' }, [
         h(VistaSwitch, { key: 'sw', vista, onChange: setVista }),
-        h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Componente'),
-        h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente', onClick: () => setPickingStore(true) }, '+ Desde la tienda'),
-        h('select', { key: 't', className: 'gp-select', style: { maxWidth: 180 }, value: filterType, onChange: (e) => setFilterType(e.target.value) },
-          [h('option', { key: '', value: '' }, 'Todos los tipos')].concat(types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
-        h(TextInput, { key: 's', value: search, onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar…', style: { maxWidth: 220 } }),
-        h('label', { key: 'st', className: 'gp-switch' }, [
+        h('button', { key: 'new', className: 'gp-btn gp-btn-primary', title: 'Crear componente',
+          onClick: () => setEditing({}) }, movil ? '+' : '+ Componente'),
+        h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente',
+          onClick: () => setPickingStore(true) }, movil ? '🛒' : '+ Desde la tienda'),
+        h('select', { key: 't', className: 'gp-select', style: { maxWidth: movil ? 140 : 180 }, value: filterType, onChange: (e) => setFilterType(e.target.value) },
+          [h('option', { key: '', value: '' }, movil ? 'Tipos' : 'Todos los tipos')].concat(types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
+        // Buscador: en móvil es un icono que expande el campo a lo ancho.
+        movil
+          ? h('button', { key: 's', className: 'gp-btn' + (buscarAbierto || search ? ' gp-btn-dark' : ''), title: 'Buscar',
+              onClick: () => setBuscarAbierto(!buscarAbierto) }, '🔍')
+          : h(TextInput, { key: 's', value: search, onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar…', style: { maxWidth: 220 } }),
+        h('label', { key: 'st', className: 'gp-switch', title: 'Por verificar (+' + r.staleDays + ' días, más antiguos primero)' }, [
           h('input', { key: 'c', type: 'checkbox', checked: onlyStale, onChange: (e) => setOnlyStale(e.target.checked) }),
-          h('span', { key: 's' }, 'Por verificar (+' + r.staleDays + ' días, más antiguos primero)'),
+          h('span', { key: 's' }, movil ? '⚠' : 'Por verificar (+' + r.staleDays + ' días, más antiguos primero)'),
         ]),
-        h('span', { key: 'n', className: 'gp-muted' }, list.length + ' de ' + state.components.length),
+        !movil ? h('span', { key: 'n', className: 'gp-muted' }, list.length + ' de ' + state.components.length) : null,
+        movil && buscarAbierto ? h(TextInput, { key: 'sx', value: search, autoFocus: true,
+          onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar componente…',
+          style: { flexBasis: '100%' } }) : null,
       ]),
       (function () {
         const count = Object.keys(selIds).filter((k) => selIds[k]).length;
@@ -4043,7 +4065,7 @@ export default function mount(shell) {
             }));
           })()
         : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
-            h('table', { className: 'gp-table' }, [
+            h('table', { className: 'gp-table gp-table-comp' }, [
               h('thead', { key: 'h' }, h('tr', null, [
                 h('th', { key: 'sel' }, h('input', { type: 'checkbox',
                   checked: list.length > 0 && list.every((c) => selIds[c.id]),
@@ -4284,7 +4306,7 @@ export default function mount(shell) {
 
   function ConfigPreview({ draft, edit }) {
     const [sel, setSel] = useState({});      // groupId → valueId elegido
-    const [mob, setMob] = useState(false);
+    const [mob, setMob] = useState(() => typeof window !== 'undefined' && window.innerWidth < 760);
     // El previsualizador muestra lo que verá la tienda: si el producto usa
     // una plantilla del catálogo, manda la plantilla, no su estilo guardado.
     const st = resolveStyle(draft);
