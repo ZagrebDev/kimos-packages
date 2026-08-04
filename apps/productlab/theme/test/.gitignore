@@ -4,3 +4,4 @@ custom-test.js
 *.webp
 kimos*.js
 kimos*.css
+node_modules

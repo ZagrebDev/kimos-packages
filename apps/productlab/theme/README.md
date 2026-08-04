@@ -341,8 +341,29 @@ actualiza los tres scripts del kit a la versión actual.
 
 | Modo | Qué hace | Cómo se activa |
 |---|---|---|
-| **Ficha completa** | Reemplaza la ficha del theme por la de KIMOS: barra con pestañas, heros del builder, configurador con 3D, especificaciones y fotos. Como en computadores. | `window.KIMOS_FULL = true` |
+| **Ficha completa** | Reemplaza la ficha del theme por un LANDING de KIMOS: barra con pestañas, heros del builder, especificaciones, fotos y, como última sección, el personalizador. | `window.KIMOS_FULL = true` |
 | **Solo visor 3D** | Tu ficha sigue igual; se añade un botón "Ver en 3D" sobre la galería. | `window.KIMOS_FULL = false` |
+
+### El landing y el personalizador bloqueado (v5.13)
+
+- La ficha es un **landing**: las secciones del builder primero y el
+  **personalizador como última sección** (solo si el producto tiene pasos).
+  Antes de esa sección hay un botón de invitación con el MISMO texto que el
+  botón de la barra superior (`tabs.comprar` / `style.buyLabel`, por defecto
+  "Configurar").
+- Al pulsar cualquiera de los dos botones, la vista **se bloquea en el
+  personalizador**: queda él solo bajo la barra, y la izquierda de la barra
+  cambia a **"← Volver"**, que regresa al inicio del landing.
+- **Compartir**: junto al botón de carro del panel hay un botón que copia (o
+  comparte con el share nativo del teléfono) un enlace directo con
+  `?kimos_conf=1` — quien lo abra aterriza con el personalizador ya bloqueado.
+- En **móvil**, la barra inferior del personalizador deja una franja libre a
+  la derecha para la burbuja de chat de la tienda: los textos no llegan al
+  borde, el botón de carro es más chico y va a la izquierda (con Compartir al
+  lado), y la flecha que abre el detalle se sobrepone a la barra, arriba y al
+  medio, como asa.
+- El **footer del theme se oculta** en las fichas ProductLab (el landing
+  termina en el personalizador); el resto de la tienda no se toca.
 
 En ambos casos **el precio y el carro siguen siendo los del theme**. La ficha
 completa no calcula precios ni arma su propio carro: al elegir un valor escribe
@@ -353,7 +374,7 @@ siempre el de la variante en Jumpseller y no hay dos fuentes de verdad.
 ## Contrato v2 (ProductLab)
 
 La app (antes *gestion-productos*, ahora **ProductLab**) publica su JSON con
-`version: 2`. El kit (configurador **v5.12.0**) consume v1 y v2 por la misma
+`version: 2`. El kit (configurador **v5.13.0**) consume v1 y v2 por la misma
 vía: todos los campos nuevos son opcionales y sin ellos la ficha se comporta
 exactamente como antes. También acepta `data.productos` o el alias antiguo
 `data.equipos`.

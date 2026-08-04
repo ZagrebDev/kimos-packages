@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.12.0';
+  var VERSION = '5.13.0';
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -1792,8 +1792,26 @@
 
     // ?kimos_ar=1 — es lo que codifica el QR del escritorio: quien lo escanea
     // aterriza directamente en el configurador, sin buscar la pestaña.
+    // ?kimos_conf=1 — el enlace del botón Compartir: aterriza con el
+    // personalizador ya bloqueado en pantalla.
     var pedidoAR = /[?&]kimos_ar=1/.test(location.search);
-    var current = pedidoAR || !(hasHero || hasSpecs || hasFotos) ? 'configurar' : 'explorar';
+    var pedidoConf = /[?&]kimos_conf=1/.test(location.search);
+    var current = pedidoAR || pedidoConf || !(hasHero || hasSpecs || hasFotos) ? 'configurar' : 'explorar';
+    // Texto del botón que lleva al personalizador: el mismo en la barra y en
+    // la invitación del final del landing (se cambia una sola vez).
+    var etiquetaConfigurar = function () {
+      return tabsCfg.comprar || String(style.buyLabel || '').trim() || 'Configurar';
+    };
+    // Enlace directo al personalizador de ESTE producto, para compartir.
+    function compartirConfigurador() {
+      var u = location.origin + location.pathname + '?kimos_conf=1';
+      var titulo = entry.name || prod.name || document.title;
+      if (navigator.share) { navigator.share({ title: titulo, url: u }).catch(function () {}); return; }
+      var listo = function () { showNotice('Enlace copiado: pégalo donde quieras compartirlo.'); };
+      var aMano = function () { window.prompt('Copia el enlace del configurador:', u); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(listo, aMano);
+      else aMano();
+    }
     var anclas = {};   // sección → nodo, para bajar hasta ella
     var ctx = {
       name: prod.name, sku: entry.sku || prod.sku || '',
@@ -2017,7 +2035,14 @@
     function paintBar() {
       bar.innerHTML = '';
       var nav = el('div', 'kc-tabs');
-      TABS.forEach(function (t) {
+      if (current === 'configurar') {
+        // Personalizador bloqueado: la izquierda de la barra es solo el
+        // camino de vuelta al inicio del landing.
+        var back = el('button', 'kc-tab kc-volver', '← Volver');
+        back.type = 'button';
+        back.addEventListener('click', function () { setTab('explorar'); });
+        nav.appendChild(back);
+      } else TABS.forEach(function (t) {
         // Solo se marca activa la pestaña de la vista, no las anclas.
         var activa = current === t[0] && !t[2];
         // Las secundarias (Especificaciones, Fotos) llevan marca propia: en
@@ -2066,7 +2091,7 @@
       // comparten plantilla) y el producto puede pisarlo con tabs.comprar.
       var etiqueta = enConfig || !conPasos
         ? ((botonCarro() && (botonCarro().textContent || '').trim()) || 'Añadir al carro')
-        : (tabsCfg.comprar || String(style.buyLabel || '').trim() || 'Configurar');
+        : etiquetaConfigurar();
       var cta = el('button', 'kc-btn kc-btn-primary kc-bar-cta', etiqueta);
       cta.type = 'button';
       cta.addEventListener('click', function () {
@@ -2079,30 +2104,13 @@
       // en la barra, uno al lado del otro.
     }
 
-    function paint() {
-      paintBar();
-      body.innerHTML = '';
-      if (current === 'explorar') {
-        // Specs y Fotos van AQUÍ DENTRO, en el orden del builder, y las
-        // pestañas de arriba solo bajan hasta ellas. Tenerlas como pestañas
-        // aparte rompía la lectura de la ficha en trozos sueltos.
-        anclas = {};
-        secs.forEach(function (s) {
-          var n = null;
-          if (s.kind === 'hero') n = renderHero(s, ctx);
-          else if (s.kind === 'imagen') n = renderImagen(s);
-          else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos); anclas.fotos = n; }
-          else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
-          if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
-        });
-      } else if (current === 'configurar') {
-        // El panel de configuración se construye UNA vez y se reutiliza. Antes
-        // se rehacía en cada repintado, y como elegir un valor repinta, cada
-        // clic creaba un visor nuevo: volvía a descargar el .glb, parpadeaba y
-        // dejaba el anterior colgando. Ahora solo se vuelven a pintar los
-        // pasos; el visor (y con él la sesión de AR) sobrevive.
-        if (!confPanel) {
+    // El panel de configuración se construye UNA vez y se reutiliza. Antes
+    // se rehacía en cada repintado, y como elegir un valor repinta, cada
+    // clic creaba un visor nuevo: volvía a descargar el .glb, parpadeaba y
+    // dejaba el anterior colgando. Ahora solo se vuelven a pintar los
+    // pasos; el visor (y con él la sesión de AR) sobrevive.
+    function construirConf() {
+      if (!confPanel) {
           // Disposición de la ficha de computadores: los PASOS a la izquierda
           // y a la derecha una caja con la foto del producto, el precio, la
           // entrega, el resumen de lo elegido y el botón de carro.
@@ -2144,11 +2152,20 @@
           panelCta = el('button', 'kc-btn kc-btn-primary');
           panelCta.type = 'button';
           panelCta.addEventListener('click', alCarro);
+          // Compartir: enlace directo a ESTE personalizador (?kimos_conf=1).
+          // Va junto al carro, también en la barra inferior del móvil.
+          var btnShare = el('button', 'kc-btn kc-share', 'Compartir');
+          btnShare.type = 'button';
+          btnShare.title = 'Copiar o compartir el enlace directo a este configurador';
+          btnShare.addEventListener('click', compartirConfigurador);
+          var acciones = el('div', 'kc-acciones');
+          acciones.appendChild(panelCta);
+          acciones.appendChild(btnShare);
           cuerpo.appendChild(panelPrecio);
           cuerpo.appendChild(panelEntrega);
           cuerpo.appendChild(panelResumen);
           cuerpo.appendChild(panelStock);
-          cuerpo.appendChild(panelCta);
+          cuerpo.appendChild(acciones);
           panelBox.appendChild(confView);
           panelBox.appendChild(cab);
           panelBox.appendChild(cuerpo);
@@ -2164,20 +2181,59 @@
           panelBox.appendChild(expandir);
           confPanel.appendChild(confSteps);
           confPanel.appendChild(panelBox);
+      }
+      confSteps.innerHTML = '';
+      confSteps.appendChild(renderSteps(entry, groups, ctx));
+    }
+
+    function paint() {
+      paintBar();
+      body.innerHTML = '';
+      var enConf = current === 'configurar';
+      if (!enConf) {
+        // Landing: specs y fotos van AQUÍ DENTRO, en el orden del builder, y
+        // las pestañas de arriba solo bajan hasta ellas. Tenerlas como
+        // pestañas aparte rompía la lectura de la ficha en trozos inconexos.
+        anclas = {};
+        secs.forEach(function (s) {
+          var n = null;
+          if (s.kind === 'hero') n = renderHero(s, ctx);
+          else if (s.kind === 'imagen') n = renderImagen(s);
+          else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos); anclas.fotos = n; }
+          else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
+          if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
+        });
+        // Invitación a personalizar antes de la sección: mismo texto que el
+        // botón de la barra, para que sea UN solo concepto.
+        if (conPasos) {
+          var invita = el('div', 'kc-goconf');
+          var bInv = el('button', 'kc-btn kc-btn-primary kc-goconf-btn', etiquetaConfigurar());
+          bInv.type = 'button';
+          bInv.addEventListener('click', function () { setTab('configurar'); });
+          invita.appendChild(bInv);
+          body.appendChild(invita);
         }
-        confSteps.innerHTML = '';
-        confSteps.appendChild(renderSteps(entry, groups, ctx));
+      }
+      // El personalizador es la ÚLTIMA sección del landing. Al pulsar
+      // Configurar (barra o invitación) queda BLOQUEADO: se pinta él solo,
+      // con "← Volver" en la barra como único camino de regreso.
+      if (conPasos) {
+        construirConf();
+        confPanel.classList.toggle('kc-conf-inline', !enConf);
+        // En el landing el panel vive DENTRO de la sección (en flujo normal,
+        // ahí `fixed` no pinta nada); solo bloqueado y con un theme que rompe
+        // `fixed` se muda al anfitrión de <body>.
+        if (!enConf && panelBox && panelBox.parentNode !== confPanel) confPanel.appendChild(panelBox);
         body.appendChild(confPanel);
-        hostearPanel();
+        if (enConf) hostearPanel();
         pintarPanel();
       }
-      if (viewer && current === 'configurar') {
+      if (viewer) {
         viewer.setState(build3dState(entry, groups));
         viewer.resize();
       }
-      // Vive en <body> cuando el theme rompe `fixed`: al salir del configurador
-      // hay que esconderlo a mano, que el repintado del cuerpo no lo alcanza.
-      if (panelBox) panelBox.style.display = current === 'configurar' ? '' : 'none';
+      if (panelBox) panelBox.style.display = '';
       // El alto de la barra y el anclaje del panel dependen de lo que se acaba
       // de pintar: se recalculan al final, nunca antes.
       medirBarra();
@@ -2192,7 +2248,8 @@
       if (enforcing) return;   // cambio provocado por el propio ajuste
       ajustar(true);
       if (viewer) viewer.setState(build3dState(entry, groups));
-      if (current === 'configurar' && confSteps) {
+      // El configurador vive también en el landing: se repinta esté donde esté.
+      if (confSteps) {
         confSteps.innerHTML = '';
         confSteps.appendChild(renderSteps(entry, groups, ctx));
         pintarPanel();
@@ -2256,6 +2313,17 @@
       console.warn(LOG, 'la tienda y ProductLab no coinciden — ' + faltan.join(' · ')
         + '. La ficha solo puede ofrecer lo que la tienda tiene (es lo que se cobra): '
         + 'abre el producto en ProductLab y pulsa "Guardar y aplicar a la tienda" para crear las opciones y variantes que faltan.');
+    })();
+
+    // Los productos ProductLab son un landing completo que termina en el
+    // personalizador: el footer del theme sobra debajo y se oculta (solo en
+    // estas fichas; el resto de la tienda no se toca).
+    (function esconderFooter() {
+      var sels = ['footer.footer', '#footer', '.site-footer', 'footer[role="contentinfo"]', 'footer'];
+      for (var i = 0; i < sels.length; i++) {
+        var f = document.querySelector(sels[i]);
+        if (f && !f.contains(root) && !root.contains(f)) { f.style.display = 'none'; return; }
+      }
     })();
 
     // Al cargar, los pasos ocultos por dependencia quedan ya en su default

@@ -94,7 +94,8 @@ const pagina = () => `<!doctype html><html lang="es"><body>
       <button type="button" class="button product-form__button" id="add-to-cart" disabled><span>Añadir al carro</span></button>
     </form>
   </div>
-</section></body></html>`;
+</section>
+<footer class="footer">Pie del theme</footer></body></html>`;
 
 // ── Grupos KIMOS (con o sin dependencias) ──────────────────────────────────
 const grupos = (conDeps) => ([
@@ -462,9 +463,29 @@ console.log('\n— ancestro con transform: barra y panel se mudan a <body> —')
     panel.parentNode.classList.contains('kc-bar-host') && panel.parentNode.parentNode === d.body);
   t('el hueco al pie de los pasos es el alto real del panel',
     d.querySelector('.kimos-cfg').style.getPropertyValue('--kc-panel-h') !== '' || panel.offsetHeight === 0);
-  d.querySelector('.kc-tab').click();
+  // ── Contrato del landing (v5.13): el personalizador es la última sección,
+  // Configurar lo bloquea con "← Volver", compartir y footer oculto. ──
+  t('bloqueado: la izquierda de la barra es "← Volver"', !!d.querySelector('.kc-volver'));
+  d.querySelector('.kc-volver').click();
   await new Promise((r) => setTimeout(r, 20));
-  t('fuera de Configurar el panel no se ve', panel.style.display === 'none');
+  t('Volver regresa al landing (hero de vuelta)', !!d.querySelector('.kc-hero'));
+  t('el panel vuelve inline a la sección, visible',
+    !!panel.closest('.kc-conf-inline') && panel.style.display !== 'none');
+  const goconf = d.querySelector('.kc-goconf-btn');
+  t('el landing invita a configurar antes de la sección', !!goconf);
+  t('la invitación y la barra dicen lo mismo',
+    !!goconf && goconf.textContent === d.querySelector('.kc-bar-cta').textContent);
+  const cuerpo = d.querySelector('.kc-body');
+  t('el personalizador es la última sección del landing',
+    !!cuerpo.lastElementChild && cuerpo.lastElementChild.classList.contains('kc-conf'));
+  t('compartir junto al carro, con enlace directo (?kimos_conf=1)',
+    !!d.querySelector('.kc-share') && /kimos_conf=1/.test(SRC));
+  t('el footer del theme se oculta en la ficha',
+    d.querySelector('footer.footer').style.display === 'none');
+  goconf.click();
+  await new Promise((r) => setTimeout(r, 20));
+  t('la invitación también bloquea el personalizador',
+    !d.querySelector('.kc-hero') && !!d.querySelector('.kc-volver'));
   w.close();
 }
 

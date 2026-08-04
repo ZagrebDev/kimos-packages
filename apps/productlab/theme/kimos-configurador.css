@@ -396,6 +396,18 @@
 .kimos-cfg .kc-stockmsg { font-size: 11.5px; color: #C40000; margin-top: 6px; }
 .kimos-cfg .kc-panel .kc-btn { width: 100%; margin-top: 12px; }
 .kimos-cfg .kc-panel-exp { display: none; }
+/* Volver (personalizador bloqueado): único elemento a la izquierda de la barra. */
+.kimos-cfg .kc-volver { font-weight: 600; }
+/* Invitación a personalizar: cierre del landing, antes de la sección. */
+.kimos-cfg .kc-goconf { display: flex; justify-content: center; padding: 6px 20px 34px; }
+.kimos-cfg .kc-goconf-btn { min-width: 240px; padding: 15px 30px; font-size: 15px; }
+/* Compartir: botón secundario junto al carro (enlace directo ?kimos_conf=1). */
+.kimos-cfg .kc-share {
+  border: 1px solid var(--kc-borde); background: transparent; color: inherit;
+  font-size: 13px; padding: 10px 16px;
+}
+.kimos-cfg .kc-share:hover { border-color: var(--kc-accent); color: var(--kc-accent); }
+.kimos-cfg .kc-acciones .kc-share { margin-top: 8px; }
 /* ══ Móvil: el panel baja a una barra fija al ras de la pantalla ══
    Reparto: la foto a la izquierda y, a su derecha, nombre, precio y entrega;
    el botón de carro debajo, a todo el ancho. Con `display: contents` en el
@@ -408,6 +420,9 @@
     grid-template-columns: 1fr;
     padding-bottom: calc(var(--kc-panel-h, 150px) + 32px);
   }
+  /* El padding derecho deja una FRANJA LIBRE para la burbuja de chat de la
+     tienda (que flota fija en esa esquina): ni los textos ni los botones
+     llegan hasta el borde. */
   .kimos-cfg .kc-panel {
     position: fixed !important; left: 0; right: 0; top: auto !important;
     bottom: env(safe-area-inset-bottom, 0px);
@@ -415,7 +430,7 @@
     z-index: 12; box-shadow: 0 -6px 24px rgba(0,0,0,.22);
     border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
     display: grid; grid-template-columns: auto minmax(0, 1fr);
-    align-items: center; gap: 0 12px; padding: 8px 12px 10px;
+    align-items: center; gap: 0 12px; padding: 10px 76px 12px 12px;
   }
   .kimos-cfg .kc-panel-foto {
     grid-column: 1; grid-row: 1 / span 3;
@@ -425,7 +440,7 @@
   .kimos-cfg .kc-canvas { display: none; }        /* el 3D no cabe en la barra */
   .kimos-cfg .kc-panel-head {
     grid-column: 2; grid-row: 1;
-    background: none; color: inherit; padding: 0 44px 0 0;
+    background: none; color: inherit; padding: 0;
   }
   .kimos-cfg .kc-panel-name { font-size: 13px; }
   .kimos-cfg .kc-panel-sku { display: none; }
@@ -437,12 +452,22 @@
   .kimos-cfg .kc-summary { display: none; }
   .kimos-cfg .kc-stockmsg { grid-column: 1 / -1; margin: 2px 0 0; }
   .kimos-cfg .kc-stockmsg:empty { display: none; }
-  .kimos-cfg .kc-panel .kc-btn { grid-column: 1 / -1; margin-top: 8px; padding: 12px 16px; }
+  /* Carro + Compartir en una fila: el carro es más chico y va a la
+     IZQUIERDA (nada de botón a todo el ancho hasta el borde del chat). */
+  .kimos-cfg .kc-acciones {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  }
+  .kimos-cfg .kc-panel .kc-btn { width: auto; margin-top: 0; padding: 11px 18px; }
+  .kimos-cfg .kc-acciones .kc-share { padding: 11px 14px; font-size: 12px; }
+  /* La flecha del detalle se SOBREPONE a la barra: arriba y al medio, medio
+     afuera, como asa para tirar del panel. */
   .kimos-cfg .kc-panel-exp {
-    display: flex; position: absolute; right: 10px; top: 8px;
-    width: 34px; height: 34px; align-items: center; justify-content: center;
+    display: flex; position: absolute; left: 50%; top: 0;
+    transform: translate(-50%, -60%);
+    width: 52px; height: 28px; align-items: center; justify-content: center;
     border: 1px solid var(--kc-borde); background: var(--kc-bg, #fff); color: inherit;
-    cursor: pointer; font-size: 13px; border-radius: var(--kc-radius);
+    cursor: pointer; font-size: 12px; border-radius: 999px;
+    box-shadow: 0 -4px 12px rgba(0,0,0,.15);
   }
   /* Desplegado: la foto crece y aparece TODO lo elegido, paso por paso. */
   .kimos-cfg .kc-panel.kc-open .kc-panel-img { max-height: 130px; }
@@ -450,6 +475,17 @@
     display: block; grid-column: 1 / -1; max-height: 34vh; overflow-y: auto;
   }
   .kimos-cfg .kc-panel.kc-open .kc-canvas { display: block; }
+  /* En el LANDING (sección inline, sin bloquear) el panel no flota: es una
+     card normal al final de la sección. La barra flotante y su flecha son
+     solo del personalizador bloqueado. */
+  .kimos-cfg .kc-conf-inline { padding-bottom: 40px; }
+  .kimos-cfg .kc-conf-inline .kc-panel {
+    position: static !important; box-shadow: none; padding: 12px;
+    border: 1px solid var(--kc-fg, #1D1D1B); border-radius: var(--kc-radius);
+  }
+  .kimos-cfg .kc-conf-inline .kc-panel-img { max-height: 150px; }
+  .kimos-cfg .kc-conf-inline .kc-panel-exp { display: none; }
+  .kimos-cfg .kc-conf-inline .kc-summary { display: block; grid-column: 1 / -1; }
 }
 
 /* Pasos: título en versalitas con el número en acento y filete discontinuo. */
