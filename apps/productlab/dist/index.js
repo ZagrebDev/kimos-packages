@@ -801,6 +801,9 @@ export default function mount(shell) {
       tags: Array.isArray(draft.tags) ? draft.tags : parseList(draft.tags),
       requires: Array.isArray(draft.requires) ? draft.requires : parseList(draft.requires),
       excludes: Array.isArray(draft.excludes) ? draft.excludes : parseList(draft.excludes),
+      // Componentes ALTERNATIVOS entre sí (mismo rol, distinto proveedor).
+      // El enlace es SIMÉTRICO: saveComponent lo replica en el otro extremo.
+      altIds: Array.isArray(draft.altIds) ? draft.altIds.filter((x) => x && x !== draft.id) : [],
       active: draft.active !== false,
       notes: s(draft.notes),
       createdAt: draft.createdAt || nowIso(),
@@ -811,9 +814,23 @@ export default function mount(shell) {
     const item = normalizeComponent(draft);
     if (!item.name) return { success: false, error: 'El componente requiere nombre.' };
     const isNew = !model.components.some((c) => c.id === item.id);
-    setModel({ components: isNew ? model.components.concat([item]) : model.components.map((c) => (c.id === item.id ? item : c)) });
+    // Alternativos SIMÉTRICOS: los agregados me suman en su lista y los
+    // quitados me borran de la suya (el enlace vive en ambos extremos).
+    const prevAlt = (model.components.find((c) => c.id === item.id) || {}).altIds || [];
+    const nuevos = item.altIds.filter((x) => prevAlt.indexOf(x) === -1);
+    const idos = prevAlt.filter((x) => item.altIds.indexOf(x) === -1);
+    const espejo = model.components
+      .filter((c) => nuevos.indexOf(c.id) !== -1 || idos.indexOf(c.id) !== -1)
+      .map((c) => normalizeComponent(Object.assign({}, c, {
+        altIds: nuevos.indexOf(c.id) !== -1
+          ? ((c.altIds || []).indexOf(item.id) === -1 ? (c.altIds || []).concat([item.id]) : c.altIds)
+          : (c.altIds || []).filter((x) => x !== item.id),
+      })));
+    setModel({ components: (isNew ? model.components.concat([item]) : model.components.map((c) => (c.id === item.id ? item : c)))
+      .map((c) => espejo.find((e) => e.id === c.id) || c) });
     try {
       if (isNew) await shell.items.create(item); else await shell.items.update(item.id, item);
+      for (const e of espejo) await shell.items.update(e.id, e);
       scheduleRepublish();
       return { success: true, message: 'Componente "' + item.name + '" guardado.', item };
     } catch (e) {
@@ -3590,19 +3607,87 @@ export default function mount(shell) {
 
   // ── Formulario de componente ──────────────────────────────────────────────
   function ComponentForm({ initial, onDone, sec }) {
-    void sec;   // pestañas del componente: General (Alternativos/Compatibles llegan aparte)
+    sec = sec || 'general';
     const [d, setD] = useState(() => Object.assign({
       name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, taxPct: 0,
       supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, storeRef: null,
-      tags: [], requires: [], excludes: [], active: true, notes: '',
+      tags: [], requires: [], excludes: [], altIds: [], active: true, notes: '',
     }, initial || {}));
     const [busy, setBusy] = useState(false);
     // Texto en curso y foco del buscador de tags (uno por campo).
     const [tagTx, setTagTx] = useState({});
     const [tagFoco, setTagFoco] = useState('');
+    const [altQ, setAltQ] = useState('');   // buscador de alternativos
     const up = (patch) => setD(Object.assign({}, d, patch));
     const preview = componentSale(normalizeComponent(Object.assign({}, d, { id: d.id || 'x' })));
+    // ── Pestaña ALTERNATIVOS: componentes intercambiables entre sí ──
+    // El enlace es simétrico (al guardar, este componente queda también como
+    // alternativo del otro). En los productos, un valor que acepte
+    // alternativas usa SIEMPRE el más barato disponible del grupo.
+    const panelAlternativos = (function () {
+      const alts = (d.altIds || []).map(compById).filter(Boolean);
+      const q = altQ.trim().toLowerCase();
+      const res = q.length < 2 ? [] : model.components.filter((c) =>
+        c.id !== d.id && (d.altIds || []).indexOf(c.id) === -1
+        && (c.name || '').toLowerCase().indexOf(q) !== -1).slice(0, 8);
+      return h('div', { key: 'salt', style: sec === 'alternativos' ? null : { display: 'none' } }, [
+        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 10 } },
+          'Alternativos = componentes INTERCAMBIABLES con este (mismo rol, otro proveedor o marca). El enlace queda en ambos sentidos al guardar. Donde un producto acepte alternativas, se usa el más barato disponible del grupo — igual que la lógica de siempre.'),
+        h('div', { key: 'chips', style: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 } },
+          alts.length ? alts.map((c) => h('span', { key: c.id, className: 'gp-chip ' + (compAvailable(c) ? 'gris' : 'err'),
+            style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 12 } }, [
+            h('span', { key: 'n' }, c.name + ' · ' + fmtMoney(componentSale(c)) + (c.stock == null ? '' : ' · stock ' + num(c.stock))),
+            h('button', { key: 'x', className: 'gp-btn gp-btn-sm', title: 'Desenlazar (se quita de ambos lados al guardar)',
+              onClick: () => up({ altIds: (d.altIds || []).filter((x) => x !== c.id) }) }, '✕'),
+          ])) : h('span', { key: 'e', className: 'gp-muted' }, 'Sin alternativos aún: busca abajo para enlazar.')),
+        h('div', { key: 'buscar', style: { position: 'relative', maxWidth: 460 } }, [
+          h(TextInput, { key: 'q', value: altQ, placeholder: '🔍 buscar componente para enlazar como alternativo…',
+            onChange: (e) => setAltQ(e.target.value) }),
+          res.length > 0 && h('div', { key: 'res', style: {
+            position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%', maxHeight: 260, overflowY: 'auto',
+            background: 'var(--gp-blanco)', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+          } }, res.map((c) => h('div', { key: c.id,
+            style: { padding: '8px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'baseline', borderBottom: '1px solid var(--gp-linea)' },
+            onMouseDown: () => { up({ altIds: (d.altIds || []).concat([c.id]) }); setAltQ(''); },
+          }, [
+            h('span', { key: 'n', style: { fontWeight: 600 } }, c.name),
+            h('span', { key: 't', className: 'gp-muted', style: { fontSize: 11 } }, typeLabel(c.type)),
+            c.type !== d.type ? h('span', { key: 'w', className: 'gp-chip warn', style: { fontSize: 10 } }, 'otro tipo') : null,
+            h('span', { key: 'p', style: { marginLeft: 'auto', fontSize: 12 } }, fmtMoney(componentSale(c))),
+          ]))),
+        ]),
+      ]);
+    })();
+    // ── Pestaña COMPATIBLES: productos del catálogo frente a los tags ──
+    const panelCompatibles = (function () {
+      const filas = model.productos.map((p) => {
+        const enUso = (p.baseComponentIds || []).indexOf(d.id) !== -1
+          || (p.groups || []).some((g) => groupValues(g).some((v) => (v.componentIds || []).indexOf(d.id) !== -1));
+        const aporta = new Set();
+        (p.baseComponentIds || []).map(compById).filter(Boolean).forEach((c) => (c.tags || []).forEach((t) => aporta.add(t)));
+        (p.groups || []).forEach((g) => groupValues(g).forEach((v) => (v.componentIds || []).map(compById).filter(Boolean)
+          .forEach((c) => (c.tags || []).forEach((t) => aporta.add(t)))));
+        const veta = (d.excludes || []).filter((t) => aporta.has(t));
+        const falta = (d.requires || []).filter((t) => !aporta.has(t) && aporta.size > 0);
+        return { p, enUso, veta, falta };
+      });
+      return h('div', { key: 'scomp', style: sec === 'compatibles' ? null : { display: 'none' } }, [
+        h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 10 } },
+          'Cómo se lleva este componente con cada producto del catálogo, según los tags (aporta/requiere/incompatible). Es informativo: las combinaciones vetadas jamás se publican en la tienda.'),
+        filas.length === 0 ? h('div', { key: 'e', className: 'gp-muted' }, 'Aún no hay productos en el catálogo.') : null,
+        h(React.Fragment, { key: 'l' }, filas.map(({ p, enUso, veta, falta }) => h('div', { key: p.id, className: 'gp-compline' }, [
+          h('span', { key: 'n', className: 'grow', style: { fontWeight: 600 } }, p.name),
+          enUso ? h('span', { key: 'u', className: 'gp-chip fuc' }, 'en uso') : null,
+          veta.length ? h('span', { key: 'v', className: 'gp-chip err' }, '⚠ incompatible: ' + veta.join(', '))
+            : falta.length ? h('span', { key: 'f', className: 'gp-chip warn' }, 'requiere: ' + falta.join(', '))
+            : h('span', { key: 'ok', className: 'gp-chip ok' }, 'compatible'),
+        ]))),
+      ]);
+    })();
     return h('div', null, [
+      panelAlternativos,
+      panelCompatibles,
+      h('div', { key: 'sgen', style: sec === 'general' ? null : { display: 'none' } }, [
       h('div', { key: 'g1', className: 'gp-grid2' }, [
         h(Row, { key: 'n', label: 'Nombre *' }, h(TextInput, { value: d.name, onChange: (e) => up({ name: e.target.value }), placeholder: 'Ej: Tela algodón 20/1 · Tablero roble 18mm · Corte CNC' })),
         h(Row, { key: 't', label: 'Tipo' }, h('select', { className: 'gp-select', value: d.type, onChange: (e) => up({ type: e.target.value }) },
@@ -3692,6 +3777,8 @@ export default function mount(shell) {
         h('b', { key: 'p', className: 'gp-price' }, fmtMoney(preview)),
         ' — margen ' + marginFor(d.type) + '% + ' + rules().salesTaxLabel + ' ' + rules().salesTaxPct + '%',
       ]),
+      ]),
+      // Guardar es común a las tres pestañas (general/alternativos/compatibles).
       h('div', { key: 'a', className: 'gp-actions' }, [
         h('button', { key: 'save', className: 'gp-btn gp-btn-primary', disabled: busy || !s(d.name).trim(), onClick: async () => {
           setBusy(true);
@@ -3720,6 +3807,9 @@ export default function mount(shell) {
     const [stockDrafts, setStockDrafts] = useState({}); // stock inline por fila
     const [selIds, setSelIds] = useState({});           // selección para acciones masivas
     const [bulkStock, setBulkStock] = useState('');
+    // Inventario tipo videojuego: CARDS por tipo (default) o la tabla densa.
+    const [vista, setVista] = useState('cards');
+    const [verTodo, setVerTodo] = useState({});         // tipo → mostrar todos
     const r = rules();
     const list = state.components
       .filter((c) => !filterType || c.type === filterType)
@@ -3773,17 +3863,21 @@ export default function mount(shell) {
       }
     };
     return h('div', null, [
-      h('div', { key: 'f', className: 'gp-filters' }, [
+      h('div', { key: 'f', className: 'gp-filters gp-filters-centro' }, [
+        h('div', { key: 'sw', className: 'gp-vswitch' }, [
+          h('button', { key: 'c', className: 'gp-btn gp-btn-sm' + (vista === 'cards' ? ' gp-btn-dark' : ''), onClick: () => setVista('cards') }, 'Cards'),
+          h('button', { key: 't', className: 'gp-btn gp-btn-sm' + (vista === 'tabla' ? ' gp-btn-dark' : ''), onClick: () => setVista('tabla') }, 'Tabla'),
+        ]),
         h('button', { key: 'new', className: 'gp-btn gp-btn-primary', onClick: () => setEditing({}) }, '+ Componente'),
         h('button', { key: 'store', className: 'gp-btn', title: 'Importar un producto del catálogo de la tienda como componente', onClick: () => setPickingStore(true) }, '+ Desde la tienda'),
-        h('select', { key: 't', className: 'gp-select', value: filterType, onChange: (e) => setFilterType(e.target.value) },
+        h('select', { key: 't', className: 'gp-select', style: { maxWidth: 180 }, value: filterType, onChange: (e) => setFilterType(e.target.value) },
           [h('option', { key: '', value: '' }, 'Todos los tipos')].concat(types().map((t) => h('option', { key: t.id, value: t.id }, t.label)))),
-        h(TextInput, { key: 's', value: search, onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar…' }),
+        h(TextInput, { key: 's', value: search, onChange: (e) => setSearch(e.target.value), placeholder: 'Buscar…', style: { maxWidth: 220 } }),
         h('label', { key: 'st', className: 'gp-switch' }, [
           h('input', { key: 'c', type: 'checkbox', checked: onlyStale, onChange: (e) => setOnlyStale(e.target.checked) }),
           h('span', { key: 's' }, 'Por verificar (+' + r.staleDays + ' días, más antiguos primero)'),
         ]),
-        h('span', { key: 'n', className: 'gp-muted', style: { marginLeft: 'auto' } }, list.length + ' de ' + state.components.length),
+        h('span', { key: 'n', className: 'gp-muted' }, list.length + ' de ' + state.components.length),
       ]),
       (function () {
         const count = Object.keys(selIds).filter((k) => selIds[k]).length;
@@ -3802,6 +3896,74 @@ export default function mount(shell) {
       })(),
       state.components.length === 0
         ? h('div', { key: 'e', className: 'gp-card gp-muted' }, 'Aún no hay componentes. Crea tu catálogo de insumos —telas, materias primas, piezas, mano de obra o procesos externalizados— con su costo y link de proveedor (o impórtalos desde la tienda); luego arma los productos en la pestaña Productos.')
+        : vista === 'cards'
+        ? (function () {
+            // Mosaico por TIPO: grupos reordenables (se guarda en definition.ui)
+            // con cards chicas de inventario; cada grupo enseña un puñado y
+            // "Ver todos" lo abre completo.
+            const orden = (state.def && state.def.ui && Array.isArray(state.def.ui.compTypeOrder)) ? state.def.ui.compTypeOrder : [];
+            const tipos = types().filter((t) => list.some((c) => c.type === t.id))
+              .sort((a, b) => {
+                const ia = orden.indexOf(a.id), ib = orden.indexOf(b.id);
+                return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+              });
+            const mover = async (tid, dir) => {
+              const ids = tipos.map((t) => t.id);
+              const i = ids.indexOf(tid), j = i + dir;
+              if (j < 0 || j >= ids.length) return;
+              const xs = ids.slice(); const tmp = xs[i]; xs[i] = xs[j]; xs[j] = tmp;
+              await saveDefinition(Object.assign({}, state.def || defaultDefinition(),
+                { ui: Object.assign({}, (state.def || {}).ui, { compTypeOrder: xs }) }));
+            };
+            const LIM = 12;
+            return h('div', { key: 'inv', className: 'gp-inv' }, tipos.map((t, ti) => {
+              const del = list.filter((c) => c.type === t.id);
+              const abierto = !!verTodo[t.id];
+              const visibles = abierto ? del : del.slice(0, LIM);
+              return h('div', { key: t.id, className: 'gp-inv-grupo' }, [
+                h('div', { key: 'h', className: 'gp-inv-head' }, [
+                  h('span', { key: 'l', className: 'gp-inv-titulo' }, t.label),
+                  h('span', { key: 'n', className: 'gp-muted' }, String(del.length)),
+                  h('span', { key: 'sp', style: { flex: 1 } }),
+                  ti > 0 ? h('button', { key: 'u', className: 'gp-btn gp-btn-sm', title: 'Subir el grupo en el mosaico', onClick: () => mover(t.id, -1) }, '↑') : null,
+                  ti < tipos.length - 1 ? h('button', { key: 'd', className: 'gp-btn gp-btn-sm', title: 'Bajar el grupo en el mosaico', onClick: () => mover(t.id, 1) }, '↓') : null,
+                  del.length > LIM ? h('button', { key: 'todo', className: 'gp-btn gp-btn-sm' + (abierto ? ' gp-btn-dark' : ''),
+                    onClick: () => setVerTodo(Object.assign({}, verTodo, { [t.id]: !abierto })) },
+                    abierto ? 'Ver menos' : 'Ver todos (' + del.length + ')') : null,
+                ]),
+                h('div', { key: 'g', className: 'gp-inv-grid' }, visibles.map((c) => {
+                  const stale = daysSince(c.verifiedAt) > r.staleDays;
+                  const cDraft = costDrafts[c.id];
+                  const sDraft = stockDrafts[c.id];
+                  return h('div', { key: c.id, className: 'gp-icard' + (c.active === false ? ' off' : '') }, [
+                    h('div', { key: 'f', className: 'gp-icard-foto', onClick: () => setEditing(c), title: 'Abrir "' + c.name + '"' },
+                      c.imageUrl ? h('img', { src: c.imageUrl, alt: '' }) : h('span', { className: 'gp-muted' }, '📦')),
+                    h('div', { key: 'n', className: 'gp-icard-nombre', onClick: () => setEditing(c), title: c.name }, c.name),
+                    h('div', { key: 'p', className: 'gp-icard-precio' }, fmtMoney(componentSale(c))),
+                    stale ? h('span', { key: 'w', className: 'gp-chip warn', style: { fontSize: 9, alignSelf: 'center' } }, 'por verificar') : null,
+                    h('div', { key: 'e', className: 'gp-icard-edit' }, [
+                      h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, title: 'Costo proveedor',
+                        value: cDraft == null ? num(c.cost) : cDraft, onChange: (ev) => setCostDraft(c.id, ev.target.value) }),
+                      h(TextInput, { key: 's', mono: true, type: 'number', min: 0, title: 'Stock (vacío = sin control)', placeholder: '∞',
+                        value: sDraft == null ? (c.stock == null ? '' : num(c.stock)) : sDraft,
+                        onChange: (ev) => { const o = Object.assign({}, stockDrafts); o[c.id] = ev.target.value; setStockDrafts(o); } }),
+                      h('button', { key: 'g', className: 'gp-btn gp-btn-sm gp-btn-primary', title: 'Guardar costo y stock', onClick: async () => {
+                        const nc = cDraft == null || cDraft === '' ? num(c.cost) : num(cDraft, NaN);
+                        if (!Number.isFinite(nc) || nc < 0) { shell.notify({ level: 'warn', text: 'Costo inválido.' }); return; }
+                        const ns = sDraft == null ? (c.stock == null ? null : num(c.stock)) : (sDraft === '' ? null : Math.max(0, num(sDraft, 0)));
+                        const res = await saveComponent(Object.assign({}, c, { cost: nc, stock: ns }, nc !== num(c.cost) ? { verifiedAt: nowIso() } : {}));
+                        if (res.success) {
+                          setCostDraft(c.id, null);
+                          const o = Object.assign({}, stockDrafts); delete o[c.id]; setStockDrafts(o);
+                          shell.notify({ level: 'success', text: '"' + c.name + '" actualizado.' });
+                        }
+                      } }, '✓'),
+                    ]),
+                  ]);
+                })),
+              ]);
+            }));
+          })()
         : h('div', { key: 'tbl', className: 'gp-card', style: { padding: 0 } },
             h('table', { className: 'gp-table' }, [
               h('thead', { key: 'h' }, h('tr', null, [
@@ -6222,8 +6384,7 @@ export default function mount(shell) {
   // tokens del tema de KIMOS (día/noche y acento van con el shell).
   const CFG_TABS = [['precios', 'Precios'], ['estilos', 'Estilos'], ['publicacion', 'Publicación'], ['datos', 'Datos']];
   const PROD_TABS = [['general', 'General'], ['galeria', 'Galería'], ['pasos', 'Estudio'], ['ficha', 'Experiencia']];
-  // Alternativos y Compatibles se suman en la fase de componentes enlazados.
-  const COMP_TABS = [['general', 'General']];
+  const COMP_TABS = [['general', 'General'], ['alternativos', 'Alternativos'], ['compatibles', 'Compatibles']];
   const ICONO_CASA = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     [h('path', { key: 'p', d: 'M3 10.5 12 3l9 7.5' }), h('path', { key: 'q', d: 'M5 9.5V21h14V9.5' })]);
   const ICONO_ATRAS = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },

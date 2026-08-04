@@ -236,6 +236,35 @@
 .kimos-productlab .gp-pcard-add-ico { font-size: 44px; line-height: 1; color: var(--gp-acento); }
 .kimos-productlab .gp-pcard-add-txt { font: 600 15px/1.2 'Orbitron', 'Inter', sans-serif; letter-spacing: .04em; }
 
+/* ── Componentes: inventario de videojuego (cards chicas por tipo) ── */
+.kimos-productlab .gp-inv { display: flex; flex-direction: column; gap: 22px; max-width: 1280px; margin: 0 auto; }
+.kimos-productlab .gp-inv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.kimos-productlab .gp-inv-titulo { font: 600 17px/1.2 'Orbitron', 'Inter', sans-serif; letter-spacing: .05em; }
+.kimos-productlab .gp-inv-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;
+}
+.kimos-productlab .gp-icard {
+  display: flex; flex-direction: column; gap: 5px; padding: 8px;
+  background: var(--gp-blanco); border: 1px solid var(--gp-gris-claro);
+  border-radius: var(--gp-radius);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kimos-productlab .gp-icard:hover { border-color: var(--gp-acento); box-shadow: 0 0 12px hsl(var(--primary, 178 96% 59%) / .22); }
+.kimos-productlab .gp-icard.off { opacity: .45; }
+.kimos-productlab .gp-icard-foto {
+  height: 74px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--gp-plata); border-radius: calc(var(--gp-radius) - 2px); overflow: hidden; font-size: 22px;
+}
+.kimos-productlab .gp-icard-foto img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.kimos-productlab .gp-icard-nombre {
+  font: 600 11.5px/1.25 'Inter', sans-serif; cursor: pointer; text-align: center;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.4em;
+}
+.kimos-productlab .gp-icard-precio { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; text-align: center; }
+.kimos-productlab .gp-icard-edit { display: flex; gap: 4px; }
+.kimos-productlab .gp-icard-edit .gp-input { padding: 5px 6px; font-size: 11px; min-width: 0; }
+.kimos-productlab .gp-icard-edit .gp-btn { padding: 5px 8px; flex-shrink: 0; }
+
 /* ── Producto → General: foto a la izquierda (abre la Galería) ── */
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr);
