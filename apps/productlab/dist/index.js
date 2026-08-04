@@ -4428,11 +4428,12 @@ export default function mount(shell) {
                   };
                   const upLista = edit.upPresets;
                   return h('div', { key: '__presets', style: { marginBottom: 18 } }, [
-                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                    h('div', { key: 'h', title: 'Capa previa OPCIONAL: el cliente elige una configuración sugerida y la edita, o parte de cero. Sin presets va directo al paso a paso.',
+                      style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 0' } }, [
                       h('span', { key: 'n', style: { color: accent } }, 'PRESETS'),
                       h('span', { key: 'l' }, ' · Configuraciones sugeridas'),
-                      h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } },
-                        'capa previa OPCIONAL: el cliente elige una y la edita, o parte de cero; sin presets va directo al paso a paso'),
+                      h('span', { key: 'i', className: 'gp-muted gp-hint-linea', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } },
+                        'capa previa opcional: el cliente elige una y la edita, o parte de cero'),
                     ]),
                     h('div', { key: 'cards', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
                       presets.map((pz) => {
@@ -4458,10 +4459,11 @@ export default function mount(shell) {
                   ]);
                 })(),
                 h('div', { key: '__base', style: { marginBottom: 14 } }, [
-                  h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                  h('div', { key: 'h', title: 'Componentes incluidos siempre en el producto — el cliente jamás los ve.',
+                    style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 0' } }, [
                     h('span', { key: 'n', style: { color: accent } }, 'PASO 00'),
                     h('span', { key: 'l' }, ' · Componentes base'),
-                    h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'incluidos siempre — invisibles para el cliente'),
+                    h('span', { key: 'i', className: 'gp-muted gp-hint-linea', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'incluidos siempre — invisibles para el cliente'),
                     h('button', { key: 'cfg', className: 'gp-btn gp-btn-sm' + (edit.abierto === '__base' ? ' gp-btn-dark' : ''),
                       style: { marginLeft: 10 }, title: 'Editar componentes base y costos adicionales',
                       onClick: () => edit.abrir('__base') }, edit.abierto === '__base' ? '✕ Cerrar' : '⚙ Editar'),
@@ -4490,10 +4492,10 @@ export default function mount(shell) {
                   const editor = edit && edit.abierto === g.id
                     ? h('div', { key: 'ed', className: 'gp-vivo-editor' }, edit.renderEditorPaso(g, idx)) : null;
                   if (edit && g.baseStep === true) return h('div', { key: g.id, style: { marginBottom: 14 } }, [
-                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 0' } }, [
                       h('span', { key: 'n', style: { color: accent } }, 'PASO ' + String(gi + 1).padStart(2, '0')),
                       h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
-                      h('span', { key: 'i', className: 'gp-muted', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'componente base — invisible para el cliente'),
+                      h('span', { key: 'i', className: 'gp-muted gp-hint-linea', style: { marginLeft: 8, fontWeight: 400, letterSpacing: 0 } }, 'componente base — invisible para el cliente'),
                       btnCfg,
                     ]),
                     editor,
@@ -4506,7 +4508,7 @@ export default function mount(shell) {
                     editor,
                   ]);
                   return h('div', { key: g.id, style: { marginBottom: 14 } }, [
-                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center' } }, [
+                    h('div', { key: 'h', style: { fontSize: 11, fontWeight: 700, letterSpacing: '.08em', marginBottom: 6, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 0' } }, [
                       h('span', { key: 'n', style: { color: accent } }, 'PASO ' + String(gi + 1).padStart(2, '0')),
                       h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
                       btnCfg,
@@ -5292,7 +5294,7 @@ export default function mount(shell) {
           ]),
         ]),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          'La página del modelo se compone de SECCIONES una bajo otra: heros con patrón flexbox, la tabla de especificaciones y la nota (reordenables con ↑↓; specs y nota se pueden ocultar). Pincha un contenedor o un bloque en la previsualización para editarlo abajo, y ARRASTRA bloques entre contenedores (incluso de otra sección). La previsualización es aproximada; el theme pone la tipografía final.'),
+          'La página se arma con secciones apiladas (reordénalas con ↑↓). Pincha un contenedor o bloque en la previsualización para editarlo, y arrastra bloques para moverlos.'),
         h(React.Fragment, { key: 'list' }, sfPage.map((sec2, si2) => {
           const moveBtns = [
             si2 > 0 && h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
@@ -5331,7 +5333,7 @@ export default function mount(shell) {
                       const upPh = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { photos: Object.assign({}, ph, patch) }) }) });
                       return h('div', { key: 'ft' }, [
                         h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
-                          'Grilla de fotos del producto (galería de la tienda) con visor grande. Las fotos se gestionan en el producto; aquí decides cómo se ven dentro de la ficha.'),
+                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven.'),
                         h('div', { key: 'g', className: 'gp-grid2' }, [
                           h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
                             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (e) => upPh({ size: e.target.value }) }, [
@@ -5384,7 +5386,7 @@ export default function mount(shell) {
               ])),
               h('div', { key: 'b', className: 'gp-group-body' }, [
                 h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
-                  'Sección de solo foto: en la tienda ocupa el ancho elegido y su ALTO se adapta a la imagen (sin recortes). Encadena varias para descripciones hechas de fotos apiladas, cada una con su altura natural.'),
+                  'Solo foto: el alto se adapta a la imagen, sin recortes.'),
                 h(ImgField, { key: 'img', label: null, value: sec2.imageUrl || '', gallery: productoGallery, onChange: (u) => upPageX(sec2.id, { imageUrl: u }) }),
                 h('div', { key: 'meta', className: 'gp-grid2' }, [
                   h(Row, { key: 'alt', label: 'Texto alternativo (accesibilidad, opcional)' },
@@ -5655,7 +5657,7 @@ export default function mount(shell) {
                   b.type === 'cta' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
                     h(TextInput, { key: 'l11', value: b.label || '', placeholder: 'Texto del botón', style: { width: 180 }, onChange: (e) => upBlock(b.id, { label: e.target.value }) }),
                     h('select', { key: 's11', className: 'gp-select', style: { width: 110 }, value: b.style || 'primary', onChange: (e) => upBlock(b.id, { style: e.target.value }) },
-                      [['primary', 'Fucsia'], ['dark', 'Oscuro'], ['ghost', 'Fantasma']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                      [['primary', 'Acento'], ['dark', 'Oscuro'], ['ghost', 'Fantasma']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                     h('select', { key: 'a11', className: 'gp-select', style: { width: 150 }, value: b.action || 'configurar', onChange: (e) => upBlock(b.id, { action: e.target.value }) },
                       [['configurar', 'Ir a Configurar'], ['url', 'Abrir URL']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                     b.action === 'url' && h(TextInput, { key: 'u11', mono: true, value: b.url || '', placeholder: 'https://…', style: { flex: 1, minWidth: 160 }, onChange: (e) => upBlock(b.id, { url: e.target.value }) }),
@@ -5706,16 +5708,21 @@ export default function mount(shell) {
             ]),
           ]);
         })),
+        // Cards fantasma como el "+ Agregar paso" del Estudio: mismo lenguaje.
         h('div', { key: 'addrow', style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, [
-          h('button', { key: 'addh', className: 'gp-btn', onClick: () => upPage(sfPage.concat([{ id: newId('hb'), kind: 'hero', pattern: 'clasico', height: 'm', bgColor: '', bgImageUrl: '', textColor: '', overlay: true, slots: {} }])) }, '+ Sección hero'),
-          h('button', { key: 'addi', className: 'gp-btn', title: 'Sección de solo foto: en la tienda el alto se adapta a la imagen (sin recortes). Encadena varias para descripciones hechas de fotos apiladas.', onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
+          h('button', { key: 'addh', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
+            title: 'Sección con patrón de contenedores: foto, títulos, items, botón…',
+            onClick: () => upPage(sfPage.concat([{ id: newId('hb'), kind: 'hero', pattern: 'clasico', height: 'm', bgColor: '', bgImageUrl: '', textColor: '', overlay: true, slots: {} }])) }, '+ Sección hero'),
+          h('button', { key: 'addi', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
+            title: 'Sección de solo foto: el alto se adapta a la imagen, sin recortes. Encadena varias para descripciones hechas de fotos apiladas.',
+            onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
         ]),
       ]),
       // ── Ficha de tienda: tabla de especificaciones ──
       h('div', { key: 'specs', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Tabla de especificaciones']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          'Pestaña Especificaciones de la tienda (pantalla completa). Defínela a tu gusto; "Generar desde componentes" siembra filas con la base y la configuración por defecto (sin marcas), y luego editas lo que quieras.'),
+          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras.'),
         h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
           h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 }, onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
           h(TextInput, { key: 'l', value: sp.label, placeholder: 'Etiqueta (ej: Material)', style: { width: 180 }, onChange: (e) => upSpecRow(sp.id, { label: e.target.value }) }),

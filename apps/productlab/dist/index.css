@@ -153,6 +153,9 @@
   /* Modales a todo el ancho útil, sin el marco de 24px del escritorio. */
   .kimos-productlab .gp-overlay { padding: 10px; }
   .kimos-productlab .gp-modal-body { max-height: 76vh; }
+  /* Los hints inline de los encabezados del Estudio (PRESETS, PASO 00…)
+     no caben en móvil: la explicación queda en el title del encabezado. */
+  .kimos-productlab .gp-hint-linea { display: none; }
 }
 
 /* ── Mosaico de Parámetros (2×2) ── */
@@ -262,11 +265,15 @@
 .kimos-productlab .gp-switch input { width: 16px; height: 16px; accent-color: var(--gp-acento); }
 .kimos-productlab .gp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
 
-/* ── Tablas ── */
-.kimos-productlab .gp-table { width: 100%; border-collapse: collapse; background: var(--gp-blanco); }
+/* ── Tablas ──
+   border-collapse: separate — con collapse, los th sticky pintan mal en
+   Chrome (fondo que se queda atrás y filas visibles POR ENCIMA del
+   encabezado al scrollear). El z-index alto los deja siempre arriba de
+   cualquier contenido posicionado de las filas (inputs, dropdowns). */
+.kimos-productlab .gp-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--gp-blanco); }
 .kimos-productlab .gp-table th {
   text-align: left; font: 500 12.5px/1.3 'Inter', sans-serif; color: var(--gp-gris);
-  padding: 10px 12px; border-bottom: 1px solid var(--gp-gris-claro); background: var(--gp-blanco); position: sticky; top: 0;
+  padding: 10px 12px; border-bottom: 1px solid var(--gp-gris-claro); background: var(--gp-blanco); position: sticky; top: 0; z-index: 10;
 }
 .kimos-productlab .gp-table td { padding: 8px 10px; border-bottom: 1px solid var(--gp-linea); vertical-align: middle; }
 .kimos-productlab .gp-table tr:hover td { background: var(--gp-plata); }
@@ -582,20 +589,27 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kimos-productlab .gp-editor-tabs { display: flex; gap: 2px; }
+/* Toggle segmentado (Escritorio/Móvil en Estudio y Experiencia): TabsList
+   compacto estilo shadcn, como los tabs del header — nada de subrayados
+   del diseño viejo. */
+.kimos-productlab .gp-editor-tabs {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: hsl(var(--muted, 220 14% 89%) / .55);
+  border: 1px solid var(--gp-borde-suave);
+  border-radius: calc(var(--gp-radius) + 2px);
+}
 .kimos-productlab .gp-etab {
   border: 0;
   background: none;
   cursor: pointer;
-  font: 600 11px/1 'Inter', sans-serif;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font: 600 12px/1 'Inter', sans-serif;
   color: var(--gp-gris);
-  padding: 10px 14px;
-  border-bottom: 3px solid transparent;
+  padding: 7px 12px;
+  border-radius: var(--gp-radius);
+  transition: background .12s ease, color .12s ease;
 }
 .kimos-productlab .gp-etab:hover { color: var(--gp-negro); }
-.kimos-productlab .gp-etab.on { color: var(--gp-negro); border-bottom-color: var(--gp-fucsia); }
+.kimos-productlab .gp-etab.on { color: var(--gp-negro); background: var(--gp-blanco); box-shadow: var(--gp-shadow-sm); }
 .kimos-productlab .gp-editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
 .kimos-productlab .gp-editor-body > div > .gp-card:first-child { margin-top: 0; }
 /* Ficha de componente: SIN card que la encierre — el formulario va directo
