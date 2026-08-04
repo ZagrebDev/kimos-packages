@@ -108,10 +108,34 @@
   .kimos-productlab .gp-bigtab { padding: 10px 12px; font-size: 12.5px; }
   .kimos-productlab .gp-crumb { max-width: 130px; font-size: 13px; }
 }
+/* Móvil: header en DOS filas compactas — navegación + acciones arriba,
+   tabs deslizables abajo. Nada de tres pisos comiéndose la pantalla. */
 @media (max-width: 720px) {
-  .kimos-productlab .gp-hd { grid-template-columns: 1fr; gap: 6px; }
-  .kimos-productlab .gp-bigtabs { overflow-x: auto; justify-content: flex-start; }
-  .kimos-productlab .gp-hd-acciones { justify-content: flex-start; }
+  .kimos-productlab .gp-hd {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "nav acciones" "tabs tabs";
+    gap: 6px 8px; padding: 8px 10px;
+  }
+  .kimos-productlab .gp-hd-nav { grid-area: nav; }
+  .kimos-productlab .gp-hd-acciones { grid-area: acciones; justify-content: flex-end; }
+  .kimos-productlab .gp-bigtabs {
+    grid-area: tabs; width: 100%; overflow-x: auto; justify-content: flex-start;
+    padding: 3px; scrollbar-width: none;
+  }
+  .kimos-productlab .gp-bigtabs::-webkit-scrollbar { display: none; }
+  .kimos-productlab .gp-bigtab { padding: 8px 14px; min-height: 38px; font-size: 13.5px; }
+  .kimos-productlab .gp-hd-ico { width: 38px; height: 38px; }
+  .kimos-productlab .gp-hd-pub { min-height: 38px; padding: 0 14px; font-size: 12.5px; }
+  .kimos-productlab .gp-hd-aplicar { width: 38px; min-height: 38px; }
+  .kimos-productlab .gp-hd-extra { gap: 6px; }
+  .kimos-productlab .gp-hd-extra .gp-btn { padding: 7px 10px; font-size: 12.5px; min-height: 38px; }
+  .kimos-productlab .gp-hd-precio-s { display: none; }
+  .kimos-productlab .gp-hd-precio-n { font-size: 14.5px; }
+  .kimos-productlab .gp-crumb { padding: 6px 8px; }
+  /* Una columna: la card "Añadir producto" se hace FILA compacta, no un
+     bloque gigante más alto que las cards reales. */
+  .kimos-productlab .gp-pcard-add { min-height: 92px; flex-direction: row; justify-content: center; gap: 12px; }
+  .kimos-productlab .gp-pcard-add-ico { font-size: 30px; }
 }
 
 /* ── Mosaico de Parámetros (2×2) ── */
