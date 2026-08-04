@@ -3708,6 +3708,27 @@ export default function mount(shell) {
     const [altQ, setAltQ] = useState('');   // buscador de alternativos
     const up = (patch) => setD(Object.assign({}, d, patch));
     const preview = componentSale(normalizeComponent(Object.assign({}, d, { id: d.id || 'x' })));
+    // Guardar vive en el HEADER (igual que en productos): precio de venta
+    // vivo + botón a la derecha, común a las tres pestañas. Sin deps para
+    // que los closures queden frescos en cada render.
+    useEffect(() => {
+      setHdrExtra({
+        precio: fmtMoney(preview),
+        sub: typeLabel(d.type) + ' · margen ' + marginFor(d.type) + '%',
+        busy,
+        puedeGuardar: !busy && !!s(d.name).trim(),
+        conTienda: false,
+        etiquetaGuardar: d.id ? 'Guardar cambios' : 'Crear componente',
+        guardar: async () => {
+          setBusy(true);
+          const wasCostChange = initial && num(initial.cost) !== num(d.cost);
+          const r = await saveComponent(Object.assign({}, d, (!initial || wasCostChange) ? { verifiedAt: nowIso() } : {}));
+          setBusy(false);
+          if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
+        },
+      });
+    });
+    useEffect(() => () => setHdrExtra(null), []);
     // ── Pestaña ALTERNATIVOS: componentes intercambiables entre sí ──
     // El enlace es simétrico (al guardar, este componente queda también como
     // alternativo del otro). En los productos, un valor que acepte
@@ -3838,7 +3859,7 @@ export default function mount(shell) {
               (tagFoco === campo && sug.length) ? h('div', { key: 'dd', style: {
                 position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
                 maxHeight: 200, overflowY: 'auto',
-                background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+                background: 'var(--gp-blanco)', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
               } }, sug.map((t) => h('div', { key: t,
                 style: { padding: '5px 10px', cursor: 'pointer', fontFamily: 'monospace', fontSize: 12, borderBottom: '1px solid var(--gp-plata)' },
                 onMouseDown: (e) => { e.preventDefault(); agregar(t); } }, t))) : null,
@@ -3865,16 +3886,6 @@ export default function mount(shell) {
         h('b', { key: 'p', className: 'gp-price' }, fmtMoney(preview)),
         ' — margen ' + marginFor(d.type) + '% + ' + rules().salesTaxLabel + ' ' + rules().salesTaxPct + '%',
       ]),
-      ]),
-      // Guardar es común a las tres pestañas (general/alternativos/compatibles).
-      h('div', { key: 'a', className: 'gp-actions' }, [
-        h('button', { key: 'save', className: 'gp-btn gp-btn-primary', disabled: busy || !s(d.name).trim(), onClick: async () => {
-          setBusy(true);
-          const wasCostChange = initial && num(initial.cost) !== num(d.cost);
-          const r = await saveComponent(Object.assign({}, d, (!initial || wasCostChange) ? { verifiedAt: nowIso() } : {}));
-          setBusy(false);
-          if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
-        } }, d.id ? 'Guardar cambios' : 'Crear componente'),
       ]),
     ]);
   }
@@ -3915,7 +3926,7 @@ export default function mount(shell) {
       // grande y centrado, a todo el espacio disponible.
       return h('div', { className: 'gp-editor' },
         h('div', { key: 'body', className: 'gp-editor-body' },
-          h('div', { className: 'gp-card gp-comp-ficha' },
+          h('div', { className: 'gp-comp-ficha' },
             h(ComponentForm, { initial: isEdit ? editing : null, sec: n.tab || 'general', onDone: () => setEditing(null) }))));
     }
     const saveStock = async (c) => {
@@ -4426,10 +4437,10 @@ export default function mount(shell) {
                     h('div', { key: 'cards', style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
                       presets.map((pz) => {
                         const precio = precioDe(pz.selection || {});
-                        return h('div', { key: pz.id, style: { border: '1px solid var(--gp-gris-claro)', background: '#fff', padding: 8, width: 180, borderRadius: 6 } }, [
+                        return h('div', { key: pz.id, style: { border: '1px solid var(--gp-gris-claro)', background: 'var(--gp-blanco)', padding: 8, width: 180, borderRadius: 6 } }, [
                           h(TextInput, { key: 'n', value: pz.name, style: { fontWeight: 600, fontSize: 12.5, marginBottom: 4 },
                             onChange: (e) => upLista(presets.map((x) => (x.id === pz.id ? Object.assign({}, x, { name: e.target.value }) : x))) }),
-                          h('div', { key: 'p', style: { fontFamily: 'monospace', fontSize: 12.5, color: '#1b1b1b', margin: '2px 0 6px' } }, fmtMoney(precio)),
+                          h('div', { key: 'p', style: { fontFamily: 'monospace', fontSize: 12.5, color: 'var(--gp-negro)', margin: '2px 0 6px' } }, fmtMoney(precio)),
                           h('div', { key: 'a', style: { display: 'flex', gap: 4 } }, [
                             h('button', { key: 'v', className: 'gp-btn gp-btn-sm', title: 'Cargar esta configuración en el previsualizador',
                               onClick: () => setSel(Object.assign({}, pz.selection)) }, 'Ver'),
@@ -4967,7 +4978,7 @@ export default function mount(shell) {
                       resultados.length > 0 && h('div', { key: 'res', style: {
                         position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
                         maxHeight: 280, overflowY: 'auto',
-                        background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+                        background: 'var(--gp-blanco)', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
                       } }, resultados.map((c) => {
                         const conflicto = choque(c);
                         return h('div', { key: c.id,
@@ -5010,7 +5021,7 @@ export default function mount(shell) {
                   h(TextInput, { key: 'q', value: compSearch[clave] || '', placeholder: '🔍 buscar componente…', onChange: (e) => setQ(e.target.value) }),
                   resultados.length > 0 && h('div', { key: 'res', style: {
                     position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%',
-                    background: '#fff', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
+                    background: 'var(--gp-blanco)', border: '1px solid var(--gp-gris-claro)', boxShadow: '0 8px 20px rgba(0,0,0,.15)',
                   } }, resultados.map((c) => h('div', { key: c.id,
                     style: { padding: '6px 10px', cursor: 'pointer', display: 'flex', gap: 8, alignItems: 'baseline', borderBottom: '1px solid var(--gp-plata)' },
                     onMouseDown: () => { upGroup(g.id, { values: vals.concat([{ id: newId('val'), label: c.name, componentIds: [c.id] }]) }); },
@@ -6735,7 +6746,8 @@ export default function mount(shell) {
             h('span', { key: 'p', className: 'gp-hd-precio-n' }, extra.precio),
             h('span', { key: 's', className: 'gp-hd-precio-s' }, extra.sub),
           ]),
-          h('button', { key: 'g', className: 'gp-btn', disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.etiquetaGuardar),
+          h('button', { key: 'g', className: 'gp-btn' + (extra.conTienda ? '' : ' gp-btn-primary'),
+            disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : extra.etiquetaGuardar),
           extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary gp-hd-aplicar', disabled: !extra.puedeAplicar,
             title: extra.busy ? 'Aplicando…' : 'Aplicar a la tienda (precio, opciones y variantes en Jumpseller)',
             'aria-label': 'Aplicar a la tienda',

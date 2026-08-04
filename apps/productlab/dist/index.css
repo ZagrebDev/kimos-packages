@@ -150,6 +150,9 @@
   .kimos-productlab .gp-table-comp th, .kimos-productlab .gp-table-comp td { padding: 6px 6px; font-size: 12.5px; }
   /* El inventario de cards respira mejor con celdas más chicas. */
   .kimos-productlab .gp-inv-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+  /* Modales a todo el ancho útil, sin el marco de 24px del escritorio. */
+  .kimos-productlab .gp-overlay { padding: 10px; }
+  .kimos-productlab .gp-modal-body { max-height: 76vh; }
 }
 
 /* ── Mosaico de Parámetros (2×2) ── */
@@ -171,7 +174,10 @@
 }
 .kimos-productlab .gp-tile-title { font: 600 18px/1.2 'Inter', sans-serif; letter-spacing: -.01em; color: var(--gp-negro); }
 .kimos-productlab .gp-tile-desc { font-size: 12.5px; color: var(--gp-gris); max-width: 340px; }
-@media (max-width: 720px) { .kimos-productlab .gp-mosaico { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .kimos-productlab .gp-mosaico { grid-template-columns: 1fr; grid-template-rows: repeat(4, 1fr); gap: 12px; }
+  .kimos-productlab .gp-tile { padding: 18px; }
+}
 
 /* Alias heredado: reglas viejas que referencien gp-tabs/gp-tab siguen vivas
    en tests y no deben romper; el header nuevo no las usa. */
@@ -592,6 +598,9 @@
 .kimos-productlab .gp-etab.on { color: var(--gp-negro); border-bottom-color: var(--gp-fucsia); }
 .kimos-productlab .gp-editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
 .kimos-productlab .gp-editor-body > div > .gp-card:first-child { margin-top: 0; }
+/* Ficha de componente: SIN card que la encierre — el formulario va directo
+   sobre el fondo, solo centrado y con un ancho cómodo de lectura. */
+.kimos-productlab .gp-comp-ficha { max-width: 1100px; margin: 0 auto; }
 /* La barra inferior del editor NO existe: precio y acciones viven en el
    header (hdrExtra). La clase queda por si algún test viejo la busca. */
 .kimos-productlab .gp-editor-bottom { display: none; }
