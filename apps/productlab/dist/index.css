@@ -343,11 +343,35 @@
 .kimos-productlab .gp-icard-edit .gp-input { padding: 5px 6px; font-size: 11px; min-width: 0; }
 .kimos-productlab .gp-icard-edit .gp-btn { padding: 5px 8px; flex-shrink: 0; }
 
-/* ── Estudio vivo: edición sobre la previsualización ── */
+/* ── Estudio vivo: edición sobre la previsualización ──
+   El editor del paso abre como PANEL DE VIDRIO del sistema (nada de cajas
+   punteadas recicladas): mismo chrome que las cards de la app, entrada
+   animada, y el bloque clásico del paso pierde su caja dentro (el panel ya
+   es el chrome). */
 .kimos-productlab .gp-vivo-editor {
-  margin: 10px 0 4px; padding: 14px;
-  background: var(--gp-fondo); border: 1px dashed var(--gp-acento);
-  border-radius: calc(var(--gp-radius) + 2px);
+  margin: 12px 0 6px; padding: 18px 20px;
+  background: var(--gp-vidrio); backdrop-filter: blur(10px);
+  border: 1px solid var(--gp-borde-suave);
+  border-radius: calc(var(--gp-radius) + 4px);
+  box-shadow: var(--gp-shadow-md);
+  animation: gp-vivo-abre .18s ease;
+}
+@keyframes gp-vivo-abre { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.kimos-productlab .gp-vivo-editor > .gp-group,
+.kimos-productlab .gp-vivo-editor > .gp-card {
+  border: 0; background: transparent; box-shadow: none; backdrop-filter: none;
+  margin: 0; padding: 0; border-radius: 0; overflow: visible;
+}
+.kimos-productlab .gp-vivo-editor .gp-group-head {
+  background: transparent; padding: 0 0 12px;
+  border-bottom: 1px solid var(--gp-borde-suave); margin-bottom: 12px;
+}
+.kimos-productlab .gp-vivo-editor .gp-group-body { padding: 0; }
+.kimos-productlab .gp-vivo-editor .gp-compline { border-radius: var(--gp-radius); }
+.kimos-productlab .gp-vivo-editor .gp-compline:hover { background: hsl(var(--muted, 220 14% 89%) / .25); }
+/* "+ Agregar paso": card fantasma ancha, hermana de "+ Valor". */
+.kimos-productlab .gp-vivo-addpaso {
+  width: 100%; max-width: 560px; min-height: 58px; font-size: 15px;
 }
 .kimos-productlab .gp-vivo-addval {
   display: flex; align-items: center; justify-content: center;

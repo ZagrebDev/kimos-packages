@@ -4373,7 +4373,7 @@ export default function mount(shell) {
               ? h('div', null, [
                   h('div', { key: 't', className: 'gp-muted' }, edit ? 'Sin pasos aún: crea el primero.' : 'Sin pasos aún: agrega pasos para previsualizar el configurador.'),
                   edit ? h('div', { key: 'a', className: 'gp-vivo-acciones' },
-                    h('button', { className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
+                    h('button', { className: 'gp-vivo-addval gp-vivo-addpaso', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
                 ])
               : (edit ? [
                 // ── PRESETS: configuraciones sugeridas (capa previa del cliente) ──
@@ -4509,7 +4509,9 @@ export default function mount(shell) {
                     editor,
                   ]);
                 })).concat(edit ? [h('div', { key: '__acciones', className: 'gp-vivo-acciones' }, [
-                  h('button', { key: 'add', className: 'gp-btn gp-btn-primary', onClick: edit.agregarPaso }, '+ Agregar paso'),
+                  h('button', { key: 'add', className: 'gp-vivo-addval gp-vivo-addpaso',
+                    title: 'Agrega un paso al armado (y abre su editor)',
+                    onClick: edit.agregarPaso }, '+ Agregar paso'),
                   edit.extra || null,
                 ])] : [])),
           // El panel de resumen queda PEGAJOSO dentro del scroll del preview:
