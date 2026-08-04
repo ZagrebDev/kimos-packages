@@ -3983,7 +3983,7 @@ export default function mount(shell) {
                     c.supplierUrl ? h('a', { key: 'prov', className: 'gp-btn gp-btn-sm gp-icard-prov',
                       href: c.supplierUrl, target: '_blank', rel: 'noreferrer',
                       title: 'Ver el producto en el proveedor' + (c.supplierName ? ' (' + c.supplierName + ')' : ''),
-                      onClick: (ev) => ev.stopPropagation() }, 'Ver en proveedor ↗') : null,
+                      onClick: (ev) => ev.stopPropagation() }, '↗') : null,
                     h('div', { key: 'e', className: 'gp-icard-edit' }, [
                       h(TextInput, { key: 'c', mono: true, type: 'number', min: 0, title: 'Costo proveedor',
                         value: cDraft == null ? num(c.cost) : cDraft, onChange: (ev) => setCostDraft(c.id, ev.target.value) }),
