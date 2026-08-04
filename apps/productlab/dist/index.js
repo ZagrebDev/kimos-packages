@@ -4477,6 +4477,16 @@ export default function mount(shell) {
     const baseRef = useState({ current: null })[0];
     if (baseRef.current === null) baseRef.current = JSON.stringify(d);
     const vivo = d.id ? model.productos.find((e) => e.id === d.id) : null;
+    // Adopta MI PROPIO guardado como nueva base: sin esto, el item recién
+    // guardado vuelve del modelo con updatedAt nuevo y el vigilante lo
+    // confundía con un cambio del agente ("¿pisar sus cambios?") justo
+    // después de apretar Guardar.
+    const adoptar = (item) => {
+      const nd = normalizeProductoShape(item);
+      baseRef.current = JSON.stringify(nd);
+      setD(nd);
+      setConflicto(null);
+    };
     const cargarVivo = (v) => {
       const nd = normalizeProductoShape(v);
       baseRef.current = JSON.stringify(nd);
@@ -4541,12 +4551,17 @@ export default function mount(shell) {
           setBusy(true);
           const r = await saveProducto(d);
           setBusy(false);
-          if (r.success) { shell.notify({ level: 'success', text: r.message }); onDone(); }
+          if (r.success) {
+            if (r.item) adoptar(r.item);
+            shell.notify({ level: 'success', text: r.message });
+            onDone();
+          }
         },
         aplicar: async () => {
           setBusy(true);
           const saved = await saveProducto(d);
           if (!saved.success) { setBusy(false); return; }
+          if (saved.item) adoptar(saved.item);
           const r = await applyToStore(saved.item);
           setBusy(false);
           shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });

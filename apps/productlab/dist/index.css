@@ -368,12 +368,12 @@
 /* ── Producto → General: foto a la izquierda (abre la Galería) ── */
 .kimos-productlab .gp-general-lay {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 32px; align-items: stretch;
-  min-height: calc(100vh - 200px);
+  gap: 24px; align-items: stretch;
+  height: calc(100vh - 185px); min-height: 480px;
 }
 .kimos-productlab .gp-general-foto {
   position: relative; display: flex; align-items: center; justify-content: center;
-  height: 100%; min-height: calc(100vh - 200px); padding: 24px; cursor: pointer;
+  height: 100%; min-height: 0; padding: 24px; cursor: pointer;
   background: #fff; border: 1px solid var(--gp-borde-suave);
   border-radius: calc(var(--gp-radius) + 4px);
   transition: border-color .15s ease, box-shadow .15s ease;
@@ -387,7 +387,13 @@
   padding: 7px 14px; border-radius: 999px;
   backdrop-filter: blur(6px); pointer-events: none;
 }
-.kimos-productlab .gp-general-campos { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.kimos-productlab .gp-general-campos {
+  min-width: 0; height: 100%; overflow-y: auto;
+  background: var(--gp-vidrio); border: 1px solid var(--gp-borde-suave);
+  backdrop-filter: blur(10px); border-radius: calc(var(--gp-radius) + 4px);
+  padding: 28px 32px;
+  scrollbar-width: thin;
+}
 /* Ficha minimalista: inputs y selects del General como texto editable —
    sin caja en reposo; borde inferior sutil al pasar y caja al enfocar. */
 .kimos-productlab .gp-general-campos .gp-card { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; padding: 0 0 10px; margin-bottom: 6px; }
@@ -395,8 +401,9 @@
 .kimos-productlab .gp-general-campos .gp-select,
 .kimos-productlab .gp-general-campos .gp-textarea {
   background: transparent; border: 1px solid transparent;
-  border-bottom: 1px solid transparent; border-radius: var(--gp-radius);
-  padding-left: 0; padding-right: 0; min-height: 34px;
+  border-bottom: 1px solid var(--gp-linea); border-radius: 0;
+  padding-left: 0; padding-right: 0; min-height: 40px;
+  font-size: 15.5px;
   transition: border-color .15s ease, background .15s ease, padding .15s ease;
 }
 .kimos-productlab .gp-general-campos .gp-input:hover,
@@ -409,7 +416,7 @@
   border-color: var(--gp-acento); padding-left: 10px; padding-right: 10px;
   box-shadow: none;
 }
-.kimos-productlab .gp-general-campos .gp-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--gp-gris); }
+.kimos-productlab .gp-general-campos .gp-label { font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--gp-gris); }
 /* El nombre es el TITULAR de la ficha. */
 .kimos-productlab .gp-general-campos .gp-ficha-titulo .gp-input { font-size: 30px; font-weight: 700; letter-spacing: -.02em; min-height: 48px; }
 @media (max-width: 900px) { .kimos-productlab .gp-general-lay { grid-template-columns: 1fr; } }
