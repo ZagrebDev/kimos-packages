@@ -4441,31 +4441,9 @@ export default function mount(shell) {
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
     const [tplName, setTplName] = useState('');       // nombre de la plantilla de estilo a crear
     const [compSearch, setCompSearch] = useState({}); // buscador de componentes por valor
-    // Split de la pestaña Pasos: la sección ocupa EXACTAMENTE el alto libre de
-    // la ventana y cada columna (editor / previsualizador) scrollea por su
-    // cuenta — un solo scroll por panel y el preview siempre entero a la
-    // vista, en vez de página larga + panel con su propio scroll encima.
-    const paneRef = useRef(null);
+    // (El split de dos columnas del Estudio se retiró: ahora es una sola
+    // columna con la previsualización editable.)
     const [pasoEdit, setPasoEdit] = useState(null);   // paso con su editor abierto en el Estudio
-    const [paneH, setPaneH] = useState(0);
-    const [angosto, setAngosto] = useState(false);
-    useEffect(() => {
-      if (sec !== 'pasos') return undefined;
-      const calc = () => {
-        setAngosto(window.innerWidth < 1100);
-        const el = paneRef.current;
-        if (!el) return;
-        const top = el.getBoundingClientRect().top;
-        const bb = document.querySelector('.kimos-productlab .gp-editor-bottom');
-        const bbH = bb ? bb.getBoundingClientRect().height : 64;
-        setPaneH(Math.max(360, Math.round(window.innerHeight - top - bbH - 8)));
-      };
-      calc();
-      const t = setTimeout(calc, 60); // remedir tras el primer pintado
-      window.addEventListener('resize', calc);
-      window.addEventListener('scroll', calc, { passive: true });
-      return () => { clearTimeout(t); window.removeEventListener('resize', calc); window.removeEventListener('scroll', calc); };
-    }, [sec]);
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
