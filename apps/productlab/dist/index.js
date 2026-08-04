@@ -482,7 +482,31 @@ export default function mount(shell) {
   // alternativa más económica DISPONIBLE (activa y con stock) — mejor precio
   // y disponibilidad continua. Sus specs/imagen alimentan el detalle público.
   function groupValues(g) { return Array.isArray(g.values) ? g.values : []; }
-  function valueAlts(v) { return (v.componentIds || []).map(compById).filter(Boolean); }
+  /**
+   * Pool efectivo de componentes de un valor: los declarados MÁS los
+   * ALTERNATIVOS enlazados de cada uno (Componentes → Alternativos), salvo
+   * que el componente esté en `v.soloExacto` (no acepta sustitutos). Los
+   * alternativos son del mismo tipo, así que caen solos en la regla de
+   * siempre: mismo tipo = alternativas (gana el más barato disponible),
+   * tipos distintos se suman. Precio, stock, entrega y publicación lo
+   * heredan sin tocar nada más.
+   */
+  function valueAlts(v) {
+    const out = [];
+    const vistos = new Set();
+    const solo = (v && Array.isArray(v.soloExacto)) ? v.soloExacto : [];
+    (v.componentIds || []).forEach((id) => {
+      const c = compById(id);
+      if (!c || vistos.has(c.id)) return;
+      vistos.add(c.id); out.push(c);
+      if (solo.indexOf(id) !== -1) return;
+      (c.altIds || []).forEach((aid) => {
+        const a = compById(aid);
+        if (a && !vistos.has(a.id)) { vistos.add(a.id); out.push(a); }
+      });
+    });
+    return out;
+  }
   // CANTIDAD del valor (ProductLab): cuántas unidades del componente elegido
   // incluye (ej. "16GB (2×8)" con qty 2 usa dos módulos → precio ×2 y stock
   // exigido ×2). Permite ofrecer 2×8 y 2×16 en un mismo paso reutilizando el
@@ -4808,6 +4832,20 @@ export default function mount(shell) {
                                 + (v.bundle === true ? 'En conjunto: se suma.' : isChosen ? 'Alternativa elegida (la más económica disponible).' : 'Alternativa de reserva.'),
                               style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 7px' } }, [
                               h('span', { key: 'n' }, c.name + ' · ' + fmtMoney(componentSale(c))),
+                              // Alternativos enlazados del componente: por defecto SE
+                              // ACEPTAN (se usa el más barato disponible del grupo);
+                              // este interruptor los apaga solo en este valor.
+                              (c.altIds || []).length ? (function () {
+                                const solo = Array.isArray(v.soloExacto) ? v.soloExacto : [];
+                                const usa = solo.indexOf(cid) === -1;
+                                return h('button', { key: 'alt', className: 'gp-btn gp-btn-sm' + (usa ? ' gp-btn-dark' : ''),
+                                  style: { padding: '0 5px', lineHeight: 1.2 },
+                                  title: usa
+                                    ? 'Acepta sus ' + c.altIds.length + ' alternativo(s): se usa el más barato disponible. Clic para exigir EXACTAMENTE este componente.'
+                                    : 'Solo este componente exacto (no acepta alternativos). Clic para volver a aceptarlos.',
+                                  onClick: () => upValue(v.id, { soloExacto: usa ? solo.concat([cid]) : solo.filter((x) => x !== cid) }),
+                                }, '⇄' + c.altIds.length);
+                              })() : null,
                               h('button', { key: 'x', className: 'gp-btn gp-btn-sm', style: { padding: '0 5px', lineHeight: 1.2 },
                                 title: 'Quitar del valor',
                                 onClick: () => upValue(v.id, { componentIds: (v.componentIds || []).filter((x) => x !== cid) }) }, '✕'),
