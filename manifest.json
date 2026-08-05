@@ -207,6 +207,109 @@
       }
     },
     {
+      "id": "kreative-studio",
+      "name": "Kreative Studio",
+      "description": "Estudio de campañas publicitarias cinematográficas con IA: sube fotos de un producto, escribe una intención («crea una campaña premium», «quiero un comercial épico», «véndelo para deportistas») y el sistema produce la campaña completa. Doce agentes especializados generan investigación de mercado, competencia y público, concepto creativo con storytelling y money shot, plan de funnel con presupuesto y KPIs, storyboard con dirección de fotografía (encuadre, óptica, movimiento, luz, etalonaje y efectos), prompts optimizados por proveedor (OpenAI Images, Midjourney, FLUX, Stable Diffusion, ComfyUI, Higgsfield, Runway, Kling, Veo, Sora), guion de locución ajustado al metraje y briefs de música (ElevenLabs, OpenAI Audio, Suno, Udio), trabajos de producción con coste estimado, timeline con script FFmpeg completo, subtítulos y EDL, auditoría de consistencia de marca, copy para Meta, Instagram, TikTok, LinkedIn, YouTube y Google más landing y secuencia de email, biblioteca de assets con versiones, y analítica de costes reales y proyección de CTR, CPA y ROAS. El flujo de los 12 agentes es visible y editable (reordenar respetando dependencias, activar y desactivar), y se puede ver de dos formas: clásica (día, atardecer, noche y vivo, que sigue la hora) o juego (KimosLab en píxeles, JABOTEL isométrico y Spacecraft de consola de mando). Arquitectura de proveedores intercambiables: añadir un modelo nuevo no toca el núcleo. Importa el producto directamente desde el catálogo de ProductLab (nombre, precio, especificaciones y fotos). Orquestable por completo desde el agente de KIMOS: RUN_PRODUCTION devuelve el lote que toca generar, REGISTER_ASSETS devuelve los resultados y el bundle de render descarga todo y monta el vídeo final con FFmpeg. La organización que hay detrás del flujo también es visible y editable en la vista Organización: departamentos (dirección, RRHH, finanzas, contabilidad, marketing, ventas, producción, operaciones, tecnología, legal), los procesos internos de cada uno y el personal que los atiende, donde cada agente de IA tiene su avatar enlazado a su nodo del flujo y se mueve según su estado real junto al personal humano que añadas; se pueden crear, editar y borrar áreas, procesos y personas, y el mismo mapa se recorre como villa de píxeles, hotel isométrico o territorio de estructuras sin que cambie un solo dato. Cada departamento con agentes de IA tiene además una persona responsable, y esa persona es un usuario de KIMOS elegido del directorio de la organización, no un nombre escrito a mano: su avatar lleva una estrella, la estructura muestra quién responde por ella y los departamentos que se quedan sin nadie al mando salen marcados con un aviso.",
+      "icon": "🎬",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "data.read:productlab"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kreative Studio",
+        "fields": [
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca de la empresa; tiñe la interfaz del estudio y siembra el secundario de la paleta."
+          },
+          {
+            "key": "defaultStyle",
+            "label": "Estilo por defecto",
+            "type": "select",
+            "help": "Dirección creativa inicial de las campañas nuevas.",
+            "options": [
+              {
+                "value": "premium-cinematic",
+                "label": "Premium Cinematic"
+              },
+              {
+                "value": "epic-sport",
+                "label": "Épico Deportivo"
+              },
+              {
+                "value": "nordic-minimal",
+                "label": "Minimal Nórdico"
+              },
+              {
+                "value": "street-energy",
+                "label": "Street Energy"
+              },
+              {
+                "value": "tech-future",
+                "label": "Tech Futurista"
+              },
+              {
+                "value": "gourmet-macro",
+                "label": "Gourmet Macro"
+              },
+              {
+                "value": "editorial-fashion",
+                "label": "Editorial Fashion"
+              },
+              {
+                "value": "warm-lifestyle",
+                "label": "Lifestyle Cálido"
+              },
+              {
+                "value": "retro-90s",
+                "label": "Retro 90s"
+              },
+              {
+                "value": "luxury-noir",
+                "label": "Luxury Noir"
+              }
+            ]
+          },
+          {
+            "key": "heroDuration",
+            "label": "Duración de la pieza principal (s)",
+            "type": "number",
+            "min": 5,
+            "max": 180,
+            "help": "Metraje del corte hero. Los verticales usan la mitad por defecto."
+          },
+          {
+            "key": "autoSubtitles",
+            "label": "Subtítulos quemados",
+            "type": "boolean",
+            "help": "La mayoría del vídeo social se ve sin sonido: por defecto, activado."
+          },
+          {
+            "key": "currency",
+            "label": "Moneda de la analítica",
+            "type": "string",
+            "help": "Código ISO para mostrar presupuesto y proyecciones (los costes de los modelos son en USD)."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "accent": "#19ACB1",
+        "defaultStyle": "premium-cinematic",
+        "heroDuration": 30,
+        "autoSubtitles": true,
+        "currency": "USD"
+      }
+    },
+    {
       "id": "kanban",
       "name": "Kanban",
       "description": "Tablero visual de tareas: columnas configurables, drag&drop, responsables, entidades del workspace y control por agente IA.",

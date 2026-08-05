@@ -32,7 +32,19 @@ apps/
       index.js             # bundle ESM autocontenido (usa globalThis.React)
       index.css            # estilos (usa CSS vars del tema del shell)
     README.md
+packages/
+  kimos-worldskin/         # paquete de FUENTES compartible entre apps
+    src/                   # fragmentos que cada app compila en su bundle
+    style/                 # decorado, con marcador %ROOT% para enclaustrarlo
+    test/                  # pruebas del paquete y de su contrato
+    docs/CONTRATO.md       # quién puede adoptarlo y con qué garantías
 ```
+
+`packages/` **no es código en tiempo de ejecución**. Las apps de KIMOS son
+bundles autónomos y no hay runtime compartido entre ellas: un paquete se
+*vendoriza*, es decir, sus fuentes se concatenan dentro del bundle de cada app
+que lo adopta. Así dos apps que compartan un paquete siguen sin poder romperse
+entre sí.
 
 ## Apps instalables
 
@@ -54,6 +66,7 @@ Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
 | id              | descripción breve |
 |-----------------|-------------------|
 | `productlab` 🧪 | **Laboratorio de productos personalizables**: componentes/costos, pasos con dependencias y cantidades, previsualizador, builder de descripción, visualizador 3D/AR y publicación del configurador (Jumpseller). Ver [`apps/productlab/`](apps/productlab/). |
+| `kreative-studio` 🎬 | **Estudio de campañas publicitarias con IA**: de las fotos de un producto y una frase («crea una campaña premium») a la campaña completa — investigación, concepto, funnel, storyboard con dirección de fotografía, prompts por proveedor (OpenAI, Midjourney, FLUX, SD, ComfyUI, Runway, Kling, Veo, Sora, Higgsfield), voz y música, script FFmpeg, control de marca, copy multicanal, assets, versiones y analítica. Proveedores intercambiables y orquestación por el agente de KIMOS. Ver [`apps/kreative-studio/`](apps/kreative-studio/). |
 | `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla
