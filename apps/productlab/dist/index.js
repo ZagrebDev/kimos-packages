@@ -6863,13 +6863,6 @@ export default function mount(shell) {
   function PublicacionTab({ state }) {
     const [busy, setBusy] = useState(false);
     const [showJson, setShowJson] = useState(false);
-    // Acceso OAuth para JsApps: panel de 3 pasos (app → autorizar → código).
-    const [oaOpen, setOaOpen] = useState(false);
-    const [oaUrl, setOaUrl] = useState('');
-    const [oaCid, setOaCid] = useState('');
-    const [oaSec, setOaSec] = useState('');
-    const [oaCode, setOaCode] = useState('');
-    const [oaListo, setOaListo] = useState(false);
     const pub = (state.def && state.def.public) || {};
     const enabled = pub.enabled === true;
     const stamp = pub.data && pub.data.updatedAt;
@@ -6937,64 +6930,13 @@ export default function mount(shell) {
             h('button', { key: 'rm', className: 'gp-btn gp-btn-sm', disabled: busy,
               title: 'Elimina el JsApp del kit (la tienda vuelve a depender solo de custom.js, si existe)',
               onClick: () => llamar(true) }, 'Quitar'),
-            h('button', { key: 'oa', className: 'gp-btn gp-btn-sm' + (oaOpen ? ' gp-btn-dark' : ''),
-              title: 'Los JsApps de Jumpseller deben pertenecer a una app OAuth: regístrala una única vez y autoriza aquí.',
-              onClick: async () => {
-                const abrir = !oaOpen;
-                setOaOpen(abrir);
-                if (abrir && shell.authFetch) {
-                  try {
-                    const r = await shell.authFetch(API + '/api/integrations/jumpseller/oauth/status');
-                    const dd = await r.json().catch(() => ({}));
-                    if (r.ok) { setOaListo(dd.authorized === true); if (dd.authorizeUrl) setOaUrl(s(dd.authorizeUrl)); }
-                  } catch (e) { /* el panel funciona igual */ }
-                }
-              } }, 'Acceso OAuth…'),
           ]);
         })(),
-        // ── Panel OAuth (3 pasos, una única vez) ──
-        oaOpen ? h('div', { key: 'oauth', className: 'gp-warnbox', style: { background: 'var(--gp-plata)', border: '1px solid var(--gp-gris-claro)', color: 'var(--gp-negro)' } }, [
-          h('div', { key: 'h', className: 'gp-label', style: { marginBottom: 6 } },
-            'ACCESO OAUTH PARA JSAPPS' + (oaListo ? ' — ✓ autorizado' : '')),
-          h('div', { key: 't', className: 'gp-muted', style: { marginBottom: 8 } },
-            '1) Registra una app OAuth en Jumpseller (artículo "Build an App" del centro de ayuda) con redirect URI exactamente: urn:ietf:wg:oauth:2.0:oob — 2) pega aquí su Client ID y Secret — 3) autoriza y pega el código. Se hace una única vez; el token se renueva solo.'),
-          h('div', { key: 'p1', className: 'gp-compline', style: { borderBottom: 0 } }, [
-            h(TextInput, { key: 'cid', mono: true, value: oaCid, placeholder: 'Client ID', style: { flex: 1, minWidth: 180 }, onChange: (e) => setOaCid(e.target.value) }),
-            h(TextInput, { key: 'sec', mono: true, type: 'password', value: oaSec, placeholder: 'Client Secret', style: { flex: 1, minWidth: 180 }, onChange: (e) => setOaSec(e.target.value) }),
-            h('button', { key: 'go', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: busy || !s(oaCid).trim() || !s(oaSec).trim(),
-              onClick: async () => {
-                setBusy(true);
-                try {
-                  const r = await fetchReintento(API + '/api/integrations/jumpseller/oauth/app', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientId: s(oaCid).trim(), clientSecret: s(oaSec).trim() }) }, 2);
-                  const dd = await r.json().catch(() => ({}));
-                  if (!r.ok) throw new Error(s(dd.detail) || ('HTTP ' + r.status));
-                  setOaUrl(s(dd.authorizeUrl));
-                  shell.notify({ level: 'success', text: 'App OAuth guardada: autoriza en el enlace y pega el código.' });
-                } catch (e) { shell.notify({ level: 'error', text: 'OAuth: ' + ((e && e.message) || 'error') }); }
-                setBusy(false);
-              } }, 'Guardar app'),
-          ]),
-          oaUrl ? h('div', { key: 'p2', className: 'gp-compline', style: { borderBottom: 0 } }, [
-            h('a', { key: 'l', className: 'gp-btn gp-btn-sm', href: oaUrl, target: '_blank', rel: 'noopener' }, 'Autorizar en Jumpseller ↗'),
-            h(TextInput, { key: 'code', mono: true, value: oaCode, placeholder: 'pega aquí el código', style: { flex: 1, minWidth: 200 }, onChange: (e) => setOaCode(e.target.value) }),
-            h('button', { key: 'go', className: 'gp-btn gp-btn-sm gp-btn-primary', disabled: busy || !s(oaCode).trim(),
-              onClick: async () => {
-                setBusy(true);
-                try {
-                  const r = await fetchReintento(API + '/api/integrations/jumpseller/oauth/code', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code: s(oaCode).trim() }) }, 2);
-                  const dd = await r.json().catch(() => ({}));
-                  if (!r.ok) throw new Error(s(dd.detail) || ('HTTP ' + r.status));
-                  setOaListo(true); setOaCode('');
-                  shell.notify({ level: 'success', text: 'Autorizado ✓ — ahora pulsa "Instalar / actualizar kit".' });
-                } catch (e) { shell.notify({ level: 'error', text: 'Canje del código: ' + ((e && e.message) || 'error') }); }
-                setBusy(false);
-              } }, 'Canjear código'),
-          ]) : null,
-        ]) : null,
+        // El acceso OAuth (requisito de los JsApps) se configura donde vive
+        // toda la integración: KIMOS → Configuración → Integraciones →
+        // Jumpseller → "Acceso OAuth". Es de empresa, no de esta app.
+        (pub.kitInstall && pub.kitInstall.needsOauth) ? h('div', { key: 'oauthhint', className: 'gp-warnbox' },
+          'Los JsApps exigen una app OAuth de Jumpseller. Configúrala una única vez en Configuración → Integraciones → Jumpseller → "Acceso OAuth" (registrar app, autorizar y pegar el código) y vuelve a pulsar "Instalar / actualizar kit".') : null,
         // ── Canal "la tienda se sirve sola": copia del JSON en una página ──
         h('div', { key: 'pushpage', className: 'gp-compline' }, [
           h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 },
