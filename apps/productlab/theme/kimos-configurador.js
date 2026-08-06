@@ -36,7 +36,21 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.14.0';
+  var VERSION = '5.15.0';
+  // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
+  // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
+  // (el producto se busca en todos; ante un SKU repetido manda el primero
+  // de la lista). Así varias instancias conviven en la misma tienda.
+  var CFG_URLS = (function () {
+    var u = CFG.url;
+    var lista = Array.isArray(u) ? u : String(u || '').split(',');
+    var out = [];
+    for (var i = 0; i < lista.length; i++) {
+      var x = String(lista[i] || '').trim();
+      if (x && out.indexOf(x) === -1) out.push(x);
+    }
+    return out;
+  })();
   var SELF = document.currentScript;
   var norm = function (v) { return String(v == null ? '' : v).trim().toLowerCase(); };
   var el = function (tag, cls, txt) {
@@ -47,7 +61,7 @@
   };
   var esc = function (s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; };
 
-  if (!CFG.url || !CFG.full) return;
+  if (!CFG_URLS.length || !CFG.full) return;
 
   // Las fotos llegan en formas distintas según de dónde salgan: strings en el
   // JSON público de KIMOS y objetos ({url}, {src}…) en el JSON del theme. Se
@@ -141,7 +155,7 @@
   // buena aunque esté vencida — la tienda nunca se queda sin ficha por una
   // caída del panel.
   var DEF_TTL = 60000;
-  function defCacheKey() { return 'kc-def::' + CFG.url; }
+  function defCacheKey() { return 'kc-def::' + CFG_URLS.join('|'); }
   function defCacheRead() {
     try {
       var raw = localStorage.getItem(defCacheKey());
@@ -157,13 +171,34 @@
     var hit = defCacheRead();
     if (hit && (Date.now() - hit.t) < DEF_TTL) return Promise.resolve(hit.def);
     var bust = Math.floor(Date.now() / DEF_TTL);
-    return fetch(CFG.url + (CFG.url.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit' })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (j) { var def = j && j.data ? j.data : j; defCacheWrite(def); return def; })
-      .catch(function (err) {
-        if (hit) { console.warn(LOG, 'KIMOS no responde; usando copia local', err); return hit.def; }
-        throw err;
-      });
+    var pedir = function (u) {
+      return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (j) {
+          var def = j && j.data ? j.data : j;
+          // Cada producto recuerda su instancia de origen: el AR y cualquier
+          // llamada por-producto van al backend correcto aunque haya varios.
+          var base = u.replace(/\/definition(\?.*)?$/, '');
+          ((def && (def.productos || def.equipos)) || []).forEach(function (p) { p.__kcBase = base; });
+          return def;
+        })
+        .catch(function (err) { console.warn(LOG, 'catálogo no disponible:', u, err.message); return null; });
+    };
+    return Promise.all(CFG_URLS.map(pedir)).then(function (defs) {
+      defs = defs.filter(function (x) { return !!x; });
+      if (!defs.length) {
+        if (hit) { console.warn(LOG, 'ningún catálogo responde; usando copia local'); return hit.def; }
+        throw new Error('ningún catálogo respondió');
+      }
+      var def = defs[0];
+      if (defs.length > 1) {
+        var prods = [];
+        for (var i = 0; i < defs.length; i++) prods = prods.concat((defs[i].productos || defs[i].equipos) || []);
+        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store, productos: prods };
+      }
+      defCacheWrite(def);
+      return def;
+    });
   }
 
   function findEntry(def, prod) {
@@ -939,7 +974,7 @@
   /** URL del modelo para AR: el backend lo devuelve ya con los colores. */
   function urlModeloAR(entry, groups) {
     var ref = entry.productId != null ? entry.productId : (entry.sku || entry.name || '');
-    var base = CFG.url.replace(/\/definition(\?.*)?$/, '');
+    var base = entry.__kcBase || String(CFG_URLS[0] || '').replace(/\/definition(\?.*)?$/, '');
     return base + '/ar/' + encodeURIComponent(String(ref)) + '.glb'
       + '?m=' + encodeURIComponent(coloresPorMaterial(entry, groups));
   }

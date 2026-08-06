@@ -13,6 +13,10 @@
 /* ─────────────── Kimos 3D — configuración ─────────────── */
 
 // URL pública del configurador (app ProductLab → pestaña Publicación).
+// ¿VARIAS instancias de ProductLab en la misma tienda? Pon sus URLs
+// separadas por coma: los catálogos se fusionan y cada producto se busca
+// en todos (si un SKU se repite, manda el primero de la lista).
+//   'https://…/app/instancia-A/definition, https://…/app/instancia-B/definition'
 window.KIMOS_3D_URL = 'https://TU-KIMOS.kimos.dev/api/public/app/TU-INSTANCIA/definition';
 
 // Texto del botón que abre el visor.
@@ -26,7 +30,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
 // solos al día siguiente.
-window.KIMOS_ASSET_V = '40';
+window.KIMOS_ASSET_V = '41';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
