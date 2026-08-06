@@ -4643,6 +4643,7 @@ export default function mount(shell) {
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
     const [tplName, setTplName] = useState('');       // nombre de la plantilla de estilo a crear
     const [compSearch, setCompSearch] = useState({}); // buscador de componentes por valor
+    const [valDet, setValDet] = useState({});         // valor → detalles (⚙) abiertos
     // (El split de dos columnas del Estudio se retiró: ahora es una sola
     // columna con la previsualización editable.)
     const [pasoEdit, setPasoEdit] = useState(null);   // paso con su editor abierto en el Estudio
@@ -4881,43 +4882,46 @@ export default function mount(shell) {
               ]);
             })(),
             vals.length === 0 && h('div', { key: 'e', className: 'gp-muted' },
-              'Sin valores aún. Agrega los que verá el cliente (ej: "Roble natural", "Nogal oscuro") y márcale a cada uno sus alternativas. Un valor sin componentes es una opción sin costo (cobra con "recargo" si quieres).'),
+              'Sin valores aún: agrega los que verá el cliente (ej: "Roble natural", "Nogal oscuro").'),
             h(React.Fragment, { key: 'vals' }, vals.map((v, vi) => {
               const alts = valueAlts(v);
               const chosen = valueChosen(v);
               const delta = deltaFor(g, v, d);
               const isDef = !!(dv && dv.id === v.id);
+              // ── Fila del valor: SIMPLE e informativa. Lo esencial a la
+              // vista (default, nombre, qué usa y a qué precio, diferencia,
+              // orden, quitar); lo secundario (cantidad, conjunto, recargo,
+              // foto, swatch, 3D) vive tras el ⚙ de la fila. Si algo de eso
+              // ya está configurado, se muestra como chip informativo.
+              const det = !!valDet[v.id];
+              const toggleDet = () => setValDet(Object.assign({}, valDet, { [v.id]: !valDet[v.id] }));
+              const extras = [];
+              if (valueQty(v) > 1) extras.push('×' + valueQty(v));
+              if (num(v.priceDelta) !== 0 && v.priceDelta != null) extras.push('recargo ' + fmtMoney(num(v.priceDelta)));
+              if (v.bundle === true) extras.push('conjunto');
+              if ((v.model3d || []).length) extras.push((v.model3d || []).length + ' efecto(s) 3D');
               return h('div', { key: v.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
                 h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
                   h('label', { key: 'def', className: 'gp-switch', style: { margin: 0 }, title: 'Valor incluido por defecto en el producto' },
                     h('input', { type: 'radio', name: 'gp-def-' + g.id, checked: isDef, onChange: () => upGroup(g.id, { defaultValueId: v.id }) })),
-                  h(TextInput, { key: 'lbl', value: v.label, placeholder: 'Etiqueta genérica (ej: Roble natural)', style: { width: 220 }, onChange: (e) => upValue(v.id, { label: e.target.value }) }),
-                  h('span', { key: 'qx', className: 'gp-label', title: 'Cantidad' }, '×'),
-                  h(TextInput, { key: 'qty', mono: true, type: 'number', min: 1, style: { width: 52 },
-                    title: 'Cantidad: cuántas unidades del componente elegido incluye este valor (ej. 2 para ofrecer "2×8GB" en un solo paso). Multiplica el precio y exige stock suficiente.',
-                    value: v.qty == null ? 1 : v.qty, onChange: (e) => upValue(v.id, { qty: e.target.value }) }),
-                  alts.length > 0 ? h('label', { key: 'bd', className: 'gp-switch', style: { margin: 0 },
-                    title: 'Conjunto: los componentes de TIPOS DISTINTOS se SUMAN, y los del mismo tipo son alternativas entre sí (se usa el más económico). Ej: "Pack teclado + mouse" con 2 teclados y 2 mouse cuesta min(teclados) + min(mouse). Sin marcar, todos son alternativas y se usa el más económico.' }, [
-                    h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
-                    h('span', { key: 's' }, 'conjunto (suman)'),
-                  ]) : null,
+                  h(TextInput, { key: 'lbl', value: v.label, placeholder: 'Nombre del valor (ej: Roble natural)', style: { width: 220 }, onChange: (e) => upValue(v.id, { label: e.target.value }) }),
                   chosen
-                    ? h('span', { key: 'ch', className: 'gp-muted' }, v.bundle === true
-                        ? 'suma: ' + valueComps(v).map((c) => c.name).join(' + ') + ' → ' + fmtMoney(valueSale(v))
-                        : 'usa: ' + chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : '') + ' → ' + fmtMoney(valueSale(v)))
+                    ? h('span', { key: 'ch', className: 'gp-muted' }, (v.bundle === true
+                        ? 'suma ' + valueComps(v).length + ' comp.'
+                        : chosen.name + (valueQty(v) > 1 ? ' ×' + valueQty(v) : ''))
+                        + ' → ' + fmtMoney(valueSale(v)))
                     : alts.length
                       ? h('span', { key: 'ch', className: 'gp-chip err' }, 'sin alternativas disponibles')
                       // Sin componentes = opción válida que no agrega costo.
-                      : h('span', { key: 'ch', className: 'gp-chip gris', title: 'No usa componentes: no agrega costo. Puedes cobrar por él con el recargo de al lado.' }, 'sin costo extra'),
-                  h('span', { key: 'rl', className: 'gp-label' }, 'recargo'),
-                  h(TextInput, { key: 'rd', mono: true, type: 'number', style: { width: 100 },
-                    value: v.priceDelta == null ? '' : v.priceDelta, placeholder: '0',
-                    title: 'Recargo de venta de este valor, sin necesidad de modelar su costo',
-                    onChange: (e) => upValue(v.id, { priceDelta: e.target.value === '' ? 0 : num(e.target.value) }) }),
+                      : h('span', { key: 'ch', className: 'gp-chip gris', title: 'No usa componentes: no agrega costo. Cobra con el recargo (⚙) si quieres.' }, 'sin costo extra'),
+                  extras.length ? h('span', { key: 'ex', className: 'gp-muted', style: { fontSize: 11 } }, extras.join(' · ')) : null,
                   h('span', { key: 'sp', className: 'grow' }),
                   isDef
                     ? h('span', { key: 'd', className: 'gp-chip fuc' }, 'incluido')
                     : h('span', { key: 'd', className: 'gp-delta' + (delta < 0 ? ' neg' : '') }, fmtDelta(delta)),
+                  h('button', { key: 'cfgv', className: 'gp-btn gp-btn-sm' + (det ? ' gp-btn-dark' : ''),
+                    title: 'Cantidad, conjunto, recargo, foto' + (g.photoStep ? ', color del selector' : '') + (has3d(d) ? ', efectos 3D' : ''),
+                    onClick: toggleDet }, '⚙'),
                   // Orden de los valores DENTRO del paso: es el orden en que el
                   // cliente los ve en la tienda y en el previsualizador.
                   vi > 0 && h('button', { key: 'vu', className: 'gp-btn gp-btn-sm', title: 'Subir este valor', onClick: () => {
@@ -4928,12 +4932,26 @@ export default function mount(shell) {
                   } }, '↓'),
                   h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar valor', onClick: () => upGroup(g.id, { values: vals.filter((y) => y.id !== v.id), defaultValueId: g.defaultValueId === v.id ? null : g.defaultValueId }) }, '✕'),
                 ]),
-                h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },
+                det && h('div', { key: 'ldet', className: 'gp-compline', style: { borderBottom: 0, paddingLeft: 26 } }, [
+                  h('span', { key: 'qx', className: 'gp-label', title: 'Cuántas unidades del componente elegido incluye este valor (ej. 2 para "2×8GB"). Multiplica el precio y exige stock suficiente.' }, 'cantidad ×'),
+                  h(TextInput, { key: 'qty', mono: true, type: 'number', min: 1, style: { width: 52 },
+                    value: v.qty == null ? 1 : v.qty, onChange: (e) => upValue(v.id, { qty: e.target.value }) }),
+                  h('span', { key: 'rl', className: 'gp-label', title: 'Recargo de venta de este valor, sin necesidad de modelar su costo' }, 'recargo'),
+                  h(TextInput, { key: 'rd', mono: true, type: 'number', style: { width: 100 },
+                    value: v.priceDelta == null ? '' : v.priceDelta, placeholder: '0',
+                    onChange: (e) => upValue(v.id, { priceDelta: e.target.value === '' ? 0 : num(e.target.value) }) }),
+                  alts.length > 0 ? h('label', { key: 'bd', className: 'gp-switch', style: { margin: 0 },
+                    title: 'Conjunto: los componentes de TIPOS DISTINTOS se SUMAN y los del mismo tipo son alternativas (se usa el más económico). Sin marcar, todos son alternativas.' }, [
+                    h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
+                    h('span', { key: 's' }, 'conjunto (suman)'),
+                  ]) : null,
+                ]),
+                det && h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ImgField, { value: v.imageUrl || '', gallery: productoGallery, onChange: (u) => upValue(v.id, { imageUrl: u }), placeholder: g.photoStep ? 'Foto del producto en este color' : 'Foto propia del valor (si no, usa la de la alternativa elegida)' })),
-                g.photoStep === true && h('div', { key: 'lsw', style: { paddingLeft: 26, maxWidth: 560 } },
+                det && g.photoStep === true && h('div', { key: 'lsw', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ColorField, { label: null, value: v.swatchColor || '', onChange: (c) => upValue(v.id, { swatchColor: c }), placeholder: '#1D1D1B — color del puntito selector en la tienda' })),
                 // ── Efectos sobre el visor 3D (solo si el producto tiene modelo) ──
-                has3d(d) && h('div', { key: 'l3d', style: { paddingLeft: 26, marginTop: 4 } }, (function () {
+                det && has3d(d) && h('div', { key: 'l3d', style: { paddingLeft: 26, marginTop: 4 } }, (function () {
                   const parts = (d.model3d.parts || []);
                   const fins = (d.model3d.finishes || []);
                   const fx = v.model3d || [];
@@ -4995,16 +5013,18 @@ export default function mount(shell) {
                   return h('div', { key: 'l2', style: { paddingLeft: 26, marginTop: 4 } }, [
                     h('div', { key: 'chips', style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 } },
                       (v.componentIds || []).length === 0
-                        ? [h('span', { key: 'none', className: 'gp-muted' }, 'Sin componentes: opción sin costo (usa el recargo si quieres cobrarla). Busca abajo para agregar.')]
+                        ? [h('span', { key: 'none', className: 'gp-muted' }, 'Sin componentes: opción sin costo. Busca abajo para agregar.')]
                         : (v.componentIds || []).map((cid) => {
                             const c = compById(cid);
                             if (!c) return null;
                             const isChosen = !!(chosen && chosen.id === c.id);
                             return h('span', { key: cid, className: 'gp-chip ' + (compAvailable(c) ? (isChosen || v.bundle === true ? 'fuc' : 'gris') : 'err'),
-                              title: (c.active === false ? 'Inactivo. ' : c.stock == null ? '' : 'Stock ' + num(c.stock) + '. ')
+                              title: (c.active === false ? 'Inactivo. ' : '')
                                 + (v.bundle === true ? 'En conjunto: se suma.' : isChosen ? 'Alternativa elegida (la más económica disponible).' : 'Alternativa de reserva.'),
                               style: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 7px' } }, [
-                              h('span', { key: 'n' }, c.name + ' · ' + fmtMoney(componentSale(c))),
+                              // Siempre a la vista: precio de venta y stock del componente.
+                              h('span', { key: 'n' }, c.name + ' · ' + fmtMoney(componentSale(c))
+                                + ' · ' + (c.active === false ? 'inactivo' : c.stock == null ? '∞' : 'stock ' + num(c.stock))),
                               // Alternativos enlazados del componente: por defecto SE
                               // ACEPTAN (se usa el más barato disponible del grupo);
                               // este interruptor los apaga solo en este valor.
