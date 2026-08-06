@@ -59,6 +59,24 @@ export default function mount(shell) {
       // Límite anti-abuso del backend por IP: mensajes por ventana (defaults 20 / 300s)
       rateMax: 20,
       rateWindowS: 300,
+      // ── Privacidad y transparencia ──
+      // Horas de inactividad tras las que la conversación del widget se
+      // ELIMINA por completo (transcript local + memoria del agente, rotando
+      // el visitante). Sin referencias a visitas anteriores. 0 = nunca.
+      historyTtlHours: 4,
+      // Aviso al pie del widget. Vacío = sin aviso.
+      disclaimer: 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.',
+      // ── Disparador proactivo ──
+      proactiveText: '',
+      proactiveSeconds: 40,
+      proactiveUrlContains: '',
+      // ── Ventas: tarjetas de producto (app Productos / Jumpseller) ──
+      productsInstanceId: '',
+      storeBaseUrl: '',      // ej: https://mitienda.cl — para armar links desde el permalink
+      cartUrlTemplate: '',   // ej: https://mitienda.cl/cart/add/{variant_id} — botón "Añadir al carrito"
+      // ── Derivación a humano (app Formularios de contacto) ──
+      contactFormId: '',
+      contactLabel: 'Hablar con una persona',
     };
   }
 
@@ -67,9 +85,12 @@ export default function mount(shell) {
   let definitionExists = false;
   let conversations = [];
   let agents = [];          // agentes del enterprise (para el selector)
+  let productsInstances = [];   // instancias de la app Productos (selector de catálogo)
+  let contactForms = [];        // instancias de la app Formularios de contacto (selector)
+  let linkedAppsAvailable = false; // shell.data disponible (manifest data.read:*)
   let loading = true;
   const listeners = new Set();
-  const emit = () => { for (const l of listeners) l({ definition, conversations, agents, loading }); };
+  const emit = () => { for (const l of listeners) l({ definition, conversations, agents, productsInstances, contactForms, linkedAppsAvailable, loading }); };
 
   function sortConvs(list) {
     return list.slice().sort((a, b) => String(b.lastMessageAt || b.updatedAt || '').localeCompare(String(a.lastMessageAt || a.updatedAt || '')));
@@ -104,6 +125,21 @@ export default function mount(shell) {
       }));
       emit();
     } catch (e) { /* selector opcional */ }
+  }
+
+  // Instancias de apps vinculables (Productos → tarjetas; Formularios de
+  // contacto → derivación a humano). Requiere data.read:{template} en el
+  // manifest instalado; si falta o falla, los campos quedan como texto libre.
+  async function loadLinkedInstances() {
+    if (!shell.data || typeof shell.data.listInstances !== 'function') return;
+    linkedAppsAvailable = true;
+    try {
+      productsInstances = (await shell.data.listInstances('products')) || [];
+    } catch (e) { productsInstances = []; }
+    try {
+      contactForms = (await shell.data.listInstances('contact-forms')) || [];
+    } catch (e) { contactForms = []; }
+    emit();
   }
 
   async function saveDefinition(next) {
@@ -408,6 +444,58 @@ export default function mount(shell) {
         ]),
       ]),
 
+      h('div', { key: 'behavior', className: 'kwa-card' }, [
+        h('div', { key: 'h', className: 'kwa-card-title' }, 'Historial, transparencia y proactividad'),
+        row('Eliminar conversación tras (horas)',
+          h('input', { key: 'i', className: 'kwa-input', type: 'number', min: 0, max: 720, style: { width: '110px' }, value: draft.historyTtlHours == null ? 4 : draft.historyTtlHours, onChange: (e) => up({ historyTtlHours: Math.max(0, Number(e.target.value) || 0) }) }),
+          'La conversación solo persiste mientras el visitante navega o recarga; tras estas horas de inactividad se ELIMINA por completo (incluida la memoria del agente) y la próxima visita arranca limpia, sin referencias a conversaciones anteriores. 0 = nunca expira. El visitante siempre tiene el botón ⟳ "Iniciar nueva conversación".'),
+        row('Aviso de transparencia (pie del chat)',
+          h('input', { key: 'i', className: 'kwa-input', maxLength: 200, placeholder: '(vacío = sin aviso)', value: draft.disclaimer == null ? 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.' : draft.disclaimer, onChange: (e) => up({ disclaimer: e.target.value }) })),
+        row('Mensaje proactivo',
+          h('input', { key: 'i', className: 'kwa-input', maxLength: 160, placeholder: 'Ej: ¿Necesitas ayuda para completar tu compra? (vacío = desactivado)', value: draft.proactiveText || '', onChange: (e) => up({ proactiveText: e.target.value }) }),
+          'Se muestra junto a la burbuja tras un tiempo en la página, una vez por pestaña, sin abrir el chat.'),
+        (draft.proactiveText || '').trim() && h('div', { key: 'pro2', className: 'kwa-inline' }, [
+          h('div', { key: 's', className: 'kwa-form-row' }, [
+            h('label', { key: 'l', className: 'kwa-label' }, 'Tras cuántos segundos'),
+            h('input', { key: 'i', className: 'kwa-input', type: 'number', min: 5, max: 600, style: { width: '90px' }, value: draft.proactiveSeconds == null ? 40 : draft.proactiveSeconds, onChange: (e) => up({ proactiveSeconds: Math.max(5, Number(e.target.value) || 40) }) }),
+          ]),
+          h('div', { key: 'u', className: 'kwa-form-row' }, [
+            h('label', { key: 'l', className: 'kwa-label' }, 'Solo si la URL contiene'),
+            h('input', { key: 'i', className: 'kwa-input kwa-mono', placeholder: 'Ej: /checkout (vacío = todas las páginas)', value: draft.proactiveUrlContains || '', onChange: (e) => up({ proactiveUrlContains: e.target.value }) }),
+          ]),
+        ]),
+      ]),
+
+      h('div', { key: 'sales', className: 'kwa-card' }, [
+        h('div', { key: 'h', className: 'kwa-card-title' }, 'Ventas: catálogo y tarjetas de producto'),
+        row('Instancia de la app Productos',
+          (state.linkedAppsAvailable && state.productsInstances.length)
+            ? h('select', { key: 'i', className: 'kwa-input', value: draft.productsInstanceId || '', onChange: (e) => up({ productsInstanceId: e.target.value }) },
+                [h('option', { key: '', value: '' }, '— No vincular catálogo —')].concat(
+                  state.productsInstances.map((i) => h('option', { key: i.id, value: i.id }, i.name || i.id))))
+            : h('input', { key: 'i', className: 'kwa-input kwa-mono', placeholder: 'id-instancia-productos (opcional)', value: draft.productsInstanceId || '', onChange: (e) => up({ productsInstanceId: e.target.value }) }),
+          'Con el catálogo vinculado, el agente responde SOLO con datos reales (precio, stock) según la página que navega el visitante, y el chat muestra tarjetas con foto, precio y botones de compra.'),
+        row('URL base de la tienda',
+          h('input', { key: 'i', className: 'kwa-input kwa-mono', placeholder: 'https://mitienda.cl', maxLength: 200, value: draft.storeBaseUrl || '', onChange: (e) => up({ storeBaseUrl: e.target.value }) }),
+          'Para armar el enlace "Ver producto" desde el permalink de Jumpseller.'),
+        row('Plantilla "Añadir al carrito" (opcional)',
+          h('input', { key: 'i', className: 'kwa-input kwa-mono', placeholder: 'Ej: https://mitienda.cl/cart/add/{variant_id}', maxLength: 300, value: draft.cartUrlTemplate || '', onChange: (e) => up({ cartUrlTemplate: e.target.value }) }),
+          'Variables: {id}, {variant_id}, {sku}, {url}. Vacío = solo botón "Ver producto".'),
+      ]),
+
+      h('div', { key: 'human', className: 'kwa-card' }, [
+        h('div', { key: 'h', className: 'kwa-card-title' }, 'Derivación a humano (formulario de contacto)'),
+        row('Formulario vinculado',
+          (state.linkedAppsAvailable && state.contactForms.length)
+            ? h('select', { key: 'i', className: 'kwa-input', value: draft.contactFormId || '', onChange: (e) => up({ contactFormId: e.target.value }) },
+                [h('option', { key: '', value: '' }, '— Sin derivación a humano —')].concat(
+                  state.contactForms.map((i) => h('option', { key: i.id, value: i.id }, i.name || i.id))))
+            : h('input', { key: 'i', className: 'kwa-input kwa-mono', placeholder: 'id-instancia-formulario (opcional)', value: draft.contactFormId || '', onChange: (e) => up({ contactFormId: e.target.value }) }),
+          'Instancia de la app "Formularios de contacto": el formulario (campos, mensaje de éxito, notificación por email) se gestiona desde esa app y los envíos llegan a su bandeja. El agente lo ofrece cuando no puede resolver la duda, detecta frustración o el visitante pide hablar con alguien; además queda siempre disponible en el encabezado del chat.'),
+        row('Etiqueta del botón',
+          h('input', { key: 'i', className: 'kwa-input', maxLength: 80, placeholder: 'Hablar con una persona', value: draft.contactLabel == null ? 'Hablar con una persona' : draft.contactLabel, onChange: (e) => up({ contactLabel: e.target.value }) })),
+      ]),
+
       h('div', { key: 'flags', className: 'kwa-card' }, [
         h('div', { key: 'h', className: 'kwa-card-title' }, 'Publicación y registro'),
         h('label', { key: 'en', className: 'kwa-switch' }, [
@@ -474,13 +562,14 @@ export default function mount(shell) {
 
   // ── Componente raíz ───────────────────────────────────────────────────────
   function Component() {
-    const [state, setState] = useState({ definition, conversations, agents, loading });
+    const [state, setState] = useState({ definition, conversations, agents, productsInstances, contactForms, linkedAppsAvailable, loading });
     const [tab, setTab] = useState('convs');
 
     useEffect(() => {
       listeners.add(setState);
       void refresh();
       void loadAgents();
+      void loadLinkedInstances();
       const timer = setInterval(() => {
         if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh();
       }, 30000);
