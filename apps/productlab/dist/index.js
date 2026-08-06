@@ -982,8 +982,10 @@ export default function mount(shell) {
     return out;
   }
   function productoImage(eq) {
+    // La foto elegida EN LA APP (★ de la Galería) manda sobre la de la
+    // tienda; sin elección propia se usa la del producto enlazado.
     const p = productItemFor(eq);
-    return (p && p.imageUrl) || eq.imageUrl || '';
+    return eq.imageUrl || (p && p.imageUrl) || '';
   }
   function legacyLink(eq) {
     // Productos creados con la v1 (sourceLinks directos): pedir re-enlace.
@@ -3705,6 +3707,142 @@ export default function mount(shell) {
         h('div', { key: 'b', className: 'gp-modal-body' }, children),
       ]));
   }
+  // ── Editor de FONDO de una foto (Galería) ─────────────────────────────────
+  // Quita el fondo EN EL NAVEGADOR: flood-fill desde los bordes contra el
+  // color de fondo estimado (mediana de los bordes), con tolerancia ajustable
+  // y suavizado del contorno. Pensado para fotos de producto sobre fondo
+  // blanco o plano — gratis, instantáneo y sin servicios externos. El
+  // resultado se sube como PNG nuevo (jamás pisa la foto de la tienda).
+  function quitarFondoImageData(src, tol) {
+    const w = src.width, h = src.height;
+    const out = new ImageData(new Uint8ClampedArray(src.data), w, h);
+    const d = out.data;
+    // Color de fondo: mediana de los píxeles del borde (robusta a esquinas
+    // con sombra o marcas).
+    const rs = [], gs = [], bs = [];
+    const muestra = (x, y) => { const i = (y * w + x) * 4; rs.push(d[i]); gs.push(d[i + 1]); bs.push(d[i + 2]); };
+    for (let x = 0; x < w; x += 2) { muestra(x, 0); muestra(x, h - 1); }
+    for (let y = 0; y < h; y += 2) { muestra(0, y); muestra(w - 1, y); }
+    const med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1]; };
+    const br = med(rs), bg = med(gs), bb = med(bs);
+    const t2 = tol * tol * 3;
+    const cerca = (i) => { const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb; return dr * dr + dg * dg + db * db <= t2; };
+    // BFS desde los bordes: solo lo CONECTADO al borde se vuelve transparente
+    // (un producto blanco sobre fondo blanco no se agujerea por dentro).
+    const visto = new Uint8Array(w * h);
+    const cola = [];
+    for (let x = 0; x < w; x++) { cola.push(x); cola.push((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { cola.push(y * w); cola.push(y * w + w - 1); }
+    while (cola.length) {
+      const p = cola.pop();
+      if (visto[p]) continue;
+      visto[p] = 1;
+      if (!cerca(p * 4)) continue;
+      d[p * 4 + 3] = 0;
+      const x = p % w, y = (p / w) | 0;
+      if (x > 0) cola.push(p - 1);
+      if (x < w - 1) cola.push(p + 1);
+      if (y > 0) cola.push(p - w);
+      if (y < h - 1) cola.push(p + w);
+      // Marcar como fondo también habilita expandirse: re-empujar vecinos ya
+      // vistos no hace falta (BFS clásico).
+    }
+    // Suavizado: el borde del recorte baja su alfa a medias para no verse
+    // aserrado sobre fondos oscuros.
+    const alfa = (x, y) => d[(y * w + x) * 4 + 3];
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = (y * w + x) * 4;
+        if (d[i + 3] === 0) continue;
+        const vecinos0 = (alfa(x - 1, y) === 0) + (alfa(x + 1, y) === 0) + (alfa(x, y - 1) === 0) + (alfa(x, y + 1) === 0);
+        if (vecinos0 >= 2) d[i + 3] = 90;
+        else if (vecinos0 === 1) d[i + 3] = 180;
+      }
+    }
+    return out;
+  }
+  function FondoEditor({ url, onSave, onClose }) {
+    const [tol, setTol] = useState(34);
+    const [estado, setEstado] = useState('cargando'); // cargando | listo | cors | guardando
+    const canvasRef = useRef(null);
+    const origRef = useRef(null);   // ImageData original (para re-aplicar tolerancia)
+    // Carga la imagen UNA vez; cada cambio de tolerancia re-aplica sobre la
+    // copia original en memoria (sin volver a descargar).
+    useEffect(() => {
+      let vivo = true;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (!vivo) return;
+        const MAX = 1800; // tope de lado: PNG razonable y flood-fill fluido
+        const esc = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * esc));
+        const hh = Math.max(1, Math.round(img.naturalHeight * esc));
+        const cv = canvasRef.current;
+        if (!cv) return;
+        cv.width = w; cv.height = hh;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, hh);
+        try {
+          origRef.current = ctx.getImageData(0, 0, w, hh);
+        } catch (e) {
+          // Canvas contaminado: el host de la foto no permite CORS (típico
+          // CDN de la tienda). Se avisa con la salida práctica.
+          setEstado('cors');
+          return;
+        }
+        ctx.putImageData(quitarFondoImageData(origRef.current, 34), 0, 0);
+        setEstado('listo');
+      };
+      img.onerror = () => { if (vivo) setEstado('cors'); };
+      img.src = url;
+      return () => { vivo = false; };
+    }, []);
+    const aplicar = (t) => {
+      setTol(t);
+      const cv = canvasRef.current;
+      if (!cv || !origRef.current) return;
+      cv.getContext('2d').putImageData(quitarFondoImageData(origRef.current, t), 0, 0);
+    };
+    return h(Modal, { title: 'Quitar fondo', onClose }, [
+      estado === 'cors'
+        ? h('div', { key: 'err', className: 'gp-errbox' },
+            'Esta foto vive en un host que no permite editarla desde el navegador (CORS). Descárgala, y súbela a la galería con "+ Subir imágenes…": las fotos subidas aquí sí se pueden editar.')
+        : h('div', { key: 'wrap' }, [
+            h('div', { key: 'pv', style: {
+              // Damero: deja VER la transparencia resultante.
+              background: 'repeating-conic-gradient(#c8c8c8 0% 25%, #f2f2f2 0% 50%) 0 0 / 18px 18px',
+              borderRadius: 8, padding: 8, display: 'flex', justifyContent: 'center',
+            } }, h('canvas', { ref: canvasRef, style: { maxWidth: '100%', maxHeight: '52vh' } })),
+            h('div', { key: 'tol', className: 'gp-compline', style: { borderBottom: 0, marginTop: 10 } }, [
+              h('span', { key: 'l', className: 'gp-label' }, 'tolerancia'),
+              h('input', { key: 'r', type: 'range', min: 6, max: 90, value: tol, style: { flex: 1 },
+                disabled: estado !== 'listo',
+                onChange: (e) => aplicar(num(e.target.value, 34)) }),
+              h('span', { key: 'v', className: 'gp-muted', style: { width: 34, textAlign: 'right' } }, tol),
+            ]),
+            h('div', { key: 'hint', className: 'gp-muted', style: { marginTop: 2 } },
+              'Sube la tolerancia si queda fondo; bájala si se come el producto. Funciona mejor con fondos blancos o planos.'),
+            h('div', { key: 'act', className: 'gp-actions' }, [
+              h('button', { key: 'c', className: 'gp-btn', onClick: onClose }, 'Cancelar'),
+              h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo', onClick: () => {
+                setEstado('guardando');
+                canvasRef.current.toBlob(async (blob) => {
+                  try {
+                    const f = new File([blob], 'sin-fondo.png', { type: 'image/png' });
+                    const nueva = await uploadImage(f);
+                    onSave(nueva);
+                  } catch (e) {
+                    shell.notify({ level: 'error', text: 'No se pudo subir el resultado: ' + ((e && e.message) || 'error') });
+                    setEstado('listo');
+                  }
+                }, 'image/png');
+              } }, estado === 'guardando' ? 'Guardando…' : 'Guardar como foto nueva'),
+            ]),
+          ]),
+    ]);
+  }
+
   function SyncBadge({ eq }) {
     if (!storeRefOf(eq)) {
       return legacyLink(eq)
@@ -4638,6 +4776,8 @@ export default function mount(shell) {
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
     const [galBusy, setGalBusy] = useState(false);    // subida múltiple a la galería
+    const [galEdit, setGalEdit] = useState(null);     // url en el editor de fondo
+    const [creandoTienda, setCreandoTienda] = useState(false); // crear producto en Jumpseller
     const [mats, setMats] = useState([]);             // materiales detectados en el GLB
     const [try3d, setTry3d] = useState({});           // probar configuración: grupo → valor
     const [mdlBusy, setMdlBusy] = useState(false);    // subida del modelo 3D
@@ -5148,8 +5288,52 @@ export default function mount(shell) {
               h('button', { key: 'x', className: 'gp-btn gp-btn-sm', onClick: () => up({ storeRef: null }) }, 'Desenlazar'),
             ])
           : h('div', { key: 'no', className: 'gp-compline' }, [
-              h('span', { key: 'm', className: 'gp-muted grow' }, 'Sin enlace: el producto no se aplica a la tienda todavía.'),
+              h('span', { key: 'm', className: 'gp-muted grow' }, 'Sin enlace: enlaza uno existente o créalo en la tienda desde aquí.'),
               h('button', { key: 'b', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => setPicking(true) }, 'Enlazar producto…'),
+              // Crear DESDE ProductLab: item nuevo en la app Productos +
+              // push a Jumpseller (la instancia crea el producto) + enlace.
+              h('button', { key: 'crear', className: 'gp-btn gp-btn-sm gp-btn-primary', disabled: creandoTienda || !s(d.name).trim(),
+                title: 'Crea el producto en la app Productos y en Jumpseller con este nombre, SKU, precio y foto, y lo deja enlazado.',
+                onClick: async () => {
+                  if (!shell.data || !shell.data.listInstances || !shell.authFetch) { shell.notify({ level: 'error', text: 'Este host no permite crear productos de tienda.' }); return; }
+                  setCreandoTienda(true);
+                  try {
+                    const insts = (await shell.data.listInstances('products')) || [];
+                    if (!insts.length) throw new Error('no hay ninguna instancia de la app Productos.');
+                    const inst = insts[0];
+                    const item = {
+                      name: s(d.name).trim(), sku: s(d.sku).trim(), price: productoComputedPrice(d),
+                      status: 'active', imageUrl: productoImage(d) || '',
+                      syncStatus: 'pending',
+                    };
+                    const r = await fetchReintento(API + '/api/app-instances/' + inst.id + '/items', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) });
+                    if (!r.ok) throw new Error('HTTP ' + r.status + ' al crear el item en la app Productos.');
+                    const creado = await r.json();
+                    // El push CREA el producto en Jumpseller cuando la
+                    // instancia tiene binding, y devuelve el sourceLink.
+                    let sourceId = null;
+                    const rp = await fetchReintento(API + '/api/app-instances/' + inst.id + '/items/sync-push', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemIds: [creado.id] }) });
+                    if (rp.ok) {
+                      const res = await rp.json().catch(() => ({}));
+                      const patch = (((res || {}).results || {})[creado.id] || {}).itemPatch || {};
+                      const lnk = (patch.sourceLinks || []).find((x) => x && x.integration === 'jumpseller');
+                      sourceId = (lnk && lnk.sourceId) || null;
+                    }
+                    const d2 = Object.assign({}, d, { storeRef: { instanceId: inst.id, itemId: creado.id, sourceId, sku: item.sku, name: item.name, imageUrl: item.imageUrl } });
+                    setD(d2);
+                    const rs = await saveProducto(d2);
+                    if (rs.success && rs.item) adoptar(rs.item);
+                    void loadCatalog();
+                    shell.notify(sourceId
+                      ? { level: 'success', text: 'Producto creado en la tienda (JS #' + sourceId + ') y enlazado. "Aplicar" sube precio, opciones y variantes.' }
+                      : { level: 'warn', text: 'Producto creado en la app Productos y enlazado, pero Jumpseller no confirmó la creación: revisa la sincronización de Productos.' });
+                  } catch (e) {
+                    shell.notify({ level: 'error', text: 'No se pudo crear en la tienda: ' + ((e && e.message) || 'error') });
+                  }
+                  setCreandoTienda(false);
+                } }, creandoTienda ? 'Creando…' : '+ Crear en la tienda'),
             ]),
       ]),
       h('div', { key: 'g1', className: 'gp-grid2' }, [
@@ -5307,10 +5491,23 @@ export default function mount(shell) {
             ? productoGallery.map((u, i) => {
                 const own = (d.galleryImages || []).indexOf(u) !== -1;
                 const isProd = prodImgs.indexOf(u) !== -1;
+                const esPrincipal = productoImage(d) === u;
                 return h('div', { key: i, className: 'gp-gal-item' }, [
                   h('img', { key: 'i', src: u, alt: '', title: u }),
                   isProd ? h('span', { key: 'p', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, bottom: 2 } }, 'JS') : null,
-                  own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)', style: { position: 'absolute', top: 2, right: 2, padding: '2px 5px' }, onClick: () => up({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) }) }, '✕') : null,
+                  esPrincipal ? h('span', { key: 'pr', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, top: 2 } }, '★ principal') : null,
+                  h('div', { key: 'acts', style: { position: 'absolute', top: 2, right: 2, display: 'flex', gap: 3 } }, [
+                    !esPrincipal ? h('button', { key: 'star', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
+                      title: 'Usar como foto principal del producto (portada de la ficha y del catálogo)',
+                      onClick: () => up({ imageUrl: u }) }, '★') : null,
+                    h('button', { key: 'ed', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
+                      title: 'Quitar el fondo de esta foto (el resultado se guarda como foto nueva)',
+                      onClick: () => setGalEdit(u) }, '✎'),
+                    own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', style: { padding: '2px 5px' },
+                      title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)',
+                      onClick: () => up(Object.assign({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) },
+                        s(d.imageUrl) === u ? { imageUrl: '' } : {})) }, '✕') : null,
+                  ]),
                 ]);
               })
             : h('span', { key: 'e', className: 'gp-muted' }, 'Aún no hay imágenes: sube algunas o enlaza el producto para ver su galería.')),
@@ -5349,6 +5546,17 @@ export default function mount(shell) {
             } }),
           ]),
         ]),
+        // Editor de fondo: el resultado entra a la galería como PNG nuevo; si
+        // la editada era la foto principal, la nueva la reemplaza como tal.
+        galEdit ? h(FondoEditor, { key: 'fondo', url: galEdit,
+          onClose: () => setGalEdit(null),
+          onSave: (nueva) => {
+            const patch = { galleryImages: (d.galleryImages || []).indexOf(nueva) === -1 ? (d.galleryImages || []).concat([nueva]) : (d.galleryImages || []) };
+            if (productoImage(d) === galEdit) patch.imageUrl = nueva;
+            up(patch);
+            setGalEdit(null);
+            shell.notify({ level: 'success', text: 'Foto sin fondo agregada a la galería.' });
+          } }) : null,
       ]),
       ]),
         h('div', { key: 'f', style: sec === 'ficha' ? null : { display: 'none' } }, [
