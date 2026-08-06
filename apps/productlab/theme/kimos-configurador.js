@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.15.0';
+  var VERSION = '5.16.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -167,15 +167,42 @@
   function defCacheWrite(def) {
     try { localStorage.setItem(defCacheKey(), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
   }
+  // Copia LOCAL del catálogo: ProductLab puede publicar el JSON en una
+  // página de la propia tienda (permalink derivado de la instancia). Se
+  // intenta primero — mismo origen, sin CORS, y la tienda configura aunque
+  // KIMOS esté caído — y se cae al gateway de KIMOS si no existe.
+  function permalinkLocal(u) {
+    var m = String(u).match(/\/app\/([^/?#]+)\/definition/);
+    if (!m) return null;
+    return ('kimos-productlab-' + m[1]).toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+  }
   function loadDefinition() {
     var hit = defCacheRead();
     if (hit && (Date.now() - hit.t) < DEF_TTL) return Promise.resolve(hit.def);
     var bust = Math.floor(Date.now() / DEF_TTL);
-    var pedir = function (u) {
+    var pedirLocal = function (u) {
+      var p = permalinkLocal(u);
+      if (!p) return Promise.reject(new Error('sin permalink'));
+      return fetch('/' + p + '?_t=' + bust, { credentials: 'omit' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (html) {
+          var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
+          if (!m) throw new Error('sin datos embebidos');
+          var def = JSON.parse(m[1]);
+          if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
+          return def;
+        });
+    };
+    var pedirRemoto = function (u) {
       return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (j) {
-          var def = j && j.data ? j.data : j;
+        .then(function (j) { return j && j.data ? j.data : j; });
+    };
+    var pedir = function (u) {
+      return pedirLocal(u)
+        .catch(function () { return pedirRemoto(u); })
+        .then(function (def) {
           // Cada producto recuerda su instancia de origen: el AR y cualquier
           // llamada por-producto van al backend correcto aunque haya varios.
           var base = u.replace(/\/definition(\?.*)?$/, '');

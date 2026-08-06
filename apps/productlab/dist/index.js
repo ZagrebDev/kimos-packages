@@ -2116,9 +2116,43 @@ export default function mount(shell) {
       void publish(true);
     }, 1200);
   }
+  // ── Canal "la tienda se sirve sola": copia del JSON en una PÁGINA de la
+  // tienda (via backend, que tiene las credenciales). El kit lee primero esa
+  // página (mismo origen, sin CORS, sin depender de KIMOS en tiempo de
+  // visita) y cae al gateway de KIMOS si no existe. Una página por
+  // instancia: varias instancias conviven sin pisarse.
+  function permalinkTienda() {
+    return ('kimos-productlab-' + s(instanceId)).toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+  }
+  async function pushPaginaTienda(data) {
+    if (!shell.authFetch) return { ok: false, error: 'authFetch no disponible en este host.' };
+    // `data` null = despublicar: la página queda con el marcador vacío y el
+    // kit cae a KIMOS (que responde 403) — la tienda deja de configurar.
+    const json = JSON.stringify(data == null ? null : data).replace(/<\//g, '<\\/');
+    const cuerpo = '<script type="application/json" id="kimos-productlab">' + json + '</scr' + 'ipt>'
+      + '<p style="display:none">Datos del configurador KIMOS — página técnica, no enlazar en el menú.</p>';
+    try {
+      const r = await fetchReintento(API + '/api/integrations/jumpseller/config-page', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permalink: permalinkTienda(), title: 'KIMOS ProductLab (datos)', body: cuerpo }),
+      }, 2);
+      const d2 = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, error: s(d2.detail) || ('HTTP ' + r.status) };
+      return { ok: true, bytes: num(d2.bytes), permalink: s(d2.permalink), updated: d2.updated === true };
+    } catch (e) { return { ok: false, error: (e && e.message) || 'error de red' }; }
+  }
   async function publish(enabled) {
     const def = Object.assign({}, model.def || defaultDefinition());
-    def.public = { enabled: !!enabled, channels: [], data: enabled ? buildPublicData() : (def.public && def.public.data) || null };
+    const antes = def.public || {};
+    const data = enabled ? buildPublicData() : (antes.data || null);
+    const pub = { enabled: !!enabled, channels: antes.channels || [], pushPage: antes.pushPage === true, data };
+    if (pub.pushPage) {
+      const rp = await pushPaginaTienda(enabled ? data : null);
+      pub.pagePush = Object.assign({ at: nowIso() }, rp);
+      if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
+    }
+    def.public = pub;
     // Solo `public`: publicar es lo que MÁS se escribe (auto-republish) y no
     // debe arrastrar el resto de la definición de esta copia.
     return saveDefinition(def, ['public']);
@@ -6727,6 +6761,23 @@ export default function mount(shell) {
             setBusy(true); await publish(false); setBusy(false);
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
           } }, 'Despublicar'),
+        ]),
+        // ── Canal "la tienda se sirve sola": copia del JSON en una página ──
+        h('div', { key: 'pushpage', className: 'gp-compline' }, [
+          h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 },
+            title: 'En cada publicación, KIMOS copia el JSON a una página oculta de Jumpseller (permalink kimos-productlab-…). El theme lee esa copia local — más rápido y sin depender de KIMOS en tiempo de visita — y cae a esta URL solo si la página no está. Requiere kit 5.16.0+ y credenciales Jumpseller en KIMOS.' }, [
+            h('input', { key: 'c', type: 'checkbox', checked: pub.pushPage === true, onChange: async (e) => {
+              const next = Object.assign({}, state.def || defaultDefinition());
+              next.public = Object.assign({}, next.public || {}, { pushPage: e.target.checked });
+              const r = await saveDefinition(next, ['public']);
+              if (r.success && e.target.checked && enabled) { setBusy(true); await publish(true); setBusy(false); }
+            } }),
+            h('span', { key: 's' }, 'Copiar el JSON a una página de la tienda al publicar (la tienda se sirve sola)'),
+          ]),
+          pub.pagePush ? (pub.pagePush.ok
+            ? h('span', { key: 'st', className: 'gp-chip ok', title: 'Última copia: ' + fmtDateTime(pub.pagePush.at) },
+                '/' + s(pub.pagePush.permalink) + ' · ' + Math.round(num(pub.pagePush.bytes) / 1024) + ' KB')
+            : h('span', { key: 'st', className: 'gp-chip err', title: s(pub.pagePush.error) }, 'copia falló')) : null,
         ]),
         // Identidad de la empresa: marca visible en la app y nombre corto que
         // viaja en el JSON público (el theme puede usarlo para distinguir tiendas).
