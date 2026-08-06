@@ -64,8 +64,8 @@ export default function mount(shell) {
       // ELIMINA por completo (transcript local + memoria del agente, rotando
       // el visitante). Sin referencias a visitas anteriores. 0 = nunca.
       historyTtlHours: 4,
-      // Aviso al pie del widget. Vacío = sin aviso.
-      disclaimer: 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.',
+      // Aviso al inicio del chat, antes del primer mensaje. Vacío = sin aviso.
+      disclaimer: 'Asistente con IA — puede cometer errores. No compartas información sensible.',
       // ── Disparador proactivo ──
       proactiveText: '',
       proactiveSeconds: 40,
@@ -449,8 +449,9 @@ export default function mount(shell) {
         row('Eliminar conversación tras (horas)',
           h('input', { key: 'i', className: 'kwa-input', type: 'number', min: 0, max: 720, style: { width: '110px' }, value: draft.historyTtlHours == null ? 4 : draft.historyTtlHours, onChange: (e) => up({ historyTtlHours: Math.max(0, Number(e.target.value) || 0) }) }),
           'La conversación solo persiste mientras el visitante navega o recarga; tras estas horas de inactividad se ELIMINA por completo (incluida la memoria del agente) y la próxima visita arranca limpia, sin referencias a conversaciones anteriores. 0 = nunca expira. El visitante siempre tiene el botón ⟳ "Iniciar nueva conversación".'),
-        row('Aviso de transparencia (pie del chat)',
-          h('input', { key: 'i', className: 'kwa-input', maxLength: 200, placeholder: '(vacío = sin aviso)', value: draft.disclaimer == null ? 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.' : draft.disclaimer, onChange: (e) => up({ disclaimer: e.target.value }) })),
+        row('Aviso de transparencia (inicio del chat)',
+          h('input', { key: 'i', className: 'kwa-input', maxLength: 200, placeholder: '(vacío = sin aviso)', value: draft.disclaimer == null ? 'Asistente con IA — puede cometer errores. No compartas información sensible.' : draft.disclaimer, onChange: (e) => up({ disclaimer: e.target.value }) }),
+          'Se muestra arriba, antes del primer mensaje del agente.'),
         row('Mensaje proactivo',
           h('input', { key: 'i', className: 'kwa-input', maxLength: 160, placeholder: 'Ej: ¿Necesitas ayuda para completar tu compra? (vacío = desactivado)', value: draft.proactiveText || '', onChange: (e) => up({ proactiveText: e.target.value }) }),
           'Se muestra junto a la burbuja tras un tiempo en la página, una vez por pestaña, sin abrir el chat.'),

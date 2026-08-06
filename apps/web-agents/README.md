@@ -24,8 +24,9 @@ código de incrustación.
     (default 4 h, 0 = nunca) se ELIMINA por completo — transcript local y
     memoria del agente (se rota el visitorId) — y la próxima visita arranca
     limpia, sin ninguna referencia a conversaciones anteriores. Aviso de
-    transparencia al pie (`disclaimer`) y botón permanente ⟳ "Iniciar nueva
-    conversación" en el encabezado.
+    transparencia al inicio del chat, antes del primer mensaje
+    (`disclaimer`), y botón permanente ⟳ "Iniciar nueva conversación" en el
+    encabezado.
   - **Proactividad**: mensaje automático junto a la burbuja tras N segundos
     en la página (`proactiveText`, `proactiveSeconds`, filtro opcional
     `proactiveUrlContains`, una vez por pestaña).
