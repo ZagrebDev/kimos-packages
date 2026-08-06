@@ -6886,10 +6886,43 @@ export default function mount(shell) {
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
           } }, 'Despublicar'),
         ]),
-        // ── Kit en la tienda (fase 2): JsApp que inyecta kimos-embed.js ──
-        // El kit se sirve desde los assets públicos de ESTA app; instalar o
-        // actualizar es recrear el JsApp con la URL versionada. custom.js
-        // manual (si existe) sigue mandando: el embed se retira solo.
+        // ── Vía A — KIT MANUAL (funciona HOY, sin OAuth ni JsApps): se
+        // descargan los archivos del kit YA CONFIGURADOS con la URL de esta
+        // instancia y se suben a Assets del theme. Toda mejora del kit
+        // (multi-instancia, lectura local de la página, presets…) viaja en
+        // estos mismos archivos.
+        (function () {
+          const urlDef = API + '/api/public/app/' + s(instanceId) + '/definition';
+          const bajarAsset = async (nombre, transformar) => {
+            try {
+              const r = await fetch(API + '/api/apps/productlab/asset/' + nombre + '?dl=' + Date.now());
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              let texto = await r.text();
+              if (transformar) texto = transformar(texto);
+              downloadText(nombre, texto, 'application/javascript');
+            } catch (e) {
+              shell.notify({ level: 'error', text: 'No se pudo descargar ' + nombre + ': ' + ((e && e.message) || 'error') });
+            }
+          };
+          return h('div', { key: 'kitmanual', className: 'gp-compline' }, [
+            h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
+            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
+              'descarga los 3 archivos y súbelos a Assets — custom.js ya viene con TU url puesta'),
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
+              title: 'custom.js configurado con la URL pública de esta instancia (solo súbelo a Assets)',
+              onClick: () => bajarAsset('custom.js', (t) => t.replace(
+                /window\.KIMOS_3D_URL\s*=\s*'[^']*';/,
+                "window.KIMOS_3D_URL = '" + urlDef + "';")) }, 'custom.js (configurado)'),
+            h('button', { key: 'j', className: 'gp-btn gp-btn-sm',
+              onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
+            h('button', { key: 's', className: 'gp-btn gp-btn-sm',
+              onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+          ]);
+        })(),
+        // ── Vía B — JSAPP AUTOMÁTICO (opcional; requiere app OAuth de
+        // Jumpseller): mismo kit inyectado por la tienda sin tocar el theme.
+        // Ambas vías conviven: si custom.js está configurado, manda él.
         (function () {
           const ki = pub.kitInstall || null;
           // OJO: aquí `stamp` es la FECHA de publicación (const de esta
@@ -6918,7 +6951,7 @@ export default function mount(shell) {
             else shell.notify({ level: 'error', text: 'Kit en la tienda: ' + s(res.error) });
           };
           return h('div', { key: 'kit', className: 'gp-compline' }, [
-            h('span', { key: 'l', className: 'gp-label' }, 'KIT EN LA TIENDA'),
+            h('span', { key: 'l', className: 'gp-label' }, 'KIT AUTOMÁTICO (JsApp · opcional)'),
             ki ? (ki.ok
               ? h('span', { key: 'st', className: 'gp-chip ok', title: fmtDateTime(ki.at) }, ki.removed ? 'quitado' : 'instalado' + (ki.id ? ' · JsApp #' + ki.id : ''))
               : h('span', { key: 'st', className: 'gp-chip ' + (ki.needsOauth ? 'warn' : 'err'), title: s(ki.error) }, ki.needsOauth ? 'requiere OAuth' : 'falló'))
