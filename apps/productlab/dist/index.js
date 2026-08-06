@@ -3804,42 +3804,76 @@ export default function mount(shell) {
       if (!cv || !origRef.current) return;
       cv.getContext('2d').putImageData(quitarFondoImageData(origRef.current, t), 0, 0);
     };
+    // IA del SERVIDOR (rembg/U2-Net en el backend de KIMOS): recorte de
+    // calidad para cualquier fondo, y además esquiva el problema de CORS
+    // porque la imagen la descarga el servidor. Si el backend no tiene la
+    // librería instalada responde 503 y este editor sigue con el modo rápido.
+    const usarIA = async () => {
+      if (!shell.authFetch) { shell.notify({ level: 'error', text: 'Este host no permite llamar al servidor.' }); return; }
+      setEstado('ia');
+      try {
+        const r = await shell.authFetch(API + '/api/image-tools/remove-bg', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+        if (!r.ok) {
+          const dd = await r.json().catch(() => ({}));
+          throw new Error(s(dd.detail) || ('HTTP ' + r.status));
+        }
+        const blob = await r.blob();
+        const bmp = await createImageBitmap(blob);
+        const MAX = 1800;
+        const esc = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+        const w = Math.max(1, Math.round(bmp.width * esc));
+        const hh = Math.max(1, Math.round(bmp.height * esc));
+        const cv = canvasRef.current;
+        cv.width = w; cv.height = hh;
+        const ctx = cv.getContext('2d');
+        ctx.clearRect(0, 0, w, hh);
+        ctx.drawImage(bmp, 0, 0, w, hh);
+        setEstado('listo');
+      } catch (e) {
+        shell.notify({ level: 'error', text: 'IA del servidor: ' + ((e && e.message) || 'error') });
+        setEstado(origRef.current ? 'listo' : 'cors');
+      }
+    };
     return h(Modal, { title: 'Quitar fondo', onClose }, [
-      estado === 'cors'
-        ? h('div', { key: 'err', className: 'gp-errbox' },
-            'Esta foto vive en un host que no permite editarla desde el navegador (CORS). Descárgala, y súbela a la galería con "+ Subir imágenes…": las fotos subidas aquí sí se pueden editar.')
-        : h('div', { key: 'wrap' }, [
-            h('div', { key: 'pv', style: {
-              // Damero: deja VER la transparencia resultante.
-              background: 'repeating-conic-gradient(#c8c8c8 0% 25%, #f2f2f2 0% 50%) 0 0 / 18px 18px',
-              borderRadius: 8, padding: 8, display: 'flex', justifyContent: 'center',
-            } }, h('canvas', { ref: canvasRef, style: { maxWidth: '100%', maxHeight: '52vh' } })),
-            h('div', { key: 'tol', className: 'gp-compline', style: { borderBottom: 0, marginTop: 10 } }, [
-              h('span', { key: 'l', className: 'gp-label' }, 'tolerancia'),
-              h('input', { key: 'r', type: 'range', min: 6, max: 90, value: tol, style: { flex: 1 },
-                disabled: estado !== 'listo',
-                onChange: (e) => aplicar(num(e.target.value, 34)) }),
-              h('span', { key: 'v', className: 'gp-muted', style: { width: 34, textAlign: 'right' } }, tol),
-            ]),
-            h('div', { key: 'hint', className: 'gp-muted', style: { marginTop: 2 } },
-              'Sube la tolerancia si queda fondo; bájala si se come el producto. Funciona mejor con fondos blancos o planos.'),
-            h('div', { key: 'act', className: 'gp-actions' }, [
-              h('button', { key: 'c', className: 'gp-btn', onClick: onClose }, 'Cancelar'),
-              h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo', onClick: () => {
-                setEstado('guardando');
-                canvasRef.current.toBlob(async (blob) => {
-                  try {
-                    const f = new File([blob], 'sin-fondo.png', { type: 'image/png' });
-                    const nueva = await uploadImage(f);
-                    onSave(nueva);
-                  } catch (e) {
-                    shell.notify({ level: 'error', text: 'No se pudo subir el resultado: ' + ((e && e.message) || 'error') });
-                    setEstado('listo');
-                  }
-                }, 'image/png');
-              } }, estado === 'guardando' ? 'Guardando…' : 'Guardar como foto nueva'),
-            ]),
-          ]),
+      h('div', { key: 'wrap' }, [
+        estado === 'cors' ? h('div', { key: 'err', className: 'gp-errbox' },
+          'Esta foto no se puede editar directo en el navegador (su host no permite CORS). Usa "Quitar con IA": el servidor la procesa por su lado.') : null,
+        h('div', { key: 'pv', style: {
+          // Damero: deja VER la transparencia resultante.
+          background: 'repeating-conic-gradient(#c8c8c8 0% 25%, #f2f2f2 0% 50%) 0 0 / 18px 18px',
+          borderRadius: 8, padding: 8, display: 'flex', justifyContent: 'center',
+        } }, h('canvas', { ref: canvasRef, style: { maxWidth: '100%', maxHeight: '52vh' } })),
+        h('div', { key: 'tol', className: 'gp-compline', style: { borderBottom: 0, marginTop: 10 } }, [
+          h('span', { key: 'l', className: 'gp-label' }, 'tolerancia'),
+          h('input', { key: 'r', type: 'range', min: 6, max: 90, value: tol, style: { flex: 1 },
+            disabled: estado !== 'listo' || !origRef.current,
+            title: 'Modo rápido (fondos planos): re-aplica el recorte local con esta tolerancia',
+            onChange: (e) => aplicar(num(e.target.value, 34)) }),
+          h('span', { key: 'v', className: 'gp-muted', style: { width: 34, textAlign: 'right' } }, tol),
+          h('button', { key: 'ia', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: estado === 'ia' || estado === 'guardando',
+            title: 'Recorte con IA (U2-Net) en el servidor de KIMOS: mejor calidad en fondos difíciles, pelo, sombras…',
+            onClick: usarIA }, estado === 'ia' ? 'Procesando…' : '✨ Quitar con IA'),
+        ]),
+        h('div', { key: 'hint', className: 'gp-muted', style: { marginTop: 2 } },
+          'La tolerancia es el modo rápido (fondos blancos o planos). Para fondos difíciles usa la IA del servidor.'),
+        h('div', { key: 'act', className: 'gp-actions' }, [
+          h('button', { key: 'c', className: 'gp-btn', onClick: onClose }, 'Cancelar'),
+          h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo', onClick: () => {
+            setEstado('guardando');
+            canvasRef.current.toBlob(async (blob) => {
+              try {
+                const f = new File([blob], 'sin-fondo.png', { type: 'image/png' });
+                const nueva = await uploadImage(f);
+                onSave(nueva);
+              } catch (e) {
+                shell.notify({ level: 'error', text: 'No se pudo subir el resultado: ' + ((e && e.message) || 'error') });
+                setEstado('listo');
+              }
+            }, 'image/png');
+          } }, estado === 'guardando' ? 'Guardando…' : 'Guardar como foto nueva'),
+        ]),
+      ]),
     ]);
   }
 
