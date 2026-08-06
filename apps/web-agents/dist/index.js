@@ -59,10 +59,11 @@ export default function mount(shell) {
       // Límite anti-abuso del backend por IP: mensajes por ventana (defaults 20 / 300s)
       rateMax: 20,
       rateWindowS: 300,
-      // ── Gestor de historial y transparencia ──
-      // Horas de inactividad tras las que la conversación local del widget
-      // expira y arranca limpia con saludo contextual (0 = nunca).
-      historyTtlHours: 24,
+      // ── Privacidad y transparencia ──
+      // Horas de inactividad tras las que la conversación del widget se
+      // ELIMINA por completo (transcript local + memoria del agente, rotando
+      // el visitante). Sin referencias a visitas anteriores. 0 = nunca.
+      historyTtlHours: 4,
       // Aviso al pie del widget. Vacío = sin aviso.
       disclaimer: 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.',
       // ── Disparador proactivo ──
@@ -445,9 +446,9 @@ export default function mount(shell) {
 
       h('div', { key: 'behavior', className: 'kwa-card' }, [
         h('div', { key: 'h', className: 'kwa-card-title' }, 'Historial, transparencia y proactividad'),
-        row('Expiración del historial (horas)',
-          h('input', { key: 'i', className: 'kwa-input', type: 'number', min: 0, max: 720, style: { width: '110px' }, value: draft.historyTtlHours == null ? 24 : draft.historyTtlHours, onChange: (e) => up({ historyTtlHours: Math.max(0, Number(e.target.value) || 0) }) }),
-          'La conversación persiste mientras el visitante navega o recarga; tras estas horas de inactividad arranca limpia con un saludo contextual ("¡Hola de nuevo!…"). 0 = nunca expira. El visitante siempre tiene el botón ⟳ "Iniciar nueva conversación".'),
+        row('Eliminar conversación tras (horas)',
+          h('input', { key: 'i', className: 'kwa-input', type: 'number', min: 0, max: 720, style: { width: '110px' }, value: draft.historyTtlHours == null ? 4 : draft.historyTtlHours, onChange: (e) => up({ historyTtlHours: Math.max(0, Number(e.target.value) || 0) }) }),
+          'La conversación solo persiste mientras el visitante navega o recarga; tras estas horas de inactividad se ELIMINA por completo (incluida la memoria del agente) y la próxima visita arranca limpia, sin referencias a conversaciones anteriores. 0 = nunca expira. El visitante siempre tiene el botón ⟳ "Iniciar nueva conversación".'),
         row('Aviso de transparencia (pie del chat)',
           h('input', { key: 'i', className: 'kwa-input', maxLength: 200, placeholder: '(vacío = sin aviso)', value: draft.disclaimer == null ? 'Asistente con IA — puede cometer errores. No compartas información sensible o financiera.' : draft.disclaimer, onChange: (e) => up({ disclaimer: e.target.value }) })),
         row('Mensaje proactivo',

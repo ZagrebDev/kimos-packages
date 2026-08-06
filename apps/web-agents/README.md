@@ -19,12 +19,13 @@ código de incrustación.
   (auto según tema o personalizados), bordes, posición (izq/der), publicado
   on/off, registro de mensajes on/off y **vista previa en vivo** del widget
   (el diseño guardado, recargada en cada guardado). Además (v1.4):
-  - **Historial y transparencia**: expiración del historial local por
-    inactividad (`historyTtlHours`, default 24 h; al expirar el widget saluda
-    contextualmente "¡Hola de nuevo!… ¿seguimos con eso?"), aviso de
+  - **Privacidad y transparencia**: la conversación persiste solo mientras
+    el visitante navega/recarga; tras `historyTtlHours` de inactividad
+    (default 4 h, 0 = nunca) se ELIMINA por completo — transcript local y
+    memoria del agente (se rota el visitorId) — y la próxima visita arranca
+    limpia, sin ninguna referencia a conversaciones anteriores. Aviso de
     transparencia al pie (`disclaimer`) y botón permanente ⟳ "Iniciar nueva
-    conversación" en el encabezado (limpia transcript + rota el visitante,
-    lo que reinicia también la memoria server-side).
+    conversación" en el encabezado.
   - **Proactividad**: mensaje automático junto a la burbuja tras N segundos
     en la página (`proactiveText`, `proactiveSeconds`, filtro opcional
     `proactiveUrlContains`, una vez por pestaña).
