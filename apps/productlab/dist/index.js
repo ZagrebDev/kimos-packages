@@ -1835,9 +1835,11 @@ export default function mount(shell) {
     const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
     if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
-    // Sin pasos = producto SIMPLE (dropshipping): precio directo, sin opciones
-    // ni variantes — el theme muestra "Añadir al carro" en vez de "Configurar".
-    const hasSteps = (eq.groups || []).length > 0;
+    // Sin pasos PERSONALIZABLES = producto SIMPLE: precio directo (la suma de
+    // sus componentes base), sin opciones ni variantes — el theme muestra
+    // "Añadir al carro" en vez de "Configurar". Los pasos componente-base no
+    // cuentan: no generan combinaciones.
+    const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
     if (n > MAX_COMBOS) {
@@ -2041,7 +2043,11 @@ export default function mount(shell) {
             parts: pubModel3d.parts,
             finishes: pubModel3d.finishes,
           } : null,
-          groups: (eq.groups || []).map((g) => {
+          // Solo los pasos PERSONALIZABLES viajan a la tienda: los pasos
+          // componente-base son invisibles para el cliente (su costo ya va
+          // dentro de basePrice) y un producto sin pasos es un producto
+          // SIMPLE (la barra de la tienda ofrece comprar, no configurar).
+          groups: gruposPersonalizables(eq).map((g) => {
             const dv = groupDefaultValue(g);
             const comodin = groupDependsOn(g) && !groupValues(g).some((v) => v.fallback === true)
               ? [{ id: 'na::' + g.id, name: 'No aplica', qty: 1, delta: 0, desc: '', swatchColor: '', imageUrl: '',
@@ -4439,16 +4445,20 @@ export default function mount(shell) {
           ? {}
           : { border: '1px solid var(--gp-gris-claro)', background: s(st.bgColor).trim() || pvFondo, padding: mob ? 10 : 16 }) }, [
           h('div', { key: 'steps', style: { flex: 2, minWidth: 0 } },
-            groups.length === 0
+            // En el Estudio SIEMPRE se ve el PASO 00: un producto sin pasos
+            // personalizables es válido (producto SIMPLE — la suma de sus
+            // componentes base, sin combinaciones en la tienda).
+            (groups.length === 0 && !edit)
               ? h('div', null, [
-                  h('div', { key: 't', className: 'gp-muted' }, edit ? 'Sin pasos aún: crea el primero.' : 'Sin pasos aún: agrega pasos para previsualizar el configurador.'),
-                  edit ? h('div', { key: 'a', className: 'gp-vivo-acciones' },
-                    h('button', { className: 'gp-vivo-addval gp-vivo-addpaso', onClick: edit.agregarPaso }, '+ Agregar paso')) : null,
+                  h('div', { key: 't', className: 'gp-muted' }, 'Sin pasos aún: agrega pasos para previsualizar el configurador.'),
                 ])
               : (edit ? [
                 // ── PRESETS: configuraciones sugeridas (capa previa del cliente) ──
                 (function () {
                   const presets = edit.presets || [];
+                  // Sin pasos personalizables los presets no significan nada
+                  // (no hay nada que preseleccionar): la sección no aparece.
+                  if (!presets.length && !groups.some(({ g }) => g.baseStep !== true)) return null;
                   const precioDe = (map) => {
                     let gg = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
                     (draft.groups || []).filter((g) => g.baseStep === true).forEach((g) => {
@@ -4712,16 +4722,19 @@ export default function mount(shell) {
     const legacy = !ref && legacyLink(d);
     const price = productoComputedPrice(d);
     const combos = comboCount(d);
+    // Producto SIMPLE: sin pasos personalizables (solo componentes base).
+    // Se aplica a la tienda como precio directo, sin opciones ni variantes.
+    const simple = gruposPersonalizables(d).length === 0;
     const warns = productoWarnings(d);
     // El precio vivo y Guardar/Aplicar se publican al HEADER (nada de barras
     // inferiores). Sin deps: cada render deja los closures frescos.
     useEffect(() => {
       setHdrExtra({
         precio: fmtMoney(price),
-        sub: combos + ' variante(s) · entrega ' + productoDelivery(d) + 'd' + (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s)' : ''),
+        sub: (simple ? 'producto simple' : combos + ' variante(s)') + ' · entrega ' + productoDelivery(d) + 'd' + (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s)' : ''),
         busy,
         puedeGuardar: !busy && !!s(d.name).trim(),
-        puedeAplicar: !!ref && !busy && !!s(d.name).trim() && combos > 0 && combos <= MAX_COMBOS,
+        puedeAplicar: !!ref && !busy && !!s(d.name).trim() && (simple || (combos > 0 && combos <= MAX_COMBOS)),
         conTienda: !!ref,
         etiquetaGuardar: initial ? 'Guardar' : 'Crear producto',
         guardar: async () => {
