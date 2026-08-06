@@ -1,0 +1,894 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Kimos ProductLab — ficha de producto completa (kit de theme).
+
+   SISTEMA VISUAL. Es el mismo de la ficha de computadores (plano, filetes
+   rectos, acento fuerte, tipografía del sitio), pero SIN colores cableados:
+   todo pasa por variables que se resuelven en tres escalones,
+
+     1. lo que publica ProductLab  (storefront.style → el JS las escribe
+        inline en la raíz, así que gana siempre);
+     2. el bundle de color del theme (--color-main, --color-links, --font-main…
+        que exponen muchos themes de Jumpseller);
+     3. el valor de reserva de aquí, para que en un theme que no exponga nada
+        la ficha siga siendo legible.
+
+   Tokens (todos pisables desde la app):
+     --kc-accent / --kc-accent-fg   acento y su color de texto
+     --kc-bg / --kc-fg              fondo y texto de la ficha
+     --kc-line                      filetes finos (tablas, separadores)
+     --kc-borde                     bordes de piezas (cards, miniaturas)
+     --kc-plata                     fondo de las cajas de imagen
+     --kc-gris                      texto secundario
+     --kc-radius                    radio (0 = plano, como computadores)
+     --kc-font / --kc-font-num      tipografía del sitio y la de cifras
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* El bloque original del theme se oculta pero SIGUE en el DOM: sus controles
+   nativos y su botón de carro son los que de verdad operan. */
+.kc-hidden-native {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.kimos-cfg {
+  /* El acento NUNCA cae a currentColor: dentro de un hero con texto blanco
+     eso dejaba el botón blanco sobre blanco (invisible). */
+  --kc-accent: var(--color-links, #19ACB1);
+  --kc-accent-fg: var(--color-links-contrast, #ffffff);
+  --kc-gris: var(--color-main-op5, #7C7C7B);
+  --kc-borde: var(--color-main-op2, #DDDDDD);
+  --kc-plata: var(--color-main-op05, #F5F5F5);
+  --kc-line: var(--color-main-op1, #EAEAEA);
+  --kc-radius: 0px;
+  --kc-font: var(--font-main, inherit);
+  --kc-font-num: var(--font-secondary, var(--font-main, inherit));
+  --kc-hero-maxw: 1140px;
+  font-family: var(--kc-font);
+  color: inherit;
+}
+.kimos-cfg *, .kimos-cfg *::before, .kimos-cfg *::after { box-sizing: border-box; }
+/* Navegación por teclado: foco visible en todo control propio (cards,
+   miniaturas y pestañas son button/div sin estilo nativo de foco). */
+.kimos-cfg .kc-card:focus-visible,
+.kimos-cfg .kc-tab:focus-visible,
+.kimos-cfg .kc-btn:focus-visible,
+.kimos-cfg .kc-item-btn:focus-visible,
+.kimos-cfg .kc-foto-th:focus-visible {
+  outline: 2px solid var(--kc-accent);
+  outline-offset: 2px;
+}
+
+/* ── Ancho: alineado al contenedor del theme ──
+   El JS mide el contenedor real del sitio y lo expone en --kc-maxw; con la
+   clase kc-w-container el configurador se centra igual que el resto de la
+   web. Sin la clase (modo 'full') ocupa todo el ancho. */
+.kimos-cfg.kc-w-container {
+  max-width: var(--kc-maxw, 1200px);
+  margin-left: auto; margin-right: auto;
+}
+/* ── Ancho por SECCIÓN (independiente del de la ficha) ──
+   kc-sec-full sangra hasta los bordes de la ventana aunque el configurador
+   esté centrado; kc-sec-container centra esa sección aunque el configurador
+   vaya a ancho completo. Sin clase, la sección hereda el ancho de la ficha. */
+.kimos-cfg .kc-sec-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+}
+.kimos-cfg .kc-sec-container {
+  max-width: var(--kc-maxw, 1200px);
+  margin-left: auto; margin-right: auto;
+}
+/* Compatibilidad con el contrato anterior de la sección imagen. */
+.kimos-cfg.kc-w-container .kc-imagen-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+}
+
+/* ══ Barra con pestañas ══
+   Alto único (64px, el de la mini-foto), fondo sólido, pestaña activa con
+   filete de acento y botón de compra a la derecha. Nada crece ni se mueve al
+   hacer scroll: comportamiento simple y predecible. */
+/* La barra va FIJA, no sticky. `position: sticky` muere en cuanto un ancestro
+   del theme tiene overflow (hidden/auto), cosa habilísima —casi todos ponen
+   overflow-x: hidden en main o en la sección de producto— y entonces la barra
+   se va con el scroll. Fija no depende de nadie. El hueco lo guarda
+   .kc-bar-wrap con el alto real, medido por el JS. */
+.kimos-cfg .kc-bar-wrap { height: var(--kc-bar-h, 64px); }
+/* Anfitrión de la barra cuando hay que sacarla a <body> (ver el JS): solo
+   aporta el ámbito de estilo, no ocupa sitio en la página. */
+.kimos-cfg.kc-bar-host { position: static; max-width: none; }
+.kimos-cfg .kc-bar-wrap.kc-bar-wrap-static { height: auto; }
+.kimos-cfg .kc-bar {
+  /* --kc-top = alto del header fijo del theme (lo mide el JS) + la separación
+     extra que pida el producto: sin esto la barra queda tapada por el menú
+     del sitio al bajar. */
+  position: fixed; top: calc(var(--kc-top, 0px) + var(--kc-bar-offset, 0px));
+  left: 0; right: 0; z-index: 11;   /* sobre el contenido, bajo el menú del sitio */
+  display: flex; align-items: stretch; gap: 2px;
+  min-height: 64px;
+  /* Por defecto la barra ES la ficha: mismo fondo y mismo texto. Solo se
+     separa si el estilo le da un color propio (style.bar.bgColor). */
+  background: var(--kc-bar-bg, var(--kc-bg, #fff)); color: var(--kc-fg, inherit);
+  border-bottom: 1px solid var(--kc-line);
+}
+/* Centrada al contenedor del theme: en modo 'container' siempre, y en 'auto'
+   cuando la ficha entera va centrada. */
+.kimos-cfg.kc-w-container .kc-bar:not(.kc-bar-full),
+.kimos-cfg .kc-bar.kc-bar-container {
+  left: 50%; right: auto; transform: translateX(-50%);
+  width: min(var(--kc-maxw, 1200px), 100%);
+}
+/* bar.sticky:false — la barra vuelve al flujo y se va con el scroll. */
+.kimos-cfg .kc-bar.kc-bar-static {
+  position: static; transform: none; left: auto; right: auto; width: auto;
+}
+.kimos-cfg .kc-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; }
+.kimos-cfg .kc-tab {
+  border: 0; background: none; color: inherit;
+  font: 400 14px/1.2 var(--kc-font); padding: 0 18px;
+  display: inline-flex; align-items: center; cursor: pointer;
+  border-bottom: 3px solid transparent;
+  max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease;
+}
+.kimos-cfg .kc-tab:hover { color: var(--kc-accent); }
+.kimos-cfg .kc-tab.on { border-bottom-color: var(--kc-accent); font-weight: 600; }
+/* Bloque derecho: mini-foto + "desde" + precio. */
+.kimos-cfg .kc-bar-info {
+  margin-left: auto; display: flex; align-items: center; gap: 12px; padding: 0 4px 0 14px;
+}
+.kimos-cfg .kc-bar-thumb {
+  height: 56px; width: auto; max-width: 120px; object-fit: contain;
+  display: block; flex-shrink: 0; border-radius: var(--kc-radius);
+}
+.kimos-cfg .kc-bar-precio {
+  display: flex; flex-direction: column; line-height: 1.05;
+  font-family: var(--kc-font-num);
+}
+.kimos-cfg .kc-bar-desde {
+  font-size: 12px; font-style: italic; font-weight: 400; line-height: 1;
+  margin-bottom: 1px; text-transform: lowercase; color: var(--kc-gris);
+}
+.kimos-cfg .kc-bar-price { font-size: 20px; font-weight: 600; white-space: nowrap; }
+.kimos-cfg .kc-bar-cta {
+  align-self: center; height: 40px; padding: 0 22px; margin: 0 14px 0 8px;
+  font-size: 15px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.kimos-cfg .kc-bar-back {
+  align-self: center; height: 36px; padding: 0 14px; margin-right: 6px;
+  font-size: 13px; border: 0; background: none; color: inherit; opacity: .75;
+  display: inline-flex; align-items: center;
+}
+.kimos-cfg .kc-bar-back:hover { opacity: 1; color: var(--kc-accent); }
+
+/* ── Botones: la forma y la fuente del sitio ── */
+.kimos-cfg .kc-btn {
+  appearance: none; border: 0; cursor: pointer;
+  font: 500 15px/1.2 var(--kc-font);
+  padding: 12px 24px; text-align: center;
+  background: transparent; color: inherit;
+  border-radius: var(--kc-radius);
+  transition: background .15s ease, color .15s ease, opacity .15s ease;
+}
+.kimos-cfg .kc-btn-primary { background: var(--kc-accent); color: var(--kc-accent-fg) !important; }
+.kimos-cfg .kc-btn-primary:hover { opacity: .88; }
+.kimos-cfg .kc-btn-dark { background: #1D1D1B; color: #fff !important; }
+.kimos-cfg .kc-btn-dark:hover { background: #3a3a38; }
+.kimos-cfg .kc-btn-ghost {
+  background: rgba(255,255,255,.12); color: #fff !important;
+  border: 1px solid rgba(255,255,255,.5);
+}
+.kimos-cfg .kc-btn-ghost:hover { background: #fff; color: #1D1D1B !important; }
+.kimos-cfg .kc-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ══ Heros del builder ══
+   Filas y celdas flexbox; la altura del patrón es un MÍNIMO (con altura fija,
+   una celda alta desbordaba encima de la fila siguiente). */
+.kimos-cfg .kc-hero {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 18px;
+  padding: 26px 20px 32px;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  overflow: visible;
+}
+.kimos-cfg .kc-hero-ov::after {
+  content: ''; position: absolute; inset: 0;
+  background: rgba(29,29,27,.35); pointer-events: none;
+}
+.kimos-cfg .kc-hero > * { position: relative; z-index: 2; }
+.kimos-cfg .kc-hero-bg { color: #fff; }
+.kimos-cfg .kc-h-s  { min-height: 340px; }
+.kimos-cfg .kc-h-m  { min-height: 480px; }
+.kimos-cfg .kc-h-l  { min-height: 640px; }
+.kimos-cfg .kc-h-xl { min-height: calc(100vh - 140px); }
+/* `height:'auto'` (contrato v2): el hero crece solo con su contenido. */
+.kimos-cfg .kc-h-auto { min-height: 0; }
+
+/* Las filas se centran en el ancho de lectura aunque el hero sangre a pantalla
+   completa: el fondo llega al borde, el contenido no se desparrama. */
+.kimos-cfg .kc-row {
+  display: flex; gap: 26px; align-items: center; justify-content: center;
+  width: 100%; max-width: var(--kc-hero-maxw); margin-left: auto; margin-right: auto;
+}
+/* Las filas de varias celdas reparten el alto sobrante; las de una sola
+   (títulos arriba, CTA abajo) ocupan lo suyo. */
+.kimos-cfg .kc-row[data-cols="2"], .kimos-cfg .kc-row[data-cols="3"] { flex: 1; min-height: 0; }
+.kimos-cfg .kc-cell {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 12px;
+  align-items: center;
+  justify-content: center;
+  justify-content: safe center;   /* al desbordar, ancla arriba y crece abajo */
+  text-align: center;
+}
+/* La alineación del bloque dentro de su celda (b.align). */
+.kimos-cfg .kc-cell > [data-align="left"]  { align-self: flex-start; }
+.kimos-cfg .kc-cell > [data-align="right"] { align-self: flex-end; }
+
+/* Título del producto + SKU */
+.kimos-cfg .kc-b-title {
+  margin: 0; font-size: clamp(1.5rem, 3.6vw, 2.2rem); font-weight: 700;
+  letter-spacing: -.02em; line-height: 1.1; color: inherit;
+}
+.kimos-cfg .kc-hero-bg .kc-b-title { text-shadow: 0 1px 8px rgba(0,0,0,.35); }
+.kimos-cfg .kc-b-sku {
+  display: block; font-family: var(--kc-font); font-size: 10px;
+  letter-spacing: .18em; opacity: .72; margin-top: 4px; font-weight: 400;
+}
+
+/* Texto libre: titulares con peso y sombra, párrafos normales y legibles. */
+.kimos-cfg .kc-b-text {
+  font-weight: 700; letter-spacing: -.02em; line-height: 1.15; max-width: 560px;
+}
+.kimos-cfg .kc-hero-bg .kc-b-text { text-shadow: 0 1px 8px rgba(0,0,0,.25); }
+.kimos-cfg .kc-b-text.kc-size-xl { font-size: clamp(1.9rem, 5vw, 3.2rem); max-width: none; }
+.kimos-cfg .kc-b-text.kc-size-l  { font-size: clamp(1.4rem, 3.6vw, 2.2rem); max-width: none; }
+.kimos-cfg .kc-b-text.kc-size-m  { font-size: 16px; font-weight: 400; letter-spacing: 0; line-height: 1.55; text-shadow: none; }
+.kimos-cfg .kc-b-text.kc-size-s  { font-size: 13px; font-weight: 400; letter-spacing: 0; line-height: 1.55; text-shadow: none; opacity: .85; }
+
+.kimos-cfg .kc-photo { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+.kimos-cfg .kc-hero .kc-photo { filter: drop-shadow(0 18px 30px rgba(0,0,0,.45)); }
+.kimos-cfg .kc-photo-s  { max-height: 140px; }
+.kimos-cfg .kc-photo-m  { max-height: 300px; }
+.kimos-cfg .kc-photo-l  { max-height: 480px; }
+.kimos-cfg .kc-photo-xl { max-height: 680px; }
+/* `size:'auto'` (contrato v2): alto natural de la foto, sin recortes. */
+.kimos-cfg .kc-photo-auto { max-height: none; }
+@keyframes kc-photo-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+@keyframes kc-photo-zoom  { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes kc-photo-sway  { 0%,100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+.kimos-cfg .kc-anim-float { animation: kc-photo-float 5.5s ease-in-out infinite; }
+.kimos-cfg .kc-anim-zoom  { animation: kc-photo-zoom 6s ease-in-out infinite; }
+.kimos-cfg .kc-anim-sway  { animation: kc-photo-sway 7s ease-in-out infinite; }
+
+/* Descripción del producto: viene de la tienda, con sus saltos de línea. */
+.kimos-cfg .kc-b-desc { white-space: pre-line; line-height: 1.6; max-width: 46em; text-align: left; }
+.kimos-cfg .kc-b-desc.kc-size-xl { font-size: 20px; }
+.kimos-cfg .kc-b-desc.kc-size-l  { font-size: 17px; }
+.kimos-cfg .kc-b-desc.kc-size-m  { font-size: 15px; }
+.kimos-cfg .kc-b-desc.kc-size-s  { font-size: 13px; opacity: .9; }
+
+/* ── Items (+): botón que despliega su texto en flujo ── */
+.kimos-cfg .kc-b-items { display: flex; flex-direction: column; gap: 12px; align-items: inherit; }
+.kimos-cfg .kc-b-items[data-align="left"]   { align-items: flex-start; }
+.kimos-cfg .kc-b-items[data-align="center"] { align-items: center; }
+.kimos-cfg .kc-b-items[data-align="right"]  { align-items: flex-end; }
+.kimos-cfg .kc-item { position: relative; max-width: 420px; }
+.kimos-cfg .kc-item.open { z-index: 8; }
+.kimos-cfg .kc-item-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--kc-item-bg, rgba(29,29,27,.78)); color: var(--kc-item-fg, #fff);
+  border: 1px solid var(--kc-item-line, rgba(255,255,255,.25));
+  border-radius: var(--kc-radius);
+  cursor: pointer; font: 600 13px/1.2 var(--kc-font); text-align: left;
+  padding: 8px 12px 8px 8px;
+  transition: border-color .15s ease, background .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.kimos-cfg .kc-item-btn:hover { border-color: var(--kc-accent); }
+.kimos-cfg .kc-item-btn.kc-item-solo { cursor: default; }
+.kimos-cfg .kc-item-plus {
+  width: 22px; height: 22px; flex-shrink: 0;
+  background: var(--kc-accent); color: var(--kc-accent-fg);
+  border-radius: var(--kc-radius);
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 14px/1 var(--kc-font);
+  transition: transform .2s ease;
+}
+.kimos-cfg .kc-item.open .kc-item-plus { transform: rotate(45deg); }
+.kimos-cfg .kc-item-x {
+  display: none; margin-top: 6px;
+  background: #fff; color: #1D1D1B;
+  border-left: 3px solid var(--kc-accent);
+  border-radius: var(--kc-radius);
+  font-size: 12.5px; line-height: 1.55; padding: 10px 12px; text-align: left;
+  width: max-content; max-width: min(420px, 86vw);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
+}
+.kimos-cfg .kc-item.open .kc-item-x { display: block; }
+/* Flotación suave (b.float): desfasada para que no vayan al unísono. */
+@keyframes kc-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item { animation: kc-float 4.5s ease-in-out infinite; }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item:nth-child(2n) { animation-duration: 5.4s; animation-delay: .7s; }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item:nth-child(3n) { animation-duration: 6.1s; animation-delay: 1.3s; }
+.kimos-cfg .kc-b-items[data-float="1"] .kc-item.open { animation: none; }
+
+/* ── Iconos destacados: filete de acento, icono, título y detalle ── */
+.kimos-cfg .kc-b-icons { display: flex; gap: 18px 26px; flex-wrap: wrap; justify-content: center; }
+.kimos-cfg .kc-b-icons[data-align="left"]  { justify-content: flex-start; }
+.kimos-cfg .kc-b-icons[data-align="right"] { justify-content: flex-end; }
+.kimos-cfg .kc-icon {
+  flex: 0 1 auto; min-width: 130px; max-width: 220px;
+  text-align: left;
+  border-left: 3px solid var(--kc-accent);
+  padding-left: 12px;
+}
+.kimos-cfg .kc-icon-i { display: block; font-size: 22px; line-height: 1.2; }
+.kimos-cfg .kc-icon-t { display: block; font-size: 16px; font-weight: 700; letter-spacing: -.01em; line-height: 1.3; }
+.kimos-cfg .kc-icon-x { display: block; font-size: 12px; line-height: 1.5; opacity: .8; }
+
+/* Resumen de especificaciones dentro de un hero */
+.kimos-cfg .kc-b-specs { width: 100%; max-width: 460px; font-size: 13px; }
+.kimos-cfg .kc-spec-min {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 7px 10px; border-bottom: 1px dashed rgba(157,157,156,.45); text-align: left;
+}
+.kimos-cfg .kc-spec-l { width: 40%; opacity: .7; font-weight: 600; }
+
+/* Foto de galería y HTML libre dentro de un hero */
+.kimos-cfg .kc-b-photo img, .kimos-cfg .kc-b-gallery img { max-width: 100%; }
+.kimos-cfg .kc-b-html { max-width: 100%; min-width: 0; }
+.kimos-cfg .kc-b-cta { display: flex; justify-content: center; }
+.kimos-cfg .kc-b-cta[data-align="left"]  { justify-content: flex-start; }
+.kimos-cfg .kc-b-cta[data-align="right"] { justify-content: flex-end; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kimos-cfg .kc-item, .kimos-cfg .kc-photo { animation: none !important; }
+}
+
+/* ══ Configurar: pasos a la izquierda, panel de compra a la derecha ══
+   Es la disposición de la ficha de computadores: el cliente recorre los pasos
+   y a su lado ve SIEMPRE la foto, el precio, la entrega y lo que lleva
+   elegido, sin perderlo de vista al bajar. */
+.kimos-cfg .kc-conf {
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px;
+  max-width: var(--kc-hero-maxw); margin: 0 auto; padding: 26px 20px 40px;
+  align-items: start;
+}
+.kimos-cfg .kc-conf-steps { min-width: 0; }
+.kimos-cfg .kc-panel {
+  align-self: start; z-index: 10;    /* sobre el pie, bajo la barra (z 11) */
+  border: 1px solid var(--kc-fg, #1D1D1B); background: var(--kc-bg, #fff);
+  border-radius: var(--kc-radius);
+}
+.kimos-cfg .kc-panel-foto {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 10px; background: var(--kc-plata); border-bottom: 1px solid var(--kc-line);
+}
+.kimos-cfg .kc-panel-img { max-height: 150px; max-width: 100%; object-fit: contain; display: block; }
+.kimos-cfg .kc-canvas {
+  display: block; width: 100%; aspect-ratio: 1/1;
+  background: var(--kc-stage, var(--kc-plata)); border-radius: var(--kc-radius); touch-action: none;
+}
+.kimos-cfg .kc-canvas-msg {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; opacity: .6; pointer-events: none;
+}
+.kimos-cfg .kc-panel-head {
+  background: var(--kc-fg, #1D1D1B); color: var(--kc-bg, #fff); padding: 12px 14px;
+}
+.kimos-cfg .kc-panel-name { font-weight: 700; font-size: 14px; line-height: 1.25; }
+.kimos-cfg .kc-panel-sku { font-size: 9px; letter-spacing: .16em; opacity: .65; }
+.kimos-cfg .kc-panel-body { padding: 14px; }
+.kimos-cfg .kc-price-label {
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--kc-gris);
+}
+.kimos-cfg .kc-price { font-family: var(--kc-font-num); font-size: 24px; font-weight: 700; line-height: 1.2; }
+.kimos-cfg .kc-delivery { font-size: 12px; margin-top: 4px; opacity: .85; }
+.kimos-cfg .kc-summary {
+  border-top: 1px dashed var(--kc-borde); margin-top: 10px; padding-top: 10px;
+  font-size: 11.5px; color: var(--kc-gris);
+}
+.kimos-cfg .kc-summary div { padding: 1.5px 0; }
+.kimos-cfg .kc-stockmsg { font-size: 11.5px; color: #C40000; margin-top: 6px; }
+.kimos-cfg .kc-panel .kc-btn { width: 100%; margin-top: 12px; }
+.kimos-cfg .kc-panel-exp { display: none; }
+/* Volver (dentro del personalizador): único elemento a la izquierda de la barra. */
+.kimos-cfg .kc-volver { font-weight: 600; }
+/* ══ Móvil: el panel baja a una barra fija al ras de la pantalla ══
+   Reparto: la foto a la izquierda y, a su derecha, nombre, precio y entrega;
+   el botón de carro debajo, a todo el ancho. Con `display: contents` en el
+   cuerpo, sus hijos entran en la misma grilla del panel y se pueden colocar
+   uno a uno sin tocar el HTML (que es el mismo que en escritorio). */
+@media (max-width: 991px) {
+  /* El hueco al pie es el ALTO REAL del panel (lo mide el JS): con un número
+     fijo, el último valor del último paso quedaba debajo del panel flotante. */
+  /* Sin el footer del theme debajo (en el personalizador se oculta), el
+     último paso terminaba justo donde arranca la barra flotante: el hueco
+     al pie suma también el asa que sobresale y un colchón de aire real. */
+  .kimos-cfg .kc-conf {
+    grid-template-columns: 1fr;
+    padding-bottom: calc(var(--kc-panel-h, 150px) + 72px);
+  }
+  /* El padding derecho deja una FRANJA LIBRE para la burbuja de chat de la
+     tienda (que flota fija en esa esquina): ni los textos ni los botones
+     llegan hasta el borde. */
+  .kimos-cfg .kc-panel {
+    position: fixed !important; left: 0; right: 0; top: auto !important;
+    bottom: env(safe-area-inset-bottom, 0px);
+    width: auto !important; max-height: none !important; overflow: visible !important;
+    z-index: 12; box-shadow: 0 -6px 24px rgba(0,0,0,.22);
+    border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    align-items: center; gap: 0 12px; padding: 10px 76px 12px 12px;
+  }
+  .kimos-cfg .kc-panel-foto {
+    grid-column: 1; grid-row: 1 / span 3;
+    padding: 0; border: 0; background: none; min-width: 48px; align-self: center;
+  }
+  .kimos-cfg .kc-panel-img { max-height: 58px; }
+  .kimos-cfg .kc-canvas { display: none; }        /* el 3D no cabe en la barra */
+  .kimos-cfg .kc-panel-head {
+    grid-column: 2; grid-row: 1;
+    background: none; color: inherit; padding: 0;
+  }
+  .kimos-cfg .kc-panel-name { font-size: 13px; }
+  .kimos-cfg .kc-panel-sku { display: none; }
+  /* El cuerpo desaparece como caja: sus hijos son celdas de esta grilla. */
+  .kimos-cfg .kc-panel-body { display: contents; }
+  .kimos-cfg .kc-price-label { display: none; }
+  .kimos-cfg .kc-price { grid-column: 2; grid-row: 2; font-size: 18px; }
+  .kimos-cfg .kc-delivery { grid-column: 2; grid-row: 3; margin: 0; font-size: 11px; }
+  .kimos-cfg .kc-summary { display: none; }
+  .kimos-cfg .kc-stockmsg { grid-column: 1 / -1; margin: 2px 0 0; }
+  .kimos-cfg .kc-stockmsg:empty { display: none; }
+  /* El carro es más chico y va a la IZQUIERDA (nada de botón a todo el
+     ancho hasta el borde del chat). */
+  .kimos-cfg .kc-panel .kc-btn {
+    grid-column: 1 / -1; justify-self: start;
+    width: auto; margin-top: 8px; padding: 11px 18px;
+  }
+  /* La flecha del detalle se SOBREPONE a la barra: arriba y al medio, medio
+     afuera, como asa para tirar del panel. Mismos colores que la barra y los
+     tokens del theme para borde y radio — sin sombras ni redondeados ajenos
+     al estilo del sitio. */
+  .kimos-cfg .kc-panel-exp {
+    display: flex; position: absolute; left: 50%; top: 0;
+    transform: translate(-50%, -60%);
+    width: 52px; height: 28px; align-items: center; justify-content: center;
+    border: 1px solid var(--kc-borde); background: var(--kc-bg, #fff); color: inherit;
+    cursor: pointer; font-size: 12px; border-radius: var(--kc-radius);
+  }
+  /* Desplegado: la foto crece y aparece TODO lo elegido, paso por paso. */
+  .kimos-cfg .kc-panel.kc-open .kc-panel-img { max-height: 130px; }
+  .kimos-cfg .kc-panel.kc-open .kc-summary {
+    display: block; grid-column: 1 / -1; max-height: 34vh; overflow-y: auto;
+  }
+  .kimos-cfg .kc-panel.kc-open .kc-canvas { display: block; }
+}
+
+/* ══ Presets: capa previa del personalizador (configuraciones sugeridas) ══ */
+.kimos-cfg .kc-presets { max-width: 1100px; margin: 0 auto; }
+.kimos-cfg .kc-presets-t { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.kimos-cfg .kc-presets-s { font-size: 13px; color: var(--kc-gris); margin-bottom: 18px; }
+.kimos-cfg .kc-presets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.kimos-cfg .kc-preset {
+  display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;
+  padding: 16px; cursor: pointer;
+  background: var(--kc-card); border: 1px solid var(--kc-borde); border-radius: var(--kc-radius);
+  color: inherit; font: inherit;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kimos-cfg .kc-preset:hover { border-color: var(--kc-accent); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.kimos-cfg .kc-preset-img { width: 100%; height: 130px; object-fit: contain; background: #fff; border-radius: var(--kc-radius); }
+.kimos-cfg .kc-preset-n { font-weight: 700; font-size: 15px; }
+.kimos-cfg .kc-preset-p { font-family: var(--kc-font-num); font-size: 18px; font-weight: 600; }
+.kimos-cfg .kc-preset-cta { pointer-events: none; padding: 9px 18px; font-size: 13px; }
+.kimos-cfg .kc-preset-cero { justify-content: center; border-style: dashed; min-height: 180px; }
+.kimos-cfg .kc-preset-d { font-size: 12px; color: var(--kc-gris); }
+.kimos-cfg .kc-presets-volver {
+  margin-bottom: 12px; font-size: 12.5px; padding: 8px 14px; cursor: pointer;
+  border: 1px solid var(--kc-borde); background: none; color: inherit; border-radius: var(--kc-radius);
+}
+
+/* Pasos: título en versalitas con el número en acento y filete discontinuo. */
+.kimos-cfg .kc-step {
+  margin-bottom: 26px; padding-bottom: 22px;
+  border-bottom: 1px dashed var(--kc-line);
+}
+.kimos-cfg .kc-step:last-child { border-bottom: 0; }
+.kimos-cfg .kc-step-h {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  border: 0; background: none; color: inherit;
+  font: 700 13px/1.2 var(--kc-font); letter-spacing: .02em; text-transform: uppercase;
+  padding: 0; margin: 0 0 12px; cursor: pointer; text-align: left; user-select: none;
+}
+.kimos-cfg .kc-step-num { font-size: 11px; font-weight: 700; color: var(--kc-accent); }
+.kimos-cfg .kc-step-t { font: inherit; }
+.kimos-cfg .kc-step-sel {
+  margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0;
+  color: var(--kc-gris); font-size: 12px;
+}
+.kimos-cfg .kc-step-car { font-size: 11px; color: var(--kc-gris); }
+.kimos-cfg .kc-step.kc-closed { padding-bottom: 12px; }
+.kimos-cfg .kc-step.kc-closed .kc-cards { display: none; }
+
+/* Cards: grilla regular (no flexbox elástico), imagen sobre fondo plata,
+   nombre en negrita, detalle gris y precio abajo a la derecha. */
+.kimos-cfg .kc-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;
+}
+.kimos-cfg .kc-card {
+  display: flex; flex-direction: column; text-align: left; gap: 0;
+  border: 2px solid var(--kc-borde); background: var(--kc-card, transparent);
+  color: inherit; font: inherit; padding: 0; cursor: pointer;
+  border-radius: var(--kc-radius);
+  transition: border-color .15s ease, background .15s ease;
+  user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.kimos-cfg .kc-card:hover { border-color: var(--kc-fg, #1D1D1B); }
+.kimos-cfg .kc-card.on { border-color: var(--kc-accent); background: var(--kc-plata); }
+.kimos-cfg .kc-card-img {
+  width: 100%; height: 110px; object-fit: contain; padding: 8px;
+  background: var(--kc-plata); border-bottom: 1px solid var(--kc-line);
+}
+.kimos-cfg .kc-card-sw {
+  display: block; width: 30px; height: 30px; border-radius: 50%; margin: 10px 11px 0;
+  border: 1px solid var(--kc-borde);
+}
+.kimos-cfg .kc-card-n { font-size: 12.5px; font-weight: 700; line-height: 1.25; padding: 10px 11px 0; }
+/* El multiplicador (×2) va DENTRO del nombre: sin caja ni separación propia. */
+.kimos-cfg .kc-card-qty { font-size: 11px; font-weight: 500; color: var(--kc-gris); }
+.kimos-cfg .kc-card-d { font-size: 10.5px; color: var(--kc-gris); line-height: 1.35; padding: 3px 11px 0; }
+.kimos-cfg .kc-card-price {
+  font-family: var(--kc-font-num); font-size: 11px; font-weight: 700;
+  text-align: right; padding: 6px 11px 10px; margin-top: auto; white-space: nowrap;
+}
+
+/* style.cardStyle = 'list': una fila por valor, texto a la izquierda. */
+.kimos-cfg.kc-style-list .kc-cards { display: flex; flex-direction: column; }
+.kimos-cfg.kc-style-list .kc-card {
+  flex-direction: row; align-items: center; gap: 10px; width: 100%; padding: 8px 12px;
+}
+.kimos-cfg.kc-style-list .kc-card-img {
+  width: 48px; height: 48px; flex: none; padding: 4px; border-bottom: 0; border-radius: var(--kc-radius);
+}
+.kimos-cfg.kc-style-list .kc-card-n,
+.kimos-cfg.kc-style-list .kc-card-qty,
+.kimos-cfg.kc-style-list .kc-card-d { padding: 0; }
+.kimos-cfg.kc-style-list .kc-card-d { flex: 1; min-width: 0; }
+.kimos-cfg.kc-style-list .kc-card-price { margin-left: auto; padding: 0; }
+
+/* style.cardStyle = 'compact': más valores por pantalla. */
+.kimos-cfg.kc-style-compact .kc-cards { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.kimos-cfg.kc-style-compact .kc-card { border-width: 1px; }
+.kimos-cfg.kc-style-compact .kc-card-img { height: 56px; }
+.kimos-cfg.kc-style-compact .kc-card-n { font-size: 11px; padding: 6px 7px 0; }
+.kimos-cfg.kc-style-compact .kc-card-d { display: none; }
+.kimos-cfg.kc-style-compact .kc-card-price { font-size: 9.5px; padding: 3px 7px 7px; }
+
+/* "Ver en tu espacio": sobre el visor, sin robarle sitio a los pasos. */
+.kimos-cfg .kc-ar-btn {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2; backdrop-filter: blur(6px);
+  /* En iPhone el botón se sustituye por un <a rel="ar">: mismo aspecto. */
+  display: inline-block; text-decoration: none; line-height: normal;
+}
+.kimos-cfg .kc-ar-btn[disabled] { opacity: .5; cursor: default; }
+/* Escritorio: no hay cámara, así que en vez de no pintar nada se explica. */
+.kimos-cfg .kc-ar-nota {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2;
+  font-size: 12px; opacity: .65; padding: 6px 10px;
+  border: 1px dashed var(--kc-borde); border-radius: var(--kc-radius);
+}
+/* La capa de la sesión AR vive FUERA de .kimos-cfg (la pinta el compositor
+   de WebXR sobre la cámara), así que sus estilos no cuelgan de la raíz. */
+.kc-ar-ov {
+  position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+  padding: 22px 16px; font: inherit;
+}
+.kc-ar-ov .kc-ar-tip {
+  background: rgba(0,0,0,.55); color: #fff; padding: 8px 14px; border-radius: 20px;
+  font-size: 14px; text-align: center;
+}
+.kc-ar-ov .kc-ar-exit { pointer-events: auto; }
+
+/* ── Sección `imagen` (contrato v2): foto a lo ancho con su alto natural ── */
+.kimos-cfg .kc-imagen { margin: 0; }
+.kimos-cfg .kc-imagen a { display: block; }
+.kimos-cfg .kc-imagen-img { display: block; width: 100%; height: auto; }
+/* width:'full' = sangrado hasta el borde del viewport, salga de la caja que
+   salga: el margen negativo compensa el centrado del contenedor. */
+.kimos-cfg .kc-imagen-full {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+}
+
+/* Aviso del ajuste automático de dependencias (pasos forzados a su default). */
+.kimos-cfg .kc-notice {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 60;
+  max-width: min(480px, 92vw);
+  background: var(--kc-bg, #fff); color: var(--kc-fg, inherit);
+  border: 1px solid var(--kc-borde); border-radius: var(--kc-radius);
+  padding: 10px 14px; font-size: 13px; line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+}
+
+/* ══ Especificaciones ══ */
+.kimos-cfg .kc-specs { max-width: 900px; margin: 0 auto; padding: 34px 20px 40px; }
+.kimos-cfg .kc-specs-g {
+  font-family: var(--kc-font); font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--kc-accent); margin: 26px 0 8px;
+}
+.kimos-cfg .kc-specs-g:first-child { margin-top: 0; }
+.kimos-cfg .kc-specs-t { width: 100%; border-collapse: collapse; }
+.kimos-cfg .kc-specs-t th, .kimos-cfg .kc-specs-t td {
+  text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--kc-line);
+  font-size: 13px; vertical-align: top;
+}
+.kimos-cfg .kc-specs-t th { width: 36%; color: var(--kc-gris); font-weight: 600; }
+.kimos-cfg .kc-specs-t tr:hover th, .kimos-cfg .kc-specs-t tr:hover td { background: var(--kc-plata); }
+
+/* ══ Fotos: visor en línea + miniaturas centradas + nota al pie ══ */
+.kimos-cfg .kc-fotos { max-width: 900px; margin: 0 auto; padding: 30px 20px 44px; }
+.kimos-cfg .kc-foto-main {
+  position: relative; min-height: 200px; margin: 0 auto 14px;
+  background: var(--kc-plata); border: 1px solid var(--kc-line);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--kc-radius);
+}
+.kimos-cfg .kc-foto-main img {
+  max-width: 100%; max-height: 460px; object-fit: contain; display: block; padding: 12px;
+}
+.kimos-cfg .kc-foto-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.92); border: 1px solid var(--kc-borde); color: #1D1D1B;
+  font: 600 14px/1 var(--kc-font); cursor: pointer; border-radius: var(--kc-radius);
+  transition: border-color .15s ease;
+}
+.kimos-cfg .kc-foto-nav:hover { border-color: var(--kc-accent); }
+.kimos-cfg .kc-foto-prev { left: 8px; }
+.kimos-cfg .kc-foto-next { right: 8px; }
+.kimos-cfg .kc-foto-count {
+  position: absolute; bottom: 8px; left: 0; right: 0; text-align: center;
+  color: var(--kc-gris); font: 500 10px/1 var(--kc-font-num); letter-spacing: .16em;
+  pointer-events: none;
+}
+.kimos-cfg .kc-foto-thumbs { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.kimos-cfg .kc-foto-th {
+  width: 150px; height: 130px; object-fit: contain; padding: 6px; cursor: pointer;
+  background: var(--kc-plata); border: 2px solid var(--kc-line);
+  border-radius: var(--kc-radius); transition: border-color .15s ease;
+}
+.kimos-cfg .kc-foto-th:hover { border-color: var(--kc-fg, #1D1D1B); }
+.kimos-cfg .kc-foto-th.on { border-color: var(--kc-accent); }
+.kimos-cfg .kc-foto-note {
+  max-width: 900px; margin: 22px auto 0; padding-top: 14px;
+  border-top: 1px solid var(--kc-line);
+  color: var(--kc-gris); font-size: 12.5px; line-height: 1.6; white-space: pre-line;
+}
+.kimos-cfg .kc-note {
+  max-width: 900px; margin: 0 auto; padding: 0 20px 30px;
+  color: var(--kc-gris); font-size: 12.5px; line-height: 1.6; white-space: pre-line;
+}
+
+/* ── Barra: opciones del producto (storefront.style.bar) ── */
+.kimos-cfg .kc-bar-full {
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  max-width: 100vw; width: 100vw;
+  padding-left: max(0px, calc(50vw - var(--kc-maxw, 1200px) / 2));
+  padding-right: max(0px, calc(50vw - var(--kc-maxw, 1200px) / 2));
+}
+.kimos-cfg .kc-bar-container { max-width: var(--kc-maxw, 1200px); margin-left: auto; margin-right: auto; }
+
+/* ── Fotos: cómo se ve la galería (storefront.style.photos) ──
+   Tres ejes independientes: el ANCHO del bloque (data-size), el ALTO de la
+   foto grande (data-main) y el TAMAÑO de las miniaturas (data-thumb), más la
+   disposición (data-layout) y el encaje (data-fit). */
+.kimos-cfg .kc-fotos[data-size="s"]  { max-width: 560px; }
+.kimos-cfg .kc-fotos[data-size="m"]  { max-width: 900px; }
+.kimos-cfg .kc-fotos[data-size="l"]  { max-width: 1200px; }
+.kimos-cfg .kc-fotos[data-size="xl"] { max-width: none; }
+/* Alto de la foto grande */
+.kimos-cfg .kc-fotos[data-main="s"]    .kc-foto-main img { max-height: 300px; }
+.kimos-cfg .kc-fotos[data-main="m"]    .kc-foto-main img { max-height: 460px; }
+.kimos-cfg .kc-fotos[data-main="l"]    .kc-foto-main img { max-height: 620px; }
+.kimos-cfg .kc-fotos[data-main="xl"]   .kc-foto-main img { max-height: 80vh; }
+.kimos-cfg .kc-fotos[data-main="auto"] .kc-foto-main img { max-height: none; }
+/* Tamaño de las miniaturas */
+.kimos-cfg .kc-fotos[data-thumb="s"] .kc-foto-th { width: 92px;  height: 80px; }
+.kimos-cfg .kc-fotos[data-thumb="l"] .kc-foto-th { width: 210px; height: 180px; }
+/* Encaje de las fotos: entera o recortada a un formato común */
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-main img,
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-th { object-fit: cover; padding: 0; }
+.kimos-cfg .kc-fotos[data-fit="cover"] .kc-foto-main img { width: 100%; }
+/* Sin marco: fotos limpias, sin fondo ni filete */
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-main,
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-th { background: none; border-color: transparent; }
+.kimos-cfg .kc-fotos[data-frame="no"] .kc-foto-th.on { border-color: var(--kc-accent); }
+/* Miniaturas en columna, a la izquierda del visor */
+.kimos-cfg .kc-fotos[data-layout="lado"] {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start;
+}
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-main { order: 2; margin: 0; }
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-thumbs {
+  order: 1; display: flex; flex-direction: column; flex-wrap: nowrap;
+  max-height: 620px; overflow-y: auto; scrollbar-width: thin;
+}
+.kimos-cfg .kc-fotos[data-layout="lado"] .kc-foto-note { grid-column: 1 / -1; }
+/* Mosaico: sin visor, solo la grilla (el JS ya no pinta la foto grande) */
+.kimos-cfg .kc-fotos[data-layout="mosaico"] .kc-foto-thumbs { gap: 12px; }
+.kimos-cfg .kc-fotos[data-layout="mosaico"] .kc-foto-th { cursor: default; }
+/* Fotos por fila (0 = automático) */
+.kimos-cfg .kc-fotos[data-cols] .kc-foto-thumbs {
+  display: grid; grid-template-columns: repeat(var(--kc-foto-cols, 4), 1fr);
+}
+.kimos-cfg .kc-fotos[data-cols] .kc-foto-th { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+.kimos-cfg .kc-fotos[data-layout="lado"][data-cols] .kc-foto-thumbs { display: flex; }
+
+/* ══ Móvil ══ */
+@media (max-width: 767px) {
+  .kimos-cfg .kc-bar { min-height: 56px; }
+  .kimos-cfg .kc-tab { padding: 0 9px; font-size: 12px; }
+  .kimos-cfg .kc-bar-cta { height: 36px; padding: 0 14px; margin-right: 10px; font-size: 13px; }
+  .kimos-cfg .kc-bar-thumb { height: 44px; max-width: 80px; }
+  .kimos-cfg .kc-bar-price { font-size: 16px; }
+  .kimos-cfg .kc-bar-desde { font-size: 10px; }
+  .kimos-cfg .kc-bar-info { gap: 8px; padding-left: 8px; }
+
+  .kimos-cfg .kc-hero { padding: 22px 14px 26px; }
+  .kimos-cfg .kc-h-s  { min-height: 320px; }
+  .kimos-cfg .kc-h-m  { min-height: 420px; }
+  .kimos-cfg .kc-h-l  { min-height: 540px; }
+  .kimos-cfg .kc-h-xl { min-height: calc(100svh - 110px); }
+  .kimos-cfg .kc-h-auto { min-height: 0; }
+  /* Las filas se apilan: los pesos de celda son solo de escritorio. */
+  .kimos-cfg .kc-row { flex-direction: column; gap: 14px; }
+  .kimos-cfg .kc-row[data-cols="2"], .kimos-cfg .kc-row[data-cols="3"] { flex: none; }
+  .kimos-cfg .kc-cell { flex: none !important; width: 100%; }
+  .kimos-cfg .kc-b-items { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .kimos-cfg .kc-item { max-width: none; }
+  .kimos-cfg .kc-photo-xl { max-height: 340px; }
+  .kimos-cfg .kc-photo-l  { max-height: 300px; }
+  .kimos-cfg .kc-photo-s  { max-height: 110px; }
+  .kimos-cfg .kc-b-icons { gap: 14px 18px; }
+  .kimos-cfg .kc-icon { min-width: 44%; }
+
+  .kimos-cfg .kc-conf { padding: 18px 14px 30px; gap: 18px; }
+  .kimos-cfg .kc-cards { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+  .kimos-cfg .kc-card { border-width: 1px; }
+  .kimos-cfg .kc-card-img { height: 56px; }
+  .kimos-cfg .kc-card-n { font-size: 10.5px; padding: 6px 7px 0; }
+  .kimos-cfg .kc-card-d { font-size: 9px; padding: 2px 7px 0; }
+  .kimos-cfg .kc-card-price { font-size: 9.5px; padding: 3px 7px 7px; }
+
+  .kimos-cfg .kc-fotos { padding: 22px 14px 30px; }
+  .kimos-cfg .kc-foto-main img { max-height: 300px; }
+  .kimos-cfg .kc-foto-thumbs { gap: 6px; }
+  .kimos-cfg .kc-foto-th { width: calc(25% - 5px); height: 74px; padding: 4px; }
+  .kimos-cfg .kc-specs { padding: 24px 14px 30px; }
+}
+/* Las pestañas secundarias se amontonan con el precio y engordan la barra:
+   por defecto solo queda la principal; el producto puede pedir verlas todas
+   con bar.mobileTabs. */
+@media (max-width: 720px) {
+  .kimos-cfg:not(.kc-bar-mtabs) .kc-tab-sec { display: none; }
+  .kimos-cfg .kc-bar { flex-wrap: nowrap; }
+  .kimos-cfg .kc-tabs { flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+}
+
+/* Velo anti-parpadeo: la ficha original se mantiene invisible hasta saber si
+   se reemplaza. Lo pone custom.js y lo retira el configurador (o su tiempo
+   máximo de seguridad), así no se ve la página del theme y luego un cambiazo. */
+.kc-veiled .product-page__wrapper, .kc-veiled .product-page__info { visibility: hidden; }
+
+/* ── Puente al móvil: QR para pasar a la realidad aumentada ── */
+.kimos-cfg .kc-ar-panel {
+  position: absolute; left: 12px; bottom: 56px; z-index: 3;
+  width: min(280px, calc(100% - 24px));
+  background: var(--kc-bg, #fff); color: var(--kc-fg, inherit);
+  border: 1px solid var(--kc-borde); border-radius: var(--kc-radius);
+  padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.kimos-cfg .kc-ar-cerrar {
+  position: absolute; top: 6px; right: 8px;
+  border: 0; background: none; color: inherit; font: inherit;
+  font-size: 15px; cursor: pointer; opacity: .6; line-height: 1;
+}
+.kimos-cfg .kc-ar-tit { font-weight: 600; font-size: 14px; margin-bottom: 10px; padding-right: 18px; }
+.kimos-cfg .kc-ar-txt { font-size: 12px; opacity: .75; line-height: 1.45; margin-top: 10px; }
+/* El QR va sobre blanco pase lo que pase: sobre fondo oscuro no se lee. */
+.kimos-cfg .kc-qr { display: block; margin: 0 auto; background: #fff; border-radius: 4px; }
+
+/* Aviso cuando la sesión de AR falla: en un móvil no hay consola que mirar. */
+.kimos-cfg .kc-ar-aviso {
+  position: absolute; left: 12px; right: 12px; bottom: 56px; z-index: 3;
+  font-size: 12px; line-height: 1.45; padding: 10px 12px;
+  background: var(--kc-bg, #fff); color: var(--kc-fg, inherit);
+  border: 1px solid var(--kc-borde); border-radius: var(--kc-radius);
+}
+
+/* ── AR en vivo (8th Wall): cámara a pantalla completa + producto ──
+   La capa cuelga de <body>, FUERA de .kimos-cfg: sus estilos no pueden
+   depender de ese ámbito (el botón Salir salía con el estilo del theme). */
+.kc-arv { position: fixed; inset: 0; z-index: 2147483000; background: #000; pointer-events: none; }
+/* Con la cámara en marcha la capa se vuelve transparente: FullWindowCanvas
+   cuelga el canvas del <body>, POR DEBAJO de esta capa, y el fondo negro lo
+   taparía (era la "pantalla negra" del teléfono). El negro solo es el velo
+   de carga. pointer-events:none deja pasar el toque de recolocar al canvas;
+   el botón Salir lo recupera con auto. */
+.kc-arv.kc-arv-viva { background: transparent; }
+.kc-arv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; pointer-events: auto; }
+.kc-arv-tip {
+  position: absolute; top: max(18px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.55); color: #fff; padding: 8px 14px; border-radius: 18px;
+  font-size: 14px; line-height: 1.35; text-align: center; max-width: 88%; width: max-content;
+}
+.kc-arv-salir {
+  position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.65); color: #fff; border: 1px solid rgba(255,255,255,.7);
+  font: inherit; font-size: 15px; padding: 12px 34px; border-radius: 24px; cursor: pointer;
+  pointer-events: auto;
+}
+/* Atribución exigida por la licencia del binario del motor. */
+.kc-arv-cred {
+  position: absolute; bottom: 6px; right: 10px; color: rgba(255,255,255,.55); font-size: 10px;
+}
+/* Acabados a un toque dentro del AR. PLEGADO por defecto tras el botón
+   "Personalizar", y en el LADO DERECHO: centrado tapaba los textos de la
+   pantalla (el tip arriba y el Salir abajo van centrados). */
+.kc-arv-chips {
+  position: absolute; right: 12px;
+  bottom: max(88px, calc(env(safe-area-inset-bottom) + 78px));
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  max-width: 70vw; pointer-events: none;
+}
+.kc-arv-chips-btn {
+  background: rgba(0,0,0,.6); color: #fff; border: 1px solid rgba(255,255,255,.6);
+  border-radius: 18px; padding: 9px 18px; font: inherit; font-size: 14px;
+  cursor: pointer; pointer-events: auto;
+}
+.kc-arv-chips-abierto .kc-arv-chips-btn { background: rgba(255,255,255,.92); color: #111; }
+.kc-arv-chips-panel { display: none; flex-direction: column; gap: 8px; align-items: flex-end; }
+.kc-arv-chips-abierto .kc-arv-chips-panel { display: flex; }
+/* En vertical, pegadas a la derecha: no cruzan por delante del producto. */
+.kc-arv-chips-fila {
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+  max-height: 38vh; overflow-y: auto; padding: 2px;
+  pointer-events: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.kc-arv-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.5);
+  border-radius: 16px; padding: 8px 14px; font: inherit; font-size: 13px;
+  white-space: nowrap; cursor: pointer; pointer-events: auto; flex: none;
+}
+.kc-arv-chip-on { background: #fff; color: #111; border-color: #fff; }
+/* El color del acabado, a la vista en el propio chip. */
+.kc-arv-chip-dot {
+  width: 14px; height: 14px; border-radius: 50%; flex: none;
+  border: 1px solid rgba(255,255,255,.75); box-shadow: 0 0 0 1px rgba(0,0,0,.25);
+}
+.kc-arv-chip-on .kc-arv-chip-dot { border-color: rgba(0,0,0,.4); }
+/* Disparador de foto, estilo obturador. */
+.kc-arv-foto {
+  position: absolute; right: 18px; bottom: max(20px, env(safe-area-inset-bottom));
+  width: 54px; height: 54px; border-radius: 50%; border: 3px solid #fff;
+  background: rgba(255,255,255,.28); box-shadow: inset 0 0 0 3px rgba(0,0,0,.35);
+  cursor: pointer; pointer-events: auto;
+}
+.kc-arv-foto:disabled { opacity: .5; }
+/* Medida al pellizcar: "45 cm · 100% — tamaño real". */
+.kc-arv-escala {
+  position: absolute; top: max(64px, calc(env(safe-area-inset-top) + 48px));
+  left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.65); color: #fff; padding: 6px 12px; border-radius: 14px;
+  font-size: 13px; white-space: nowrap; opacity: 0; transition: opacity .2s;
+  pointer-events: none;
+}
+.kc-arv-escala-on { opacity: 1; }

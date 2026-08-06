@@ -3795,7 +3795,7 @@ export default function mount(shell) {
     }
     return out;
   }
-  function FondoEditor({ url, onSave, onClose }) {
+  function FondoEditor({ url, own, onSave, onClose }) {
     const [tol, setTol] = useState(34);
     const [estado, setEstado] = useState('cargando'); // cargando | listo | cors | guardando
     const canvasRef = useRef(null);
@@ -3838,41 +3838,23 @@ export default function mount(shell) {
       if (!cv || !origRef.current) return;
       cv.getContext('2d').putImageData(quitarFondoImageData(origRef.current, t), 0, 0);
     };
-    // IA del SERVIDOR (rembg/U2-Net en el backend de KIMOS): recorte de
-    // calidad para cualquier fondo, y además esquiva el problema de CORS
-    // porque la imagen la descarga el servidor. Si el backend no tiene la
-    // librería instalada responde 503 y este editor sigue con el modo rápido.
-    const usarIA = async () => {
-      if (!shell.authFetch) { shell.notify({ level: 'error', text: 'Este host no permite llamar al servidor.' }); return; }
-      setEstado('ia');
-      try {
-        const r = await shell.authFetch(API + '/api/image-tools/remove-bg', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
-        if (!r.ok) {
-          const dd = await r.json().catch(() => ({}));
-          throw new Error(s(dd.detail) || ('HTTP ' + r.status));
+    const guardar = (reemplazar) => {
+      setEstado('guardando');
+      canvasRef.current.toBlob(async (blob) => {
+        try {
+          const f = new File([blob], 'sin-fondo.png', { type: 'image/png' });
+          const nueva = await uploadImage(f);
+          onSave(nueva, reemplazar);
+        } catch (e) {
+          shell.notify({ level: 'error', text: 'No se pudo subir el resultado: ' + ((e && e.message) || 'error') });
+          setEstado('listo');
         }
-        const blob = await r.blob();
-        const bmp = await createImageBitmap(blob);
-        const MAX = 1800;
-        const esc = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
-        const w = Math.max(1, Math.round(bmp.width * esc));
-        const hh = Math.max(1, Math.round(bmp.height * esc));
-        const cv = canvasRef.current;
-        cv.width = w; cv.height = hh;
-        const ctx = cv.getContext('2d');
-        ctx.clearRect(0, 0, w, hh);
-        ctx.drawImage(bmp, 0, 0, w, hh);
-        setEstado('listo');
-      } catch (e) {
-        shell.notify({ level: 'error', text: 'IA del servidor: ' + ((e && e.message) || 'error') });
-        setEstado(origRef.current ? 'listo' : 'cors');
-      }
+      }, 'image/png');
     };
     return h(Modal, { title: 'Quitar fondo', onClose }, [
       h('div', { key: 'wrap' }, [
         estado === 'cors' ? h('div', { key: 'err', className: 'gp-errbox' },
-          'Esta foto no se puede editar directo en el navegador (su host no permite CORS). Usa "Quitar con IA": el servidor la procesa por su lado.') : null,
+          'Esta foto vive en un host que no permite editarla desde el navegador (CORS). Descárgala y súbela a la galería con "+ Subir imágenes…": las fotos subidas aquí sí se pueden editar.') : null,
         h('div', { key: 'pv', style: {
           // Damero: deja VER la transparencia resultante.
           background: 'repeating-conic-gradient(#c8c8c8 0% 25%, #f2f2f2 0% 50%) 0 0 / 18px 18px',
@@ -3882,30 +3864,19 @@ export default function mount(shell) {
           h('span', { key: 'l', className: 'gp-label' }, 'tolerancia'),
           h('input', { key: 'r', type: 'range', min: 6, max: 90, value: tol, style: { flex: 1 },
             disabled: estado !== 'listo' || !origRef.current,
-            title: 'Modo rápido (fondos planos): re-aplica el recorte local con esta tolerancia',
             onChange: (e) => aplicar(num(e.target.value, 34)) }),
           h('span', { key: 'v', className: 'gp-muted', style: { width: 34, textAlign: 'right' } }, tol),
-          h('button', { key: 'ia', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: estado === 'ia' || estado === 'guardando',
-            title: 'Recorte con IA (U2-Net) en el servidor de KIMOS: mejor calidad en fondos difíciles, pelo, sombras…',
-            onClick: usarIA }, estado === 'ia' ? 'Procesando…' : '✨ Quitar con IA'),
         ]),
         h('div', { key: 'hint', className: 'gp-muted', style: { marginTop: 2 } },
-          'La tolerancia es el modo rápido (fondos blancos o planos). Para fondos difíciles usa la IA del servidor.'),
+          'Sube la tolerancia si queda fondo; bájala si se come el producto.'),
         h('div', { key: 'act', className: 'gp-actions' }, [
           h('button', { key: 'c', className: 'gp-btn', onClick: onClose }, 'Cancelar'),
-          h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo', onClick: () => {
-            setEstado('guardando');
-            canvasRef.current.toBlob(async (blob) => {
-              try {
-                const f = new File([blob], 'sin-fondo.png', { type: 'image/png' });
-                const nueva = await uploadImage(f);
-                onSave(nueva);
-              } catch (e) {
-                shell.notify({ level: 'error', text: 'No se pudo subir el resultado: ' + ((e && e.message) || 'error') });
-                setEstado('listo');
-              }
-            }, 'image/png');
-          } }, estado === 'guardando' ? 'Guardando…' : 'Guardar como foto nueva'),
+          h('button', { key: 'copia', className: 'gp-btn' + (own ? '' : ' gp-btn-primary'), disabled: estado !== 'listo',
+            title: 'La original se conserva y el resultado entra como foto nueva',
+            onClick: () => guardar(false) }, estado === 'guardando' ? 'Guardando…' : 'Guardar como copia'),
+          own ? h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo',
+            title: 'El resultado toma el lugar de la foto original en la galería',
+            onClick: () => guardar(true) }, estado === 'guardando' ? 'Guardando…' : 'Reemplazar la foto') : null,
         ]),
       ]),
     ]);
@@ -5614,16 +5585,22 @@ export default function mount(shell) {
             } }),
           ]),
         ]),
-        // Editor de fondo: el resultado entra a la galería como PNG nuevo; si
-        // la editada era la foto principal, la nueva la reemplaza como tal.
+        // Editor de fondo. "Reemplazar" toma el lugar de la original en la
+        // galería (solo fotos propias — las de la tienda no se pisan);
+        // "copia" la agrega como foto nueva. Si la editada era la foto
+        // principal, la nueva hereda ese rol.
         galEdit ? h(FondoEditor, { key: 'fondo', url: galEdit,
+          own: (d.galleryImages || []).indexOf(galEdit) !== -1,
           onClose: () => setGalEdit(null),
-          onSave: (nueva) => {
-            const patch = { galleryImages: (d.galleryImages || []).indexOf(nueva) === -1 ? (d.galleryImages || []).concat([nueva]) : (d.galleryImages || []) };
+          onSave: (nueva, reemplazar) => {
+            let gal = d.galleryImages || [];
+            if (reemplazar) gal = gal.map((x) => (x === galEdit ? nueva : x));
+            else if (gal.indexOf(nueva) === -1) gal = gal.concat([nueva]);
+            const patch = { galleryImages: gal };
             if (productoImage(d) === galEdit) patch.imageUrl = nueva;
             up(patch);
             setGalEdit(null);
-            shell.notify({ level: 'success', text: 'Foto sin fondo agregada a la galería.' });
+            shell.notify({ level: 'success', text: reemplazar ? 'Foto reemplazada por la versión sin fondo.' : 'Foto sin fondo agregada a la galería.' });
           } }) : null,
       ]),
       ]),
@@ -6762,6 +6739,50 @@ export default function mount(shell) {
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
           } }, 'Despublicar'),
         ]),
+        // ── Kit en la tienda (fase 2): JsApp que inyecta kimos-embed.js ──
+        // El kit se sirve desde los assets públicos de ESTA app; instalar o
+        // actualizar es recrear el JsApp con la URL versionada. custom.js
+        // manual (si existe) sigue mandando: el embed se retira solo.
+        (function () {
+          const ki = pub.kitInstall || null;
+          const urlEmbed = () => API + '/api/apps/productlab/asset/kimos-embed.js?def='
+            + encodeURIComponent(API + '/api/public/app/' + s(instanceId) + '/definition')
+            + '&v=' + encodeURIComponent(stamp());
+          const llamar = async (remove) => {
+            setBusy(true);
+            let res = { ok: false, error: 'error' };
+            try {
+              const r = await fetchReintento(API + '/api/integrations/jumpseller/install-kit', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(remove ? { remove: true } : { url: urlEmbed() }),
+              }, 2);
+              const dd = await r.json().catch(() => ({}));
+              res = r.ok ? dd : { ok: false, error: s(dd.detail) || ('HTTP ' + r.status) };
+            } catch (e) { res = { ok: false, error: (e && e.message) || 'error de red' }; }
+            const next = Object.assign({}, state.def || defaultDefinition());
+            next.public = Object.assign({}, next.public || {}, {
+              kitInstall: Object.assign({ at: nowIso(), removed: remove === true }, res) });
+            await saveDefinition(next, ['public']);
+            setBusy(false);
+            if (res.ok) shell.notify({ level: 'success', text: remove ? 'Kit quitado de la tienda.' : 'Kit instalado/actualizado en la tienda (JsApp).' });
+            else if (res.needsOauth) shell.notify({ level: 'warn', text: 'Jumpseller exige una app OAuth para JsApps: ' + s(res.error) });
+            else shell.notify({ level: 'error', text: 'Kit en la tienda: ' + s(res.error) });
+          };
+          return h('div', { key: 'kit', className: 'gp-compline' }, [
+            h('span', { key: 'l', className: 'gp-label' }, 'KIT EN LA TIENDA'),
+            ki ? (ki.ok
+              ? h('span', { key: 'st', className: 'gp-chip ok', title: fmtDateTime(ki.at) }, ki.removed ? 'quitado' : 'instalado' + (ki.id ? ' · JsApp #' + ki.id : ''))
+              : h('span', { key: 'st', className: 'gp-chip ' + (ki.needsOauth ? 'warn' : 'err'), title: s(ki.error) }, ki.needsOauth ? 'requiere OAuth' : 'falló'))
+              : h('span', { key: 'st', className: 'gp-chip gris' }, 'no instalado'),
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'go', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: busy,
+              title: 'Crea (o recrea) el JsApp de Jumpseller que inyecta el kit en todas las páginas de la tienda — sin tocar el theme. Actualizar el kit = volver a pulsar aquí. Si tienes custom.js configurado a mano, sigue mandando él.',
+              onClick: () => llamar(false) }, 'Instalar / actualizar kit'),
+            h('button', { key: 'rm', className: 'gp-btn gp-btn-sm', disabled: busy,
+              title: 'Elimina el JsApp del kit (la tienda vuelve a depender solo de custom.js, si existe)',
+              onClick: () => llamar(true) }, 'Quitar'),
+          ]);
+        })(),
         // ── Canal "la tienda se sirve sola": copia del JSON en una página ──
         h('div', { key: 'pushpage', className: 'gp-compline' }, [
           h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 },
