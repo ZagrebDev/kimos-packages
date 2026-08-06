@@ -3795,13 +3795,76 @@ export default function mount(shell) {
     }
     return out;
   }
+  // Rotación 90° horaria de un ImageData (para el editor de fotos).
+  function rotarImageData(src) {
+    const w = src.width, hh = src.height;
+    const out = new ImageData(hh, w);
+    const a = src.data, b = out.data;
+    for (let y = 0; y < hh; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const j = (x * hh + (hh - 1 - y)) * 4;
+        b[j] = a[i]; b[j + 1] = a[i + 1]; b[j + 2] = a[i + 2]; b[j + 3] = a[i + 3];
+      }
+    }
+    return out;
+  }
+  // Caja mínima del contenido visible (alfa > 8) — para centrar con margen.
+  function bboxAlpha(img) {
+    const w = img.width, hh = img.height, d = img.data;
+    let x0 = w, y0 = hh, x1 = -1, y1 = -1;
+    for (let y = 0; y < hh; y++) {
+      for (let x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] > 8) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 === -1) return { x0: 0, y0: 0, x1: w - 1, y1: hh - 1 };
+    return { x0, y0, x1, y1 };
+  }
   function FondoEditor({ url, own, onSave, onClose }) {
     const [tol, setTol] = useState(34);
+    const [margen, setMargen] = useState(0);        // % de aire alrededor del contenido
+    const [cuadrado, setCuadrado] = useState(true); // lienzo cuadrado al aplicar margen
+    const [recorte, setRecorte] = useState(false);  // modo recorte manual (arrastrar)
     const [estado, setEstado] = useState('cargando'); // cargando | listo | cors | guardando
     const canvasRef = useRef(null);
-    const origRef = useRef(null);   // ImageData original (para re-aplicar tolerancia)
-    // Carga la imagen UNA vez; cada cambio de tolerancia re-aplica sobre la
-    // copia original en memoria (sin volver a descargar).
+    const origRef = useRef(null);     // ImageData original (rotar/recortar la mutan)
+    const vistaRef = useRef(null);    // último render (para dibujar el rectángulo encima)
+    const dragRef = useRef(null);     // arrastre del recorte {x0,y0,x1,y1} en px del canvas
+    // ── Render: original → sin fondo (tolerancia) → margen/lienzo ──
+    // En modo recorte se pinta CRUDO (sin margen): así los píxeles del canvas
+    // coinciden 1:1 con la imagen de trabajo y el rectángulo arrastrado se
+    // mapea directo. El resto del tiempo el canvas ya ES el resultado final.
+    const render = (o) => {
+      const cv = canvasRef.current;
+      if (!cv || !origRef.current) return;
+      const p = Object.assign({ tol, margen, cuadrado, crudo: recorte }, o || {});
+      const work = quitarFondoImageData(origRef.current, p.tol);
+      if (p.crudo || (!p.margen && !p.cuadrado)) {
+        cv.width = work.width; cv.height = work.height;
+        cv.getContext('2d').putImageData(work, 0, 0);
+      } else {
+        // Contenido centrado con aire alrededor (como las fotos de catálogo
+        // bien encuadradas); lienzo cuadrado opcional para uniformar cards.
+        const bb = bboxAlpha(work);
+        const cw = bb.x1 - bb.x0 + 1, ch = bb.y1 - bb.y0 + 1;
+        const m = Math.max(0, p.margen) / 100;
+        let W = Math.round(cw * (1 + 2 * m)), H = Math.round(ch * (1 + 2 * m));
+        if (p.cuadrado) { W = H = Math.max(W, H); }
+        const tmp = document.createElement('canvas');
+        tmp.width = work.width; tmp.height = work.height;
+        tmp.getContext('2d').putImageData(work, 0, 0);
+        cv.width = W; cv.height = H;
+        const ctx = cv.getContext('2d');
+        ctx.clearRect(0, 0, W, H);
+        ctx.drawImage(tmp, bb.x0, bb.y0, cw, ch, Math.round((W - cw) / 2), Math.round((H - ch) / 2), cw, ch);
+      }
+      try { vistaRef.current = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height); } catch (e) { vistaRef.current = null; }
+    };
+    // Carga la imagen UNA vez; todo lo demás re-trabaja la copia en memoria.
     useEffect(() => {
       let vivo = true;
       const img = new Image();
@@ -3825,18 +3888,58 @@ export default function mount(shell) {
           setEstado('cors');
           return;
         }
-        ctx.putImageData(quitarFondoImageData(origRef.current, 34), 0, 0);
+        render({});
         setEstado('listo');
       };
       img.onerror = () => { if (vivo) setEstado('cors'); };
       img.src = url;
       return () => { vivo = false; };
     }, []);
-    const aplicar = (t) => {
-      setTol(t);
+    const aplicar = (t) => { setTol(t); render({ tol: t }); };
+    const rotar = () => {
+      if (!origRef.current) return;
+      origRef.current = rotarImageData(origRef.current);
+      render({});
+    };
+    // ── Recorte manual: arrastrar un rectángulo sobre el canvas ──
+    const coord = (e) => {
       const cv = canvasRef.current;
-      if (!cv || !origRef.current) return;
-      cv.getContext('2d').putImageData(quitarFondoImageData(origRef.current, t), 0, 0);
+      const r = cv.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(cv.width - 1, Math.round((e.clientX - r.left) * cv.width / r.width))),
+        y: Math.max(0, Math.min(cv.height - 1, Math.round((e.clientY - r.top) * cv.height / r.height))),
+      };
+    };
+    const pintarSel = (a, b) => {
+      const cv = canvasRef.current;
+      if (!cv || !vistaRef.current) return;
+      const ctx = cv.getContext('2d');
+      ctx.putImageData(vistaRef.current, 0, 0);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(25,120,255,.95)';
+      ctx.lineWidth = Math.max(2, Math.round(cv.width / 400));
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    };
+    const selDown = (e) => { if (!recorte || estado !== 'listo') return; e.preventDefault(); dragRef.current = { a: coord(e), b: coord(e) }; };
+    const selMove = (e) => { if (!recorte || !dragRef.current) return; dragRef.current.b = coord(e); pintarSel(dragRef.current.a, dragRef.current.b); };
+    const selUp = () => {
+      if (!recorte || !dragRef.current) return;
+      const { a, b } = dragRef.current;
+      dragRef.current = null;
+      const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y);
+      const w = Math.abs(b.x - a.x), hh = Math.abs(b.y - a.y);
+      if (w < 12 || hh < 12) { render({ crudo: true }); return; } // gesto sin intención
+      // Recorta el ORIGINAL (el canvas crudo va 1:1 con él) y sale del modo.
+      const o = origRef.current;
+      const tmp = document.createElement('canvas');
+      tmp.width = o.width; tmp.height = o.height;
+      const tctx = tmp.getContext('2d', { willReadFrequently: true });
+      tctx.putImageData(o, 0, 0);
+      origRef.current = tctx.getImageData(x0, y0, Math.min(w, o.width - x0), Math.min(hh, o.height - y0));
+      setRecorte(false);
+      render({ crudo: false });
     };
     const guardar = (reemplazar) => {
       setEstado('guardando');
@@ -3851,7 +3954,7 @@ export default function mount(shell) {
         }
       }, 'image/png');
     };
-    return h(Modal, { title: 'Quitar fondo', onClose }, [
+    return h(Modal, { title: 'Editar foto', onClose }, [
       h('div', { key: 'wrap' }, [
         estado === 'cors' ? h('div', { key: 'err', className: 'gp-errbox' },
           'Esta foto vive en un host que no permite editarla desde el navegador (CORS). Descárgala y súbela a la galería con "+ Subir imágenes…": las fotos subidas aquí sí se pueden editar.') : null,
@@ -3859,22 +3962,45 @@ export default function mount(shell) {
           // Damero: deja VER la transparencia resultante.
           background: 'repeating-conic-gradient(#c8c8c8 0% 25%, #f2f2f2 0% 50%) 0 0 / 18px 18px',
           borderRadius: 8, padding: 8, display: 'flex', justifyContent: 'center',
-        } }, h('canvas', { ref: canvasRef, style: { maxWidth: '100%', maxHeight: '52vh' } })),
+        } }, h('canvas', { ref: canvasRef,
+          onPointerDown: selDown, onPointerMove: selMove, onPointerUp: selUp,
+          style: { maxWidth: '100%', maxHeight: '48vh', touchAction: recorte ? 'none' : 'auto', cursor: recorte ? 'crosshair' : 'default' } })),
         h('div', { key: 'tol', className: 'gp-compline', style: { borderBottom: 0, marginTop: 10 } }, [
-          h('span', { key: 'l', className: 'gp-label' }, 'tolerancia'),
+          h('span', { key: 'l', className: 'gp-label', title: 'Quitar fondo: sube si queda fondo, baja si se come el producto' }, 'fondo'),
           h('input', { key: 'r', type: 'range', min: 6, max: 90, value: tol, style: { flex: 1 },
-            disabled: estado !== 'listo' || !origRef.current,
+            disabled: estado !== 'listo' || !origRef.current || recorte,
             onChange: (e) => aplicar(num(e.target.value, 34)) }),
-          h('span', { key: 'v', className: 'gp-muted', style: { width: 34, textAlign: 'right' } }, tol),
+          h('span', { key: 'v', className: 'gp-muted', style: { width: 30, textAlign: 'right' } }, tol),
+        ]),
+        // Margen: el "zoom out" que centra el producto con aire alrededor,
+        // como las fotos de catálogo bien encuadradas.
+        h('div', { key: 'mar', className: 'gp-compline', style: { borderBottom: 0 } }, [
+          h('span', { key: 'l', className: 'gp-label', title: 'Aire alrededor del producto: 0 = ajustado al contenido; 15-25% ≈ encuadre de catálogo' }, 'margen'),
+          h('input', { key: 'r', type: 'range', min: 0, max: 50, value: margen, style: { flex: 1 },
+            disabled: estado !== 'listo' || recorte,
+            onChange: (e) => { const v = num(e.target.value, 0); setMargen(v); render({ margen: v }); } }),
+          h('span', { key: 'v', className: 'gp-muted', style: { width: 30, textAlign: 'right' } }, margen + '%'),
+          h('label', { key: 'sq', className: 'gp-switch', style: { margin: 0 }, title: 'Lienzo cuadrado: todas las fotos con la misma proporción en el catálogo' }, [
+            h('input', { key: 'c', type: 'checkbox', checked: cuadrado, disabled: recorte,
+              onChange: (e) => { setCuadrado(e.target.checked); render({ cuadrado: e.target.checked }); } }),
+            h('span', { key: 's' }, 'cuadrado'),
+          ]),
+          h('button', { key: 'rot', className: 'gp-btn gp-btn-sm', disabled: estado !== 'listo' || recorte,
+            title: 'Rotar 90°', onClick: rotar }, '⟳ Rotar'),
+          h('button', { key: 'crop', className: 'gp-btn gp-btn-sm' + (recorte ? ' gp-btn-dark' : ''), disabled: estado !== 'listo',
+            title: recorte ? 'Salir del modo recorte sin recortar' : 'Recortar: arrastra un rectángulo sobre la foto y se recorta al soltar',
+            onClick: () => { const r = !recorte; setRecorte(r); render({ crudo: r }); } }, recorte ? '✕ Recortando…' : '✂ Recortar'),
         ]),
         h('div', { key: 'hint', className: 'gp-muted', style: { marginTop: 2 } },
-          'Sube la tolerancia si queda fondo; bájala si se come el producto.'),
+          recorte
+            ? 'Arrastra un rectángulo sobre la foto: al soltar se recorta.'
+            : 'Fondo, margen para centrar, rotar o recortar — el lienzo de abajo es exactamente lo que se guarda.'),
         h('div', { key: 'act', className: 'gp-actions' }, [
           h('button', { key: 'c', className: 'gp-btn', onClick: onClose }, 'Cancelar'),
-          h('button', { key: 'copia', className: 'gp-btn' + (own ? '' : ' gp-btn-primary'), disabled: estado !== 'listo',
+          h('button', { key: 'copia', className: 'gp-btn' + (own ? '' : ' gp-btn-primary'), disabled: estado !== 'listo' || recorte,
             title: 'La original se conserva y el resultado entra como foto nueva',
             onClick: () => guardar(false) }, estado === 'guardando' ? 'Guardando…' : 'Guardar como copia'),
-          own ? h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo',
+          own ? h('button', { key: 'ok', className: 'gp-btn gp-btn-primary', disabled: estado !== 'listo' || recorte,
             title: 'El resultado toma el lugar de la foto original en la galería',
             onClick: () => guardar(true) }, estado === 'guardando' ? 'Guardando…' : 'Reemplazar la foto') : null,
         ]),
@@ -4816,6 +4942,7 @@ export default function mount(shell) {
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
     const [galBusy, setGalBusy] = useState(false);    // subida múltiple a la galería
     const [galEdit, setGalEdit] = useState(null);     // url en el editor de fondo
+    const [galTienda, setGalTienda] = useState('');   // url subiéndose a la tienda
     const [creandoTienda, setCreandoTienda] = useState(false); // crear producto en Jumpseller
     const [mats, setMats] = useState([]);             // materiales detectados en el GLB
     const [try3d, setTry3d] = useState({});           // probar configuración: grupo → valor
@@ -5540,8 +5667,28 @@ export default function mount(shell) {
                       title: 'Usar como foto principal del producto (portada de la ficha y del catálogo)',
                       onClick: () => up({ imageUrl: u }) }, '★') : null,
                     h('button', { key: 'ed', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
-                      title: 'Quitar el fondo de esta foto (el resultado se guarda como foto nueva)',
+                      title: 'Editar foto: quitar fondo, margen para centrar, rotar, recortar',
                       onClick: () => setGalEdit(u) }, '✎'),
+                    // Fase 3: la foto sube DIRECTO a la galería del producto en
+                    // Jumpseller (su CDN la descarga) — nada de bajar y resubir.
+                    (!isProd && ref && ref.sourceId) ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
+                      disabled: galTienda === u,
+                      title: 'Subir esta foto al producto en Jumpseller' + (esPrincipal ? ' como foto principal' : ''),
+                      onClick: async () => {
+                        setGalTienda(u);
+                        try {
+                          const r = await fetchReintento(API + '/api/integrations/jumpseller/product-image', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(Object.assign({ sourceId: s(ref.sourceId), url: u }, esPrincipal ? { position: 1 } : {})),
+                          }, 2);
+                          const dd = await r.json().catch(() => ({}));
+                          if (!r.ok) throw new Error(s(dd.detail) || ('HTTP ' + r.status));
+                          shell.notify({ level: 'success', text: 'Foto subida al producto de la tienda' + (esPrincipal ? ' (principal)' : '') + '. La app Productos la verá al próximo pull.' });
+                        } catch (e) {
+                          shell.notify({ level: 'error', text: 'No se pudo subir a la tienda: ' + ((e && e.message) || 'error') });
+                        }
+                        setGalTienda('');
+                      } }, galTienda === u ? '…' : '⬆') : null,
                     own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', style: { padding: '2px 5px' },
                       title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)',
                       onClick: () => up(Object.assign({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) },
