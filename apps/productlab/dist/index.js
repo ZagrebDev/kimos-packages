@@ -6892,9 +6892,11 @@ export default function mount(shell) {
         // manual (si existe) sigue mandando: el embed se retira solo.
         (function () {
           const ki = pub.kitInstall || null;
+          // OJO: aquí `stamp` es la FECHA de publicación (const de esta
+          // pestaña), no el helper — el busteo de caché usa nowIso().
           const urlEmbed = () => API + '/api/apps/productlab/asset/kimos-embed.js?def='
             + encodeURIComponent(API + '/api/public/app/' + s(instanceId) + '/definition')
-            + '&v=' + encodeURIComponent(stamp());
+            + '&v=' + encodeURIComponent(nowIso().slice(0, 19));
           const llamar = async (remove) => {
             setBusy(true);
             let res = { ok: false, error: 'error' };
