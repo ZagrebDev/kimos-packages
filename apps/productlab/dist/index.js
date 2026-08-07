@@ -2057,7 +2057,19 @@ export default function mount(shell) {
           // Galería completa y descripción del producto en la tienda: sin
           // esto el theme solo puede mostrar la foto principal y no hay texto
           // que incrustar en la ficha.
-          images: productImagesFor(eq),
+          // La galería publicada lleva la foto PRINCIPAL (★) primera aunque
+          // el item de la app Productos aún no haya hecho pull de la tienda:
+          // la experiencia se actualiza al republicar, sin esperar syncs.
+          images: (function () {
+            const principal = productoImage(eq);
+            const lista = productImagesFor(eq).slice();
+            if (principal) {
+              const i = lista.indexOf(principal);
+              if (i > 0) lista.splice(i, 1);
+              if (i !== 0) lista.unshift(principal);
+            }
+            return lista;
+          })(),
           description: productDescriptionFor(eq),
           // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones.
           // El estilo viaja ya RESUELTO (plantilla del catálogo o propio): el

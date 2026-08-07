@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.18.0';
+  var VERSION = '5.18.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1913,7 +1913,9 @@
     var anclas = {};   // sección → nodo, para bajar hasta ella
     var ctx = {
       name: prod.name, sku: entry.sku || prod.sku || '',
-      image: images[0] || '', images: images, specs: sf.specs || [],
+      // La foto del hero es la PRINCIPAL publicada (entry.imageUrl — la ★ de
+      // ProductLab); la galería queda para las demás vistas.
+      image: entry.imageUrl || images[0] || '', images: images, specs: sf.specs || [],
       desc: desc,
       style: style,
       stepsOpen: null,   // colapso por paso: lo siembra renderSteps
