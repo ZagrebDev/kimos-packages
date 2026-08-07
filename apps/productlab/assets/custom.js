@@ -29,8 +29,10 @@ window.KIMOS_3D_AUTOLOAD = false;
 // Fuerza a recargar los assets de KIMOS AHORA (salta el caché del navegador y
 // del CDN). Cámbialo por cualquier valor nuevo cada vez que subas archivos
 // nuevos a Assets y quieras verlos sin esperar. Sin esto, los cambios entran
-// solos al día siguiente.
-window.KIMOS_ASSET_V = '46';
+// solos en la siguiente hora. El custom.js que descarga ProductLab
+// (Publicación → "custom.js (configurado)") ya trae aquí una marca nueva en
+// cada descarga: subirlo junto a los otros archivos los refresca al instante.
+window.KIMOS_ASSET_V = '47';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,
@@ -134,10 +136,19 @@ window.KIMOS_FULL = true;
           if (fondo && !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fondo)) caja.style.setProperty('--kc-boot-bg', fondo);
         } catch (e) { /* da igual: queda el blanco */ }
       }
-      // Color del spinner: el fijado aquí y, si no, el ACENTO DEL THEME
-      // (--color-links del bundle): la espera va con la marca de la tienda,
-      // nunca con un color ajeno.
+      // Color del spinner, por orden: el fijado aquí a mano; el RECORDADO de
+      // la última visita (el configurador guarda el color del estilo del
+      // producto en localStorage — el spinner se ve antes de que ese estilo
+      // llegue, así que sin la memoria el color elegido en ProductLab no se
+      // alcanzaba a ver nunca); y si no, el acento del theme (--color-links).
       var giro = String(window.KIMOS_SPINNER_COLOR || '').trim();
+      if (!giro) {
+        try {
+          var mem = JSON.parse(localStorage.getItem('kc-boot-style') || 'null');
+          if (mem && mem.a) giro = String(mem.a).trim();
+          if (mem && mem.b && !fondoFijo) caja.style.setProperty('--kc-boot-bg', String(mem.b).trim());
+        } catch (e) { /* sin memoria: se sigue con el theme */ }
+      }
       if (!giro) {
         try { giro = (getComputedStyle(document.documentElement).getPropertyValue('--color-links') || '').trim(); } catch (e) { giro = ''; }
       }
@@ -172,11 +183,12 @@ window.KIMOS_FULL = true;
   // seguían sirviendo la versión anterior por mucho que la volvieras a subir.
   // El síntoma es desesperante: subes los archivos y no cambia nada.
   //
-  // Ahora la marca la ponemos nosotros: por defecto cambia cada día (los
-  // cambios llegan solos en 24 h como mucho) y, si necesitas que sea YA,
-  // define KIMOS_ASSET_V con cualquier valor distinto al anterior.
-  var hoy = new Date();
-  var bust = '?kv=' + (window.KIMOS_ASSET_V || (hoy.getFullYear() * 10000 + (hoy.getMonth() + 1) * 100 + hoy.getDate()));
+  // Ahora la marca la ponemos nosotros: por defecto cambia cada HORA (los
+  // archivos recién subidos llegan solos en menos de una hora — con la marca
+  // diaria de antes, subirlos por la tarde no se veía hasta el día
+  // siguiente) y, si necesitas que sea YA, define KIMOS_ASSET_V con
+  // cualquier valor distinto al anterior.
+  var bust = '?kv=' + (window.KIMOS_ASSET_V || Math.floor(Date.now() / 36e5));
   // Jumpseller SANEA el nombre al subir el archivo y, entre otras cosas, le
   // QUITA LOS GUIONES: `kimos-configurador.js` termina servido como
   // `kimosconfigurador.js`. Además minifica (`custom.js` → `custom.min.js`).

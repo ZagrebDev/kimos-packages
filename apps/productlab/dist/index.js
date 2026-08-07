@@ -1000,6 +1000,18 @@ export default function mount(shell) {
     (eq.groups || []).forEach((g) => groupValues(g).forEach((v) => push(v.imageUrl)));
     return out;
   }
+  // Galería que VIAJA a la tienda: la ★ primera, luego las fotos del producto
+  // en Jumpseller y las propias de la app (dedup). Es LA MISMA lista que ve el
+  // editor de bloques — "foto Nº 3" significa lo mismo aquí y en la tienda —
+  // y antes solo salían las de Jumpseller: las subidas en la app no llegaban.
+  function publishedImagesFor(eq) {
+    const out = [];
+    const push = (u) => { u = s(u).trim(); if (u && out.indexOf(u) === -1) out.push(u); };
+    push(productoImage(eq));
+    productImagesFor(eq).forEach(push);
+    collectProductoImages(eq).forEach(push);
+    return out;
+  }
   function productoImage(eq) {
     // La foto elegida EN LA APP (★ de la Galería) manda sobre la de la
     // tienda; sin elección propia se usa la del producto enlazado.
@@ -1871,6 +1883,25 @@ export default function mount(shell) {
     } catch (e) { return { success: false }; }
   }
 
+  // Renombrar en ProductLab debe verse en la tienda: mismo camino que el SKU
+  // y la descripción (PUT al item de la app Productos + push a Jumpseller).
+  async function pushNombreTienda(eq, nombre) {
+    const ref = storeRefOf(eq);
+    if (!ref || !shell.authFetch) return { success: false };
+    try {
+      const r = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nombre, syncStatus: 'pending' }),
+      });
+      if (!r.ok) return { success: false };
+      await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds: [ref.itemId] }),
+      });
+      return { success: true };
+    } catch (e) { return { success: false }; }
+  }
+
   async function applyToStore(eq) {
     const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
@@ -1938,7 +1969,11 @@ export default function mount(shell) {
         // STOCK: calculado de los componentes base — ∞ (nadie controla) se
         // publica como stock ilimitado en la tienda; con control, el mínimo.
         // Sin componentes base no se toca (manda lo que gestione la tienda).
+        // NOMBRE: el de ProductLab manda — renombrar aquí renombra en la
+        // tienda al aplicar (antes solo viajaban precio/opciones y el nombre
+        // viejo se quedaba en Jumpseller para siempre).
         body: JSON.stringify(Object.assign(
+          s(eq.name).trim() ? { name: s(eq.name).trim() } : {},
           { price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' },
           ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true))
             ? (productoStock(eq) == null
@@ -2057,19 +2092,10 @@ export default function mount(shell) {
           // Galería completa y descripción del producto en la tienda: sin
           // esto el theme solo puede mostrar la foto principal y no hay texto
           // que incrustar en la ficha.
-          // La galería publicada lleva la foto PRINCIPAL (★) primera aunque
-          // el item de la app Productos aún no haya hecho pull de la tienda:
-          // la experiencia se actualiza al republicar, sin esperar syncs.
-          images: (function () {
-            const principal = productoImage(eq);
-            const lista = productImagesFor(eq).slice();
-            if (principal) {
-              const i = lista.indexOf(principal);
-              if (i > 0) lista.splice(i, 1);
-              if (i !== 0) lista.unshift(principal);
-            }
-            return lista;
-          })(),
+          // La galería publicada lleva la foto PRINCIPAL (★) primera y TODAS
+          // las fotos del producto (tienda + subidas en la app), sin esperar
+          // syncs: la misma lista que muestra la Galería de la app.
+          images: publishedImagesFor(eq),
           description: productDescriptionFor(eq),
           // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones.
           // El estilo viaja ya RESUELTO (plantilla del catálogo o propio): el
@@ -5079,6 +5105,9 @@ export default function mount(shell) {
       collectProductoImages(d).forEach((u) => { if (out.indexOf(u) === -1) out.push(u); });
       return out;
     })();
+    // La galería TAL COMO SE PUBLICA (★ primera, tienda + propias): es la
+    // numeración que usa el bloque "Foto de la galería" en la tienda.
+    const pubImgs = publishedImagesFor(d);
     const legacy = !ref && legacyLink(d);
     const price = productoComputedPrice(d);
     const combos = comboCount(d);
@@ -5105,6 +5134,13 @@ export default function mount(shell) {
             shell.notify(rr.success
               ? { level: 'success', text: 'SKU actualizado también en el producto de la tienda.' }
               : { level: 'warn', text: 'El SKU se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
+          }
+          // Nombre cambiado → también al producto de la tienda (como el SKU).
+          if (r.success && ref && initial && s(initial.name).trim() !== s(d.name).trim() && s(d.name).trim()) {
+            const rn = await pushNombreTienda(d, s(d.name).trim());
+            shell.notify(rn.success
+              ? { level: 'success', text: 'Nombre actualizado también en el producto de la tienda.' }
+              : { level: 'warn', text: 'El nombre se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
           }
           // Descripción de la tienda editada aquí → al item + push a Jumpseller.
           if (r.success && ref && descTienda != null && descTienda !== s((productItemFor(d) || {}).description)) {
@@ -6070,7 +6106,10 @@ export default function mount(shell) {
                 h('span', { key: 'v5' }, sp.value),
               ])));
             if (b.type === 'gallery') {
-              const gu = prodImgs[Math.max(0, (num(b.index, 1) || 1) - 1)];
+              // Mismo recorte que la tienda: un Nº más allá de la última foto
+              // muestra la última (nunca un hueco por numerar de más).
+              const gn = Math.min(Math.max(1, num(b.index, 1) || 1), Math.max(1, pubImgs.length));
+              const gu = pubImgs[gn - 1];
               return h('div', common, gu
                 ? h('img', { src: gu, alt: '', style: { maxHeight: 120, maxWidth: '100%', objectFit: 'contain' } })
                 : h('div', { style: { width: 120, height: 74, background: 'rgba(255,255,255,.12)', border: '1px dashed rgba(255,255,255,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, letterSpacing: '.1em' } }, 'GALERÍA Nº' + (b.index || 1)));
@@ -6233,16 +6272,28 @@ export default function mount(shell) {
                     h(TextInput, { key: 'n13', mono: true, type: 'number', min: 1, max: 12, value: b.count || 4, style: { width: 70 }, onChange: (e) => upBlock(b.id, { count: e.target.value }) }),
                     h('span', { key: 'm13', className: 'gp-muted' }, 'primeras filas de la tabla de Especificaciones.'),
                   ]),
-                  b.type === 'gallery' && h('div', { key: 'f', className: 'gp-compline', style: { borderBottom: 0 } }, [
-                    h('span', { key: 'l14', className: 'gp-label' }, 'foto Nº'),
-                    h(TextInput, { key: 'n14', mono: true, type: 'number', min: 1, value: b.index || 1, style: { width: 70 }, onChange: (e) => upBlock(b.id, { index: e.target.value }) }),
-                    h('span', { key: 's14', className: 'gp-label' }, 'tamaño'),
-                    h('select', { key: 'sz14', className: 'gp-select', style: { width: 170 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
-                      [['s', 'Pequeña'], ['m', 'Mediana'], ['l', 'Grande'], ['xl', 'Extra grande'], ['auto', 'Natural (alto según la foto)']].map(([v, l]) => h('option', { key: v, value: v }, l))),
-                    h('span', { key: 'an14', className: 'gp-label' }, 'animación'),
-                    h('select', { key: 'anim14', className: 'gp-select', style: { width: 130 }, value: b.anim || 'none', onChange: (e) => upBlock(b.id, { anim: e.target.value }) },
-                      [['none', 'Sin animación'], ['float', 'Flotar'], ['zoom', 'Respirar'], ['sway', 'Balanceo']].map(([v, l]) => h('option', { key: v, value: v }, l))),
-                    h('span', { key: 'm14', className: 'gp-muted' }, 'número de la foto en la galería del producto (1 = primera).'),
+                  b.type === 'gallery' && h('div', { key: 'f' }, [
+                    // La foto se ELIGE VIENDO las miniaturas (nada de adivinar
+                    // números): la lista es la galería tal como se publica —
+                    // ★ primera, tienda + fotos subidas en la app.
+                    pubImgs.length
+                      ? h('div', { key: 'th14', style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 } },
+                          pubImgs.map((u, i) => {
+                            const on14 = Math.min(Math.max(1, num(b.index, 1) || 1), pubImgs.length) === i + 1;
+                            return h('button', { key: i, className: 'gp-btn gp-btn-sm', title: 'Foto ' + (i + 1) + (i === 0 ? ' (principal ★)' : '') + ' — clic para usarla en este bloque',
+                              style: { padding: 2, width: 64, height: 52, overflow: 'hidden', borderColor: on14 ? 'var(--gp-fucsia)' : undefined, outline: on14 ? '2px solid var(--gp-fucsia)' : 'none', outlineOffset: -2 },
+                              onClick: () => upBlock(b.id, { index: i + 1 }) },
+                              h('img', { src: u, alt: 'Foto ' + (i + 1), style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' } }));
+                          }))
+                      : h('div', { key: 'th14', className: 'gp-muted', style: { marginBottom: 6 } }, 'El producto aún no tiene fotos: sube alguna en la Galería (o enlaza el producto de la tienda).'),
+                    h('div', { key: 'r14', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                      h('span', { key: 's14', className: 'gp-label' }, 'tamaño'),
+                      h('select', { key: 'sz14', className: 'gp-select', style: { width: 170 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
+                        [['s', 'Pequeña'], ['m', 'Mediana'], ['l', 'Grande'], ['xl', 'Extra grande'], ['auto', 'Natural (alto según la foto)']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                      h('span', { key: 'an14', className: 'gp-label' }, 'animación'),
+                      h('select', { key: 'anim14', className: 'gp-select', style: { width: 130 }, value: b.anim || 'none', onChange: (e) => upBlock(b.id, { anim: e.target.value }) },
+                        [['none', 'Sin animación'], ['float', 'Flotar'], ['zoom', 'Respirar'], ['sway', 'Balanceo']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                    ]),
                   ]),
                   b.type === 'description' && h('div', { key: 'f' }, [
                     h('div', { key: 'r', className: 'gp-compline', style: { borderBottom: 0 } }, [
@@ -6959,17 +7010,19 @@ export default function mount(shell) {
       h('div', { key: 'st', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'CONFIGURADOR'), 'Publicación para el theme de la tienda']),
         h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
-          'El theme (configurador.js) lee este JSON público para pintar los pasos, imágenes, recargos, compatibilidades y fechas de entrega de cada producto. Una vez publicado, se REPUBLICA SOLO cada vez que guardas componentes, productos o aplicas recálculos (la tienda lo ve en ~5 min por el caché del CDN).'),
+          'El theme (configurador.js) lee este JSON público para pintar los pasos, imágenes, recargos, compatibilidades y fechas de entrega de cada producto. Una vez publicado, se REPUBLICA SOLO cada vez que guardas componentes, productos o aplicas recálculos, y el kit (5.19+) lo pide SIEMPRE fresco: cada visita a la tienda ve la última publicación, sin cachés de por medio.'),
         h('div', { key: 'line', className: 'gp-compline' }, [
           enabled ? h('span', { key: 'c', className: 'gp-chip ok' }, 'publicado') : h('span', { key: 'c', className: 'gp-chip gris' }, 'despublicado'),
           stamp && h('span', { key: 's', className: 'gp-muted' }, 'última publicación: ' + fmtDateTime(stamp)),
           h('span', { key: 'sp', className: 'grow' }),
-          h('button', { key: 'pub', className: 'gp-btn gp-btn-primary', disabled: busy, onClick: async () => {
+          h('button', { key: 'pub', className: 'gp-btn gp-btn-primary', disabled: busy,
+            title: 'Regenera el JSON y (con la copia en página activada) lo escribe en la tienda. Todos los visitantes ven la versión nueva en su próxima carga de página: el kit no usa cachés para el catálogo.',
+            onClick: async () => {
             setBusy(true);
             const r = await publish(true);
             setBusy(false);
-            if (r.success) shell.notify({ level: 'success', text: 'Configurador publicado (' + buildPublicData().productos.length + ' productos).' });
-          } }, enabled ? 'Republicar ahora' : 'Publicar'),
+            if (r.success) shell.notify({ level: 'success', text: 'Configurador publicado (' + buildPublicData().productos.length + ' productos). La tienda lo mostrará fresco en la próxima carga de cada visitante.' });
+          } }, enabled ? '🔄 Republicar ahora' : 'Publicar'),
           enabled && h('button', { key: 'unpub', className: 'gp-btn', disabled: busy, onClick: async () => {
             setBusy(true); await publish(false); setBusy(false);
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
@@ -7011,10 +7064,14 @@ export default function mount(shell) {
                 'descarga los 3 archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s))'),
               h('span', { key: 'sp', className: 'grow' }),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
-                title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets)',
-                onClick: () => bajarAsset('custom.js', (t) => t.replace(
-                  /window\.KIMOS_3D_URL\s*=\s*'[^']*';/,
-                  "window.KIMOS_3D_URL = '" + urlsTodas().join(', ') + "';")) }, 'custom.js (configurado)'),
+                title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets). Sale con una marca de caché nueva: al subirlo, la tienda recarga los archivos del kit al instante.',
+                onClick: () => bajarAsset('custom.js', (t) => t
+                  .replace(/window\.KIMOS_3D_URL\s*=\s*'[^']*';/,
+                    "window.KIMOS_3D_URL = '" + urlsTodas().join(', ') + "';")
+                  // Marca ÚNICA por descarga: subir este custom.js invalida el
+                  // caché de kimos-configurador.js/.css en navegador y CDN.
+                  .replace(/window\.KIMOS_ASSET_V\s*=\s*'[^']*';/,
+                    "window.KIMOS_ASSET_V = '" + Date.now() + "';")) }, 'custom.js (configurado)'),
               h('button', { key: 'j', className: 'gp-btn gp-btn-sm',
                 onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
               h('button', { key: 's', className: 'gp-btn gp-btn-sm',

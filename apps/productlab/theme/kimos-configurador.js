@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.18.2';
+  var VERSION = '5.19.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -149,12 +149,12 @@
     return out.id == null ? null : out;
   }
 
-  // El JSON público se cachea en localStorage con TTL corto (60 s): la ficha
-  // arranca al instante en visitas seguidas y los cambios hechos en KIMOS se
-  // ven en un minuto como mucho. Si KIMOS no responde, se usa la última copia
-  // buena aunque esté vencida — la tienda nunca se queda sin ficha por una
-  // caída del panel.
-  var DEF_TTL = 60000;
+  // El JSON público se pide SIEMPRE fresco a la red: publicar en ProductLab
+  // se ve en la tienda en la visita siguiente, sin TTL ni CDN de por medio
+  // (el velo de arranque ya tapa esa espera, y la copia local es una página
+  // del mismo origen: rapidísima). La copia en localStorage queda SOLO de
+  // respaldo: si ni la página ni KIMOS responden, la tienda usa la última
+  // buena y no se queda sin ficha.
   function defCacheKey() { return 'kc-def::' + CFG_URLS.join('|'); }
   function defCacheRead() {
     try {
@@ -179,12 +179,13 @@
   }
   function loadDefinition() {
     var hit = defCacheRead();
-    if (hit && (Date.now() - hit.t) < DEF_TTL) return Promise.resolve(hit.def);
-    var bust = Math.floor(Date.now() / DEF_TTL);
+    // Marca única por carga: ni el navegador ni el CDN de la tienda pueden
+    // servir una copia vieja del JSON — "publicar" recarga a todos de verdad.
+    var bust = Date.now();
     var pedirLocal = function (u) {
       var p = permalinkLocal(u);
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch('/' + p + '?_t=' + bust, { credentials: 'omit' })
+      return fetch('/' + p + '?_t=' + bust, { credentials: 'omit', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
@@ -195,7 +196,7 @@
         });
     };
     var pedirRemoto = function (u) {
-      return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit' })
+      return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
     };
@@ -641,7 +642,11 @@
       // Las mismas animaciones que la foto del producto (flotar/respirar/…).
       var gi = el('img', 'kc-photo kc-photo-' + (b.size || 'm')
         + (b.anim && b.anim !== 'none' ? ' kc-anim-' + b.anim : ''));
-      gi.src = (ctx.images || [])[Math.max(0, (b.index || 1) - 1)] || ctx.image || '';
+      // Nº recortado a la galería real: si el bloque pide la foto 9 y hay 4,
+      // se muestra la última (no un hueco ni la principal por sorpresa).
+      var gimgs = ctx.images || [];
+      var gn = Math.max(1, b.index || 1);
+      gi.src = gimgs[Math.min(gn, gimgs.length) - 1] || ctx.image || '';
       gi.alt = '';
       n.appendChild(gi);
     } else if (b.type === 'description') {
@@ -1747,12 +1752,22 @@
     // El velo de arranque adopta el estilo del producto y deja ver el menú del
     // sitio: se espera con la marca de la tienda, no con una pantalla en blanco.
     var boot = document.getElementById('kc-boot');
+    var giroEstilo = String(style.spinnerColor || '').trim() || String(style.accentColor || '').trim();
     if (boot) {
       boot.style.setProperty('--kc-boot-top', medirTop() + 'px');
-      var giro = String(style.spinnerColor || '').trim() || String(style.accentColor || '').trim();
-      if (giro) boot.style.setProperty('--kc-boot-accent', giro);
+      if (giroEstilo) boot.style.setProperty('--kc-boot-accent', giroEstilo);
       if (String(style.bgColor || '').trim()) boot.style.setProperty('--kc-boot-bg', String(style.bgColor).trim());
     }
+    // El spinner se ve sobre todo ANTES de que llegue el estilo (custom.js lo
+    // pinta mientras se pide el JSON): para ese momento el color de esta
+    // visita se deja RECORDADO y custom.js lo lee en la siguiente. La primera
+    // visita de la vida usa el acento del theme; de ahí en adelante, el del
+    // producto.
+    try {
+      localStorage.setItem('kc-boot-style', JSON.stringify({
+        a: giroEstilo, b: String(style.bgColor || '').trim(),
+      }));
+    } catch (e) { /* sin localStorage el spinner se queda con el del theme */ }
 
     var reencajar = encajarConTheme(root, page, style.width);
     // ── Botón "subir": aparece al scrollear la experiencia hacia abajo y
@@ -1775,22 +1790,66 @@
       };
       window.addEventListener('scroll', alScroll, { passive: true });
       alScroll();
+      // La esquina inferior derecha es territorio de los widgets de chat
+      // (WhatsApp, Tidio, Crisp…): si algo fijo ya vive ahí, el botón se
+      // COLOCA ENCIMA de ese widget en vez de quedar tapado por él. Se
+      // revisa tarde y de nuevo aún más tarde: los chats cargan a su ritmo.
+      function esquivarWidgets() {
+        var vh = window.innerHeight, vw = window.innerWidth, sube = 0;
+        var nodos = document.querySelectorAll('body > *, iframe');
+        for (var i = 0; i < nodos.length; i++) {
+          var n = nodos[i];
+          if (!n || n === subir || n.id === 'kc-boot') continue;
+          if (n.classList && (n.classList.contains('kimos-cfg') || n.classList.contains('kimos-cfg-top') || n.classList.contains('kc-bar-host'))) continue;
+          var cs; try { cs = getComputedStyle(n); } catch (e) { continue; }
+          if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') continue;
+          var rw = n.getBoundingClientRect();
+          if (!rw.width || !rw.height) continue;
+          // Una capa a pantalla (casi) completa es un overlay, no un widget.
+          if (rw.width > vw * 0.85 && rw.height > vh * 0.6) continue;
+          // ¿Pisa la zona del botón (esquina inferior derecha)?
+          if (rw.right > vw - 90 && rw.bottom > vh - 90 && rw.top < vh - 6) {
+            sube = Math.max(sube, Math.min(vh - rw.top + 10, vh * 0.5));
+          }
+        }
+        subir.style.bottom = sube ? 'calc(' + Math.round(sube) + 'px + var(--kc-mbar-h, 0px))' : '';
+      }
+      [800, 3000, 7000].forEach(function (ms) { setTimeout(esquivarWidgets, ms); });
+      window.addEventListener('resize', esquivarWidgets);
     })();
     // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
     // recalcula porque cambia con el contenido (precio largo, dos líneas en
     // móvil) y con el ancho de la ventana.
-    // La barra se alinea con LO QUE SE VE: mide la primera sección real de
-    // la ficha (hero centrado, hero a sangre completa, lo que sea) y ajusta
-    // su contenido a ese mismo ancho. Nada de deducirlo por otro camino —
-    // así pestañas y botón calzan con el borde de la experiencia siempre.
+    // La barra se alinea con LO QUE SE VE: mide el CONTENIDO de la primera
+    // sección real — la fila interior del hero (.kc-row), no la caja de la
+    // sección. La sección puede ir a sangre completa o al contenedor del
+    // theme, pero el contenido que el ojo alinea se centra a su propio ancho
+    // (--kc-hero-maxw): medir la caja dejaba la barra 30–60 px más ancha que
+    // el hero y que el configurador. Además de casar el ancho se casa el
+    // CENTRO (por si el contenido no queda centrado en el viewport).
     function alinearBarra() {
       var inw = bar.querySelector('.kc-bar-in');
       if (!inw) return;
-      if (bar.classList.contains('kc-bar-full')) { inw.style.maxWidth = 'none'; return; }
-      var sec = root.querySelector('.kc-hero, .kc-imagen, .kc-fotos, .kc-specs');
-      var r = sec && sec.getBoundingClientRect();
-      if (r && r.width > 40) inw.style.maxWidth = Math.round(r.width) + 'px';
-      else inw.style.maxWidth = '';
+      if (bar.classList.contains('kc-bar-full')) {
+        inw.style.maxWidth = 'none'; inw.style.transform = '';
+        return;
+      }
+      // Primer candidato VISIBLE (una pestaña oculta mide 0 y no sirve).
+      var cands = root.querySelectorAll('.kc-hero .kc-row, .kc-conf, .kc-imagen, .kc-fotos, .kc-specs');
+      var r = null;
+      for (var ci = 0; ci < cands.length && !r; ci++) {
+        var rc = cands[ci].getBoundingClientRect();
+        if (rc.width > 40) r = rc;
+      }
+      if (r && r.width > 40) {
+        inw.style.maxWidth = Math.round(r.width) + 'px';
+        var br = bar.getBoundingClientRect();
+        var delta = Math.round((r.left + r.width / 2) - (br.left + br.width / 2));
+        inw.style.transform = Math.abs(delta) > 1 ? 'translateX(' + delta + 'px)' : '';
+      } else {
+        inw.style.maxWidth = '';
+        inw.style.transform = '';
+      }
     }
     function medirBarra() {
       sincronizarHost();

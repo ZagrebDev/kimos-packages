@@ -281,8 +281,10 @@ expectEq('grupos publicados (paso vacío excluido)', pubEq.groups.length, 2);
 expectEq('assemblyDays publicado (campo vacío → regla global)', pubEq.assemblyDays, 3);
 expectEq('deliveryDays publicado (max entrega 0 + armado 3)', pubEq.deliveryDays, 3);
 // La ficha de la tienda necesita TODAS las fotos y el texto del producto: con
-// solo imageUrl el theme no puede pintar galería ni descripción.
-expectEq('galería completa publicada', (pubEq.images || []).join(','), 'https://cdn/x.png,https://cdn/g2.png');
+// solo imageUrl el theme no puede pintar galería ni descripción. Desde 3.16
+// la galería publicada incluye también las fotos PROPIAS del producto en la
+// app (fondos de hero, subidas a la Galería…), no solo las de Jumpseller.
+expectEq('galería completa publicada', (pubEq.images || []).join(','), 'https://cdn/x.png,https://cdn/g2.png,https://cdn/fondo.jpg');
 expectEq('descripción de la tienda publicada', pubEq.description, 'Camisa de algodón peinado, costura reforzada.');
 
 // ── 3c. Builder v3 (pageSections): migración heroes→secciones + normalización ──

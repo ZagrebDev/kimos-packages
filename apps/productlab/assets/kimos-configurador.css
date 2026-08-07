@@ -127,7 +127,10 @@
    de acento — acompaña sin competir con el contenido. ── */
 .kimos-cfg-top {
   position: fixed; right: 18px; bottom: calc(18px + var(--kc-mbar-h, 0px));
-  z-index: 12; width: 42px; height: 42px; border-radius: 50%;
+  /* Sobre el theme y la mayoría de widgets (los chats van al tope 2147483647
+     y el JS además le quita la esquina si un widget ya la ocupa); bajo el
+     velo de arranque (2147483000). */
+  z-index: 2147482000; width: 42px; height: 42px; border-radius: 50%;
   cursor: pointer; padding: 0;
   background: rgba(20, 20, 22, .35);
   color: rgba(255, 255, 255, .9);
