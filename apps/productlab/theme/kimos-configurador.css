@@ -122,17 +122,23 @@
 }
 .kimos-cfg .kc-bar-full .kc-bar-in { max-width: none; }
 
-/* ── Botón "subir": aparece al scrollear hacia abajo en la experiencia ── */
+/* ── Botón "subir": aparece al scrollear hacia abajo en la experiencia.
+   DISCRETO a propósito: vidrio semitransparente oscuro con blur, sin color
+   de acento — acompaña sin competir con el contenido. ── */
 .kimos-cfg-top {
   position: fixed; right: 18px; bottom: calc(18px + var(--kc-mbar-h, 0px));
-  z-index: 12; width: 44px; height: 44px; border-radius: 50%;
-  border: 0; cursor: pointer;
-  background: var(--kc-accent, #19ACB1); color: var(--kc-accent-fg, #fff);
-  font-size: 20px; line-height: 44px; text-align: center; padding: 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+  z-index: 12; width: 42px; height: 42px; border-radius: 50%;
+  cursor: pointer; padding: 0;
+  background: rgba(20, 20, 22, .35);
+  color: rgba(255, 255, 255, .9);
+  border: 1px solid rgba(255, 255, 255, .25);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  font-size: 17px; line-height: 40px; text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
   opacity: 0; transform: translateY(10px); pointer-events: none;
-  transition: opacity .2s ease, transform .2s ease;
+  transition: opacity .2s ease, transform .2s ease, background .15s ease;
 }
+.kimos-cfg-top:hover { background: rgba(20, 20, 22, .55); }
 .kimos-cfg-top.kc-top-on { opacity: 1; transform: none; pointer-events: auto; }
 /* Centrada al contenedor del theme: en modo 'container' siempre, y en 'auto'
    cuando la ficha entera va centrada. */

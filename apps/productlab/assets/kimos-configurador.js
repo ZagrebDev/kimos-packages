@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.18.1';
+  var VERSION = '5.18.2';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1779,9 +1779,23 @@
     // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
     // recalcula porque cambia con el contenido (precio largo, dos líneas en
     // móvil) y con el ancho de la ventana.
+    // La barra se alinea con LO QUE SE VE: mide la primera sección real de
+    // la ficha (hero centrado, hero a sangre completa, lo que sea) y ajusta
+    // su contenido a ese mismo ancho. Nada de deducirlo por otro camino —
+    // así pestañas y botón calzan con el borde de la experiencia siempre.
+    function alinearBarra() {
+      var inw = bar.querySelector('.kc-bar-in');
+      if (!inw) return;
+      if (bar.classList.contains('kc-bar-full')) { inw.style.maxWidth = 'none'; return; }
+      var sec = root.querySelector('.kc-hero, .kc-imagen, .kc-fotos, .kc-specs');
+      var r = sec && sec.getBoundingClientRect();
+      if (r && r.width > 40) inw.style.maxWidth = Math.round(r.width) + 'px';
+      else inw.style.maxWidth = '';
+    }
     function medirBarra() {
       sincronizarHost();
       colocarBarra();
+      alinearBarra();
       var alto = bar.getBoundingClientRect().height || bar.offsetHeight;
       if (alto) root.style.setProperty('--kc-bar-h', Math.round(alto) + 'px');
       // En móvil el panel flota abajo: los pasos necesitan ESE hueco al pie o
