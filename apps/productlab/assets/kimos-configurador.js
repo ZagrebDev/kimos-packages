@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.17.0';
+  var VERSION = '5.18.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -599,10 +599,19 @@
       });
     } else if (b.type === 'cta') {
       n = el('div', 'kc-b kc-b-cta');
-      var btn = el('button', 'kc-btn kc-btn-' + (b.style || 'primary'), b.label || 'Configurar');
+      // Producto sin pasos: "configurar" no existe — el botón ES el carro
+      // (misma regla que la barra). Con etiqueta propia se respeta; con la
+      // genérica 'Configurar' se cambia por la del carro del theme.
+      var alCarroCta = b.action !== 'url' && ctx.conPasos === false;
+      var etiquetaCta = b.label || 'Configurar';
+      if (alCarroCta && (!b.label || /^configurar$/i.test(String(b.label).trim()))) {
+        etiquetaCta = (ctx.etiquetaCarro && ctx.etiquetaCarro()) || 'Añadir al carro';
+      }
+      var btn = el('button', 'kc-btn kc-btn-' + (b.style || 'primary'), etiquetaCta);
       btn.type = 'button';
       btn.addEventListener('click', function () {
         if (b.action === 'url' && b.url) window.location.href = b.url;
+        else if (alCarroCta && ctx.alCarro) ctx.alCarro();
         else ctx.goTab('configurar');
       });
       n.appendChild(btn);
@@ -1910,6 +1919,13 @@
       stepsOpen: null,   // colapso por paso: lo siembra renderSteps
       goTab: function (t) { setTab(t); },
       refresh: function () { paint(); },
+      // Producto SIN pasos: los CTA "configurar" del hero van directo al
+      // carro (no hay nada que configurar) — mismo criterio que la barra.
+      conPasos: conPasos,
+      alCarro: function () { alCarro(); },
+      etiquetaCarro: function () {
+        return (botonCarro() && (botonCarro().textContent || '').trim()) || 'Añadir al carro';
+      },
     };
 
     // El footer del theme: visible en la ficha principal, oculto SOLO en el

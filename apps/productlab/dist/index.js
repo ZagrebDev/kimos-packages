@@ -764,6 +764,25 @@ export default function mount(shell) {
     baseBreakdown(eq).comps.forEach((c) => { acc = sum ? acc + num(c.deliveryDays, 0) : Math.max(acc, num(c.deliveryDays, 0)); });
     return acc;
   }
+  // Stock VENDIBLE del producto: el mínimo entre sus componentes base
+  // (directos y de pasos componente-base, con su cantidad). null = ∞ (nadie
+  // controla stock → no limita). Un componente con stock 0 deja el producto
+  // en 0. Los pasos personalizables no entran aquí: su stock decide qué
+  // valores se ofrecen, no cuántas unidades del producto hay.
+  function productoStock(eq) {
+    let min = null;
+    const usar = (c, veces) => {
+      if (!c || c.stock == null) return;
+      const n = Math.floor(num(c.stock) / Math.max(1, veces || 1));
+      min = min == null ? n : Math.min(min, n);
+    };
+    (eq.baseComponentIds || []).map(compById).filter(Boolean).forEach((c) => usar(c, 1));
+    (eq.groups || []).filter((g) => g && g.baseStep === true).forEach((g) => {
+      const dv = groupDefaultValue(g);
+      if (dv) valueComps(dv).forEach((c) => usar(c, valueQty(dv)));
+    });
+    return min;
+  }
   function productoDelivery(eq) {
     const r = rules();
     const sum = deliveryModeOf(eq) === 'sum';
@@ -1816,6 +1835,25 @@ export default function mount(shell) {
   // El candado del SKU promete esto: al guardar con el SKU desbloqueado, el
   // cambio se escribe también en el item del producto (app Productos) y se
   // empuja a Jumpseller.
+  // La descripción del producto vive EN LA TIENDA (item de la app Productos):
+  // editarla desde ProductLab la escribe allí y la empuja a Jumpseller —
+  // sin abrir la app Productos.
+  async function pushDescripcionTienda(eq, html) {
+    const ref = storeRefOf(eq);
+    if (!ref || !shell.authFetch) return { success: false };
+    try {
+      const r = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: html, syncStatus: 'pending' }),
+      });
+      if (!r.ok) return { success: false };
+      await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds: [ref.itemId] }),
+      });
+      return { success: true };
+    } catch (e) { return { success: false }; }
+  }
   async function pushSkuTienda(eq, sku) {
     const ref = storeRefOf(eq);
     if (!ref || !shell.authFetch) return { success: false };
@@ -1897,7 +1935,16 @@ export default function mount(shell) {
         // El backend asegura el custom field en
         // Jumpseller tras el push — activa la vista personalizada del theme
         // sin pasos manuales.
-        body: JSON.stringify({ price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' }),
+        // STOCK: calculado de los componentes base — ∞ (nadie controla) se
+        // publica como stock ilimitado en la tienda; con control, el mínimo.
+        // Sin componentes base no se toca (manda lo que gestione la tienda).
+        body: JSON.stringify(Object.assign(
+          { price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' },
+          ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true))
+            ? (productoStock(eq) == null
+                ? { stockUnlimited: true }
+                : { stock: productoStock(eq), stockUnlimited: false })
+            : {})),
       });
       if (!putRes.ok) {
         const d = await putRes.json().catch(() => ({}));
@@ -4927,6 +4974,7 @@ export default function mount(shell) {
     const [picking, setPicking] = useState(false);
     const [skuLibre, setSkuLibre] = useState(false);   // candado del SKU (heredado de la tienda)
     const [editUrl, setEditUrl] = useState(false);     // editor manual de la URL de tienda
+    const [descTienda, setDescTienda] = useState(null); // descripción editada (null = sin tocar)
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
@@ -5045,6 +5093,14 @@ export default function mount(shell) {
             shell.notify(rr.success
               ? { level: 'success', text: 'SKU actualizado también en el producto de la tienda.' }
               : { level: 'warn', text: 'El SKU se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
+          }
+          // Descripción de la tienda editada aquí → al item + push a Jumpseller.
+          if (r.success && ref && descTienda != null && descTienda !== s((productItemFor(d) || {}).description)) {
+            const rd = await pushDescripcionTienda(d, descTienda);
+            shell.notify(rd.success
+              ? { level: 'success', text: 'Descripción actualizada en el producto de la tienda.' }
+              : { level: 'warn', text: 'No se pudo escribir la descripción en la tienda.' });
+            if (rd.success) setDescTienda(null);
           }
           setBusy(false);
           if (r.success) {
@@ -5582,6 +5638,31 @@ export default function mount(shell) {
                   : 'Escribe el precio fijo aquí arriba.')),
           ]);
         })(),
+        // ── Stock vendible (informativo): sale de los componentes base y se
+        // publica en la tienda al Aplicar (∞ = venta sin control de stock).
+        (function () {
+          const stk = productoStock(d);
+          const conBase = (d.baseComponentIds || []).length || (d.groups || []).some((g) => g && g.baseStep === true);
+          if (!conBase) return null;
+          return h('div', { key: 'stk', className: 'gp-compline', style: { borderBottom: 0 } }, [
+            h('span', { key: 'l', className: 'gp-label' }, 'STOCK VENDIBLE'),
+            stk == null
+              ? h('span', { key: 'v', className: 'gp-chip gris', title: 'Ningún componente base controla stock: al Aplicar, la tienda queda en venta sin control de stock.' }, '∞ sin control')
+              : h('span', { key: 'v', className: 'gp-chip ' + (stk > 0 ? 'ok' : 'err'), title: 'El mínimo entre los componentes base. Se escribe en la tienda al Aplicar. Para cambiarlo, edita el stock de los componentes.' }, stk + ' unidad(es)'),
+            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
+              stk == null ? 'se publica como stock ilimitado al Aplicar' : 'mínimo de los componentes base — se publica al Aplicar'),
+          ]);
+        })(),
+        // ── Descripción del producto EN LA TIENDA: editable aquí mismo (al
+        // guardar se escribe en el item y se empuja a Jumpseller). ──
+        ref ? h('div', { key: 'desct', className: 'gp-card' }, [
+          h(Row, { key: 'r', label: 'Descripción del producto en la tienda (HTML permitido' + (descTienda != null ? ' · sin guardar' : '') + ')' },
+            h('textarea', { className: 'gp-textarea gp-mono', rows: 5,
+              value: descTienda != null ? descTienda : s((productItemFor(d) || {}).description),
+              placeholder: 'La descripción que muestra la ficha de la tienda…',
+              onChange: (e) => setDescTienda(e.target.value) })),
+          h('div', { key: 'h', className: 'gp-muted' }, 'Se guarda con el botón Guardar del header: escribe en el producto de la tienda (no hace falta abrir la app Productos). El bloque "descripción" de la Experiencia la muestra renderizada.'),
+        ]) : null,
         h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
         h(Row, { key: 'dm', label: 'Cálculo de entrega' },
