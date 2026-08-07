@@ -106,13 +106,34 @@
      del sitio al bajar. */
   position: fixed; top: calc(var(--kc-top, 0px) + var(--kc-bar-offset, 0px));
   left: 0; right: 0; z-index: 11;   /* sobre el contenido, bajo el menú del sitio */
-  display: flex; align-items: stretch; gap: 2px;
+  display: flex; justify-content: center;
   min-height: 64px;
   /* Por defecto la barra ES la ficha: mismo fondo y mismo texto. Solo se
      separa si el estilo le da un color propio (style.bar.bgColor). */
   background: var(--kc-bar-bg, var(--kc-bg, #fff)); color: var(--kc-fg, inherit);
   border-bottom: 1px solid var(--kc-line);
 }
+/* El contenido de la barra se centra al MISMO ancho medido del contenedor
+   del theme (--kc-maxw): pestañas y botón en línea con el hero, no con el
+   borde de la ventana. Con barra 'full' vuelve a todo el ancho. */
+.kimos-cfg .kc-bar-in {
+  display: flex; align-items: stretch; gap: 2px;
+  width: 100%; max-width: var(--kc-maxw, none); min-width: 0;
+}
+.kimos-cfg .kc-bar-full .kc-bar-in { max-width: none; }
+
+/* ── Botón "subir": aparece al scrollear hacia abajo en la experiencia ── */
+.kimos-cfg-top {
+  position: fixed; right: 18px; bottom: calc(18px + var(--kc-mbar-h, 0px));
+  z-index: 12; width: 44px; height: 44px; border-radius: 50%;
+  border: 0; cursor: pointer;
+  background: var(--kc-accent, #19ACB1); color: var(--kc-accent-fg, #fff);
+  font-size: 20px; line-height: 44px; text-align: center; padding: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+  opacity: 0; transform: translateY(10px); pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.kimos-cfg-top.kc-top-on { opacity: 1; transform: none; pointer-events: auto; }
 /* Centrada al contenedor del theme: en modo 'container' siempre, y en 'auto'
    cuando la ficha entera va centrada. */
 .kimos-cfg.kc-w-container .kc-bar:not(.kc-bar-full),

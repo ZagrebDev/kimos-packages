@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.16.0';
+  var VERSION = '5.17.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -629,18 +629,31 @@
     } else if (b.type === 'gallery') {
       n = el('div', 'kc-b kc-b-photo');
       // `size:'auto'` (contrato v2) = alto natural de la foto, sin recortes.
-      var gi = el('img', 'kc-photo kc-photo-' + (b.size || 'm'));
+      // Las mismas animaciones que la foto del producto (flotar/respirar/…).
+      var gi = el('img', 'kc-photo kc-photo-' + (b.size || 'm')
+        + (b.anim && b.anim !== 'none' ? ' kc-anim-' + b.anim : ''));
       gi.src = (ctx.images || [])[Math.max(0, (b.index || 1) - 1)] || ctx.image || '';
       gi.alt = '';
       n.appendChild(gi);
     } else if (b.type === 'description') {
-      // La descripción que el producto ya tiene en la tienda. Llega como texto
-      // (el backend le quita el HTML al sincronizar), así que se pinta con
-      // textContent: nunca se inyecta marcado ajeno en la ficha.
+      // La descripción del producto en la tienda ES HTML (el mismo que
+      // Jumpseller pinta en su ficha nativa): se renderiza como tal, con los
+      // <script>/manejadores inline retirados por si acaso. Con recorte
+      // (max > 0) se degrada a texto plano: truncar HTML rompería el marcado.
       var d = ctx.desc || '';
       var max = b.max || 0;
-      if (max > 0 && d.length > max) d = d.slice(0, max).replace(/\s+\S*$/, '') + '…';
-      n = el('div', 'kc-b kc-b-desc kc-size-' + (b.size || 'm'), d);
+      n = el('div', 'kc-b kc-b-desc kc-size-' + (b.size || 'm'));
+      var esHtml = /<[a-z][\s\S]*>/i.test(d);
+      if (max > 0 || !esHtml) {
+        var plano = d;
+        if (esHtml) { var tmp = el('div'); tmp.innerHTML = d; plano = tmp.textContent || ''; }
+        if (max > 0 && plano.length > max) plano = plano.slice(0, max).replace(/\s+\S*$/, '') + '…';
+        n.textContent = plano;
+      } else {
+        n.innerHTML = d
+          .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+          .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+      }
     } else if (b.type === 'html') {
       n = el('div', 'kc-b kc-b-html');
       n.innerHTML = b.html || '';
@@ -1515,9 +1528,13 @@
       if (!ancho && quiere === 'container') ancho = Math.min(1200, window.innerWidth - 32);
       if (ancho) {
         root.style.setProperty('--kc-maxw', ancho + 'px');
+        // También en <html>: la BARRA vive en su propio host fuera de esta
+        // raíz y su contenido se centra al mismo ancho (kc-bar-in).
+        document.documentElement.style.setProperty('--kc-maxw', ancho + 'px');
         root.classList.add('kc-w-container');
       } else {
         root.classList.remove('kc-w-container');   // 'auto' sin contenedor = full
+        document.documentElement.style.removeProperty('--kc-maxw');
       }
     };
     aplicar();
@@ -1729,6 +1746,27 @@
     }
 
     var reencajar = encajarConTheme(root, page, style.width);
+    // ── Botón "subir": aparece al scrollear la experiencia hacia abajo y
+    // vuelve al inicio con scroll suave. Vive en <body> (fixed, junto al
+    // borde) y usa el acento del estilo.
+    (function () {
+      if (document.querySelector('.kimos-cfg-top')) return;
+      var subir = el('button', 'kimos-cfg-top', '↑');
+      subir.type = 'button';
+      subir.setAttribute('aria-label', 'Volver arriba');
+      subir.title = 'Volver arriba';
+      subir.addEventListener('click', function () {
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
+      });
+      document.body.appendChild(subir);
+      var visible = false;
+      var alScroll = function () {
+        var quiere = (window.scrollY || document.documentElement.scrollTop || 0) > 480;
+        if (quiere !== visible) { visible = quiere; subir.classList.toggle('kc-top-on', quiere); }
+      };
+      window.addEventListener('scroll', alScroll, { passive: true });
+      alScroll();
+    })();
     // Alto REAL de la barra fija → hueco que le guarda su envoltorio. Se
     // recalcula porque cambia con el contenido (precio largo, dos líneas en
     // móvil) y con el ancho de la ventana.
@@ -2167,6 +2205,12 @@
       // Para volver a Explorar está su propia pestaña, que sigue ahí. Antes se
       // añadía además un "← <nombre del producto>" y el título salía DOS veces
       // en la barra, uno al lado del otro.
+      // ── Alineación con el contenido: la barra es fixed a todo el ancho,
+      // pero SU CONTENIDO se centra al mismo ancho medido del contenedor
+      // (--kc-maxw) — así pestañas y botón quedan en línea con el hero.
+      var inWrap = el('div', 'kc-bar-in');
+      while (bar.firstChild) inWrap.appendChild(bar.firstChild);
+      bar.appendChild(inWrap);
     }
 
     // El panel de configuración se construye UNA vez y se reutiliza. Antes

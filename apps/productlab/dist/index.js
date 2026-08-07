@@ -6155,6 +6155,9 @@ export default function mount(shell) {
                     h('span', { key: 's14', className: 'gp-label' }, 'tamaño'),
                     h('select', { key: 'sz14', className: 'gp-select', style: { width: 170 }, value: b.size || 'm', onChange: (e) => upBlock(b.id, { size: e.target.value }) },
                       [['s', 'Pequeña'], ['m', 'Mediana'], ['l', 'Grande'], ['xl', 'Extra grande'], ['auto', 'Natural (alto según la foto)']].map(([v, l]) => h('option', { key: v, value: v }, l))),
+                    h('span', { key: 'an14', className: 'gp-label' }, 'animación'),
+                    h('select', { key: 'anim14', className: 'gp-select', style: { width: 130 }, value: b.anim || 'none', onChange: (e) => upBlock(b.id, { anim: e.target.value }) },
+                      [['none', 'Sin animación'], ['float', 'Flotar'], ['zoom', 'Respirar'], ['sway', 'Balanceo']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                     h('span', { key: 'm14', className: 'gp-muted' }, 'número de la foto en la galería del producto (1 = primera).'),
                   ]),
                   b.type === 'description' && h('div', { key: 'f' }, [
