@@ -2146,7 +2146,9 @@ export default function mount(shell) {
     const def = Object.assign({}, model.def || defaultDefinition());
     const antes = def.public || {};
     const data = enabled ? buildPublicData() : (antes.data || null);
-    const pub = { enabled: !!enabled, channels: antes.channels || [], pushPage: antes.pushPage === true, data };
+    // Se CONSERVA todo lo demás de `public` (kitInstall, extraDefs, …):
+    // publicar solo actualiza enabled/data/pagePush, no resetea el resto.
+    const pub = Object.assign({}, antes, { enabled: !!enabled, channels: antes.channels || [], pushPage: antes.pushPage === true, data });
     if (pub.pushPage) {
       const rp = await pushPaginaTienda(enabled ? data : null);
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
@@ -6892,7 +6894,13 @@ export default function mount(shell) {
         // (multi-instancia, lectura local de la página, presets…) viaja en
         // estos mismos archivos.
         (function () {
-          const urlDef = API + '/api/public/app/' + s(instanceId) + '/definition';
+          const urlPropia = API + '/api/public/app/' + s(instanceId) + '/definition';
+          // TODAS las instancias del catálogo: la propia + las agregadas en
+          // el campo de abajo. El kit acepta la lista separada por comas y
+          // fusiona los catálogos — UN solo custom.js sirve para todas las
+          // ProductLab de la tienda (ante un SKU repetido manda la primera).
+          const urlsTodas = () => [urlPropia].concat(
+            s(pub.extraDefs).split(',').map((x) => x.trim()).filter(Boolean).filter((u) => u !== urlPropia));
           const bajarAsset = async (nombre, transformar) => {
             try {
               const r = await fetch(API + '/api/apps/productlab/asset/' + nombre + '?dl=' + Date.now());
@@ -6904,20 +6912,51 @@ export default function mount(shell) {
               shell.notify({ level: 'error', text: 'No se pudo descargar ' + nombre + ': ' + ((e && e.message) || 'error') });
             }
           };
-          return h('div', { key: 'kitmanual', className: 'gp-compline' }, [
-            h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
-            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-              'descarga los 3 archivos y súbelos a Assets — custom.js ya viene con TU url puesta'),
-            h('span', { key: 'sp', className: 'grow' }),
-            h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
-              title: 'custom.js configurado con la URL pública de esta instancia (solo súbelo a Assets)',
-              onClick: () => bajarAsset('custom.js', (t) => t.replace(
-                /window\.KIMOS_3D_URL\s*=\s*'[^']*';/,
-                "window.KIMOS_3D_URL = '" + urlDef + "';")) }, 'custom.js (configurado)'),
-            h('button', { key: 'j', className: 'gp-btn gp-btn-sm',
-              onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
-            h('button', { key: 's', className: 'gp-btn gp-btn-sm',
-              onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+          const guardarExtra = async (valor) => {
+            const next = Object.assign({}, state.def || defaultDefinition());
+            next.public = Object.assign({}, next.public || {}, { extraDefs: s(valor).trim() });
+            await saveDefinition(next, ['public']);
+          };
+          return h(React.Fragment, { key: 'kitmanual' }, [
+            h('div', { key: 'fila', className: 'gp-compline', style: { borderBottom: 0 } }, [
+              h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
+              h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
+                'descarga los 3 archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s))'),
+              h('span', { key: 'sp', className: 'grow' }),
+              h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
+                title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets)',
+                onClick: () => bajarAsset('custom.js', (t) => t.replace(
+                  /window\.KIMOS_3D_URL\s*=\s*'[^']*';/,
+                  "window.KIMOS_3D_URL = '" + urlsTodas().join(', ') + "';")) }, 'custom.js (configurado)'),
+              h('button', { key: 'j', className: 'gp-btn gp-btn-sm',
+                onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
+              h('button', { key: 's', className: 'gp-btn gp-btn-sm',
+                onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+            ]),
+            // Otras instancias de ProductLab de esta misma tienda: sus URLs de
+            // definición, para que el kit las fusione todas.
+            h('div', { key: 'extra', className: 'gp-compline' }, [
+              h('span', { key: 'l', className: 'gp-label', title: 'URLs /definition de tus OTRAS instancias de ProductLab (separadas por coma). El kit fusiona todos los catálogos; esta instancia va siempre primera.' }, 'otras instancias'),
+              h(TextInput, { key: 'i', mono: true, defaultValue: s(pub.extraDefs),
+                placeholder: 'https://…/api/public/app/OTRA-INSTANCIA/definition, …',
+                style: { flex: 1, minWidth: 260 },
+                onBlur: (e) => { if (s(e.target.value).trim() !== s(pub.extraDefs).trim()) void guardarExtra(e.target.value); } }),
+              h('button', { key: 'det', className: 'gp-btn gp-btn-sm', disabled: busy,
+                title: 'Busca otras instancias de ProductLab en este KIMOS y rellena el campo',
+                onClick: async () => {
+                  if (!shell.data || !shell.data.listInstances) { shell.notify({ level: 'warn', text: 'Este host no permite listar instancias: pega las URLs a mano.' }); return; }
+                  setBusy(true);
+                  try {
+                    const insts = (await shell.data.listInstances('productlab')) || [];
+                    const otras = insts.map((i) => API + '/api/public/app/' + i.id + '/definition').filter((u) => u !== urlPropia);
+                    if (!otras.length) shell.notify({ level: 'info', text: 'No se encontraron otras instancias de ProductLab.' });
+                    else { await guardarExtra(otras.join(', ')); shell.notify({ level: 'success', text: otras.length + ' instancia(s) detectada(s) y agregada(s).' }); }
+                  } catch (e) {
+                    shell.notify({ level: 'warn', text: 'No se pudieron listar (' + ((e && e.message) || 'error') + '): pega las URLs a mano.' });
+                  }
+                  setBusy(false);
+                } }, 'Detectar'),
+            ]),
           ]);
         })(),
         // ── Vía B — JSAPP AUTOMÁTICO (opcional; requiere app OAuth de
@@ -6927,9 +6966,15 @@ export default function mount(shell) {
           const ki = pub.kitInstall || null;
           // OJO: aquí `stamp` es la FECHA de publicación (const de esta
           // pestaña), no el helper — el busteo de caché usa nowIso().
-          const urlEmbed = () => API + '/api/apps/productlab/asset/kimos-embed.js?def='
-            + encodeURIComponent(API + '/api/public/app/' + s(instanceId) + '/definition')
-            + '&v=' + encodeURIComponent(nowIso().slice(0, 19));
+          // def= lleva TODOS los catálogos (propia + "otras instancias").
+          const urlEmbed = () => {
+            const propia = API + '/api/public/app/' + s(instanceId) + '/definition';
+            const todas = [propia].concat(
+              s(pub.extraDefs).split(',').map((x) => x.trim()).filter(Boolean).filter((u) => u !== propia));
+            return API + '/api/apps/productlab/asset/kimos-embed.js?def='
+              + encodeURIComponent(todas.join(','))
+              + '&v=' + encodeURIComponent(nowIso().slice(0, 19));
+          };
           const llamar = async (remove) => {
             setBusy(true);
             let res = { ok: false, error: 'error' };
@@ -6942,8 +6987,11 @@ export default function mount(shell) {
               res = r.ok ? dd : { ok: false, error: s(dd.detail) || ('HTTP ' + r.status) };
             } catch (e) { res = { ok: false, error: (e && e.message) || 'error de red' }; }
             const next = Object.assign({}, state.def || defaultDefinition());
+            // `removed` SIEMPRE al final: el backend devuelve removed=<n>
+            // (cuántos borró) y con 0 pisaba la marca booleana — el chip
+            // decía "instalado" tras un Quitar sin nada que quitar.
             next.public = Object.assign({}, next.public || {}, {
-              kitInstall: Object.assign({ at: nowIso(), removed: remove === true }, res) });
+              kitInstall: Object.assign({ at: nowIso() }, res, { removed: remove === true, borrados: num(res.removed) }) });
             await saveDefinition(next, ['public']);
             setBusy(false);
             if (res.ok) shell.notify({ level: 'success', text: remove ? 'Kit quitado de la tienda.' : 'Kit instalado/actualizado en la tienda (JsApp).' });
