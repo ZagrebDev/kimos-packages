@@ -1276,6 +1276,9 @@ export default function mount(shell) {
       index: Math.max(1, num(b.index, 1)),
       // 'auto' = alto natural de la foto de la galería
       size: ['s', 'l', 'xl', 'auto'].indexOf(b.size) !== -1 ? b.size : 'm',
+      // Mismas animaciones que la foto del producto: aquí faltaba y guardar
+      // "Flotar" volvía siempre a "Sin animación".
+      anim: ['float', 'zoom', 'sway'].indexOf(b.anim) !== -1 ? b.anim : 'none',
     });
     // Descripción: el texto que ya tiene el producto en la tienda. No se copia
     // aquí (seguiría al día sola), solo se decide dónde y cómo mostrarla.
@@ -6110,8 +6113,10 @@ export default function mount(shell) {
               // muestra la última (nunca un hueco por numerar de más).
               const gn = Math.min(Math.max(1, num(b.index, 1) || 1), Math.max(1, pubImgs.length));
               const gu = pubImgs[gn - 1];
+              // Misma escala que la foto del producto (PH): antes iba clavada
+              // a 120px y "Extra grande" se veía igual de chica en el preview.
               return h('div', common, gu
-                ? h('img', { src: gu, alt: '', style: { maxHeight: 120, maxWidth: '100%', objectFit: 'contain' } })
+                ? h('img', { src: gu, alt: '', style: { maxHeight: Math.round((PH[b.size] || PH.m) * (isMob ? 0.8 : 1)), maxWidth: '100%', objectFit: 'contain', filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))' } })
                 : h('div', { style: { width: 120, height: 74, background: 'rgba(255,255,255,.12)', border: '1px dashed rgba(255,255,255,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, letterSpacing: '.1em' } }, 'GALERÍA Nº' + (b.index || 1)));
             }
             if (b.type === 'description') {
