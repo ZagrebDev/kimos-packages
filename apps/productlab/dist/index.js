@@ -3017,6 +3017,14 @@ export default function mount(shell) {
           } } },
       ],
       getSnapshot: () => ({
+        // Estado de carga: un snapshot pedido antes de que la app termine de
+        // traer sus datos viene vacío POR TIMING, no porque el catálogo lo
+        // esté. `ready` y la nota le dan al agente la distinción para
+        // responder "estoy cargando la app" y volver a mirar, en vez de
+        // concluir que no hay productos.
+        ready: model.loaded === true && model.catalogLoaded === true,
+        loadingNote: (model.loaded === true && model.catalogLoaded === true) ? undefined
+          : 'DATOS AÚN CARGANDO: las listas de este snapshot pueden venir vacías por timing. Di que la app está cargando y vuelve a mirar el snapshot en tu siguiente turno — un catálogo vacío solo se afirma con ready: true.',
         rules: rules(),
         types: types(),
         components: model.components.map((c) => ({
