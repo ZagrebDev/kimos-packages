@@ -253,7 +253,7 @@ const eqOld = snap2.productos.find((e) => e.id === 'eq-old');
 expectEq('producto migrado computedPrice', eqOld.computedPrice, 231990);
 
 // ── 3. Aplicar a la tienda: variantes con precio por combinación ──
-await act('RECALC_PRICES', { apply: true });
+await act('RECALC_PRICES', { apply: true, confirm: true });
 const saved = store.get('eq-test');
 expectEq('price persistido', saved.price, 345990);
 if (!saved.lastPush || saved.lastPush.status !== 'synced') throw new Error('lastPush no quedó synced');
@@ -305,14 +305,20 @@ if (pubTabs.showSpecs !== true || pubTabs.showFotos !== true) throw new Error('t
 
 // ── 4. Alternativas: se agota la más barata → toma la siguiente disponible ──
 await act('UPSERT_COMPONENT', { name: 'Botón nácar (Prov. A)', stock: 0 });
-await act('RECALC_PRICES', { apply: true });
+await act('RECALC_PRICES', { apply: true, confirm: true });
 // RAM-B 47000×1.30×1.19=72709 → 119000+157080+72709=348789 → 348990
 expectEq('price tras agotarse RAM-A', store.get('eq-test').price, 348990);
 expectEq('variante R5 actualizada', productsStore.get('prod-1').variants.find((v) => v.options['Tela'] === 'Algodón').price, 348990);
 
 // ── 5. Re-aplicar preserva sourceVariantId ──
 const ids1 = productsStore.get('prod-1').variants.map((v) => v.sourceVariantId).sort();
-await act('APPLY_PRODUCTO', { producto: 'Camisa Clásica' });
+// GUARDARRAÍL: sin confirm:true, las acciones de tienda viva NO se ejecutan
+// (el agente debe tener el pedido explícito del usuario, o preguntar).
+const sinConfirm = await agentReg.dispatchAction({ type: 'APPLY_PRODUCTO', payload: { producto: 'Camisa Clásica' } });
+if (sinConfirm.success !== false || String(sinConfirm.error).indexOf('CONFIRMACIÓN REQUERIDA') === -1) {
+  throw new Error('APPLY_PRODUCTO sin confirm debía pedir confirmación: ' + JSON.stringify(sinConfirm));
+}
+await act('APPLY_PRODUCTO', { producto: 'Camisa Clásica', confirm: true });
 const ids2 = productsStore.get('prod-1').variants.map((v) => v.sourceVariantId).sort();
 if (JSON.stringify(ids1) !== JSON.stringify(ids2)) throw new Error('re-aplicar regeneró variantes');
 console.log('re-aplicación preserva sourceVariantId ✔ (' + ids2.join(', ') + ')');
@@ -413,7 +419,7 @@ if ((galSnap.galleryImages || []).indexOf(impUrl) === -1 || galSnap.galleryImage
 // para que el agente se autocorrija.
 const alias1 = await act('SET_STOREFRONT', { productoId: 'Chaqueta Agente', photosNote: 'Nota vía alias' });
 if (alias1.message.indexOf('Chaqueta Agente') === -1) throw new Error('alias productoId no resolvió el producto');
-const alias2 = await act('APPLY_PRODUCTO', { id: 'Chaqueta Agente' });
+const alias2 = await act('APPLY_PRODUCTO', { id: 'Chaqueta Agente', confirm: true });
 if (alias2.message.indexOf('aplicado') === -1 && !alias2.success) throw new Error('alias id no resolvió el producto');
 const alias3 = await act('SET_STOREFRONT', JSON.stringify({ producto: 'CHA-AG', photosNote: 'Nota vía sku + payload string' }));
 if (alias3.message.indexOf('Chaqueta Agente') === -1) throw new Error('payload string / sku no resolvió el producto');
@@ -549,7 +555,7 @@ await act('UPSERT_PRODUCTO', { name: 'Drop One', deliveryMode: 'sum' });
 // Producto sin pasos: aplicar a la tienda como producto simple (sin variantes).
 await act('SET_PRODUCTO_STEPS', { producto: 'Drop One', steps: [] });
 await act('LINK_PRODUCT', { producto: 'Drop One', product: 'Camisa Clásica' });
-const applySimple = await act('APPLY_PRODUCTO', { producto: 'Drop One' });
+const applySimple = await act('APPLY_PRODUCTO', { producto: 'Drop One', confirm: true });
 if (applySimple.message.indexOf('producto simple sin variantes') === -1) throw new Error('APPLY sin pasos no aplicó como producto simple: ' + applySimple.message);
 
 // Publicación: deliveryMode y baseDeliveryDays viajan al theme.
@@ -719,7 +725,7 @@ if (!pack.steps.every((s) => s.values.every((v) => v.available))) throw new Erro
 expectEq('precio del pack (fijo, exacto)', pack.computedPrice, 100000);
 expectEq('combinaciones', pack.variantCombos, 16);
 await act('LINK_PRODUCT', { producto: 'Pack 2 Pisos', product: '424242' });
-await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos' });
+await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
 const packProd = productsStore.get('prod-1');
 expectEq('variantes aplicadas', packProd.variants.length, 16);
 const precios = Array.from(new Set(packProd.variants.map((v) => v.price)));
@@ -737,7 +743,7 @@ await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: packItem.grou
   label: g.label, default: (g.values.find((v) => v.id === g.defaultValueId) || {}).label,
   values: g.values.map((v) => ({ label: v.label, priceDelta: v.priceDelta, model3d: v.model3d })),
 })) });
-await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos' });
+await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
 const conRecargo = productsStore.get('prod-1').variants;
 const caro = conRecargo.filter((v) => v.price === 115000).length;
 expectEq('el recargo por valor se aplica sobre el precio fijo', caro, 8);
@@ -764,7 +770,7 @@ const varsAntes = JSON.stringify(productsStore.get('prod-1').variants);
 // (a) auto sin ningún costo — el caso de los pasos generados desde el 3D,
 //     cuyos valores no llevan componentes.
 await act('UPSERT_PRODUCTO', { name: 'Pack 2 Pisos', priceMode: 'auto', fixedPrice: 0 });
-const cero = await agentReg.dispatchAction({ type: 'APPLY_PRODUCTO', payload: { producto: 'Pack 2 Pisos' } });
+const cero = await agentReg.dispatchAction({ type: 'APPLY_PRODUCTO', payload: { producto: 'Pack 2 Pisos', confirm: true } });
 if (cero.success) throw new Error('¡se aplicó un producto a precio 0! ' + JSON.stringify(cero));
 if (cero.error.indexOf('$0 en la tienda') === -1 || cero.error.indexOf('precio automático') === -1) {
   throw new Error('el error no explica la causa: ' + cero.error);
@@ -1021,7 +1027,7 @@ expectEq('cartesiano (lo que se publicaba antes)', snapCombo.variantCombosSinDep
 expectEq('alcanzables (lo que se publica ahora)', snapCombo.variantCombos, 4);
 await act('PUBLISH_CONFIG', { enabled: true });
 // Y ninguna variante mezcla plataformas: no existe "Intel + Ryzen".
-await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos' });
+await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
 const variantes = productsStore.get('prod-1').variants;
 const imposibles = variantes.filter((v) => (v.options['Plataforma'] === 'Intel' && /Ryzen/.test(v.options['CPU AMD'] || ''))
   || (v.options['Plataforma'] === 'AMD' && /Core/.test(v.options['CPU Intel'] || '')));

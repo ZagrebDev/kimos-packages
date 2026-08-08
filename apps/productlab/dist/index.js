@@ -2814,10 +2814,12 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             type: { type: 'string' }, marginPct: { type: 'number' },
           }, required: ['type', 'marginPct'] } },
-        { name: 'RECALC_PRICES', description: 'Recalcula precios de todos los productos según costos y reglas. apply=true persiste y aplica a la tienda (producto + opciones + variantes por combinación).',
-          inputSchema: { type: 'object', properties: { apply: { type: 'boolean' } } } },
-        { name: 'APPLY_PRODUCTO', description: 'Aplica un producto a la tienda: escribe precio, opciones y variantes (precio por combinación) en su producto Jumpseller vía la app products.',
-          inputSchema: { type: 'object', properties: { producto: { type: 'string', description: 'id o nombre' } }, required: ['producto'] } },
+        { name: 'RECALC_PRICES', description: 'Recalcula precios de todos los productos según costos y reglas. apply=true persiste y aplica a la tienda (producto + opciones + variantes por combinación). Con apply:true exige además confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si no, muestra primero la vista previa (apply:false) y pregunta.',
+          inputSchema: { type: 'object', properties: { apply: { type: 'boolean' },
+            confirm: { type: 'boolean', description: 'obligatorio con apply:true: confirma que el USUARIO pidió aplicar a la tienda en vivo' } } } },
+        { name: 'APPLY_PRODUCTO', description: 'Aplica un producto a la tienda: escribe precio, opciones y variantes (precio por combinación) en su producto Jumpseller vía la app products. Exige confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si fue idea tuya, pregúntale primero.',
+          inputSchema: { type: 'object', properties: { producto: { type: 'string', description: 'id o nombre' },
+            confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió aplicar a la tienda en vivo' } }, required: ['producto'] } },
         { name: 'UPSERT_PRODUCTO', description: 'Crea o actualiza los datos básicos de un producto por nombre (los pasos se gestionan con SET_PRODUCTO_STEPS y la ficha con SET_STOREFRONT).',
           inputSchema: { type: 'object', properties: {
             name: { type: 'string' }, sku: { type: 'string' },
@@ -2885,8 +2887,9 @@ export default function mount(shell) {
             component: { type: 'string' }, stock: { type: 'number' },
             items: { type: 'array', items: { type: 'object' }, description: '[{component, stock}, …] para actualización masiva' },
           } } },
-        { name: 'PUBLISH_CONFIG', description: 'Publica (enabled=true) o despublica (enabled=false) el JSON del configurador que consume el theme.',
-          inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } } } },
+        { name: 'PUBLISH_CONFIG', description: 'Publica (enabled=true) o despublica (enabled=false) el JSON del configurador que consume el theme. DESPUBLICAR exige confirm:true (apaga la experiencia en todas las fichas de la tienda): pásalo solo si el usuario lo pidió explícitamente.',
+          inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' },
+            confirm: { type: 'boolean', description: 'obligatorio al DESPUBLICAR: confirma que el USUARIO lo pidió' } } } },
         { name: 'IMPORT_IMAGE', description: 'Importa una imagen al área pública de la app y devuelve su URL, para usarla luego en SET_STOREFRONT (fondo de hero) o como foto de un valor. Acepta: el path de un adjunto del chat en el File Storage del equipo (aparece como "[Adjunto … — path: …]" en el mensaje), una ruta /api/… de KIMOS, o una URL http(s) accesible. Solo imágenes, máx 8 MB.',
           inputSchema: { type: 'object', properties: {
             url: { type: 'string', description: 'path del storage del equipo (ej: chat/foto.png), ruta /api/… o URL http(s)' },
@@ -2938,7 +2941,7 @@ export default function mount(shell) {
             keepStoreLinks: { type: 'boolean', description: 'mantener el enlace de cada producto con la tienda (default true; ponlo en false si el origen es de OTRO proyecto)' },
             mode: { type: 'string', description: '"merge" (default) actualiza lo existente | "skip" solo crea lo que falta' },
           }, required: ['origen'] } },
-        { name: 'EXPORT_DATA', description: 'Exporta el catálogo a un archivo y devuelve su URL pública (respaldo o traslado a otro proyecto). El CSV de componentes se puede editar en una planilla y volver con IMPORT_DATA.',
+        { name: 'EXPORT_DATA', description: 'Exporta el catálogo a un archivo y devuelve su URL pública (respaldo o traslado a otro proyecto). El CSV de componentes se puede editar en una planilla y volver con IMPORT_DATA. OJO: el archivo incluye COSTOS Y PROVEEDORES y la URL es pública (no listada pero abierta): entrégasela solo al usuario, nunca la publiques en la tienda ni fuera del equipo; recuérdale que puede borrarla del File Manager (carpeta exportaciones) cuando termine.',
           inputSchema: { type: 'object', properties: {
             formato: { type: 'string', description: '"json" (default) | "csv" (solo componentes)' },
             productos: { type: 'boolean', description: 'incluir los productos en el JSON (default true)' },
@@ -3124,6 +3127,17 @@ export default function mount(shell) {
             + ' Productos existentes: ' + (model.productos.map((e) => '"' + e.name + '"').join(', ') || '(ninguno)')
             + '. Reintenta con payload {"producto": "<nombre, sku o id>", …}.',
         });
+        // GUARDARRAÍL de tienda viva: estas acciones cambian AL INSTANTE lo
+        // que los clientes ven y pagan. Sin confirm:true no se ejecutan; el
+        // agente solo puede pasarlo cuando el usuario pidió ESA acción
+        // explícitamente en la conversación — si la decidió él como parte de
+        // otra tarea, primero pregunta y espera el sí.
+        const pideConfirm = (queHace) => ({
+          success: false,
+          error: 'CONFIRMACIÓN REQUERIDA — ' + queHace + '. Esto escribe en la tienda EN VIVO (los clientes lo ven y lo pagan de inmediato), así que no se ejecuta sin confirmación. '
+            + 'Si el usuario pidió exactamente esto en su mensaje, repite la llamada con confirm:true. '
+            + 'Si fue idea tuya (parte de una tarea más amplia), NO asumas: dile al usuario qué vas a cambiar y espera su sí antes de repetir con confirm:true.',
+        });
         // Pista para un editor que esté abierto: a qué sección lleva esta
         // acción. Si la acción falla no pasa nada, porque el editor solo
         // reacciona cuando el producto cambia de verdad (`updatedAt`).
@@ -3165,6 +3179,7 @@ export default function mount(shell) {
           }
           if (type === 'RECALC_PRICES') {
             if (p.apply === true) {
+              if (p.confirm !== true) return pideConfirm('aplicar el recálculo de precios a TODOS los productos enlazados de la tienda (usa primero apply:false para mostrar los cambios)');
               const res = await recalcApply();
               const fails = res.filter((x) => !x.success);
               return {
@@ -3179,6 +3194,7 @@ export default function mount(shell) {
             const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
             const eq = findProducto(eqRef);
             if (!eq) return eqNotFound(eqRef);
+            if (p.confirm !== true) return pideConfirm('aplicar "' + eq.name + '" a la tienda (precio ' + fmtMoney(productoComputedPrice(eq)) + ', opciones y variantes en su producto Jumpseller)');
             const r = await applyToStore(eq);
             return r.success ? { success: true, message: r.message } : { success: false, error: r.error };
           }
@@ -3645,6 +3661,9 @@ export default function mount(shell) {
           }
           if (type === 'PUBLISH_CONFIG') {
             const on = p.enabled !== false;
+            // Publicar es rutina (se republica solo con cada cambio);
+            // DESPUBLICAR apaga la experiencia para todos los visitantes.
+            if (!on && p.confirm !== true) return pideConfirm('DESPUBLICAR el configurador (todas las fichas de la tienda pierden la experiencia hasta republicar)');
             const r = await publish(on);
             return r.success
               ? { success: true, message: on ? 'Configurador publicado (' + buildPublicData().productos.length + ' productos).' : 'Configurador despublicado (el gateway responderá 403).' }
@@ -3726,7 +3745,8 @@ export default function mount(shell) {
               const file = new File([text], nombre, { type: csv ? 'text/csv' : 'application/json' });
               const url = await uploadFile(file, { folder: "exportaciones", maxMB: 20 });
               return { success: true, message: 'Exportado: ' + url + ' — ' + model.components.length + ' componente(s)'
-                + (csv ? ' (CSV editable en planilla; vuelve con IMPORT_DATA {url})' : ' y ' + model.productos.length + ' producto(s)') + '.' };
+                + (csv ? ' (CSV editable en planilla; vuelve con IMPORT_DATA {url})' : ' y ' + model.productos.length + ' producto(s)')
+                + '. El archivo incluye costos y proveedores y su URL es pública (no listada): cuando termines, bórralo del File Manager (carpeta exportaciones).' };
             } catch (e) { return { success: false, error: 'No se pudo exportar: ' + ((e && e.message) || 'error') }; }
           }
           if (type === 'IMPORT_DATA') {
