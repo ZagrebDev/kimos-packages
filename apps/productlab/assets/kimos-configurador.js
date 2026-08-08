@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.20.0';
+  var VERSION = '5.21.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -659,9 +659,12 @@
       var max = b.max || 0;
       n = el('div', 'kc-b kc-b-desc kc-size-' + (b.size || 'm'));
       var esHtml = /<[a-z][\s\S]*>/i.test(d);
-      if (max > 0 || !esHtml) {
+      // Una descripción HTML se muestra SIEMPRE con su diseño (bordes,
+      // viñetas, altos de línea): el recorte `max` solo aplica al texto
+      // plano — truncar HTML rompería el marcado y antes degradaba toda la
+      // descripción a texto corrido "compactado".
+      if (!esHtml) {
         var plano = d;
-        if (esHtml) { var tmp = el('div'); tmp.innerHTML = d; plano = tmp.textContent || ''; }
         if (max > 0 && plano.length > max) plano = plano.slice(0, max).replace(/\s+\S*$/, '') + '…';
         n.textContent = plano;
       } else {
@@ -1591,6 +1594,13 @@
     var images = addImages([], entry.images);
     if (!images.length) images = addImages([], prod.images);
     if (!images.length && entry.imageUrl) images.push(entry.imageUrl);
+    // La SECCIÓN Fotos muestra solo la galería de la TIENDA (entry.imagesStore:
+    // ★ + fotos del producto en Jumpseller). Las demás de entry.images son
+    // material interno de la app (fondos, fotos de valores) — siguen
+    // disponibles para los bloques del hero, pero no son "las fotos del
+    // producto". Catálogos viejos sin imagesStore: se muestra todo, como antes.
+    var imagesTienda = addImages([], entry.imagesStore);
+    if (!imagesTienda.length) imagesTienda = images;
     // Etiquetas (alt) publicadas por ProductLab en paralelo a entry.images.
     // Se indexan por URL (la lista final puede venir del raspado o reordenar)
     // y sin etiqueta se cae al nombre del producto: ningún <img> queda mudo
@@ -1964,7 +1974,7 @@
     var secs = (sf.pageSections || []).filter(function (s) { return s.kind !== 'hero' ? s.show !== false : true; });
     var hasHero = secs.some(function (s) { return s.kind === 'hero'; });
     var hasSpecs = (sf.specs || []).length > 0 && tabsCfg.showSpecs !== false;
-    var hasFotos = images.length > 0 && tabsCfg.showFotos !== false;
+    var hasFotos = imagesTienda.length > 0 && tabsCfg.showFotos !== false;
 
     // ── Pestañas, con la misma estructura que la app de computadores ──────
     // A la IZQUIERDA solo navegación por el contenido: "Explorar" es fija y
@@ -2499,7 +2509,7 @@
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos, altDe); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, sf.photosNote, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });

@@ -2160,6 +2160,16 @@ export default function mount(shell) {
           // Etiquetas paralelas a `images` ('' donde no hay): el kit las pone
           // como alt de los <img> — SEO y accesibilidad de la tienda.
           imagesAlt: publishedImagesFor(eq).map((u) => s(altsOf(eq)[u] || '').trim()),
+          // Galería de la TIENDA (★ + fotos del producto en Jumpseller): es lo
+          // que el kit muestra en la sección Fotos. El resto de `images` es
+          // material interno (fondos, fotos de valores) solo para bloques.
+          imagesStore: (function () {
+            const out = [];
+            const push = (u) => { u = s(u).trim(); if (u && out.indexOf(u) === -1) out.push(u); };
+            push(productoImage(eq));
+            productImagesFor(eq).forEach(push);
+            return out;
+          })(),
           description: productDescriptionFor(eq),
           // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones.
           // El estilo viaja ya RESUELTO (plantilla del catálogo o propio): el
@@ -2829,7 +2839,7 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el campo description de Jumpseller y es HTML — se lee con LEER_DESCRIPCION y se escribe con SET_DESCRIPCION_TIENDA, siempre trabajando desde ese HTML (productos[].storeDescription es su resumen en texto para contexto rápido); (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el campo description de Jumpseller y es HTML — se lee con LEER_DESCRIPCION y se escribe con SET_DESCRIPCION_TIENDA, siempre trabajando desde ese HTML (productos[].storeDescription es su resumen en texto para contexto rápido); (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Lo mismo con los NOMBRES: los productos y componentes que existen son EXACTAMENTE los del snapshot (productos[], components[], otherInstances[]) — no menciones ni asumas modelos que no estén ahí, y si el usuario nombra algo que no aparece, dilo en vez de adivinar a qué se refiere. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
@@ -6666,7 +6676,7 @@ export default function mount(shell) {
                         [['xl', 'Muy grande'], ['l', 'Grande'], ['m', 'Normal'], ['s', 'Pequeño']].map(([v, l]) => h('option', { key: v, value: v }, l))),
                       h('span', { key: 'l17', className: 'gp-label' }, 'recortar a'),
                       h(TextInput, { key: 'n16', mono: true, type: 'number', min: 0, value: b.max || 0, style: { width: 90 }, onChange: (e) => upBlock(b.id, { max: e.target.value }) }),
-                      h('span', { key: 'm16', className: 'gp-muted' }, 'caracteres (0 = completa).'),
+                      h('span', { key: 'm16', className: 'gp-muted' }, 'caracteres (0 = completa; el recorte solo aplica a descripciones de TEXTO — una descripción HTML se muestra siempre entera, con su diseño).'),
                     ]),
                     h('div', { key: 'help', className: 'gp-muted' },
                       'Es la descripción que el producto ya tiene en la tienda: se lee viva, no se copia. Si la editas en la tienda, la ficha se actualiza sola.'),
