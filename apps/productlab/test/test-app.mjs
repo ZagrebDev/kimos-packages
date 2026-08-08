@@ -348,16 +348,28 @@ expectEq('producto nuevo: hero de arranque sembrado', heroIni.length, 1);
 expectEq('hero de arranque: nombre + descripción + botón', (heroIni[0].slots.left || []).map((b) => b.type).join(','), 'title,description,cta');
 expectEq('hero de arranque: foto del producto', (heroIni[0].slots.right || []).map((b) => b.type).join(','), 'photo');
 if (eqNuevo.storefront.heroSeeded !== true) throw new Error('el hero de arranque debe marcarse como sembrado');
+// Componente inexistente → RECHAZO COMPLETO con pistas (antes era solo un
+// aviso y el valor quedaba de utilería: nombre puesto, sin precio ni foto).
+const rMal = await agentReg.dispatchAction({ type: 'SET_PRODUCTO_STEPS', payload: { producto: 'Chaqueta Agente', steps: [
+  { label: 'Tela', values: [{ label: 'Lino', components: ['Lino europeo (Prov. UE)', 'NoExiste XYZ'] }] },
+] } });
+if (rMal.success !== false || String(rMal.error).indexOf('NoExiste XYZ') === -1) {
+  throw new Error('un componente inexistente debe rechazar TODA la llamada nombrándolo: ' + JSON.stringify(rMal));
+}
 await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
   { label: 'Tela', type: 'tela', default: 'Lino', values: [
     { label: 'Algodón', components: ['Algodón 20/1 (Prov. Sur)'] },
-    { label: 'Lino', components: ['Lino europeo (Prov. UE)', 'NoExiste XYZ'] }, // inexistente → aviso, no error
+    { label: 'Lino', components: ['Lino europeo (Prov. UE)'] },
   ] },
+  // Sin campo `components` y con label = nombre de componente → auto-enlace.
+  { label: 'Botones', values: [{ label: 'Botón nácar (Prov. B)' }, { label: 'Sin botones', components: [] }] },
 ] });
 const eqAg = Array.from(store.values()).find((x) => x.kind === 'producto' && x.name === 'Chaqueta Agente');
-expectEq('agente: pasos creados', eqAg.groups.length, 1);
+expectEq('agente: pasos creados', eqAg.groups.length, 2);
 expectEq('agente: default por label', eqAg.groups[0].defaultValueId, eqAg.groups[0].values[1].id);
-if (eqAg.groups[0].values[1].componentIds.length !== 1) throw new Error('el componente inexistente debía filtrarse');
+expectEq('agente: valor enlazado con su componente real', eqAg.groups[0].values[1].componentIds.length, 1);
+expectEq('agente: auto-enlace por nombre (sin campo components)', eqAg.groups[1].values[0].componentIds.length, 1);
+expectEq('agente: components:[] explícito queda sin costo', eqAg.groups[1].values[1].componentIds.length, 0);
 
 await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
   pageSections: [{ kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } }],

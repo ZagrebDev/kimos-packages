@@ -2653,6 +2653,11 @@ export default function mount(shell) {
   // en la pantalla sin que nadie se entere.
   function buildGroupsFromSteps(eq, steps) {
     const warns = [];
+    // Referencias a componentes que NO existen: se junta TODO y se rechaza la
+    // llamada entera al final. Antes era solo un warn y el valor quedaba con
+    // el nombre puesto pero sin enlace real (sin precio, foto ni stock) — un
+    // paso a paso de utilería que parecía correcto.
+    const faltantes = [];
     const pick = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== '') return o[k]; return undefined; };
     const pickArr = (o, keys) => { for (const k of keys) if (o && Array.isArray(o[k])) return o[k]; return undefined; };
     const exByLabel = new Map();
@@ -2670,11 +2675,21 @@ export default function mount(shell) {
         // Un valor puede venir como string suelto ("Natural").
         const vo = typeof v === 'object' ? v : { label: v };
         const vLabel = s(pick(vo, ['label', 'nombre', 'etiqueta', 'name', 'valor'])).trim();
-        const comps = (pickArr(vo, ['components', 'componentes', 'componentIds', 'alternativas']) || []).map((refC) => {
+        const compsRaw = pickArr(vo, ['components', 'componentes', 'componentIds', 'alternativas']);
+        let comps = (compsRaw || []).map((refC) => {
           const c = findComponent(refC);
-          if (!c) warns.push('componente no encontrado: "' + s(refC) + '"');
+          if (!c) faltantes.push(s(refC).trim());
           return c;
         }).filter(Boolean);
+        // AUTO-ENLACE por nombre: si el valor llega SIN campo `components`
+        // pero su label ES un componente del catálogo, se enlaza solo — es lo
+        // que el usuario quiso decir ("un paso con el Ryzen 5"), y sin esto
+        // el valor quedaba de adorno. `components: []` explícito lo evita
+        // (opción deliberadamente sin costo).
+        if (compsRaw === undefined && vLabel) {
+          const auto = findComponent(vLabel);
+          if (auto) { comps = [auto]; warns.push('"' + vLabel + '" enlazado al componente "' + auto.name + '" (por nombre)'); }
+        }
         const exv = exVals.get(norm(vLabel));
         const fx = pickArr(vo, ['model3d', 'efectos3d', 'efectos', 'fx3d']);
         return {
@@ -2734,6 +2749,19 @@ export default function mount(shell) {
       groups[i].dependsOn = { stepId: target.id, valueIds };
     });
 
+    if (faltantes.length) {
+      const unicos = faltantes.filter((x, i) => x && faltantes.indexOf(x) === i);
+      // Pistas: componentes del catálogo que comparten alguna palabra con lo
+      // pedido — el error típico es un nombre casi igual pero no igual.
+      const pistas = unicos.map((f) => {
+        const palabras = norm(f).split(/\s+/).filter((w) => w.length > 2);
+        const cerca = model.components.filter((c) => palabras.some((w) => norm(c.name).indexOf(w) !== -1)).slice(0, 3).map((c) => c.name);
+        return '"' + f + '"' + (cerca.length ? ' (¿' + cerca.join('? ¿') + '?)' : '');
+      });
+      return { error: 'NADA se guardó: ' + unicos.length + ' referencia(s) a componentes que NO existen en el catálogo: '
+        + pistas.join(', ') + '. Los `components` de un valor deben ser componentes EXISTENTES (id o nombre exacto — la lista está en '
+        + 'snapshot.components): créalos primero con UPSERT_COMPONENT y reenvía TODOS los pasos. Un valor sin costo se manda con `components: []` explícito.' };
+    }
     const sinLabel = groups.filter((g) => !g.label).length;
     if (sinLabel) return { error: 'Hay ' + sinLabel + ' paso(s) sin nombre. Cada paso necesita "label". Ejemplo: {"label":"Acabado","values":[{"label":"Natural"}]}.' };
     const vacios = groups.filter((g) => !g.values.length).map((g) => g.label);
@@ -2800,7 +2828,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. Los `components` son OPCIONALES: un valor sin componentes es una opción que NO agrega costo (por ejemplo elegir un acabado que vale lo mismo); si quieres cobrar por un valor sin modelar su costo, usa `priceDelta`. Los componentes se referencian por nombre; se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. ENLACE CON COMPONENTES (lo que da precio, foto y stock a un valor): los `components` se referencian por id o NOMBRE de componentes EXISTENTES (snapshot.components) — una referencia que no exista RECHAZA toda la llamada (créalos antes con UPSERT_COMPONENT). Si un valor llega SIN campo `components` pero su label coincide con un componente del catálogo, se enlaza solo por nombre. Un valor deliberadamente SIN costo se manda con `components: []` explícito (por ejemplo un acabado que vale lo mismo); para cobrar sin modelar el costo usa `priceDelta`. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -2870,6 +2898,12 @@ export default function mount(shell) {
             producto: { type: 'string', description: 'id o nombre (necesario si pides por número)' },
             foto: { type: 'string', description: 'Nº de la foto en productos[].imagesInfo (1 = primera) o una URL http(s) directa' },
           }, required: ['foto'] } },
+        { name: 'SET_PHOTO_ALT', description: 'Fija la etiqueta (alt) de una foto del producto: qué muestra, en pocas palabras. La etiqueta va como alt de los <img> en la tienda (SEO/accesibilidad) y queda en productos[].imagesInfo. Úsala tras LEER_FOTO si notas una etiqueta vacía o mala.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+            foto: { type: 'string', description: 'Nº de la foto en productos[].imagesInfo (1 = primera) o su URL' },
+            alt: { type: 'string', description: 'la etiqueta (máx ~12 palabras, sin "imagen de")' },
+          }, required: ['producto', 'foto', 'alt'] } },
         { name: 'SET_MODEL3D', description: 'Configura el visor 3D de un producto (OPCIONAL: un producto sin modelo funciona igual). Define el archivo .glb, las PARTES (cada una agrupa nombres de material del GLB) y, si hace falta, los ACABADOS con textura. Para vincular un paso al 3D usa SET_PRODUCTO_STEPS con el campo model3d de cada valor: [{partId, type:"color"|"finish"|"hide", color, finishId}]. Envía enabled:false para desactivarlo sin borrarlo, o remove:true para quitarlo del todo. El estado actual está en productos[].model3d.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
@@ -2951,6 +2985,9 @@ export default function mount(shell) {
           // La galería CANÓNICA numerada (misma numeración que la tienda y
           // que la tool LEER_FOTO), con la etiqueta de qué muestra cada una.
           imagesInfo: publishedImagesFor(eq).map((u, i) => ({ n: i + 1, url: u, alt: s(altsOf(eq)[u] || '').trim() })),
+          // Descripción del producto EN LA TIENDA (texto plano, recortada):
+          // sin esto el agente no podía leerla ni opinar sobre ella.
+          storeDescription: descriptionText(productDescriptionFor(eq), 900),
           lastPush: eq.lastPush || null, warnings: productoWarnings(eq),
           // Pasos de configuración (editable con SET_PRODUCTO_STEPS)
           steps: (eq.groups || []).map((g) => ({
@@ -3006,6 +3043,21 @@ export default function mount(shell) {
         styleDefaultId: s((model.def || {}).styleDefaultId),
         publicEnabled: !!(model.def && model.def.public && model.def.public.enabled),
         publicUrl,
+        // Estado COMPLETO de la publicación, para que el agente responda
+        // "¿está publicado? ¿la tienda se sirve sola? ¿el kit está puesto?"
+        // sin adivinar.
+        publication: (function () {
+          const pub = (model.def && model.def.public) || {};
+          return {
+            enabled: pub.enabled === true,
+            updatedAt: (pub.data && pub.data.updatedAt) || null,
+            productosPublicados: ((pub.data && pub.data.productos) || []).length,
+            paginaTienda: pub.pushPage === true
+              ? { activa: true, ok: !!(pub.pagePush && pub.pagePush.ok), permalink: s(pub.pagePush && pub.pagePush.permalink) || null }
+              : { activa: false },
+            kitJsApp: !!(pub.kitInstall && pub.kitInstall.ok && !pub.kitInstall.removed),
+          };
+        })(),
         storeBaseUrl: s(model.def && model.def.storeBaseUrl),
         // Referencia para componer pageSections válidas con SET_STOREFRONT
         builderRef: {
@@ -3155,6 +3207,28 @@ export default function mount(shell) {
             return r.ok
               ? { success: true, message: r.text }
               : { success: false, error: 'No se pudo leer la foto: ' + r.error + (r.error && r.error.indexOf('404') !== -1 ? '' : ' (¿backend sin redesplegar con /image-tools/describe?)') };
+          }
+          if (type === 'SET_PHOTO_ALT') {
+            const eqRef = productoRefIn(['producto', 'id', 'name', 'nombre']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            const fotoRef = s(refIn(p, ['foto', 'photo', 'imagen', 'url'])).trim();
+            const alt = s(p.alt).trim();
+            if (!fotoRef || !alt) return { success: false, error: 'Faltan `foto` (Nº o URL) y/o `alt`.' };
+            let url = /^https?:\/\//i.test(fotoRef) ? fotoRef : '';
+            if (!url) {
+              const lista = publishedImagesFor(eq);
+              const n = Math.floor(num(fotoRef, 0));
+              if (!(n >= 1 && n <= lista.length)) {
+                return { success: false, error: 'El producto "' + eq.name + '" tiene ' + lista.length + ' foto(s); pediste la Nº ' + fotoRef + '. Ver productos[].imagesInfo.' };
+              }
+              url = lista[n - 1];
+            }
+            const alts = Object.assign({}, altsOf(eq));
+            alts[url] = alt.slice(0, 160);
+            const r = await saveProducto(Object.assign({}, eq, { galleryAlts: alts }));
+            if (!r.success) return { success: false, error: r.error };
+            return { success: true, message: 'Etiqueta de la foto guardada en "' + eq.name + '": ' + alts[url] + '. Se publica sola (alt del <img> en la tienda).' };
           }
           if (type === 'UPSERT_PRODUCTO') {
             const nameRef = refIn(p, ['name', 'producto', 'nombre', 'productoName']);
