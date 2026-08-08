@@ -5814,6 +5814,31 @@ export default function mount(shell) {
                         }
                         setGalTienda('');
                       } }, galTienda === u ? '…' : '⬆') : null,
+                    // Inverso de ⬆: borra la foto SOLO en Jumpseller. Aquí se
+                    // queda: pasa a foto propia de la galería (y conserva la
+                    // ★ si era la principal), así "desvincular" nunca la pierde.
+                    (isProd && ref && ref.sourceId) ? h('button', { key: 'unlink', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
+                      disabled: galTienda === u,
+                      title: 'Quitar esta foto del producto en Jumpseller (se conserva en la galería de este producto en la app)',
+                      onClick: async () => {
+                        setGalTienda(u);
+                        try {
+                          const r = await fetchReintento(API + '/api/integrations/jumpseller/product-image', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sourceId: s(ref.sourceId), url: u, remove: true }),
+                          }, 2);
+                          const dd = await r.json().catch(() => ({}));
+                          if (!r.ok) throw new Error(s(dd.detail) || ('HTTP ' + r.status));
+                          const patch = Object.assign(
+                            own ? {} : { galleryImages: (d.galleryImages || []).concat([u]) },
+                            esPrincipal && s(d.imageUrl) !== u ? { imageUrl: u } : {});
+                          if (Object.keys(patch).length) up(patch);
+                          shell.notify({ level: 'success', text: 'Foto quitada del producto en Jumpseller; sigue en la galería de la app (guarda el producto para conservarla). La app Productos lo verá al próximo pull.' });
+                        } catch (e) {
+                          shell.notify({ level: 'error', text: 'No se pudo quitar de la tienda: ' + ((e && e.message) || 'error') });
+                        }
+                        setGalTienda('');
+                      } }, galTienda === u ? '…' : '⊘') : null,
                     own ? h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', style: { padding: '2px 5px' },
                       title: 'Quitar de la galería (si está en uso en el producto, reaparece al guardar)',
                       onClick: () => up(Object.assign({ galleryImages: (d.galleryImages || []).filter((x) => x !== u) },
