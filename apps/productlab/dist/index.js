@@ -2829,7 +2829,7 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el texto del campo description en Jumpseller — se lee en productos[].storeDescription y se escribe SOLO con SET_DESCRIPCION_TIENDA; (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
@@ -2856,9 +2856,12 @@ export default function mount(shell) {
         { name: 'APPLY_PRODUCTO', description: 'Aplica un producto a la tienda: escribe precio, opciones y variantes (precio por combinación) en su producto Jumpseller vía la app products. Exige confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si fue idea tuya, pregúntale primero.',
           inputSchema: { type: 'object', properties: { producto: { type: 'string', description: 'id o nombre' },
             confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió aplicar a la tienda en vivo' } }, required: ['producto'] } },
-        { name: 'UPSERT_PRODUCTO', description: 'Crea o actualiza los datos básicos de un producto por nombre (los pasos se gestionan con SET_PRODUCTO_STEPS y la ficha con SET_STOREFRONT).',
+        { name: 'UPSERT_PRODUCTO', description: 'Crea o actualiza los datos básicos de un producto por nombre (los pasos se gestionan con SET_PRODUCTO_STEPS, la ficha con SET_STOREFRONT y la descripción de la tienda con SET_DESCRIPCION_TIENDA). Incluye los COMPONENTES BASE (siempre incluidos: definen el costo base y el stock vendible — un producto simple es solo base, sin pasos), los costos adicionales manuales y la foto principal ★.',
           inputSchema: { type: 'object', properties: {
             name: { type: 'string' }, sku: { type: 'string' },
+            baseComponents: { type: 'array', items: { type: 'string' }, description: 'ids o NOMBRES de componentes EXISTENTES que van siempre incluidos (reemplaza la lista; [] = sin base). Referencias inexistentes rechazan la llamada: créalos antes con UPSERT_COMPONENT.' },
+            extraCosts: { type: 'array', items: { type: 'object' }, description: 'costos manuales [{label, cost}] — confección, embalaje, flete… (reemplaza la lista; [] = ninguno)' },
+            fotoPrincipal: { type: 'string', description: 'foto principal ★: Nº de productos[].imagesInfo (1 = primera) o URL directa' },
             status: { type: 'string', description: 'active|inactive' },
             deliveryExtraDays: { type: 'number', description: 'días propios de preparación/producción; null = regla global' },
             deliveryMode: { type: 'string', description: 'max = en paralelo (manda el más lento) | sum = en serie, los días de entrega se SUMAN (dropshipping)' },
@@ -2889,7 +2892,7 @@ export default function mount(shell) {
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
             heroIndex: { type: 'number', description: 'cuál hero reemplazar (1 = primero, default); si no hay heros se agrega al inicio' },
           }, required: ['producto'] } },
-        { name: 'SET_STOREFRONT', description: 'Edita la ficha de tienda de un producto: pageSections (builder de descripción: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
+        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string' },
             pageSections: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de secciones según builderRef.sectionShape; bloques en slots:{contenedor:[…]} según builderRef.blockSchema' },
@@ -2932,7 +2935,13 @@ export default function mount(shell) {
             name: { type: 'string', description: 'nombre de archivo destino (opcional)' },
             producto: { type: 'string', description: 'opcional: id o nombre de un producto — la imagen queda además en su galería (productos[].galleryImages) para reutilizarla' },
           }, required: ['url'] } },
-        { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
+        { name: 'SET_DESCRIPCION_TIENDA', description: 'Escribe la DESCRIPCIÓN del producto en la tienda (el campo description de Jumpseller — lo que hoy dice está en productos[].storeDescription; el bloque "description" de la experiencia la muestra en vivo). Es LA tool para "edita/genera la descripción del producto". Requiere producto ENLAZADO a la tienda y confirm:true (escribe en la tienda viva). REGLA DURA: no inventes NI UNA especificación — usa solo datos verificables (storeDescription actual, los pasos/componentes del snapshot, y LEE las fotos con LEER_FOTO si la información está en ellas); si aún te falta información, dilo y pide ayuda en vez de rellenar. Para copiar el formato de otros productos, mira sus storeDescription en el snapshot.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+            html: { type: 'string', description: 'la descripción COMPLETA en HTML (reemplaza la actual; usa <p>, <ul>/<li>, <strong> — mismo formato que las de los otros productos)' },
+            confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió escribir la descripción en la tienda' },
+          }, required: ['producto', 'html'] } },
+        { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. OBLIGATORIA antes de escribir specs que vengan de fotos (nunca los inventes de memoria: los modelos parecidos difieren). Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre (necesario si pides por número)' },
             foto: { type: 'string', description: 'Nº de la foto en productos[].imagesInfo (1 = primera) o una URL http(s) directa' },
@@ -3249,6 +3258,23 @@ export default function mount(shell) {
             const r = await applyToStore(eq);
             return r.success ? { success: true, message: r.message } : { success: false, error: r.error };
           }
+          if (type === 'SET_DESCRIPCION_TIENDA') {
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            if (!storeRefOf(eq)) {
+              return { success: false, error: '"' + eq.name + '" no está enlazado a un producto de la tienda: la descripción vive en Jumpseller y no hay dónde escribirla. Enlázalo primero (LINK_PRODUCT).' };
+            }
+            const html = s(p.html).trim();
+            if (!html) return { success: false, error: 'Falta `html` con la descripción completa.' };
+            if (p.confirm !== true) return pideConfirm('escribir la DESCRIPCIÓN de "' + eq.name + '" en la tienda (reemplaza la actual)');
+            const r = await pushDescripcionTienda(eq, html);
+            if (!r.success) return { success: false, error: 'No se pudo escribir la descripción en la tienda (¿credenciales Jumpseller? ¿item accesible?).' };
+            // Refrescar la copia local del catálogo: storeDescription del
+            // snapshot y el bloque "description" del preview quedan al día.
+            void loadCatalog();
+            return { success: true, message: 'Descripción de "' + eq.name + '" escrita en el producto de la tienda (' + descriptionText(html, 140) + '…). El bloque "description" de la experiencia la mostrará en vivo.' };
+          }
           if (type === 'LEER_FOTO') {
             // Los ojos del agente: la app resuelve la foto y el backend la
             // mira (visión); el texto vuelve como resultado de esta tool.
@@ -3318,11 +3344,52 @@ export default function mount(shell) {
               // Escribir un precio a mano implica querer usarlo.
               if (p.priceMode == null && priceModeOf(draft) === 'auto') draft.priceMode = 'fixed';
             }
+            // COMPONENTES BASE: los que van SIEMPRE incluidos y suman el costo
+            // base. Misma regla dura que en los pasos: referencia inexistente
+            // rechaza la llamada entera (nada de productos de utilería).
+            if (p.baseComponents !== undefined) {
+              const refs = parseJson(p.baseComponents);
+              if (!Array.isArray(refs)) return { success: false, error: 'baseComponents debe ser un array de ids o nombres de componentes (o [] para dejar el producto sin base).' };
+              const malos = [];
+              const ids = refs.map((rc) => {
+                const c = findComponent(rc);
+                if (!c) malos.push(s(rc).trim());
+                return c ? c.id : null;
+              }).filter(Boolean);
+              if (malos.length) {
+                return { success: false, error: 'NADA se guardó: componentes base inexistentes: ' + malos.map((x) => '"' + x + '"').join(', ')
+                  + '. Deben ser componentes EXISTENTES (snapshot.components); créalos antes con UPSERT_COMPONENT.' };
+              }
+              draft.baseComponentIds = ids;
+            }
+            // COSTOS ADICIONALES manuales (confección, embalaje, flete…):
+            // [{label, cost}] — reemplaza la lista completa.
+            if (p.extraCosts !== undefined) {
+              const xs = parseJson(p.extraCosts);
+              if (!Array.isArray(xs)) return { success: false, error: 'extraCosts debe ser un array [{label, cost}] (o [] para quitarlos).' };
+              const limpios = xs.map((x) => ({
+                id: newId('xc'), label: s(x && (x.label || x.nombre)).trim(), cost: num(x && (x.cost || x.costo), 0),
+              })).filter((x) => x.label && x.cost > 0);
+              if (limpios.length !== xs.length) return { success: false, error: 'Cada costo adicional necesita label y cost > 0.' };
+              draft.extraCosts = limpios;
+            }
+            // FOTO PRINCIPAL (★): Nº de productos[].imagesInfo o URL directa.
+            if (p.fotoPrincipal !== undefined && s(p.fotoPrincipal).trim() !== '') {
+              const fp = s(p.fotoPrincipal).trim();
+              if (/^https?:\/\//i.test(fp)) draft.imageUrl = fp;
+              else {
+                const lista = publishedImagesFor(draft);
+                const n = Math.floor(num(fp, 0));
+                if (!(n >= 1 && n <= lista.length)) return { success: false, error: 'fotoPrincipal: el producto tiene ' + lista.length + ' foto(s) y pediste la Nº ' + fp + ' (ver productos[].imagesInfo), o pasa una URL.' };
+                draft.imageUrl = lista[n - 1];
+              }
+            }
             const r = await saveProducto(draft);
             if (!r.success) return { success: false, error: r.error };
             const modo = priceModeOf(r.item);
             return { success: true, message: (existing ? 'Producto actualizado: ' : 'Producto creado: ') + r.item.name
               + ' · precio ' + (modo === 'auto' ? 'calculado desde costos' : modo === 'store' ? 'tomado del catálogo' : 'fijo') + ': ' + fmtMoney(r.item.price)
+              + ((r.item.baseComponentIds || []).length ? ' · ' + r.item.baseComponentIds.length + ' componente(s) base' : '')
               + '. Define pasos con SET_PRODUCTO_STEPS (o BUILD_3D_STEPS si tiene visor 3D) y la ficha con SET_STOREFRONT.' };
           }
           if (type === 'SET_PRODUCTO_STEPS') {
