@@ -305,7 +305,7 @@ export default function mount(shell) {
   function decidirRecarga(local, vivo, baseJson) {
     if (!vivo || !vivo.updatedAt || !local || !local.updatedAt) return 'nada';
     if (vivo.updatedAt <= local.updatedAt) return 'nada';
-    return JSON.stringify(local) === baseJson ? 'recargar' : 'preguntar';
+    return JSON.stringify(local) === baseJson ? 'recargar' : 'fusionar';
   }
 
   async function load() {
@@ -5041,39 +5041,59 @@ export default function mount(shell) {
     const [tplDel, setTplDel] = useState('');         // borrado de plantilla: id a confirmar
     const [arBusy, setArBusy] = useState(false);      // generación del .glb de AR
     const viewerRef3d = useState({ current: null })[0]; // visor vivo, para exportar
-    const [conflicto, setConflicto] = useState(null); // el agente cambió esto mientras yo editaba
-    // ── Sincronía con el agente ──────────────────────────────────────────
-    // El agente guarda en el modelo; este formulario trabaja sobre una copia
-    // que se tomó al abrirlo. Sin esto el editor seguía mostrando lo viejo y,
-    // peor, al pulsar Guardar escribía esa copia encima de lo que el agente
-    // acababa de hacer. Ahora se detecta por `updatedAt` y:
-    //   · sin cambios míos → se recarga solo y salta a la sección tocada;
-    //   · con cambios míos sin guardar → no se toca nada y se pregunta, que
-    //     descartar el trabajo del usuario sin avisar sería igual de malo.
+    // ── Sincronía con lo que cambia FUERA de esta ventana ────────────────
+    // El agente, otra ventana del mismo usuario o una sincronización guardan
+    // en el modelo; este formulario trabaja sobre una copia que se tomó al
+    // abrirlo. Se detecta por `updatedAt` y:
+    //   · sin cambios míos → se recarga solo (y salta a la sección que tocó
+    //     el agente, si fue él);
+    //   · con cambios míos sin guardar → se FUSIONA sin preguntar: base = lo
+    //     nuevo del servidor, y encima SOLO las partes que se editaron aquí.
+    //     (La franja amarilla "el agente cambió esto" culpaba al agente por
+    //     cambios que hacía el propio usuario desde otra ventana y obligaba
+    //     a elegir un bando perdiendo algo; la fusión conserva ambos.)
     const baseRef = useState({ current: null })[0];
     if (baseRef.current === null) baseRef.current = JSON.stringify(d);
     const vivo = d.id ? model.productos.find((e) => e.id === d.id) : null;
     // Adopta MI PROPIO guardado como nueva base: sin esto, el item recién
     // guardado vuelve del modelo con updatedAt nuevo y el vigilante lo
-    // confundía con un cambio del agente ("¿pisar sus cambios?") justo
-    // después de apretar Guardar.
+    // confundía con un cambio de fuera justo después de apretar Guardar.
     const adoptar = (item) => {
       const nd = normalizeProductoShape(item);
       baseRef.current = JSON.stringify(nd);
       setD(nd);
-      setConflicto(null);
     };
     const cargarVivo = (v) => {
       const nd = normalizeProductoShape(v);
       baseRef.current = JSON.stringify(nd);
       setD(nd);
-      setConflicto(null);
       if (agentEdit.section) setNav({ tab: agentEdit.section });
+    };
+    // Fusión campo a campo: se parte de lo del servidor y se re-aplican las
+    // claves que difieren de la base local (= lo que se editó aquí). Si ambos
+    // tocaron la misma clave, queda la de esta ventana (es la que el usuario
+    // está viendo y va a guardar) y se avisa en el mensaje.
+    const fusionarVivo = (v) => {
+      const nv = normalizeProductoShape(v);
+      const base = JSON.parse(baseRef.current);
+      const out = Object.assign({}, nv);
+      let pisado = false;
+      Object.keys(Object.assign({}, base, d)).forEach((k) => {
+        if (k === 'updatedAt') return;
+        if (JSON.stringify(d[k]) !== JSON.stringify(base[k])) {
+          if (JSON.stringify(nv[k]) !== JSON.stringify(base[k])) pisado = true;
+          out[k] = d[k];
+        }
+      });
+      baseRef.current = JSON.stringify(nv);
+      setD(out);
+      shell.notify({ level: 'info', text: 'Este producto también cambió fuera de esta ventana: se cargó lo nuevo y tu edición en curso se conservó'
+        + (pisado ? ' (donde ambos tocaron lo mismo, vale lo de esta ventana al guardar)' : '') + '.' });
     };
     useEffect(() => {
       const q = decidirRecarga(d, vivo, baseRef.current);
       if (q === 'recargar') cargarVivo(vivo);
-      else if (q === 'preguntar') setConflicto(vivo);
+      else if (q === 'fusionar') fusionarVivo(vivo);
     });
     const up = (patch) => setD(Object.assign({}, d, patch));
     const upGroup = (gid, patch) => up({ groups: d.groups.map((g) => (g.id === gid ? Object.assign({}, g, patch) : g)) });
@@ -5138,8 +5158,14 @@ export default function mount(shell) {
               ? { level: 'success', text: 'SKU actualizado también en el producto de la tienda.' }
               : { level: 'warn', text: 'El SKU se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
           }
-          // Nombre cambiado → también al producto de la tienda (como el SKU).
-          if (r.success && ref && initial && s(initial.name).trim() !== s(d.name).trim() && s(d.name).trim()) {
+          // Nombre → al producto de la tienda (como el SKU). Se compara con
+          // el nombre VIVO del item enlazado, no con el de al abrir el
+          // formulario: un producto renombrado hace tiempo seguía divergiendo
+          // para siempre porque "no cambió en esta edición".
+          const itemTiendaN = productItemFor(d);
+          if (r.success && ref && s(d.name).trim()
+              && (itemTiendaN ? s(itemTiendaN.name).trim() !== s(d.name).trim()
+                              : !!initial && s(initial.name).trim() !== s(d.name).trim())) {
             const rn = await pushNombreTienda(d, s(d.name).trim());
             shell.notify(rn.success
               ? { level: 'success', text: 'Nombre actualizado también en el producto de la tienda.' }
@@ -5518,14 +5544,9 @@ export default function mount(shell) {
     return h('div', { className: 'gp-editor' }, [
       // Sin franja de chip: el estado del enlace con la tienda ya se ve en el
       // bloque TIENDA del General (repetirlo en cada pestaña era redundante).
-      // El agente cambió este producto y aquí hay edición sin guardar: se
-      // decide a mano, porque cualquiera de las dos opciones pierde algo.
-      conflicto && h('div', { key: 'conf', className: 'gp-warnbox', style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } }, [
-        h('span', { key: 't', style: { flex: 1, minWidth: 220 } },
-          '⚠ El agente cambió este producto mientras lo editabas. Si guardas ahora, tus cambios pisarán los suyos.'),
-        h('button', { key: 'r', className: 'gp-btn gp-btn-sm gp-btn-dark', onClick: () => cargarVivo(conflicto) }, 'Cargar lo del agente (pierdo lo mío)'),
-        h('button', { key: 'k', className: 'gp-btn gp-btn-sm', onClick: () => { baseRef.current = JSON.stringify(d); setConflicto(null); } }, 'Mantener lo mío'),
-      ]),
+      // (La franja "el agente cambió esto" tampoco existe ya: los cambios de
+      // fuera se FUSIONAN solos conservando la edición en curso — ver
+      // fusionarVivo.)
       // ── Cuerpo: una sección a la vez, a todo el ancho ──
       h('div', { key: 'body', className: 'gp-editor-body' }, [
         h('div', { key: 'g', style: sec === 'general' ? { height: '100%' } : { display: 'none' } }, [

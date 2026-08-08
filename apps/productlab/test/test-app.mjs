@@ -782,9 +782,9 @@ expectEq('sin cambios de nadie: el editor no se toca',
   decidirRecarga(abierto, { id: 'eq-x', updatedAt: '2026-07-25T10:00:00.000Z' }, base), 'nada');
 expectEq('el agente cambió y yo no había tocado nada: se recarga solo',
   decidirRecarga(abierto, { id: 'eq-x', updatedAt: '2026-07-25T10:05:00.000Z' }, base), 'recargar');
-expectEq('el agente cambió y yo tenía edición sin guardar: se pregunta',
+expectEq('cambió fuera y yo tenía edición sin guardar: se fusiona sin preguntar',
   decidirRecarga(Object.assign({}, abierto, { name: 'X editado' }),
-    { id: 'eq-x', updatedAt: '2026-07-25T10:05:00.000Z' }, base), 'preguntar');
+    { id: 'eq-x', updatedAt: '2026-07-25T10:05:00.000Z' }, base), 'fusionar');
 // Y la acción deja dicho a qué sección llevar al usuario.
 await act('SET_MODEL3D', { producto: 'Chaqueta Agente', url: 'https://cdn/x.glb',
   parts: [{ id: 'p1', label: 'P', materials: ['M'] }] });
