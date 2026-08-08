@@ -2829,7 +2829,7 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el texto del campo description en Jumpseller — se lee en productos[].storeDescription y se escribe SOLO con SET_DESCRIPCION_TIENDA; (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el texto del campo description en Jumpseller — productos[].storeDescription trae SOLO su texto plano; el HTML real (formato/diseño) se lee con LEER_DESCRIPCION y se escribe SOLO con SET_DESCRIPCION_TIENDA; (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
@@ -2935,7 +2935,11 @@ export default function mount(shell) {
             name: { type: 'string', description: 'nombre de archivo destino (opcional)' },
             producto: { type: 'string', description: 'opcional: id o nombre de un producto — la imagen queda además en su galería (productos[].galleryImages) para reutilizarla' },
           }, required: ['url'] } },
-        { name: 'SET_DESCRIPCION_TIENDA', description: 'Escribe la DESCRIPCIÓN del producto en la tienda (el campo description de Jumpseller — lo que hoy dice está en productos[].storeDescription; el bloque "description" de la experiencia la muestra en vivo). Es LA tool para "edita/genera la descripción del producto". Requiere producto ENLAZADO a la tienda y confirm:true (escribe en la tienda viva). REGLA DURA: no inventes NI UNA especificación — usa solo datos verificables (storeDescription actual, los pasos/componentes del snapshot, y LEE las fotos con LEER_FOTO si la información está en ellas); si aún te falta información, dilo y pide ayuda en vez de rellenar. Para copiar el formato de otros productos, mira sus storeDescription en el snapshot.',
+        { name: 'LEER_DESCRIPCION', description: 'Devuelve el HTML CRUDO de la descripción que un producto tiene en la tienda. OBLIGATORIA antes de escribir una descripción "con el mismo formato/diseño que <otro producto>": productos[].storeDescription del snapshot es SOLO TEXTO (sin el marcado) — el diseño real (divs, estilos inline, colores, viñetas) únicamente se ve con esta tool. Lee la del producto de referencia, copia su estructura HTML EXACTA y cambia solo el contenido.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+          }, required: ['producto'] } },
+        { name: 'SET_DESCRIPCION_TIENDA', description: 'Escribe la DESCRIPCIÓN del producto en la tienda (el campo description de Jumpseller — lo que hoy dice está en productos[].storeDescription; el bloque "description" de la experiencia la muestra en vivo). Es LA tool para "edita/genera la descripción del producto". Requiere producto ENLAZADO a la tienda y confirm:true (escribe en la tienda viva). REGLA DURA: no inventes NI UNA especificación — usa solo datos verificables (storeDescription actual, los pasos/componentes del snapshot, y LEE las fotos con LEER_FOTO si la información está en ellas); si aún te falta información, dilo y pide ayuda en vez de rellenar. Para copiar el formato/diseño de otro producto NO te bases en storeDescription (es texto plano): lee su HTML real con LEER_DESCRIPCION y reproduce esa estructura exacta.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             html: { type: 'string', description: 'la descripción COMPLETA en HTML (reemplaza la actual; usa <p>, <ul>/<li>, <strong> — mismo formato que las de los otros productos)' },
@@ -3257,6 +3261,14 @@ export default function mount(shell) {
             if (p.confirm !== true) return pideConfirm('aplicar "' + eq.name + '" a la tienda (precio ' + fmtMoney(productoComputedPrice(eq)) + ', opciones y variantes en su producto Jumpseller)');
             const r = await applyToStore(eq);
             return r.success ? { success: true, message: r.message } : { success: false, error: r.error };
+          }
+          if (type === 'LEER_DESCRIPCION') {
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            const html = productDescriptionFor(eq);
+            if (!s(html).trim()) return { success: true, message: '"' + eq.name + '" no tiene descripción en la tienda todavía (campo vacío).' };
+            return { success: true, message: 'HTML de la descripción de "' + eq.name + '" (cópialo como plantilla si te pidieron su formato):\n' + html };
           }
           if (type === 'SET_DESCRIPCION_TIENDA') {
             const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
