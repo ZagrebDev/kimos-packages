@@ -1012,6 +1012,28 @@ export default function mount(shell) {
     collectProductoImages(eq).forEach(push);
     return out;
   }
+  // Etiquetas (alt) de las fotos del producto: {url: texto}. Se generan solas
+  // al subir (visión del backend), se editan a mano en la Galería, viajan al
+  // kit como alt de los <img> (SEO/accesibilidad) y al snapshot del agente
+  // (contexto barato de qué muestra cada foto, sin pedir visión).
+  function altsOf(eq) {
+    return (eq && eq.galleryAlts && typeof eq.galleryAlts === 'object') ? eq.galleryAlts : {};
+  }
+  // Visión del backend (/api/image-tools/describe): 'alt' = etiqueta corta;
+  // 'full' = descripción + OCR literal (los ojos de la tool LEER_FOTO).
+  async function describeImagen(url, mode, context) {
+    if (!shell.authFetch) return { ok: false, error: 'authFetch no disponible en este host.' };
+    try {
+      const r = await fetchReintento(API + '/api/image-tools/describe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, mode, context: s(context) }),
+      }, 1);
+      const d2 = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, error: s(d2.detail) || ('HTTP ' + r.status) };
+      const t = s(d2.text).trim();
+      return t ? { ok: true, text: t } : { ok: false, error: 'sin texto' };
+    } catch (e) { return { ok: false, error: (e && e.message) || 'error de red' }; }
+  }
   function productoImage(eq) {
     // La foto elegida EN LA APP (★ de la Galería) manda sobre la de la
     // tienda; sin elección propia se usa la del producto enlazado.
@@ -2099,6 +2121,9 @@ export default function mount(shell) {
           // las fotos del producto (tienda + subidas en la app), sin esperar
           // syncs: la misma lista que muestra la Galería de la app.
           images: publishedImagesFor(eq),
+          // Etiquetas paralelas a `images` ('' donde no hay): el kit las pone
+          // como alt de los <img> — SEO y accesibilidad de la tienda.
+          imagesAlt: publishedImagesFor(eq).map((u) => s(altsOf(eq)[u] || '').trim()),
           description: productDescriptionFor(eq),
           // Ficha de tienda: hero (pestaña Explorar) + tabla de especificaciones.
           // El estilo viaja ya RESUELTO (plantilla del catálogo o propio): el
@@ -2840,6 +2865,11 @@ export default function mount(shell) {
             name: { type: 'string', description: 'nombre de archivo destino (opcional)' },
             producto: { type: 'string', description: 'opcional: id o nombre de un producto — la imagen queda además en su galería (productos[].galleryImages) para reutilizarla' },
           }, required: ['url'] } },
+        { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre (necesario si pides por número)' },
+            foto: { type: 'string', description: 'Nº de la foto en productos[].imagesInfo (1 = primera) o una URL http(s) directa' },
+          }, required: ['foto'] } },
         { name: 'SET_MODEL3D', description: 'Configura el visor 3D de un producto (OPCIONAL: un producto sin modelo funciona igual). Define el archivo .glb, las PARTES (cada una agrupa nombres de material del GLB) y, si hace falta, los ACABADOS con textura. Para vincular un paso al 3D usa SET_PRODUCTO_STEPS con el campo model3d de cada valor: [{partId, type:"color"|"finish"|"hide", color, finishId}]. Envía enabled:false para desactivarlo sin borrarlo, o remove:true para quitarlo del todo. El estado actual está en productos[].model3d.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
@@ -2918,6 +2948,9 @@ export default function mount(shell) {
           storeUrl: productoStoreUrl(eq) || null,
           productImages: productImagesFor(eq),
           galleryImages: collectProductoImages(eq),
+          // La galería CANÓNICA numerada (misma numeración que la tienda y
+          // que la tool LEER_FOTO), con la etiqueta de qué muestra cada una.
+          imagesInfo: publishedImagesFor(eq).map((u, i) => ({ n: i + 1, url: u, alt: s(altsOf(eq)[u] || '').trim() })),
           lastPush: eq.lastPush || null, warnings: productoWarnings(eq),
           // Pasos de configuración (editable con SET_PRODUCTO_STEPS)
           steps: (eq.groups || []).map((g) => ({
@@ -3096,6 +3129,32 @@ export default function mount(shell) {
             if (!eq) return eqNotFound(eqRef);
             const r = await applyToStore(eq);
             return r.success ? { success: true, message: r.message } : { success: false, error: r.error };
+          }
+          if (type === 'LEER_FOTO') {
+            // Los ojos del agente: la app resuelve la foto y el backend la
+            // mira (visión); el texto vuelve como resultado de esta tool.
+            const fotoRef = s(refIn(p, ['foto', 'photo', 'imagen', 'url'])).trim();
+            if (!fotoRef) return { success: false, error: 'Falta `foto`: Nº en productos[].imagesInfo o una URL.' };
+            let url = /^https?:\/\//i.test(fotoRef) ? fotoRef : '';
+            let eq = null;
+            const eqRef = productoRefIn(['producto', 'id', 'name', 'nombre']);
+            if (s(eqRef).trim()) {
+              eq = findProducto(eqRef);
+              if (!eq && !url) return eqNotFound(eqRef);
+            }
+            if (!url) {
+              if (!eq) return { success: false, error: 'Para pedir por número indica también `producto`; o pasa la URL directa.' };
+              const lista = publishedImagesFor(eq);
+              const n = Math.floor(num(fotoRef, 0));
+              if (!(n >= 1 && n <= lista.length)) {
+                return { success: false, error: 'El producto "' + eq.name + '" tiene ' + lista.length + ' foto(s); pediste la Nº ' + fotoRef + '. Ver productos[].imagesInfo.' };
+              }
+              url = lista[n - 1];
+            }
+            const r = await describeImagen(url, 'full', eq ? eq.name : '');
+            return r.ok
+              ? { success: true, message: r.text }
+              : { success: false, error: 'No se pudo leer la foto: ' + r.error + (r.error && r.error.indexOf('404') !== -1 ? '' : ' (¿backend sin redesplegar con /image-tools/describe?)') };
           }
           if (type === 'UPSERT_PRODUCTO') {
             const nameRef = refIn(p, ['name', 'producto', 'nombre', 'productoName']);
@@ -5804,8 +5863,9 @@ export default function mount(shell) {
                 const own = (d.galleryImages || []).indexOf(u) !== -1;
                 const isProd = prodImgs.indexOf(u) !== -1;
                 const esPrincipal = productoImage(d) === u;
+                const altAct = s(altsOf(d)[u] || '').trim();
                 return h('div', { key: i, className: 'gp-gal-item' }, [
-                  h('img', { key: 'i', src: u, alt: '', title: u }),
+                  h('img', { key: 'i', src: u, alt: altAct, title: altAct ? altAct + '\n' + u : u }),
                   isProd ? h('span', { key: 'p', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, bottom: 2 } }, 'JS') : null,
                   esPrincipal ? h('span', { key: 'pr', className: 'gp-chip fuc', style: { position: 'absolute', left: 2, top: 2 } }, '★ principal') : null,
                   h('div', { key: 'acts', style: { position: 'absolute', top: 2, right: 2, display: 'flex', gap: 3 } }, [
@@ -5815,6 +5875,21 @@ export default function mount(shell) {
                     h('button', { key: 'ed', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
                       title: 'Editar foto: quitar fondo, margen para centrar, rotar, recortar',
                       onClick: () => setGalEdit(u) }, '✎'),
+                    // Etiqueta (alt): qué muestra la foto. Va como alt de los
+                    // <img> en la tienda y al contexto del agente. Vacío al
+                    // aceptar = regenerar con visión.
+                    h('button', { key: 'alt', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px', fontWeight: altAct ? 400 : 700 },
+                      title: (altAct ? 'Etiqueta: ' + altAct : 'SIN etiqueta — el agente y el SEO no saben qué muestra') + '\nClic para editarla (déjala vacía y acepta para regenerarla con IA)',
+                      onClick: async () => {
+                        const nuevo = window.prompt('Etiqueta (alt) de esta foto — qué muestra.\nVacío + Aceptar = regenerar con IA.', altAct);
+                        if (nuevo === null) return;
+                        if (s(nuevo).trim()) { up({ galleryAlts: Object.assign({}, altsOf(d), (function (o) { o[u] = s(nuevo).trim(); return o; })({})) }); return; }
+                        setGalTienda(u);
+                        const ra = await describeImagen(u, 'alt', d.name);
+                        setGalTienda('');
+                        if (ra.ok) up({ galleryAlts: Object.assign({}, altsOf(d), (function (o) { o[u] = ra.text; return o; })({})) });
+                        else shell.notify({ level: 'warn', text: 'No se pudo generar la etiqueta: ' + ra.error });
+                      } }, galTienda === u ? '…' : 'alt'),
                     // Fase 3: la foto sube DIRECTO a la galería del producto en
                     // Jumpseller (su CDN la descarga) — nada de bajar y resubir.
                     (!isProd && ref && ref.sourceId) ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', style: { padding: '2px 6px' },
@@ -5896,8 +5971,22 @@ export default function mount(shell) {
                 catch (err) { shell.notify({ level: 'error', text: 'No se pudo subir "' + f.name + '": ' + ((err && err.message) || 'error') }); }
               }
               if (urls.length) {
-                up({ galleryImages: (d.galleryImages || []).concat(urls.filter((u) => (d.galleryImages || []).indexOf(u) === -1)) });
-                shell.notify({ level: 'success', text: urls.length + ' imagen(es) en la galería del producto.' });
+                // Etiqueta (alt) automática por foto (visión del backend):
+                // mejor esperar un par de segundos aquí que una galería muda
+                // para el agente, el SEO y los lectores de pantalla. Si la
+                // visión no está (backend viejo), la foto entra sin etiqueta.
+                const alts = {};
+                for (const u of urls) {
+                  const ra = await describeImagen(u, 'alt', d.name);
+                  if (ra.ok) alts[u] = ra.text;
+                }
+                up({
+                  galleryImages: (d.galleryImages || []).concat(urls.filter((u) => (d.galleryImages || []).indexOf(u) === -1)),
+                  galleryAlts: Object.assign({}, altsOf(d), alts),
+                });
+                const conAlt = Object.keys(alts).length;
+                shell.notify({ level: 'success', text: urls.length + ' imagen(es) en la galería del producto'
+                  + (conAlt ? ' con su etiqueta generada (edítala con el botón "alt" de cada foto)' : '') + '.' });
               }
               setGalBusy(false);
             } }),

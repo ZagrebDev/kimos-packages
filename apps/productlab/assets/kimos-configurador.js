@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.19.0';
+  var VERSION = '5.20.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -558,7 +558,7 @@
       n = el('div', 'kc-b kc-b-photo');
       var img = el('img');
       img.src = ctx.image || '';
-      img.alt = ctx.name || '';
+      img.alt = (ctx.altDe && ctx.altDe(ctx.image)) || ctx.name || '';
       img.className = 'kc-photo kc-photo-' + (b.size || 'm') + (b.anim && b.anim !== 'none' ? ' kc-anim-' + b.anim : '');
       n.appendChild(img);
     } else if (b.type === 'title') {
@@ -646,8 +646,9 @@
       // se muestra la última (no un hueco ni la principal por sorpresa).
       var gimgs = ctx.images || [];
       var gn = Math.max(1, b.index || 1);
-      gi.src = gimgs[Math.min(gn, gimgs.length) - 1] || ctx.image || '';
-      gi.alt = '';
+      var gIdx = Math.min(gn, gimgs.length) - 1;
+      gi.src = gimgs[gIdx] || ctx.image || '';
+      gi.alt = (ctx.altDe && ctx.altDe(gi.src, gIdx >= 0 ? gIdx : null)) || '';
       n.appendChild(gi);
     } else if (b.type === 'description') {
       // La descripción del producto en la tienda ES HTML (el mismo que
@@ -734,7 +735,8 @@
 
   // `cfg` = storefront.style.photos: tamaño de la galería dentro de Explorar
   // (s|m|l|xl) y fotos por fila (0 = automático). Sin cfg, todo como antes.
-  function renderPhotos(images, note, cfg) {
+  function renderPhotos(images, note, cfg, altDe) {
+    altDe = altDe || function () { return ''; };
     var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
     wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
@@ -759,7 +761,7 @@
     var main = el('div', 'kc-foto-main');
     var big = el('img');
     big.src = images[0] || '';
-    big.alt = '';
+    big.alt = altDe(images[0], 0);
     main.appendChild(big);
     var thumbs = images.length > 1 ? el('div', 'kc-foto-thumbs') : null;
     var actual = 0;
@@ -767,6 +769,7 @@
     function mostrar(i) {
       actual = (i + images.length) % images.length;
       big.src = images[actual];
+      big.alt = altDe(images[actual], actual);
       if (count) count.textContent = (actual + 1) + ' / ' + images.length;
       if (!thumbs) return;
       Array.prototype.forEach.call(thumbs.children, function (c, k) {
@@ -789,7 +792,7 @@
       images.forEach(function (u, i) {
         var t = el('img', 'kc-foto-th' + (i === 0 ? ' on' : ''));
         t.src = u;
-        t.alt = '';
+        t.alt = altDe(u, i);
         t.addEventListener('click', function () { mostrar(i); });
         thumbs.appendChild(t);
       });
@@ -1588,6 +1591,18 @@
     var images = addImages([], entry.images);
     if (!images.length) images = addImages([], prod.images);
     if (!images.length && entry.imageUrl) images.push(entry.imageUrl);
+    // Etiquetas (alt) publicadas por ProductLab en paralelo a entry.images.
+    // Se indexan por URL (la lista final puede venir del raspado o reordenar)
+    // y sin etiqueta se cae al nombre del producto: ningún <img> queda mudo
+    // para buscadores ni lectores de pantalla.
+    var altPorUrl = {};
+    (entry.images || []).forEach(function (u, i) {
+      var a = (entry.imagesAlt || [])[i];
+      if (u && a) altPorUrl[u] = String(a);
+    });
+    function altDe(u, i) {
+      return altPorUrl[u] || ((prod.name || entry.name || '') + (i != null && i >= 0 ? ' — foto ' + (i + 1) : ''));
+    }
     // Descripción del producto en la tienda, para el bloque `description`.
     var desc = String(entry.description || '');
     var viewer = null;
@@ -1988,7 +2003,7 @@
       name: prod.name, sku: entry.sku || prod.sku || '',
       // La foto del hero es la PRINCIPAL publicada (entry.imageUrl — la ★ de
       // ProductLab); la galería queda para las demás vistas.
-      image: entry.imageUrl || images[0] || '', images: images, specs: sf.specs || [],
+      image: entry.imageUrl || images[0] || '', images: images, altDe: altDe, specs: sf.specs || [],
       desc: desc,
       style: style,
       stepsOpen: null,   // colapso por paso: lo siembra renderSteps
@@ -2484,7 +2499,7 @@
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(images, sf.photosNote, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
