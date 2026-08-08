@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.21.0';
+  var VERSION = '5.21.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -671,6 +671,27 @@
         n.innerHTML = d
           .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
           .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+        // El HTML de la tienda trae colores de TEXTO pensados para su ficha
+        // de fondo claro (grises #555). Dentro de un hero manda el color del
+        // hero: los tonos NEUTROS (grises/negros, sin saturación) se sueltan
+        // para HEREDARLO — texto blanco sobre fondo oscuro, legible — y los
+        // colores VIVOS (acentos de marca, ✓ de las viñetas) se respetan.
+        var rgbDe = function (c) {
+          c = String(c || '').trim().toLowerCase();
+          var m = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+          if (m) {
+            var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+            return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+          }
+          m = c.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+          return m ? [+m[1], +m[2], +m[3]] : null;
+        };
+        Array.prototype.forEach.call(n.querySelectorAll('[style]'), function (elx) {
+          var rgb = rgbDe(elx.style && elx.style.color);
+          if (rgb && Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]) <= 32) {
+            elx.style.color = '';
+          }
+        });
       }
     } else if (b.type === 'html') {
       n = el('div', 'kc-b kc-b-html');
