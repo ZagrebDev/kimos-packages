@@ -362,20 +362,27 @@ const rMal = await agentReg.dispatchAction({ type: 'SET_PRODUCTO_STEPS', payload
 if (rMal.success !== false || String(rMal.error).indexOf('NoExiste XYZ') === -1) {
   throw new Error('un componente inexistente debe rechazar TODA la llamada nombrándolo: ' + JSON.stringify(rMal));
 }
+// LEY ÚNICA del paso a paso: un valor sin componentes se rechaza entero (la
+// opción "sin costo" legítima se modela como componente de costo 0).
+const rVacio = await agentReg.dispatchAction({ type: 'SET_PRODUCTO_STEPS', payload: { producto: 'Chaqueta Agente', steps: [
+  { label: 'Botones', values: [{ label: 'Sin botones', components: [] }] },
+] } });
+if (rVacio.success !== false || String(rVacio.error).indexOf('SIN componentes') === -1) {
+  throw new Error('un valor sin componentes debe rechazar la llamada: ' + JSON.stringify(rVacio));
+}
 await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
   { label: 'Tela', type: 'tela', default: 'Lino', values: [
     { label: 'Algodón', components: ['Algodón 20/1 (Prov. Sur)'] },
     { label: 'Lino', components: ['Lino europeo (Prov. UE)'] },
   ] },
   // Sin campo `components` y con label = nombre de componente → auto-enlace.
-  { label: 'Botones', values: [{ label: 'Botón nácar (Prov. B)' }, { label: 'Sin botones', components: [] }] },
+  { label: 'Botones', values: [{ label: 'Botón nácar (Prov. B)' }] },
 ] });
 const eqAg = Array.from(store.values()).find((x) => x.kind === 'producto' && x.name === 'Chaqueta Agente');
 expectEq('agente: pasos creados', eqAg.groups.length, 2);
 expectEq('agente: default por label', eqAg.groups[0].defaultValueId, eqAg.groups[0].values[1].id);
 expectEq('agente: valor enlazado con su componente real', eqAg.groups[0].values[1].componentIds.length, 1);
 expectEq('agente: auto-enlace por nombre (sin campo components)', eqAg.groups[1].values[0].componentIds.length, 1);
-expectEq('agente: components:[] explícito queda sin costo', eqAg.groups[1].values[1].componentIds.length, 0);
 
 await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
   pageSections: [{ kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } }],
@@ -704,11 +711,13 @@ if ((agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').ste
 }
 
 // Alias en español (values→valores, label→nombre, components→componentes).
+// Con la LEY ÚNICA: cada valor lleva componentes — el string suelto sirve
+// solo si su nombre ES un componente (auto-enlace).
 await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
-  { nombre: 'Prueba alias', valores: [{ nombre: 'Uno' }, 'Dos'] },
+  { nombre: 'Prueba alias', valores: [{ nombre: 'Uno', componentes: ['Algodón 20/1 (Prov. Sur)'] }, 'Botón nácar (Prov. B)'] },
 ] });
 const alias = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');
-expectEq('alias en español (valores/nombre + valor como string)', alias.steps[0].values.map((v) => v.label).join(','), 'Uno,Dos');
+expectEq('alias en español (valores/nombre + valor como string auto-enlazado)', alias.steps[0].values.map((v) => v.label).join(','), 'Uno,Botón nácar (Prov. B)');
 
 // BUILD_3D_STEPS: el agente arma los 4 pasos solo, ya vinculados al 3D.
 const b3d = await act('BUILD_3D_STEPS', { producto: 'Pack 2 Pisos' });
@@ -828,12 +837,19 @@ app.unmount(); app = mount(shell); app.Component({});
 await new Promise((res) => setTimeout(res, 60));
 
 await act('UPSERT_COMPONENT', { name: 'Módulo Cajón', type: 'other', cost: 20000, currency: 'CLP', stock: 3, deliveryDays: 2 });
+// LEY ÚNICA: las opciones sin costo también son componentes (costo 0).
+await act('UPSERT_COMPONENT', { name: 'Cubierta Roble', type: 'other', cost: 0, currency: 'CLP' });
+await act('UPSERT_COMPONENT', { name: 'Cubierta Nogal', type: 'other', cost: 0, currency: 'CLP' });
+await act('UPSERT_COMPONENT', { name: 'Sin cajones', type: 'other', cost: 0, currency: 'CLP' });
 await act('UPSERT_PRODUCTO', { name: 'Mesa Modular', sku: 'PL-MOD', deliveryExtraDays: 0 });
 await act('SET_PRODUCTO_STEPS', { producto: 'Mesa Modular', steps: [
-  { label: 'Cubierta', default: 'Roble', values: [{ label: 'Roble' }, { label: 'Nogal', recargo: 15000 }] },
-  // Paso DEPENDIENTE: solo visible con cubierta Roble; default SIN costo;
-  // "2 cajones" usa el MISMO componente ×2 (cantidad); "4 cajones" excede el
-  // stock (3) y debe quedar no disponible.
+  { label: 'Cubierta', default: 'Roble', values: [
+    { label: 'Roble', components: ['Cubierta Roble'] },
+    { label: 'Nogal', recargo: 15000, components: ['Cubierta Nogal'] },
+  ] },
+  // Paso DEPENDIENTE: solo visible con cubierta Roble; default SIN costo
+  // (componente de costo 0); "2 cajones" usa el MISMO componente ×2
+  // (cantidad); "4 cajones" excede el stock (3) y queda no disponible.
   { label: 'Cajones', default: 'Sin cajones', dependsOn: { step: 'Cubierta', values: ['Roble'] }, values: [
     { label: 'Sin cajones' },
     { label: '2 cajones', qty: 2, components: ['Módulo Cajón'] },
@@ -979,14 +995,19 @@ console.log('ProductLab: plantillas de estilo (crear, aplicar, editar, por defec
 // ── Paso dependiente SIN rituales: el comodín se gestiona solo ────────────
 // El usuario define el paso con sus valores reales y nada más: ni "No aplica"
 // ni marcas raras. El sistema sintetiza el comodín al aplicar y al publicar.
+await act('UPSERT_COMPONENT', { name: 'CPU R5 (cero)', type: 'avios', cost: 0, currency: 'CLP' });
+await act('UPSERT_COMPONENT', { name: 'CPU R7 (cero)', type: 'avios', cost: 0, currency: 'CLP' });
+await act('UPSERT_COMPONENT', { name: 'CPU I5 (cero)', type: 'acabado', cost: 0, currency: 'CLP' });
+await act('UPSERT_COMPONENT', { name: 'CPU I7 (cero)', type: 'acabado', cost: 0, currency: 'CLP' });
 await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
   { label: 'Plataforma', type: 'tela', values: [
     { label: 'AMD', components: ['Algodón 20/1 (Prov. Sur)'] },
     { label: 'Intel', components: ['Lino europeo (Prov. UE)'] },
   ] },
   { label: 'Procesador AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] }, values: [
-    { label: 'Ryzen 5', components: [], priceDelta: 120000 },
-    { label: 'Ryzen 7', components: [], priceDelta: 200000 },
+    // LEY ÚNICA: recargo sin costo modelado = componente de costo 0 + priceDelta.
+    { label: 'Ryzen 5', components: ['CPU R5 (cero)'], priceDelta: 120000 },
+    { label: 'Ryzen 7', components: ['CPU R7 (cero)'], priceDelta: 200000 },
   ] },
 ] });
 const snapNA = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');
@@ -1012,13 +1033,13 @@ await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: [
   ] },
   { label: 'CPU AMD', type: 'avios', dependsOn: { step: 'Plataforma', values: ['AMD'] }, default: 'No aplica', values: [
     { label: 'No aplica', components: [], fallback: true },
-    { label: 'Ryzen 5', components: [], priceDelta: 120000 },
-    { label: 'Ryzen 7', components: [], priceDelta: 200000 },
+    { label: 'Ryzen 5', components: ['CPU R5 (cero)'], priceDelta: 120000 },
+    { label: 'Ryzen 7', components: ['CPU R7 (cero)'], priceDelta: 200000 },
   ] },
   { label: 'CPU Intel', type: 'acabado', dependsOn: { step: 'Plataforma', values: ['Intel'] }, default: 'No aplica', values: [
     { label: 'No aplica', components: [], fallback: true },
-    { label: 'Core i5', components: [], priceDelta: 90000 },
-    { label: 'Core i7', components: [], priceDelta: 150000 },
+    { label: 'Core i5', components: ['CPU I5 (cero)'], priceDelta: 90000 },
+    { label: 'Core i7', components: ['CPU I7 (cero)'], priceDelta: 150000 },
   ] },
 ] });
 const snapCombo = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos');

@@ -2706,7 +2706,13 @@ export default function mount(shell) {
   // importante— RECHAZA con detalle un paso que quede sin valores en vez de
   // guardarlo vacío en silencio, que es la falla que deja "pasos sin valores"
   // en la pantalla sin que nadie se entere.
-  function buildGroupsFromSteps(eq, steps) {
+  // `exigirComponentes` (SET_PRODUCTO_STEPS): REGLA DE DISEÑO de ProductLab —
+  // el paso a paso se construye SOBRE el catálogo. Cada valor visible lleva
+  // 1+ componentes existentes; un valor sin componentes no aporta costo, ni
+  // foto, ni stock, así que se RECHAZA con candidatos para corregir (la
+  // opción "sin costo" legítima se modela como componente de costo 0).
+  // BUILD_3D_STEPS queda exento: sus valores son acabados del visor 3D.
+  function buildGroupsFromSteps(eq, steps, exigirComponentes) {
     const warns = [];
     // Referencias a componentes que NO existen: se junta TODO y se rechaza la
     // llamada entera al final. Antes era solo un warn y el valor quedaba con
@@ -2817,6 +2823,29 @@ export default function mount(shell) {
         + pistas.join(', ') + '. Los `components` de un valor deben ser componentes EXISTENTES (id o nombre exacto — la lista está en '
         + 'snapshot.components): créalos primero con UPSERT_COMPONENT y reenvía TODOS los pasos. Un valor sin costo se manda con `components: []` explícito.' };
     }
+    if (exigirComponentes) {
+      const sueltos = [];
+      groups.forEach((g) => (g.values || []).forEach((v) => {
+        // Exentos: relleno de dependencias (fallback) y acabados del visor
+        // 3D (llevan efectos model3d — elección visual, se cobra con
+        // priceDelta). Todo lo demás representa catálogo: componentes.
+        if (v.fallback === true || (Array.isArray(v.model3d) && v.model3d.length)) return;
+        if (!(v.componentIds || []).length) sueltos.push({ paso: g.label, valor: v.label });
+      }));
+      if (sueltos.length) {
+        const linea = sueltos.slice(0, 8).map((x) => {
+          const palabras = norm(x.valor).split(/\s+/).filter((w) => w.length > 2);
+          const minC = Math.min(2, Math.max(1, palabras.length));
+          const cand = model.components.filter((c) => palabras.filter((w) => norm(c.name).indexOf(w) !== -1).length >= minC)
+            .slice(0, 2).map((c) => '"' + c.name + '"');
+          return '"' + x.paso + ' → ' + x.valor + '"' + (cand.length ? ' (¿' + cand.join(' / ') + '?)' : '');
+        }).join(', ');
+        return { error: 'NADA se guardó: ' + sueltos.length + ' valor(es) SIN componentes: ' + linea + (sueltos.length > 8 ? '…' : '')
+          + '. El paso a paso se construye SOBRE el catálogo: cada valor lleva `components` con 1+ componentes existentes (id o nombre). '
+          + 'Un valor puede llevar VARIOS: tipos distintos se SUMAN (ej. "Ryzen 5 7600 + placa B650" = ambos incluidos) y del mismo tipo son alternativas. '
+          + 'Para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. Reenvía TODOS los pasos corregidos.' };
+      }
+    }
     const sinLabel = groups.filter((g) => !g.label).length;
     if (sinLabel) return { error: 'Hay ' + sinLabel + ' paso(s) sin nombre. Cada paso necesita "label". Ejemplo: {"label":"Acabado","values":[{"label":"Natural"}]}.' };
     const vacios = groups.filter((g) => !g.values.length).map((g) => g.label);
@@ -2829,7 +2858,7 @@ export default function mount(shell) {
         + 'Los valores van en "values", como lista de objetos con "label". '
         + 'Ejemplo de un paso completo: {"label":"' + (vacios[0] || 'Acabado') + '","default":"Natural","values":['
         + '{"label":"Natural"' + ejemploFx + '},{"label":"Carbonizado"}]}. '
-        + 'Los "components" son OPCIONALES: un valor sin componentes es una opción que no agrega costo. '
+        + 'CADA valor lleva "components" con componentes del catálogo (los que dan precio, foto y stock). '
         + (m3 ? 'Este producto tiene visor 3D: para vincular cada valor usa "model3d" (partes: '
             + (m3.parts || []).map((x) => x.id).join(', ') + ' · acabados: ' + ((m3.finishes || []).map((x) => x.id).join(', ') || 'ninguno')
             + '), o deja que BUILD_3D_STEPS genere los pasos solo.' : '') };
@@ -2920,7 +2949,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. ENLACE CON COMPONENTES (lo que da precio, foto y stock a un valor): los `components` se referencian por id o NOMBRE de componentes EXISTENTES (snapshot.components) — una referencia que no exista RECHAZA toda la llamada (créalos antes con UPSERT_COMPONENT). Si un valor llega SIN campo `components` pero su label coincide con un componente del catálogo, se enlaza solo por nombre. REGLA: todo valor que represente algo que EXISTE (o debería existir) en el catálogo de componentes — una pieza, un material, una tela, una memoria, mano de obra, cualquier insumo con costo — LLEVA `components`; sin ellos el valor no aporta costo, ni foto, ni stock, y el paso queda de adorno. Solo los valores que NO representan un componente (una elección estética o de configuración que vale lo mismo) van sin componentes, con `components: []` explícito; para cobrar sin modelar el costo usa `priceDelta`. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. LEY ÚNICA DEL PASO A PASO: se construye SOBRE el catálogo. CADA valor lleva `components` con 1 o más componentes EXISTENTES (id o nombre, snapshot.components) — el enlace es lo que da precio, foto y stock. Un valor puede llevar VARIOS componentes: de TIPOS DISTINTOS se SUMAN (ej. "Ryzen 5 7600 + Placa B650M" incluye ambos) y del MISMO tipo son alternativas (gana la más económica disponible). Un valor sin campo `components` se enlaza solo si su label ES un componente del catálogo. Un valor que quede sin componentes RECHAZA toda la llamada (el error trae candidatos); para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. EXCEPCIÓN ÚNICA: los valores con efectos `model3d` (acabados del visor 3D) no llevan componentes — su elección es visual y se cobra con `priceDelta`. `priceDelta` es un recargo ADICIONAL sobre el costo de los componentes. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -3469,7 +3498,7 @@ export default function mount(shell) {
             if (!eq) return eqNotFound(eqRef);
             const steps = parseJson(p.steps);
             if (!Array.isArray(steps)) return { success: false, error: 'steps debe ser un array JSON de pasos. Forma: [{"label":"Acabado","values":[{"label":"Natural"}]}].' };
-            const built = buildGroupsFromSteps(eq, steps);
+            const built = buildGroupsFromSteps(eq, steps, true);
             if (built.error) return { success: false, error: built.error };
             const r = await saveProducto(Object.assign({}, eq, { groups: built.groups }));
             if (!r.success) return { success: false, error: r.error };
