@@ -2084,6 +2084,42 @@ export default function mount(shell) {
     } catch (e) { setModel({ catalog: [], catalogLoaded: true, catalogError: (e && e.message) || 'Sin acceso a la app Productos.' }); }
   }
 
+  // ── Instancias HERMANAS de ProductLab (multi-instancia) ───────────────────
+  // El equipo puede tener varias ProductLab (computadores, minipc, …), cada
+  // una con su catálogo. Este chat gestiona SOLO la suya, pero el agente debe
+  // saber qué vive en las demás: sin esto, preguntar por un producto de otra
+  // instancia terminaba en "no existe" en vez de "está en la otra app".
+  const hermanas = { loaded: false, list: [] };
+  async function loadHermanas() {
+    if (!shell.data || !shell.data.listInstances || !instanceId) { hermanas.loaded = true; return; }
+    try {
+      const insts = (await shell.data.listInstances('productlab')) || [];
+      const otras = insts.filter((i) => i && i.id && i.id !== instanceId);
+      const list = [];
+      for (const inst of otras.slice(0, 8)) {
+        let productos = null;
+        try {
+          const items = await shell.data.listItems(inst.id);
+          productos = (items || []).filter((x) => x && x.kind === 'producto' && x.name)
+            .map((x) => ({ name: s(x.name), sku: s(x.sku) }));
+        } catch (e) { /* sin acceso a sus items: al menos se sabe que existe */ }
+        list.push({ id: inst.id, name: s(inst.name) || inst.id, productos });
+      }
+      hermanas.list = list;
+    } catch (e) { /* sin permiso para listar: el snapshot queda sin hermanas */ }
+    hermanas.loaded = true;
+  }
+  // ¿Este nombre/sku vive en OTRA instancia? Para la pista de enrutamiento.
+  function productoEnHermana(ref) {
+    const k = norm(s(ref));
+    if (!k || k.length < 3) return null;
+    for (const i of hermanas.list) {
+      const hit = (i.productos || []).find((pr) => norm(pr.name) === k || (pr.sku && norm(pr.sku) === k) || norm(pr.name).indexOf(k) !== -1);
+      if (hit) return { instancia: i.name, producto: hit.name };
+    }
+    return null;
+  }
+
   // ── Publicación (JSON del configurador para el theme) ─────────────────────
   function buildPublicData() {
     const r = rules();
@@ -2793,7 +2829,7 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'Gestiona los productos personalizables de la tienda, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
@@ -3046,6 +3082,15 @@ export default function mount(shell) {
         styleDefaultId: s((model.def || {}).styleDefaultId),
         publicEnabled: !!(model.def && model.def.public && model.def.public.enabled),
         publicUrl,
+        // Otras ProductLab del MISMO KIMOS con sus productos: este chat solo
+        // gestiona ESTA instancia, pero con esto el agente puede ENRUTAR
+        // ("ese producto vive en «minipc»: ábrela y pídeselo a su agente")
+        // en vez de responder que no existe. productos null = sin acceso de
+        // lectura a esa instancia (igual se sabe que existe).
+        otherInstances: hermanas.list.map((i) => ({
+          name: i.name,
+          productos: i.productos ? i.productos.map((pr) => pr.name) : null,
+        })),
         // Estado COMPLETO de la publicación, para que el agente responda
         // "¿está publicado? ¿la tienda se sirve sola? ¿el kit está puesto?"
         // sin adivinar.
@@ -3121,12 +3166,18 @@ export default function mount(shell) {
         };
         const productoRefIn = (extra) => refIn(p, ['producto', 'productoId', 'productoName', 'producto_id', 'producto_name'].concat(extra || []));
         const compRefOf = (obj) => refIn(obj, ['component', 'componentId', 'componentName', 'component_id', 'id', 'name', 'nombre']);
-        const eqNotFound = (ref) => ({
-          success: false,
-          error: (s(ref).trim() !== '' ? 'Producto no encontrado: "' + s(ref).trim() + '".' : 'Falta el campo "producto" en el payload.')
-            + ' Productos existentes: ' + (model.productos.map((e) => '"' + e.name + '"').join(', ') || '(ninguno)')
-            + '. Reintenta con payload {"producto": "<nombre, sku o id>", …}.',
-        });
+        const eqNotFound = (ref) => {
+          // Enrutamiento multi-instancia: si el nombre vive en OTRA ProductLab
+          // del equipo, decirlo vale más que un "no existe" a secas.
+          const fuera = productoEnHermana(ref);
+          return {
+            success: false,
+            error: (s(ref).trim() !== '' ? 'Producto no encontrado: "' + s(ref).trim() + '".' : 'Falta el campo "producto" en el payload.')
+              + ' Productos existentes: ' + (model.productos.map((e) => '"' + e.name + '"').join(', ') || '(ninguno)')
+              + '. Reintenta con payload {"producto": "<nombre, sku o id>", …}.'
+              + (fuera ? ' OJO: "' + fuera.producto + '" existe en OTRA instancia de ProductLab («' + fuera.instancia + '») — este chat solo gestiona la instancia actual: dile al usuario que abra esa app y se lo pida a su agente.' : ''),
+          };
+        };
         // GUARDARRAÍL de tienda viva: estas acciones cambian AL INSTANTE lo
         // que los clientes ven y pagan. Sin confirm:true no se ejecutan; el
         // agente solo puede pasarlo cuando el usuario pidió ESA acción
@@ -7632,6 +7683,7 @@ export default function mount(shell) {
       listeners.add(setState);
       void load();
       void loadCatalog();
+      void loadHermanas();
       let offCfg = null;
       if (shell.config && typeof shell.config.get === 'function') {
         Promise.resolve(shell.config.get()).then((c) => setCfg(c || {})).catch(() => {});
@@ -7766,7 +7818,7 @@ export default function mount(shell) {
             if (r.success) shell.notify({ level: 'success', text: 'Publicado (' + buildPublicData().productos.length + ' productos).' });
           } }, pubBusy ? 'Publicando…' : 'Publicar') : null,
         h('button', { key: 'r', className: 'gp-hd-ico', title: 'Actualizar datos',
-          onClick: () => { void load(); void loadCatalog(); } }, '⟳'),
+          onClick: () => { void load(); void loadCatalog(); void loadHermanas(); } }, '⟳'),
       ]),
     ]);
   }
