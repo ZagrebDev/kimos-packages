@@ -2839,7 +2839,7 @@ export default function mount(shell) {
   if (shell.agent && typeof shell.agent.register === 'function') {
     offAgent = shell.agent.register({
       label: 'ProductLab',
-      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el campo description de Jumpseller y es HTML — se lee con LEER_DESCRIPCION y se escribe con SET_DESCRIPCION_TIENDA, siempre trabajando desde ese HTML (productos[].storeDescription es su resumen en texto para contexto rápido); (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DURA: nunca inventes especificaciones — verifica con LEER_FOTO, storeDescription o los componentes del snapshot, y si no logras verificar, dilo. Lo mismo con los NOMBRES: los productos y componentes que existen son EXACTAMENTE los del snapshot (productos[], components[], otherInstances[]) — no menciones ni asumas modelos que no estén ahí, y si el usuario nombra algo que no aparece, dilo en vez de adivinar a qué se refiere. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
+      description: 'GLOSARIO (no confundir — cada cosa tiene SU tool): (1) la DESCRIPCIÓN del producto es el campo description de Jumpseller y es HTML — se lee con LEER_DESCRIPCION y se escribe con SET_DESCRIPCION_TIENDA, siempre trabajando desde ese HTML (productos[].storeDescription es su resumen en texto para contexto rápido); (2) la EXPERIENCIA/ficha es lo visual del theme (hero, secciones, specs, estilo) — se edita con SET_STOREFRONT/COMPOSE_HERO; (3) la GALERÍA son las fotos del producto — NO se modifica con tools (se gestiona en la app): solo se LEEN con LEER_FOTO y se etiquetan con SET_PHOTO_ALT. REGLA DE FIDELIDAD: todo dato que escribas o afirmes sale de una FUENTE del sistema — el snapshot (productos[], components[], otherInstances[]) para el catálogo y sus nombres, LEER_FOTO para lo que viva en fotos, LEER_DESCRIPCION para el texto de la tienda, o lo que el usuario te entregue. Cuando una petición mencione algo que no encuentres en esas fuentes, o te falte un dato para completar, pide la aclaración: trabajar solo sobre lo verificado es parte del diseño del sistema. Gestiona los productos personalizables de la tienda de ESTA instancia (el equipo puede tener varias ProductLab: las demás y sus productos están en snapshot.otherInstances — lo que viva allá se gestiona desde aquella app, no desde esta). Cubre, de cualquier rubro: componentes e insumos (materiales, piezas, mano de obra o procesos externalizados) con costos de proveedor, stock y compatibilidades; reglas de margen, moneda e impuesto; productos con sus pasos de configuración; la ficha de tienda (builder de descripción, especificaciones, nota, pestañas); el enlace con productos Jumpseller y la publicación del configurador.',
       tools: [
         { name: 'UPSERT_COMPONENT', description: 'Crea o actualiza un componente por nombre.',
           inputSchema: { type: 'object', properties: {
@@ -2949,13 +2949,13 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
           }, required: ['producto'] } },
-        { name: 'SET_DESCRIPCION_TIENDA', description: 'Escribe la DESCRIPCIÓN del producto en la tienda (el campo description de Jumpseller — lo que hoy dice está en productos[].storeDescription; el bloque "description" de la experiencia la muestra en vivo). Es LA tool para "edita/genera la descripción del producto". Requiere producto ENLAZADO a la tienda y confirm:true (escribe en la tienda viva). REGLA DURA: no inventes NI UNA especificación — usa solo datos verificables (storeDescription actual, los pasos/componentes del snapshot, y LEE las fotos con LEER_FOTO si la información está en ellas); si aún te falta información, dilo y pide ayuda en vez de rellenar. Las descripciones SON HTML: trabaja siempre desde el marcado real — LEER_DESCRIPCION te da el de este producto (para editar partiendo de lo que hay) y el de cualquier otro (para seguir su formato reutilizando su estructura).',
+        { name: 'SET_DESCRIPCION_TIENDA', description: 'Escribe la DESCRIPCIÓN del producto en la tienda (el campo description de Jumpseller — lo que hoy dice está en productos[].storeDescription; el bloque "description" de la experiencia la muestra en vivo). Es LA tool para "edita/genera la descripción del producto". Requiere producto ENLAZADO a la tienda y confirm:true (escribe en la tienda viva). Toda especificación que escribas sale de una fuente verificable: la descripción actual, los pasos/componentes del snapshot y las fotos vía LEER_FOTO; cuando te falte un dato, pídelo — una descripción corta y verídica vale más que una completa a medias. Las descripciones SON HTML: trabaja siempre desde el marcado real — LEER_DESCRIPCION te da el de este producto (para editar partiendo de lo que hay) y el de cualquier otro (para seguir su formato reutilizando su estructura).',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             html: { type: 'string', description: 'la descripción COMPLETA en HTML (reemplaza la actual; usa <p>, <ul>/<li>, <strong> — mismo formato que las de los otros productos)' },
             confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió escribir la descripción en la tienda' },
           }, required: ['producto', 'html'] } },
-        { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. OBLIGATORIA antes de escribir specs que vengan de fotos (nunca los inventes de memoria: los modelos parecidos difieren). Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
+        { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. Es LA FUENTE de las especificaciones que viven en fotos: léelas antes de escribirlas (los modelos parecidos difieren justo en esos detalles). Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre (necesario si pides por número)' },
             foto: { type: 'string', description: 'Nº de la foto en productos[].imagesInfo (1 = primera) o una URL http(s) directa' },
@@ -6138,7 +6138,18 @@ export default function mount(shell) {
                           }, 2);
                           const dd = await r.json().catch(() => ({}));
                           if (!r.ok) throw new Error(s(dd.detail) || ('HTTP ' + r.status));
-                          shell.notify({ level: 'success', text: 'Foto subida al producto de la tienda' + (esPrincipal ? ' (principal)' : '') + '. La app Productos la verá al próximo pull.' });
+                          // Ciclo completo en el mismo clic: pull de Productos
+                          // (la copia local ve la foto nueva), refresco del
+                          // catálogo y republicación — el chip JS y la sección
+                          // Fotos de la tienda quedan al día sin pasos extra.
+                          try {
+                            await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-pull', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            }, 1);
+                          } catch (e) { /* el pull llegará por su lado */ }
+                          await loadCatalog();
+                          scheduleRepublish();
+                          shell.notify({ level: 'success', text: 'Foto subida al producto de la tienda' + (esPrincipal ? ' (principal)' : '') + ' y sincronizada: ya cuenta como foto de Jumpseller.' });
                         } catch (e) {
                           shell.notify({ level: 'error', text: 'No se pudo subir a la tienda: ' + ((e && e.message) || 'error') });
                         }
@@ -6163,7 +6174,17 @@ export default function mount(shell) {
                             own ? {} : { galleryImages: (d.galleryImages || []).concat([u]) },
                             esPrincipal && s(d.imageUrl) !== u ? { imageUrl: u } : {});
                           if (Object.keys(patch).length) up(patch);
-                          shell.notify({ level: 'success', text: 'Foto quitada del producto en Jumpseller; sigue en la galería de la app (guarda el producto para conservarla). La app Productos lo verá al próximo pull.' });
+                          // Mismo ciclo que ⬆: pull + refresco + republicar,
+                          // para que deje de contar como foto de Jumpseller
+                          // al instante (queda como foto interna de la app).
+                          try {
+                            await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-pull', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            }, 1);
+                          } catch (e) { /* el pull llegará por su lado */ }
+                          await loadCatalog();
+                          scheduleRepublish();
+                          shell.notify({ level: 'success', text: 'Foto quitada del producto en Jumpseller; sigue en la galería de la app como foto interna (guarda el producto para conservarla).' });
                         } catch (e) {
                           shell.notify({ level: 'error', text: 'No se pudo quitar de la tienda: ' + ((e && e.message) || 'error') });
                         }
