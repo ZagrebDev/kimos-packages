@@ -169,7 +169,7 @@
       "name": "ProductLab",
       "description": "Laboratorio de productos personalizables para cualquier rubro: componentes e insumos (telas, materias primas, piezas, mano de obra o procesos externalizados) con costo de proveedor y verificación integrada, stock, compatibilidades, márgenes parametrizables (sobre costo o sobre venta), impuestos, monedas y redondeos configurables, valores genéricos con alternativas de varios proveedores (siempre se usa la más económica disponible), cantidades por valor (2×8), pasos dependientes, valores sin costo y recargos, modos de precio auto/fijo/tienda, configurador paso a paso con previsualizador en vivo, ficha visual con builder de descripción (heros, secciones de imagen de alto adaptable), visor 3D opcional con AR (el modelo se personaliza en vivo por paso), estilo del configurador por producto, y aplicación a la tienda vía la app Productos (precio + opciones + variantes por combinación). Publica además el JSON que alimenta el configurador del theme. Incluye migración de datos desde otro catálogo (p. ej. la app de computadores) y exportación/importación de componentes en CSV y del catálogo completo en JSON. Evolución de las apps gestion-productos (personalizador) y computadores.",
       "icon": "🧪",
-      "version": "3.23.3",
+      "version": "3.24.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

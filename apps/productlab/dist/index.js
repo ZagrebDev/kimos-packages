@@ -600,6 +600,15 @@ export default function mount(shell) {
     const bc = bundleComps(v);
     return bc ? bc[0] : null;
   }
+  // Foto del valor: la propia y, si no tiene, la del primer componente DEL
+  // CONJUNTO que tenga foto. Antes solo se miraba el primer componente a
+  // secas: un valor "CPU + placa" cuya CPU no tiene foto salía en blanco
+  // aunque la placa sí tuviera.
+  function valueImage(v) {
+    if (s(v && v.imageUrl).trim()) return s(v.imageUrl).trim();
+    const con = valueComps(v).find((c) => s(c.imageUrl).trim());
+    return con ? s(con.imageUrl).trim() : '';
+  }
   /** Componentes que este valor INCLUYE de verdad: uno por tipo, sumados. */
   function valueComps(v) {
     return bundleComps(v) || [];
@@ -2238,7 +2247,7 @@ export default function mount(shell) {
                   qty: valueQty(v),
                   desc: alt ? alt.specs || '' : '',
                   swatchColor: v.swatchColor || '',
-                  imageUrl: v.imageUrl || (alt ? alt.imageUrl || '' : ''),
+                  imageUrl: valueImage(v),
                   delta: deltaFor(g, v, eq),
                   deliveryDays: valueDeliveryDays(v),
                   tags: alt ? alt.tags || [] : [],
@@ -2830,10 +2839,30 @@ export default function mount(shell) {
   function stepsMessage(item, warns) {
     const detalle = (item.groups || []).map((g) => '"' + g.label + '" (' + groupValues(g).length + ')').join(', ');
     const modo = priceModeOf(item);
-    return 'Pasos de "' + item.name + '" actualizados: ' + (item.groups || []).length + ' paso(s) → ' + detalle
+    let msg = 'Pasos de "' + item.name + '" actualizados: ' + (item.groups || []).length + ' paso(s) → ' + detalle
       + ' · ' + comboCount(item) + ' combinación(es) · precio '
-      + (modo === 'auto' ? 'calculado ' : modo === 'store' ? 'del catálogo ' : 'fijo ') + fmtMoney(item.price) + '.'
-      + ((warns && warns.length) ? ' Avisos: ' + warns.slice(0, 5).join(' · ') : '');
+      + (modo === 'auto' ? 'calculado ' : modo === 'store' ? 'del catálogo ' : 'fijo ') + fmtMoney(item.price) + '.';
+    // Valores que no aportan costo (sin componentes ni recargo) se DICEN:
+    // son legítimos (un acabado que vale lo mismo), pero silenciosos parecían
+    // enlaces fallidos y nadie los revisaba.
+    const sinCosto = [];
+    (item.groups || []).forEach((g) => groupValues(g).forEach((v) => {
+      if (!(v.componentIds || []).length && !num(v.priceDelta, 0) && v.fallback !== true) {
+        sinCosto.push('"' + (g.label || typeLabel(g.typeId)) + ' → ' + v.label + '"');
+      }
+    }));
+    if (sinCosto.length) {
+      msg += ' OJO: ' + sinCosto.length + ' valor(es) SIN componentes ni recargo (no suman costo): '
+        + sinCosto.slice(0, 6).join(', ') + (sinCosto.length > 6 ? '…' : '')
+        + ' — revisa si era la intención o si falta enlazarles su componente.';
+    }
+    // Publicar ≠ Aplicar: el JSON de la experiencia se republica solo, pero
+    // el PRECIO y las variantes del producto en la tienda no cambian hasta
+    // Aplicar. Sin este aviso, "publiqué varias veces y no se actualiza".
+    if (storeRefOf(item)) {
+      msg += ' IMPORTANTE: la TIENDA sigue vendiendo con el precio y las variantes anteriores — para actualizarla ejecuta APPLY_PRODUCTO (con el visto bueno del usuario). Publicar solo refresca la experiencia visual, no lo que se cobra.';
+    }
+    return msg + ((warns && warns.length) ? ' Avisos: ' + warns.slice(0, 5).join(' · ') : '');
   }
 
   if (shell.agent && typeof shell.agent.register === 'function') {
@@ -5248,8 +5277,7 @@ export default function mount(shell) {
                     h('div', { key: 'vals', style: asList ? { display: 'flex', flexDirection: 'column', gap: 6 } : { display: 'flex', flexWrap: 'wrap', gap: 8 } }, vals.map((v) => {
                       const on = selMap[g.id] === v.id;
                       const dlt = deltaVs(g, v);
-                      const alt = valueChosen(v);
-                      const img = v.imageUrl || (alt && alt.imageUrl) || '';
+                      const img = valueImage(v);
                       const deltaTxt = st.showDeltas === 'none' || on ? '' : st.showDeltas === 'total' ? fmtMoney(fixed ? Math.round(gross + dlt) : roundFinal(gross + dlt)) : (dlt === 0 ? '' : fmtDelta(dlt));
                       return h('div', {
                         key: v.id,
