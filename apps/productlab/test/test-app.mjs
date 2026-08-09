@@ -383,6 +383,16 @@ expectEq('agente: pasos creados', eqAg.groups.length, 2);
 expectEq('agente: default por label', eqAg.groups[0].defaultValueId, eqAg.groups[0].values[1].id);
 expectEq('agente: valor enlazado con su componente real', eqAg.groups[0].values[1].componentIds.length, 1);
 expectEq('agente: auto-enlace por nombre (sin campo components)', eqAg.groups[1].values[0].componentIds.length, 1);
+// Reparación QUIRÚRGICA: ENLAZAR_COMPONENTES arregla UN valor sin reenviar
+// todos los pasos (y rechaza componentes inexistentes con pistas).
+const rEnl = await agentReg.dispatchAction({ type: 'ENLAZAR_COMPONENTES', payload: { producto: 'Chaqueta Agente', paso: 'Botones', valor: 'Botón nácar (Prov. B)', components: ['NoExiste QQQ'] } });
+if (rEnl.success !== false || String(rEnl.error).indexOf('inexistentes') === -1) {
+  throw new Error('ENLAZAR_COMPONENTES debía rechazar componentes inexistentes: ' + JSON.stringify(rEnl));
+}
+await act('ENLAZAR_COMPONENTES', { producto: 'Chaqueta Agente', paso: 'Tela', valor: 'Lino', components: ['Lino europeo (Prov. UE)', 'Botón nácar (Prov. B)'] });
+const eqEnl = Array.from(store.values()).find((x) => x.kind === 'producto' && x.name === 'Chaqueta Agente');
+expectEq('ENLAZAR_COMPONENTES: valor con 2 componentes (tipos se suman)', eqEnl.groups[0].values[1].componentIds.length, 2);
+expectEq('ENLAZAR_COMPONENTES: el resto del paso no se toca', eqEnl.groups[0].values[0].componentIds.length, 1);
 
 await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
   pageSections: [{ kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } }],

@@ -2843,7 +2843,8 @@ export default function mount(shell) {
         return { error: 'NADA se guardó: ' + sueltos.length + ' valor(es) SIN componentes: ' + linea + (sueltos.length > 8 ? '…' : '')
           + '. El paso a paso se construye SOBRE el catálogo: cada valor lleva `components` con 1+ componentes existentes (id o nombre). '
           + 'Un valor puede llevar VARIOS: tipos distintos se SUMAN (ej. "Ryzen 5 7600 + placa B650" = ambos incluidos) y del mismo tipo son alternativas. '
-          + 'Para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. Reenvía TODOS los pasos corregidos.' };
+          + 'Para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. '
+          + 'Para REPARAR valores de pasos que ya existen, lo simple es ENLAZAR_COMPONENTES (un valor a la vez, sin reenviar todo); esta tool reemplaza la lista completa de pasos.' };
       }
     }
     const sinLabel = groups.filter((g) => !g.label).length;
@@ -3025,6 +3026,15 @@ export default function mount(shell) {
             html: { type: 'string', description: 'la descripción COMPLETA en HTML (reemplaza la actual; usa <p>, <ul>/<li>, <strong> — mismo formato que las de los otros productos)' },
             confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió escribir la descripción en la tienda' },
           }, required: ['producto', 'html'] } },
+        { name: 'ENLAZAR_COMPONENTES', description: 'Enlaza UN valor de UN paso a sus componentes del catálogo, sin tocar nada más del producto. Es LA herramienta de REPARACIÓN: para corregir valores sueltos úsala valor por valor en vez de reenviar todos los pasos con SET_PRODUCTO_STEPS (que reemplaza la lista completa y exige reconstruirla perfecta). paso y valor se nombran por su label; components como en la ley única (1+ existentes; tipos distintos se suman).',
+          inputSchema: { type: 'object', properties: {
+            producto: { type: 'string', description: 'id o nombre' },
+            paso: { type: 'string', description: 'label del paso (ver productos[].steps)' },
+            valor: { type: 'string', description: 'label del valor dentro del paso' },
+            components: { type: 'array', items: { type: 'string' }, description: 'ids o nombres de componentes EXISTENTES (reemplaza el enlace del valor)' },
+            qty: { type: 'number', description: 'cantidad del componente (ej. 2 para "2×8GB"); omitir = conservar' },
+            priceDelta: { type: 'number', description: 'recargo adicional; omitir = conservar' },
+          }, required: ['producto', 'paso', 'valor', 'components'] } },
         { name: 'LEER_FOTO', description: 'MIRA una foto del producto con visión: devuelve qué muestra y transcribe TODO su texto legible (tablas de especificaciones, medidas, etiquetas, empaques). Úsala cuando necesites el CONTENIDO de una foto — muchas son informativas y su información no está en ningún otro campo. Es LA FUENTE de las especificaciones que viven en fotos: léelas antes de escribirlas (los modelos parecidos difieren justo en esos detalles). Las fotos disponibles están en productos[].imagesInfo (n, url y alt); pide por número o por URL.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre (necesario si pides por número)' },
@@ -3374,6 +3384,50 @@ export default function mount(shell) {
             // snapshot y el bloque "description" del preview quedan al día.
             void loadCatalog();
             return { success: true, message: 'Descripción de "' + eq.name + '" escrita en el producto de la tienda (' + descriptionText(html, 140) + '…). El bloque "description" de la experiencia la mostrará en vivo.' };
+          }
+          if (type === 'ENLAZAR_COMPONENTES') {
+            const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);
+            const eq = findProducto(eqRef);
+            if (!eq) return eqNotFound(eqRef);
+            const pasoRef = s(refIn(p, ['paso', 'step', 'grupo'])).trim();
+            const valorRef = s(refIn(p, ['valor', 'value'])).trim();
+            if (!pasoRef || !valorRef) return { success: false, error: 'Faltan `paso` y/o `valor` (por su label).' };
+            const nombreDe = (x) => x.label || typeLabel(x.typeId);
+            const g = (eq.groups || []).find((x) => norm(nombreDe(x)) === norm(pasoRef))
+              || (eq.groups || []).find((x) => norm(nombreDe(x)).indexOf(norm(pasoRef)) !== -1);
+            if (!g) return { success: false, error: 'Paso no encontrado: "' + pasoRef + '". Pasos de "' + eq.name + '": ' + (eq.groups || []).map((x) => '"' + nombreDe(x) + '"').join(', ') + '.' };
+            const vals = groupValues(g);
+            const v = vals.find((x) => norm(x.label) === norm(valorRef))
+              || vals.find((x) => norm(x.label).indexOf(norm(valorRef)) !== -1);
+            if (!v) return { success: false, error: 'Valor no encontrado en "' + nombreDe(g) + '": "' + valorRef + '". Valores: ' + vals.map((x) => '"' + x.label + '"').join(', ') + '.' };
+            const refs = parseJson(p.components);
+            if (!Array.isArray(refs) || !refs.length) return { success: false, error: '`components` debe ser un array con 1+ ids o nombres de componentes del catálogo.' };
+            const malos = [];
+            const ids = refs.map((rc) => {
+              const c = findComponent(rc);
+              if (!c) malos.push(s(rc).trim());
+              return c ? c.id : null;
+            }).filter(Boolean);
+            if (malos.length) {
+              const pistas = malos.map((f) => {
+                const palabras = norm(f).split(/\s+/).filter((w) => w.length > 2);
+                const minC = Math.min(2, Math.max(1, palabras.length));
+                const cerca = model.components.filter((c) => palabras.filter((w) => norm(c.name).indexOf(w) !== -1).length >= minC).slice(0, 3).map((c) => c.name);
+                return '"' + f + '"' + (cerca.length ? ' (¿' + cerca.join('? ¿') + '?)' : '');
+              });
+              return { success: false, error: 'Componentes inexistentes: ' + pistas.join(', ') + '. Usa los nombres EXACTOS de snapshot.components.' };
+            }
+            const nuevos = { componentIds: ids };
+            if (p.qty !== undefined) nuevos.qty = Math.max(1, Math.round(num(p.qty, 1)) || 1);
+            if (p.priceDelta !== undefined) nuevos.priceDelta = num(p.priceDelta, 0);
+            const groups = (eq.groups || []).map((x) => (x.id !== g.id ? x
+              : Object.assign({}, x, { values: (x.values || []).map((y) => (y.id === v.id ? Object.assign({}, y, nuevos) : y)) })));
+            const r = await saveProducto(Object.assign({}, eq, { groups }));
+            if (!r.success) return { success: false, error: r.error };
+            return { success: true, message: 'Valor "' + v.label + '" del paso "' + nombreDe(g) + '" enlazado a: '
+              + ids.map((id) => (compById(id) || {}).name).filter(Boolean).join(' + ')
+              + '. Precio del producto: ' + fmtMoney(r.item.price) + '.'
+              + (storeRefOf(r.item) ? ' La tienda sigue con lo anterior hasta APPLY_PRODUCTO.' : '') };
           }
           if (type === 'LEER_FOTO') {
             // Los ojos del agente: la app resuelve la foto y el backend la
