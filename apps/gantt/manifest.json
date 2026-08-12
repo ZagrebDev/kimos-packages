@@ -1,8 +1,8 @@
 {
   "id": "gantt",
   "name": "Planificación",
-  "version": "3.0.0",
-  "description": "Planes con tareas por períodos: línea temporal configurable, avance, estados, responsables y agente IA.",
+  "version": "4.0.0",
+  "description": "Planes con tareas por períodos: línea temporal configurable donde las fechas de inicio y fin pintan la barra, avance, estados, responsables, filtros por período y responsable, orden por cualquier columna, edición simultánea de varias personas en tiempo real y control total por agente IA.",
   "icon": "📊",
   "author": "kimos",
   "entry": "dist/index.js",

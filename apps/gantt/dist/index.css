@@ -102,7 +102,28 @@
 }
 .kimos-gantt .kg-plan-titles { flex: 1; min-width: 0; }
 .kimos-gantt .kg-plan-name { font-weight: 700; font-size: 14px; }
-.kimos-gantt .kg-plan-obj { font-size: 12px; color: var(--kg-muted); }
+.kimos-gantt .kg-plan-obj { font-size: 12px; color: var(--kg-muted); white-space: pre-wrap; }
+.kimos-gantt .kg-plan-obj-empty { font-style: italic; opacity: 0.6; }
+
+/* Indicador de colaboración en vivo */
+.kimos-gantt .kg-live {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--kg-muted);
+  padding: 0 8px; white-space: nowrap;
+}
+.kimos-gantt .kg-live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: hsl(152 60% 42%);
+  box-shadow: 0 0 0 3px hsl(152 60% 42% / 0.18);
+}
+.kimos-gantt .kg-live-busy .kg-live-dot { background: var(--kg-accent); box-shadow: 0 0 0 3px var(--kg-accent-soft); }
+.kimos-gantt .kg-live-off .kg-live-dot { background: hsl(0 72% 50%); box-shadow: 0 0 0 3px hsl(0 72% 50% / 0.18); }
+
+/* Barra de filtros y orden */
+.kimos-gantt .kg-filters {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--kg-border-soft); flex-shrink: 0;
+}
+.kimos-gantt .kg-muted { font-size: 11.5px; color: var(--kg-muted); }
+.kimos-gantt .kg-hint { font-size: 11px; color: var(--kg-muted); margin-top: -4px; }
 
 .kimos-gantt .kg-timeline-wrap { flex: 1; overflow: auto; }
 .kimos-gantt .kg-timeline { border-collapse: collapse; font-size: 12px; min-width: 100%; }
@@ -120,11 +141,35 @@
   cursor: pointer; text-align: left; padding: 0;
 }
 .kimos-gantt .kg-taskname:hover { color: var(--kg-accent); text-decoration: underline; }
+.kimos-gantt .kg-td-task { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kimos-gantt .kg-late { font-size: 9.5px; padding: 0 6px; }
+.kimos-gantt .kg-input-date { width: 122px; height: 26px; font-size: 11.5px; padding: 0 6px; }
+
+/* Cabeceras ordenables */
+.kimos-gantt .kg-th-sort { cursor: pointer; user-select: none; }
+.kimos-gantt .kg-th-sort:hover { color: var(--kg-fg); background: var(--kg-surface); }
+.kimos-gantt .kg-th-sorted { color: var(--kg-accent); }
+.kimos-gantt .kg-caret { font-size: 8px; margin-left: 3px; }
+
+/* Celdas de la línea temporal: la barra la pintan las fechas de la tarea */
 .kimos-gantt .kg-cell {
-  min-width: 34px; height: 28px; cursor: pointer; border-left: 1px solid var(--kg-border-soft);
+  min-width: 34px; height: 28px; cursor: pointer; padding: 0 !important;
+  border-left: 1px solid var(--kg-border-soft);
 }
 .kimos-gantt .kg-cell:hover { background: var(--kg-accent-soft); }
-.kimos-gantt .kg-cell-on { opacity: 0.85; }
+.kimos-gantt .kg-th-today, .kimos-gantt .kg-cell-today { background: var(--kg-accent-soft); }
+.kimos-gantt .kg-th-today { box-shadow: inset 0 -2px 0 var(--kg-accent); }
+.kimos-gantt .kg-seg {
+  display: block; height: 16px; margin: 6px 0; opacity: 0.38;
+  transition: opacity 0.12s ease;
+}
+.kimos-gantt .kg-seg-done { opacity: 1; }
+.kimos-gantt .kg-seg-start { border-radius: 8px 0 0 8px; margin-left: 2px; }
+.kimos-gantt .kg-seg-end { border-radius: 0 8px 8px 0; margin-right: 2px; }
+.kimos-gantt .kg-seg-blocked {
+  background-image: repeating-linear-gradient(45deg,
+    hsl(0 0% 100% / 0.55) 0 3px, transparent 3px 6px);
+}
 .kimos-gantt .kg-td-add { padding: 8px; }
 
 .kimos-gantt .kg-progress { display: inline-flex; align-items: center; gap: 2px; }

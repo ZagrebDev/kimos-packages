@@ -179,6 +179,43 @@ function commit(next){ model = next; listeners.forEach(l => l(model)); scheduleS
 // mismas funciones que la UI → el lienzo se repinta solo cuando el agente actúa.
 ```
 
+### 5.1 Colaboración multiusuario (varias personas a la vez)
+
+No hay push del servidor: el patrón de la casa es **sincronizar cada pocos
+segundos** cuando la ventana se ve (`contact-forms`, `productlab`,
+`miorg.buzon`, `miorg.encuestas` y `web-agents` lo hacen así):
+
+```js
+const t = setInterval(() => {
+  if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh();
+}, 30000);
+```
+
+Eso basta para apps de lectura (bandejas, listados). Si **dos personas editan
+el mismo documento**, hace falta además no perder datos. La app `gantt` (v4)
+implementa el patrón completo y es la referencia a copiar:
+
+1. **Fusionar, no reemplazar.** `refresh()` no pisa el modelo con lo remoto:
+   lo fusiona. Cada sub-entidad editable (tarea, tarjeta, fila) lleva su
+   `updatedAt` y gana la más reciente **por entidad**, no por documento. Así
+   dos personas que tocan filas distintas no se pisan.
+2. **Lápidas para las bajas.** Guarda `deletedIds: [{id, at}]` en el documento
+   y descarta al fusionar todo id con lápida más nueva que su `updatedAt`. Sin
+   esto, lo que borra una persona reaparece desde la pantalla de la otra.
+3. **Leer-fusionar-escribir.** Antes de cada `PUT`, relee del servidor, fusiona
+   y recién ahí escribe.
+4. **CAS opcional.** Manda `_expectedUpdatedAt` (el `updatedAt` que leíste) en
+   el body del `PUT` de un item: si otro escribió en el intertanto el backend
+   responde **409** con el item vigente y reintentas fusionando sobre él.
+5. **No repintar de más.** Compara una firma del estado visible y emite solo si
+   cambió: repintar cada pocos segundos molesta a quien está escribiendo.
+6. **Cadencia según el foco.** Rápido con la ventana enfocada, lento de fondo,
+   en pausa si la pestaña no se ve. Y serializa la red mutante en una cadena de
+   promesas para no cruzar un guardado con un refresh.
+
+Nada de esto necesita backend a medida ni cambia el modelo de datos: son
+campos añadidos al documento que ya guardas.
+
 ---
 
 ## 6. Control por agente (`agent.control`)
