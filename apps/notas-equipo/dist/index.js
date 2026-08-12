@@ -40,6 +40,10 @@ export default function mount(shell) {
   const h = React.createElement;
   const { useState, useEffect, useRef, useMemo } = React;
 
+  // Versión de la app: se muestra en la cabecera para saber, al probar, qué
+  // build está instalado. Mantener en sincronía con manifest.json.
+  const APP_VERSION = '2.1.0';
+
   const instanceId = shell.app && shell.app.instanceId;
   const teamId = shell.app && shell.app.teamId;
 
@@ -485,6 +489,7 @@ export default function mount(shell) {
         + 'con responsable y menciones a las personas a las que van dirigidas.',
       tools: TOOLS,
       getSnapshot: () => ({
+        version: APP_VERSION,
         document: model.docName || undefined,
         total: model.notes.length,
         personas: model.members.map((m) => ({ id: m.id, name: m.name, tipo: isAi(m) ? 'agente IA' : 'persona' })),
@@ -890,7 +895,8 @@ export default function mount(shell) {
       return h('div', { className: 'kimos-notas' },
         h('div', { className: 'nt-empty' },
           h('div', { className: 'nt-empty-icon' }, '🗒️'),
-          h('div', null, 'Crea un documento desde la pantalla de bienvenida: cada uno es un bloc de notas distinto del equipo.')));
+          h('div', null, 'Crea un documento desde la pantalla de bienvenida: cada uno es un bloc de notas distinto del equipo.'),
+          h('div', { className: 'nt-ver' }, 'v' + APP_VERSION)));
     }
 
     return h('div', { className: 'kimos-notas' },
@@ -898,6 +904,7 @@ export default function mount(shell) {
         h('div', { className: 'nt-hd-title' },
           h('span', null, '🗒️ ' + (m.docName || 'Notas de Equipo')),
           h('span', { className: 'nt-hd-sub' }, m.notes.length + (m.notes.length === 1 ? ' nota' : ' notas')),
+          h('span', { className: 'nt-ver', title: 'Notas de Equipo v' + APP_VERSION }, 'v' + APP_VERSION),
         ),
         h('div', { className: 'nt-tabbar' },
           h('button', { className: 'nt-tab' + (m.tab === 'all' ? ' nt-tab-active' : ''), onClick: () => setModel({ tab: 'all' }) },

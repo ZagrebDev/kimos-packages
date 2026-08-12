@@ -51,6 +51,12 @@
 }
 .kimos-notas .nt-hd-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kimos-notas .nt-hd-sub { font: 400 12px/1.2 'Inter', sans-serif; color: var(--nt-muted); }
+/* Versión instalada: discreta, pero siempre a la vista para poder probar. */
+.kimos-notas .nt-ver {
+  flex: 0 0 auto; font: 500 10.5px/1 'Inter', sans-serif; color: var(--nt-muted);
+  border: 1px solid var(--nt-soft); border-radius: 999px; padding: 3px 7px;
+  background: hsl(var(--muted, 220 14% 89%) / 0.7); letter-spacing: 0.02em;
+}
 .kimos-notas .nt-hd-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 
 .kimos-notas .nt-tabbar {

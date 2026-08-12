@@ -1,5 +1,11 @@
 # 🗒️ Notas de Equipo
 
+**Versión actual: 2.1.0** — la app la muestra en su cabecera (`v2.1.0`, junto al
+nombre del documento), así se sabe de un vistazo qué build quedó instalado al
+probar. El número vive en tres lugares que deben ir siempre juntos:
+`manifest.json` (`version`), la constante `APP_VERSION` de `dist/index.js` y
+esta línea del README.
+
 Bloc de notas del equipo, multi-instancia (cada documento es un bloc distinto).
 Cada nota es un item de la instancia (`shell.items`), así que dos personas
 escribiendo notas distintas no se pisan: el CRUD ya es por nota.
@@ -70,3 +76,16 @@ sin nada propio cableado.
 Bundle ESM puro (`dist/index.js` + `dist/index.css`) que usa `globalThis.React`
 (expuesto por el host) y cumple el contrato `AppShellV1`
 (`mount(shell) -> { Component, unmount }`). No requiere paso de build.
+
+## Historial de versiones
+
+| Versión | Qué trae |
+|---|---|
+| **2.1.0** | Etiquetar escribiendo `@` en el propio texto (menú con autocompletado), personas **y agentes IA** de la organización en la misma lista, chips y texto sincronizados, versión visible en la cabecera. |
+| 2.0.0 | Notas editables, responsable y menciones, redactor con formato, pestañas *Para mí* / *A mi cargo*, actualización en vivo. |
+| 1.x | Bloc de notas simple por instancia, con agente. |
+
+Al publicar un cambio hay que subir el número en `manifest.json` y en
+`APP_VERSION` (`dist/index.js`) a la vez, y anotar aquí qué trae: el host cachea
+el bundle por versión, y la cabecera es lo que se mira para confirmar que el
+KIMOS de pruebas ya tomó el build nuevo.
