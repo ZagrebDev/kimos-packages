@@ -245,6 +245,23 @@ export default function mount(shell) {
         metaPuntos: 300,         // puntos que equivalen a un 10 en el ranking
       },
     },
+    {
+      id: 'rayuela', type: 'rayuela', enabled: true, order: 5,
+      name: 'Rayuela Chilena', icon: '🥏',
+      blurb: 'El deporte nacional: lanza el tejo y quema la lienza. La cámara lee tu lanzamiento.',
+      config: {
+        equipos: 1,              // 1 = individual · 2 = duelo por equipos
+        tejosPorEquipo: 4,
+        distanciaMetros: 2.5,    // ubicación real frente al tótem (representa 14 m)
+        fuerzaLienza: 3.2,       // fuerza del gesto que cae justo en la lienza
+        sensibilidadProfundidad: 0.42,
+        sensibilidadLateral: 0.30,
+        dispersion: 0.05,        // aleatoriedad del tiro (0 = determinista)
+        toleranciaQuemada: 0.05, // metros: el tejo toca la lienza
+        vistaSuperior: true,
+        marcaCajon: 'KIMOS',     // placa de marca en el cajón, como en las canchas
+      },
+    },
   ];
 
   const DEFAULT_MODEL = {
@@ -326,6 +343,11 @@ export default function mount(shell) {
         const base = DEFAULT_GAMES.find((d) => d.type === g.type) || DEFAULT_GAMES[0];
         return merge(clone(base), g);
       });
+      // Migración: los juegos que trae una versión nueva del bundle se agregan a
+      // las instancias ya guardadas, sin tocar lo que el cliente configuró.
+      for (const def of DEFAULT_GAMES) {
+        if (!next.games.some((g) => g.id === def.id)) next.games.push(clone(def));
+      }
     }
     model = next;
     emit();
@@ -1015,6 +1037,8 @@ export default function mount(shell) {
     return {
       tipo: 'mediapipe',
       nombre: 'MediaPipe Pose Landmarker',
+      /** El host puede mover el <video> entre pantallas: se reengancha aquí. */
+      setVideo(videoEl) { if (videoEl) video = videoEl; },
       async iniciar(videoEl) {
         video = videoEl;
         const mod = await import(/* webpackIgnore: true */ /* @vite-ignore */ s(hw.poseModuleUrl));
@@ -1227,6 +1251,21 @@ export default function mount(shell) {
 
     const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
 
+    /**
+     * El <video> se mueve de la intro al layout de baile: al remontarse hay que
+     * devolverle el stream y avisarle al motor de pose cuál es el elemento vivo.
+     */
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+
     const soltarTodo = useCallback(() => {
       try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
       provRef.current = null;
@@ -1388,7 +1427,7 @@ export default function mount(shell) {
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' ? ' is-hidden' : '') },
       h('video', {
-        ref: videoRef, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
+        ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
         autoPlay: true, playsInline: true, muted: true,
       }),
       cfg.mostrarEsqueleto !== false && vista.landmarks
@@ -1918,6 +1957,547 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // 12.b Juego 5 — "Rayuela Chilena" (deporte nacional, cuerpo + cámara)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Reglas oficiales representadas (Federación Deportiva Nacional de Rayuela
+  // Tejo Plano de Chile):
+  //   · Cancha: cajón inclinado de 1×1 m relleno de arcilla. La PANTALLA del
+  //     tótem ES la cancha, vista en perspectiva desde el lanzador.
+  //   · Lienza: cuerda tensada que divide el cajón por la mitad.
+  //   · Distancia oficial de tiro: 14 m (en el tótem se representa; la persona
+  //     se ubica en la zona marcada frente a la pantalla).
+  //   · Quemada (el tejo cae sobre la lienza) = 2 puntos.
+  //   · Tejo más cercano a la lienza = 1 punto.
+  //
+  // Antes de la cancha, el tótem muestra el ÁREA DE POSICIONAMIENTO: la persona
+  // se ubica en la zona, el sistema calibra su escala corporal y recién ahí
+  // empieza a leer el gesto de lanzamiento para proyectar el tejo.
+
+  const RAY_VB = { w: 1000, h: 1400 };
+  // Esquinas del cajón en pantalla (trapecio en perspectiva).
+  const CAJON = { TL: { x: 250, y: 430 }, TR: { x: 750, y: 430 }, BL: { x: 120, y: 980 }, BR: { x: 880, y: 980 } };
+  const TEJO_R = 0.05;   // radio del tejo en metros (disco de ~10 cm)
+
+  /** Coordenadas de cancha (metros, origen en la lienza) → pantalla. */
+  function proyectarCancha(cx, cy) {
+    const u = clamp(cx + 0.5, -0.6, 1.6);
+    const v = clamp(cy + 0.5, -0.6, 1.6);
+    const lerp = (a, b, k) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+    const arriba = lerp(CAJON.TL, CAJON.TR, u);
+    const abajo = lerp(CAJON.BL, CAJON.BR, u);
+    const p = lerp(arriba, abajo, v);
+    p.escala = 0.55 + 0.45 * v;    // perspectiva: más cerca = más grande
+    return p;
+  }
+
+  /** Clasifica un tiro por sus coordenadas de cancha. */
+  function evaluarTejo(cx, cy, tolQuemada) {
+    const dentro = Math.abs(cx) <= 0.5 && Math.abs(cy) <= 0.5;
+    const dist = Math.abs(cy);
+    const quemada = dentro && dist <= Math.max(0.02, num(tolQuemada, TEJO_R));
+    let motivo = '';
+    if (!dentro) {
+      if (Math.abs(cx) > 0.5) motivo = cx > 0 ? 'Se fue por la derecha' : 'Se fue por la izquierda';
+      else motivo = cy > 0 ? 'Quedó corto, antes del cajón' : 'Se pasó largo';
+    }
+    return { cx, cy, dentro, quemada, dist, motivo, cm: Math.round(dist * 100) };
+  }
+
+  /**
+   * Puntaje oficial de la mano: cada quemada vale 2; además, el tejo válido más
+   * cercano a la lienza (sin contar quemadas) suma 1 a su equipo.
+   */
+  function puntajeRayuelaOficial(tiros, equipos) {
+    const puntos = {};
+    for (let e = 0; e < equipos; e++) puntos[e] = 0;
+    let mejor = null;
+    for (const t of tiros) {
+      if (t.quemada) { puntos[t.equipo] += 2; continue; }
+      if (!t.dentro) continue;
+      if (!mejor || t.dist < mejor.dist) mejor = t;
+    }
+    if (mejor) puntos[mejor.equipo] += 1;
+    return { puntos, mejor };
+  }
+
+  /**
+   * Detector de lanzamiento por cámara. La rayuela se lanza por abajo, con
+   * péndulo de brazo: se "arma" con la muñeca bajo la cadera y dispara cuando
+   * la mano sube y avanza rápido. Todo se normaliza por la escala corporal para
+   * que un niño y un adulto midan parejo.
+   */
+  function detectorLanzamiento() {
+    let armado = false, enSwing = false, tSwing = 0;
+    let pico = null, hist = [];
+    return {
+      reset() { armado = false; enSwing = false; pico = null; hist = []; },
+      estado() { return enSwing ? 'lanzando' : armado ? 'listo' : 'baja la mano'; },
+      /** Devuelve null, o {fuerza, lateral, brazo} cuando detecta el lanzamiento. */
+      actualizar(L, espejo) {
+        if (!L) return null;
+        const hI = L[IDX.hombroI], hD = L[IDX.hombroD], cI = L[IDX.caderaI], cD = L[IDX.caderaD];
+        if (!hI || !hD || !cI || !cD) return null;
+        const hombroY = (hI.y + hD.y) / 2, caderaY = (cI.y + cD.y) / 2;
+        const escala = Math.abs(caderaY - hombroY);
+        if (escala < 0.04) return null;                 // persona demasiado lejos
+        const mI = L[IDX.munecaI], mD = L[IDX.munecaD];
+        const t = nowMs();
+        const cand = [];
+        if (mD) cand.push({ brazo: 'derecho', p: mD });
+        if (mI) cand.push({ brazo: 'izquierdo', p: mI });
+        if (!cand.length) return null;
+        hist.push({ t, manos: cand.map((c) => ({ brazo: c.brazo, x: c.p.x, y: c.p.y })) });
+        if (hist.length > 16) hist.shift();
+        if (hist.length < 4) return null;
+
+        // Velocidad de cada mano en "escalas corporales por segundo".
+        const a = hist[0], b = hist[hist.length - 1];
+        const dt = Math.max(0.04, (b.t - a.t) / 1000);
+        let mejor = null;
+        for (const m of b.manos) {
+          const prev = a.manos.find((x) => x.brazo === m.brazo);
+          if (!prev) continue;
+          const vx = ((m.x - prev.x) / dt) / escala * (espejo ? -1 : 1);
+          const vy = ((m.y - prev.y) / dt) / escala;    // y crece hacia abajo
+          const subida = -vy;
+          const rapidez = Math.hypot(vx, subida);
+          if (!mejor || rapidez > mejor.rapidez) mejor = { brazo: m.brazo, vx, subida, rapidez, y: m.y };
+        }
+        if (!mejor) return null;
+
+        if (!armado) {
+          // Se arma cuando la mano baja bajo la cadera y está tranquila.
+          if (mejor.y > caderaY && mejor.rapidez < 1.2) armado = true;
+          return null;
+        }
+        if (!enSwing) {
+          if (mejor.subida > 1.8) { enSwing = true; tSwing = t; pico = mejor; }
+          return null;
+        }
+        if (mejor.rapidez > pico.rapidez) pico = mejor;
+        // Se suelta el tejo en el punto más rápido del swing (ventana corta).
+        if (t - tSwing > 220 || mejor.rapidez < pico.rapidez * 0.6) {
+          const r = { fuerza: pico.rapidez, lateral: pico.vx, brazo: pico.brazo };
+          armado = false; enSwing = false; pico = null; hist = [];
+          return r;
+        }
+        return null;
+      },
+    };
+  }
+
+  function JuegoRayuela(props) {
+    const cfg = props.game.config || {};
+    const hw = model.hardware;
+    const equipos = clamp(Math.round(num(cfg.equipos, 1)), 1, 2);
+    const porEquipo = clamp(Math.round(num(cfg.tejosPorEquipo, 4)), 1, 8);
+    const totalTiros = equipos * porEquipo;
+
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const detRef = useRef(detectorLanzamiento());
+    const faseRef = useRef('intro');
+    const calibRef = useRef(0);
+    const bodyRef = useRef(null);
+    const volandoRef = useRef(false);
+
+    const [fase, setFase] = useState('intro');
+    const [error, setError] = useState('');
+    const [modoDemo, setModoDemo] = useState(false);
+    const [guia, setGuia] = useState({ motivo: '', ok: false, progreso: 0, landmarks: null });
+    const [tiros, setTiros] = useState([]);
+    const [vuelo, setVuelo] = useState(null);
+    const [ultimo, setUltimo] = useState(null);
+    const [gesto, setGesto] = useState('');
+
+    const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
+
+    /**
+     * El <video> cambia de lugar entre pantallas (posicionamiento → cancha), así
+     * que se reengancha el stream y se le avisa al motor de pose en cada montaje.
+     */
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+
+    const soltarTodo = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    }, []);
+    useEffect(() => soltarTodo, [soltarTodo]);
+
+    /** Proyecta el gesto a un punto de la cancha y anima el vuelo del tejo. */
+    const lanzarTejo = useCallback((fuerza, lateral) => {
+      if (volandoRef.current || faseRef.current !== 'cancha') return;
+      volandoRef.current = true;
+      detRef.current.reset();
+      const fRef = Math.max(0.5, num(cfg.fuerzaLienza, 3.2));
+      const sensP = num(cfg.sensibilidadProfundidad, 0.42);
+      const sensL = num(cfg.sensibilidadLateral, 0.30);
+      const disp = clamp(num(cfg.dispersion, 0.05), 0, 0.4);
+      const ruido = () => (Math.random() * 2 - 1) * disp;
+      // Menos fuerza que la de referencia = corto (cy > 0); más = largo (cy < 0).
+      const cy = clamp((fRef - fuerza) * sensP + ruido(), -1.1, 1.1);
+      const cx = clamp(lateral * sensL + ruido(), -1.1, 1.1);
+      const destino = proyectarCancha(cx, cy);
+      const origen = { x: RAY_VB.w / 2, y: RAY_VB.h + 60 };
+      const dur = 1100, t0 = nowMs();
+      const stop = loop(() => {
+        const k = clamp((nowMs() - t0) / dur, 0, 1);
+        const x = origen.x + (destino.x - origen.x) * k;
+        const y = origen.y + (destino.y - origen.y) * k - Math.sin(k * Math.PI) * 260;
+        setVuelo({ x, y, escala: 1.5 + (destino.escala - 1.5) * k, k });
+        if (k < 1) return;
+        stop();
+        setVuelo(null);
+        volandoRef.current = false;
+        const ev = evaluarTejo(cx, cy, cfg.toleranciaQuemada);
+        setTiros((prev) => {
+          const equipo = equipos === 1 ? 0 : prev.length % equipos;
+          const next = prev.concat([Object.assign({ id: uid('t'), equipo, orden: prev.length + 1 }, ev)]);
+          setUltimo(next[next.length - 1]);
+          if (next.length >= totalTiros) setT(() => irA('fin'), 1500);
+          return next;
+        });
+        if (navigator.vibrate) { try { navigator.vibrate(ev.quemada ? [40, 40, 90] : 30); } catch (e) { /* noop */ } }
+        if (ev.quemada) notify('success', '¡Quemada! 2 puntos.');
+      });
+    }, [cfg, equipos, totalTiros, irA]);
+
+    const iniciar = useCallback(async (modo) => {
+      setError('');
+      setTiros([]); setUltimo(null);
+      detRef.current.reset();
+      calibRef.current = 0;
+      if (modo === 'demo') {
+        setModoDemo(true);
+        irA('cancha');
+        return;
+      }
+      setModoDemo(false);
+      irA('abriendo');
+      try {
+        const stream = await abrirCamara(hw);
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) throw new Error('No se pudo montar el elemento de video.');
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(hw);
+        await prov.iniciar(v);
+        provRef.current = prov;
+        irA('posicion');
+      } catch (e) {
+        soltarTodo();
+        setError(s(e && e.message ? e.message : e));
+        irA('intro');
+      }
+    }, [hw, irA, soltarTodo]);
+
+    // Bucle de cámara: primero calibra la posición, luego lee el lanzamiento.
+    useEffect(() => {
+      if (modoDemo || (fase !== 'posicion' && fase !== 'cancha')) return undefined;
+      let ultimoHud = 0;
+      return loop((dt) => {
+        const prov = provRef.current;
+        if (!prov) return;
+        const lec = prov.leer();
+        const L = lec && lec.landmarks;
+        const t = nowMs();
+        if (faseRef.current === 'posicion') {
+          const enc = encuadreDePose(L);
+          calibRef.current = enc.ok ? calibRef.current + dt : Math.max(0, calibRef.current - dt * 0.6);
+          if (t - ultimoHud > 100) {
+            ultimoHud = t;
+            setGuia({ motivo: enc.motivo, ok: !!enc.ok, progreso: clamp(calibRef.current / 2, 0, 1), landmarks: L });
+          }
+          if (calibRef.current >= 2) {
+            // Escala corporal capturada: con ella se normaliza la fuerza del tiro.
+            bodyRef.current = { alto: enc.alto || null, ancho: enc.ancho || null };
+            detRef.current.reset();
+            irA('cancha');
+          }
+          return;
+        }
+        if (volandoRef.current) return;
+        const r = detRef.current.actualizar(L, hw.espejo !== false);
+        if (t - ultimoHud > 150) {
+          ultimoHud = t;
+          setGuia((g) => Object.assign({}, g, { landmarks: L }));
+          setGesto(L ? detRef.current.estado() : 'no te veo');
+        }
+        if (r) lanzarTejo(r.fuerza, r.lateral);
+      });
+    }, [fase, modoDemo, hw.espejo, lanzarTejo, irA]);
+
+    // Lanzamiento táctil (modo sin cámara y respaldo siempre disponible).
+    const svgRef = useRef(null);
+    const swipeRef = useRef(null);
+    const onDown = (e) => {
+      if (fase !== 'cancha' || !svgRef.current) return;
+      swipeRef.current = { p: svgPoint(svgRef.current, e, RAY_VB), t: nowMs() };
+    };
+    const onUp = (e) => {
+      if (fase !== 'cancha' || !swipeRef.current || !svgRef.current) return;
+      const ini = swipeRef.current; swipeRef.current = null;
+      const fin = svgPoint(svgRef.current, e, RAY_VB);
+      const dy = ini.p.y - fin.y, dx = fin.x - ini.p.x;
+      if (dy < 80) return;
+      const dt = Math.max(90, nowMs() - ini.t);
+      const fRef = Math.max(0.5, num(cfg.fuerzaLienza, 3.2));
+      // El gesto táctil se traduce a la misma escala de fuerza que el gesto real.
+      const fuerza = fRef * clamp((dy / dt) / 1.5, 0.35, 1.9);
+      lanzarTejo(fuerza, clamp(dx / 500, -1.2, 1.2));
+    };
+
+    const marcador = useMemo(() => puntajeRayuelaOficial(tiros, equipos), [tiros, equipos]);
+    const espejo = hw.espejo !== false;
+
+    const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
+      h('video', {
+        ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
+        autoPlay: true, playsInline: true, muted: true,
+      }),
+      guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null,
+      fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
+      hw.avisoCamara !== false && streamRef.current
+        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+
+    // ── Intro: reglas oficiales ───────────────────────────────────────
+    if (fase === 'intro' || fase === 'abriendo') {
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-intro' },
+          h('svg', { viewBox: '0 0 320 220', className: 'fp-intro-svg fp-intro-svg--ancho' },
+            h('path', { d: 'M60 60 L260 60 L300 180 L20 180 Z', fill: '#7A4A22' }),
+            h('path', { d: 'M72 70 L248 70 L282 170 L38 170 Z', fill: '#4A3323' }),
+            h('line', { x1: 55, y1: 120, x2: 265, y2: 120, stroke: '#fff', strokeWidth: 4 }),
+            h('circle', { cx: 150, cy: 118, r: 9, fill: '#C9CDD2', stroke: '#6b7280', strokeWidth: 2 }),
+            h('circle', { cx: 205, cy: 145, r: 10, fill: '#C9CDD2', stroke: '#6b7280', strokeWidth: 2 }),
+            h('text', { x: 160, y: 205, textAnchor: 'middle', fill: '#fff', fontSize: 15, fontWeight: 700 }, 'Deporte nacional de Chile')),
+          h('h2', null, props.game.blurb || 'Lanza el tejo lo más cerca de la lienza'),
+          h('ul', { className: 'fp-steps' },
+            h('li', null, h('b', null, 'Quemada'), ': el tejo cae sobre la lienza → ', h('b', null, '2 puntos'), '.'),
+            h('li', null, 'El tejo válido más cercano a la lienza → ', h('b', null, '1 punto'), '.'),
+            h('li', null, 'Cajón de 1×1 m: si el tejo cae fuera, no puntúa.'),
+            h('li', null, 'Distancia oficial de tiro: 14 m — en el tótem se representa desde la zona marcada.')),
+          error ? h('div', { className: 'fp-error' }, '⚠ ' + error) : null,
+          fase === 'abriendo' ? h('p', null, 'Abriendo la cámara…') : h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => iniciar('camara') }, '📷 Jugar con el cuerpo'),
+            h(Boton, { onClick: () => iniciar('demo') }, '👆 Jugar deslizando')),
+          h('p', { className: 'fp-privacy' },
+            '🔒 La cámara solo mide el gesto del lanzamiento en este equipo. No se graba ni se envía video.')),
+        videoBox);
+    }
+
+    // ── Área de posicionamiento ───────────────────────────────────────
+    if (fase === 'posicion') {
+      return h(Marco, {
+        icon: props.game.icon, title: props.game.name,
+        onExit: () => { soltarTodo(); props.onExit(); },
+        meta: h(Chip, null, 'Paso 1 de 2 · ubicación'),
+      },
+        h('div', { className: 'fp-pos' },
+          h('h2', { className: 'fp-pos-title' }, 'Ubícate en la zona de lanzamiento'),
+          h('svg', { viewBox: '0 0 600 420', className: 'fp-pos-svg' },
+            h('defs', null,
+              h('linearGradient', { id: 'fp-piso', x1: 0, y1: 0, x2: 0, y2: 1 },
+                h('stop', { offset: '0%', stopColor: 'rgba(255,255,255,.05)' }),
+                h('stop', { offset: '100%', stopColor: 'rgba(255,255,255,.16)' }))),
+            h('rect', { width: 600, height: 420, fill: 'none' }),
+            // tótem al fondo
+            h('rect', { x: 240, y: 20, width: 120, height: 150, rx: 10, fill: '#1f2937', stroke: 'rgba(255,255,255,.35)', strokeWidth: 3 }),
+            h('rect', { x: 252, y: 32, width: 96, height: 110, rx: 6, fill: 'var(--fp-accent2)', opacity: 0.7 }),
+            h('text', { x: 300, y: 190, textAnchor: 'middle', fill: '#fff', fontSize: 15, fontWeight: 700 }, 'TÓTEM'),
+            // piso en perspectiva
+            h('path', { d: 'M200 200 L400 200 L520 400 L80 400 Z', fill: 'url(#fp-piso)', stroke: 'rgba(255,255,255,.3)', strokeWidth: 2, strokeDasharray: '8 6' }),
+            // zona marcada
+            h('path', {
+              d: 'M180 320 L420 320 L470 390 L130 390 Z',
+              fill: guia.ok ? 'rgba(74,222,128,.28)' : 'rgba(213,43,30,.22)',
+              stroke: guia.ok ? '#4ADE80' : 'var(--fp-accent)', strokeWidth: 4,
+            }),
+            // huellas
+            h('g', { fill: guia.ok ? '#4ADE80' : 'rgba(255,255,255,.7)' },
+              h('ellipse', { cx: 265, cy: 358, rx: 16, ry: 26 }),
+              h('ellipse', { cx: 335, cy: 358, rx: 16, ry: 26 })),
+            h('text', { x: 300, y: 300, textAnchor: 'middle', fill: '#fff', fontSize: 17, fontWeight: 700 },
+              'a ' + num(cfg.distanciaMetros, 2.5) + ' m del tótem'),
+            h('text', { x: 300, y: 415, textAnchor: 'middle', fill: 'rgba(255,255,255,.75)', fontSize: 13 },
+              'representa los 14 m oficiales')),
+          h('div', { className: 'fp-pos-cam' },
+            videoBox,
+            h('div', { className: 'fp-calib' },
+              h('b', null, guia.ok ? '¡Perfecto! Quédate ahí…' : 'Ubícate en la zona'),
+              h('span', null, guia.motivo || 'Buscando a la persona…'),
+              h('div', { className: 'fp-progress' }, h('i', { style: { width: (guia.progreso * 100).toFixed(0) + '%' } })))),
+          h('p', { className: 'fp-hint' },
+            'Deben verse tu cabeza y tus pies: con eso el tótem mide tu tamaño y calibra la fuerza de tu lanzamiento.')));
+    }
+
+    // ── Resultado final ───────────────────────────────────────────────
+    if (fase === 'fin') {
+      const quemadas = tiros.filter((t) => t.quemada).length;
+      const dentro = tiros.filter((t) => t.dentro).length;
+      const puntosJ = marcador.puntos[0] || 0;
+      const maxPos = porEquipo * 2;
+      const detalle = equipos === 2
+        ? h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, 'Equipo 1: ' + (marcador.puntos[0] || 0) + ' pts'),
+            h(Chip, null, 'Equipo 2: ' + (marcador.puntos[1] || 0) + ' pts'),
+            h(Chip, null, quemadas + ' quemada(s)'))
+        : h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, puntosJ + ' puntos'),
+            h(Chip, null, quemadas + ' quemada(s)'),
+            h(Chip, null, dentro + '/' + tiros.length + ' en el cajón'),
+            marcador.mejor ? h(Chip, null, 'Mejor tejo: ' + marcador.mejor.cm + ' cm') : null);
+      const titulo = equipos === 2
+        ? ((marcador.puntos[0] || 0) === (marcador.puntos[1] || 0) ? 'Empate en la cancha'
+          : '¡Gana el equipo ' + ((marcador.puntos[0] || 0) > (marcador.puntos[1] || 0) ? '1' : '2') + '!')
+        : '¡Buena mano!';
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: () => { soltarTodo(); props.onExit(); }, meta: null },
+        h(Resultado, {
+          puntaje10: clamp((puntosJ / Math.max(1, maxPos)) * 10, 0, 10),
+          juego: props.game.name,
+          titulo: titulo,
+          mensaje: quemadas ? '¡' + quemadas + ' quemada(s)! Eso es puntería de cancha.' : null,
+          detalle: detalle,
+          detalleTexto: puntosJ + ' pts · ' + quemadas + ' quemadas · ' + tiros.map((t) => (t.dentro ? t.cm + 'cm' : 'fuera')).join(' · '),
+          onExit: () => { soltarTodo(); props.onExit(); },
+          onReplay: () => {
+            setTiros([]); setUltimo(null); detRef.current.reset();
+            irA(modoDemo || !provRef.current ? 'cancha' : 'posicion');
+            calibRef.current = 0;
+          },
+        }));
+    }
+
+    // ── La cancha (la pantalla ES el cajón de rayuela) ────────────────
+    const tejoActual = Math.min(tiros.length + 1, totalTiros);
+    const equipoActual = equipos === 1 ? 0 : tiros.length % equipos;
+    const cajonPath = 'M' + CAJON.TL.x + ' ' + CAJON.TL.y + ' L' + CAJON.TR.x + ' ' + CAJON.TR.y +
+      ' L' + CAJON.BR.x + ' ' + CAJON.BR.y + ' L' + CAJON.BL.x + ' ' + CAJON.BL.y + ' Z';
+    const lienzaI = proyectarCancha(-0.5, 0), lienzaD = proyectarCancha(0.5, 0);
+    const motas = [];
+    for (let i = 0; i < 90; i++) {
+      const u = (i * 37 % 100) / 100, v = (i * 61 % 100) / 100;
+      const p = proyectarCancha(u - 0.5, v - 0.5);
+      motas.push(h('circle', { key: i, cx: p.x, cy: p.y, r: 2 + (i % 3), fill: 'rgba(0,0,0,.22)' }));
+    }
+
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, null, 'Tejo ' + tejoActual + '/' + totalTiros),
+        equipos === 2 ? h(Chip, { tone: 'accent' }, 'Turno equipo ' + (equipoActual + 1)) : null,
+        h(Chip, { tone: 'accent' }, (marcador.puntos[0] || 0) + (equipos === 2 ? ' · ' + (marcador.puntos[1] || 0) : '') + ' pts'),
+        !modoDemo ? h(Chip, null, '🖐 ' + (gesto || '…')) : null),
+    },
+      h('div', { className: 'fp-ray-wrap' },
+        h('svg', {
+          ref: svgRef, className: 'fp-ray-svg', viewBox: '0 0 1000 1400',
+          onPointerDown: onDown, onPointerUp: onUp, onPointerCancel: onUp,
+        },
+          h('defs', null,
+            h('linearGradient', { id: 'fp-muro', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#3B4457' }),
+              h('stop', { offset: '100%', stopColor: '#22293A' })),
+            h('linearGradient', { id: 'fp-arcilla', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#4A3323' }),
+              h('stop', { offset: '100%', stopColor: '#6B4B2E' })),
+            h('linearGradient', { id: 'fp-madera', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#C08B4A' }),
+              h('stop', { offset: '100%', stopColor: '#8A5C2A' }))),
+          h('rect', { width: 1000, height: 1400, fill: 'url(#fp-muro)' }),
+          h('path', { d: 'M0 980 L1000 980 L1000 1400 L0 1400 Z', fill: '#2C3242' }),
+          // guirnalda dieciochera sobre el muro
+          h('path', {
+            d: 'M0 40 Q250 130 500 60 Q750 -10 1000 70', fill: 'none',
+            stroke: 'rgba(255,255,255,.5)', strokeWidth: 4,
+          }),
+          [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+            const x = 60 + i * 128, y = 70 + Math.sin(i * 0.9) * 22;
+            return h('g', { key: 'b' + i, transform: 'translate(' + x + ',' + y + ')', opacity: 0.9 },
+              h('path', { d: 'M-26 0 L26 0 L0 58 Z', fill: '#fff' }),
+              h('path', { d: 'M-26 0 L26 0 L15 24 L-15 24 Z', fill: i % 2 ? '#D52B1E' : '#0039A6' }),
+              h('path', { d: 'M-15 24 L15 24 L0 58 Z', fill: i % 2 ? '#0039A6' : '#D52B1E' }));
+          }),
+          // marco de madera del cajón (caras exterior e interior)
+          h('path', {
+            d: 'M' + (CAJON.TL.x - 26) + ' ' + (CAJON.TL.y - 18) + ' L' + (CAJON.TR.x + 26) + ' ' + (CAJON.TR.y - 18) +
+               ' L' + (CAJON.BR.x + 52) + ' ' + (CAJON.BR.y + 34) + ' L' + (CAJON.BL.x - 52) + ' ' + (CAJON.BL.y + 34) + ' Z',
+            fill: 'url(#fp-madera)', stroke: '#5E3B18', strokeWidth: 5,
+          }),
+          h('path', {
+            d: 'M' + (CAJON.BL.x - 52) + ' ' + (CAJON.BL.y + 34) + ' L' + (CAJON.BR.x + 52) + ' ' + (CAJON.BR.y + 34) +
+               ' L' + (CAJON.BR.x + 52) + ' ' + (CAJON.BR.y + 126) + ' L' + (CAJON.BL.x - 52) + ' ' + (CAJON.BL.y + 126) + ' Z',
+            fill: '#A9702F', stroke: '#5E3B18', strokeWidth: 5,
+          }),
+          // placa de marca (personalizable, como en las canchas reales)
+          h('g', { transform: 'translate(500,1075)' },
+            h('ellipse', { rx: 128, ry: 40, fill: 'none', stroke: '#8C2B1E', strokeWidth: 5 }),
+            h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-marca' }, s(cfg.marcaCajon) || 'KIMOS')),
+          // arcilla
+          h('path', { d: cajonPath, fill: 'url(#fp-arcilla)' }),
+          h('g', null, motas),
+          // lienza
+          h('line', { x1: lienzaI.x, y1: lienzaI.y, x2: lienzaD.x, y2: lienzaD.y, stroke: '#F5F5F5', strokeWidth: 7 }),
+          h('text', { x: 500, y: lienzaI.y - 20, textAnchor: 'middle', className: 'fp-svg-label' }, 'LIENZA · quemada = 2 puntos'),
+          // tejos ya lanzados
+          tiros.filter((t) => t.dentro).map((t) => {
+            const p = proyectarCancha(t.cx, t.cy);
+            return h('g', { key: t.id, transform: 'translate(' + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ') scale(' + p.escala.toFixed(2) + ')' },
+              h('ellipse', { cx: 0, cy: 10, rx: 42, ry: 14, fill: 'rgba(0,0,0,.35)' }),
+              h('ellipse', { rx: 38, ry: 15, fill: t.equipo ? '#B08D57' : '#C9CDD2', stroke: '#5A6068', strokeWidth: 4 }),
+              h('ellipse', { rx: 16, ry: 6, fill: 'rgba(255,255,255,.55)' }),
+              t.quemada ? h('text', { y: 58, textAnchor: 'middle', className: 'fp-ray-quemada' }, '¡QUEMADA!') : null);
+          }),
+          // tejo en vuelo
+          vuelo ? h('g', { transform: 'translate(' + vuelo.x.toFixed(1) + ',' + vuelo.y.toFixed(1) + ') scale(' + vuelo.escala.toFixed(2) + ')' },
+            h('ellipse', { rx: 40, ry: 16, fill: '#DDE1E6', stroke: '#5A6068', strokeWidth: 4 }),
+            h('ellipse', { rx: 17, ry: 6, fill: 'rgba(255,255,255,.7)' })) : null,
+          // vista superior de apoyo
+          cfg.vistaSuperior === false ? null : h('g', { transform: 'translate(828,296)' },
+            h('rect', { x: -110, y: -110, width: 220, height: 220, rx: 10, fill: 'rgba(0,0,0,.45)', stroke: 'rgba(255,255,255,.35)', strokeWidth: 3 }),
+            h('line', { x1: -110, y1: 0, x2: 110, y2: 0, stroke: '#fff', strokeWidth: 4 }),
+            h('text', { y: -122, textAnchor: 'middle', className: 'fp-svg-sub' }, 'vista superior'),
+            tiros.filter((t) => t.dentro).map((t) => h('circle', {
+              key: 'v' + t.id, cx: t.cx * 220, cy: t.cy * 220, r: 11,
+              fill: t.equipo ? '#B08D57' : '#C9CDD2', stroke: t.quemada ? '#4ADE80' : '#5A6068', strokeWidth: 3,
+            }))),
+          // aviso del último tiro
+          ultimo ? h('g', { transform: 'translate(500,1240)' },
+            h('rect', { x: -320, y: -46, width: 640, height: 92, rx: 46, fill: 'rgba(0,0,0,.55)' }),
+            h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' },
+              ultimo.quemada ? '¡QUEMADA! +2 puntos'
+                : ultimo.dentro ? 'A ' + ultimo.cm + ' cm de la lienza'
+                : ultimo.motivo)) : null),
+        !modoDemo ? h('div', { className: 'fp-ray-cam' },
+          h('video', {
+            ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
+            autoPlay: true, playsInline: true, muted: true,
+          }),
+          hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
+        h('p', { className: 'fp-hint' },
+          modoDemo
+            ? 'Desliza hacia arriba para lanzar el tejo: mientras más rápido, más lejos.'
+            : 'Lanza por abajo, con el brazo suelto, como en la cancha. Baja la mano para armar el próximo tiro.')));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // 13. Portada (lanzador de juegos)
   // ══════════════════════════════════════════════════════════════════════
 
@@ -1966,6 +2546,7 @@ export default function mount(shell) {
       return m === 'gesto' ? '📷 Lanzamiento por gesto' : m === 'objeto-real' ? '🎯 Objeto real + tracker' : '👆 Deslizar';
     }
     if (tipo === 'laser') return '🔫 Pistola / puntero';
+    if (tipo === 'rayuela') return '📷 Cuerpo · deporte nacional';
     return '🎮 Juego';
   }
 
@@ -2217,6 +2798,21 @@ export default function mount(shell) {
       { key: 'penalizacion', label: 'Penalización por copihue', type: 'number', min: 0, max: 50 },
       { key: 'metaPuntos', label: 'Puntos equivalentes a un 10', type: 'number', min: 50, max: 2000 },
     ],
+    rayuela: [
+      { key: 'equipos', label: 'Modalidad', type: 'select', options: [
+        { value: 1, label: 'Individual' },
+        { value: 2, label: 'Duelo por equipos (turnos)' },
+      ] },
+      { key: 'tejosPorEquipo', label: 'Tejos por jugador o equipo', type: 'number', min: 1, max: 8 },
+      { key: 'distanciaMetros', label: 'Distancia real a la zona (m)', type: 'range', min: 1.5, max: 5, step: 0.1, help: 'Representa los 14 m oficiales dentro del espacio disponible.' },
+      { key: 'fuerzaLienza', label: 'Fuerza del gesto que cae en la lienza', type: 'range', min: 1, max: 6, step: 0.1, help: 'Calibración del tótem: súbela si todos se pasan de largo.' },
+      { key: 'sensibilidadProfundidad', label: 'Sensibilidad de profundidad', type: 'range', min: 0.1, max: 1, step: 0.02 },
+      { key: 'sensibilidadLateral', label: 'Sensibilidad lateral', type: 'range', min: 0.05, max: 1, step: 0.05 },
+      { key: 'dispersion', label: 'Dispersión del tiro', type: 'range', min: 0, max: 0.3, step: 0.01, help: '0 = el mismo gesto cae siempre igual.' },
+      { key: 'toleranciaQuemada', label: 'Tolerancia de quemada (m)', type: 'range', min: 0.02, max: 0.15, step: 0.01 },
+      { key: 'vistaSuperior', label: 'Mostrar vista superior del cajón', type: 'boolean' },
+      { key: 'marcaCajon', label: 'Marca en el cajón', type: 'text', help: 'Texto de la placa del cajón, como en las canchas reales.' },
+    ],
   };
 
   function Editor(props) {
@@ -2320,7 +2916,7 @@ export default function mount(shell) {
   // 17. Componente raíz
   // ══════════════════════════════════════════════════════════════════════
 
-  const RENDERERS = { burro: JuegoBurro, baile: JuegoBaile, lanza: JuegoLanza, laser: JuegoLaser };
+  const RENDERERS = { burro: JuegoBurro, baile: JuegoBaile, lanza: JuegoLanza, laser: JuegoLaser, rayuela: JuegoRayuela };
 
   function Component() {
     const [m, setM] = useState(model);
