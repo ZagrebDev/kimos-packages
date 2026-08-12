@@ -330,3 +330,12 @@
   .kimos-funplai .fp-card-name { font-size: 24px; }
   .kimos-funplai .fp-btn { font-size: 17px; min-height: 54px; }
 }
+
+/* Tótem horizontal (p. ej. 32" 1920×1080): las tarjetas ocupan el alto libre. */
+@media (min-aspect-ratio: 1/1) and (min-height: 700px) {
+  .kimos-funplai .fp-cards { flex: 1; align-content: center; padding: 24px 32px; }
+  .kimos-funplai .fp-card { min-height: 240px; }
+  .kimos-funplai .fp-card-icon { font-size: 52px; }
+  .kimos-funplai .fp-hero h2 { font-size: 42px; }
+  .kimos-funplai .fp-home-head { padding-top: 104px; }
+}
