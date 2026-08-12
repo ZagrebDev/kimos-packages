@@ -363,9 +363,50 @@ Reglas:
 
 ---
 
-## 9. Ejemplos en este repo
+## 9. Aspecto: el sistema visual de las apps de KIMOS
+
+El referente es **`apps/productlab`**; `gantt` y `notas-equipo` ya están
+alineadas. Copia su hoja de estilos como plantilla. Reglas:
+
+1. **Ni un color propio cableado.** Todo sale de los tokens del tema del host
+   (shadcn/HSL): `--background`, `--foreground`, `--card`, `--muted`,
+   `--muted-foreground`, `--border`, `--input`, `--primary`,
+   `--primary-foreground`, `--destructive`, `--radius`, `--shadow-sm/md`.
+   Declara tus variables encima de ellos, con *fallback* al tema claro:
+
+   ```css
+   .kimos-miapp {
+     --x-fg: hsl(var(--foreground, 220 25% 6%));
+     --x-glass: hsl(var(--card, 0 0% 100%) / .6);
+     --x-soft: hsl(var(--border, 214.3 18% 72%) / .4);
+   }
+   ```
+
+   Así la app cambia de **día/noche** y de **color de acento** junto con KIMOS,
+   sin escuchar nada. El modo noche sale gratis; solo se retocan los colores
+   semánticos que quedan ilegibles sobre fondo oscuro:
+   `.dark .kimos-miapp { --x-err: #F87171; }`.
+2. **Fondo transparente + vidrio.** La raíz no pinta fondo (`background:
+   transparent`): debajo está el fondo de pantalla del escritorio. Las
+   superficies son `var(--x-glass)` + `backdrop-filter: blur(10px)` + borde
+   suave + `--shadow-sm`, como el taskbar y el chat.
+3. **Layout**: barra superior con *título · pestañas · acciones*
+   (`grid-template-columns: 1fr auto 1fr`); las pestañas son la `TabsList` de
+   shadcn (lista `muted`, pastilla activa con `background` + sombra).
+4. **Tipografía** Inter, `--radius` del tema para las esquinas, y botones al
+   estilo shadcn (outline por defecto, `--primary` para la acción principal).
+5. **Angosto**: a `max-width: 860px` el header pasa a dos filas y las pestañas
+   ocupan el ancho completo con scroll horizontal.
+
+---
+
+## 10. Ejemplos en este repo
 
 - **`apps/kanban`** — `saveData/loadData`, drag&drop nativo, sin agente.
-- **`apps/notas-equipo`** — `shell.items` + agente (multiInstance de ejemplo).
+- **`apps/notas-equipo`** — `shell.items` + agente, edición en la propia tarjeta,
+  redactor con formato (marcas tipo markdown pintadas como elementos React).
+- **`apps/gantt`** — colaboración multiusuario (§5.1), tabla con orden y filtros,
+  agente con paridad total sobre la UI.
 - **`apps/fossflow`** — modelo JSON complejo, render SVG isométrico, iconos
   nativos embebidos, agente con muchas tools, área de trabajo en cuadrícula.
+- **`apps/productlab`** — referente de diseño (§9).

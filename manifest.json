@@ -231,7 +231,7 @@
       "name": "Planificación",
       "description": "Planes con tareas por períodos: línea temporal configurable donde las fechas de inicio y fin pintan la barra, avance, estados, responsables, filtros por período y responsable, orden por cualquier columna, edición simultánea de varias personas en tiempo real y control total por agente IA.",
       "icon": "📊",
-      "version": "4.0.0",
+      "version": "4.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -326,12 +326,15 @@
     {
       "id": "notas-equipo",
       "name": "Notas de Equipo",
-      "description": "App de ejemplo multi-instancia: bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
+      "description": "Bloc de notas del equipo: notas editables con responsable y menciones a las personas a las que van dirigidas, redactor con formato (negrita, cursiva, listas, numeración, cita, título y enlaces), pestañas de 'Para mí' y 'A mi cargo', actualización en vivo y control por agente IA.",
       "icon": "🗒️",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "entry": "dist/index.js",
+      "css": "dist/index.css",
       "multiInstance": true,
       "permissions": [
+        "instance.read",
+        "instance.write",
         "agent.control"
       ],
       "appShellApi": "1.x"

@@ -1,12 +1,13 @@
 {
   "id": "notas-equipo",
   "name": "Notas de Equipo",
-  "version": "1.0.0",
-  "description": "App de ejemplo multi-instancia: un bloc de notas por equipo, controlable por agente. Valida acceso por equipo, instancias e items.",
+  "version": "2.0.0",
+  "description": "Bloc de notas del equipo: notas editables con responsable y menciones a las personas a las que van dirigidas, redactor con formato (negrita, cursiva, listas, numeración, cita, título y enlaces), pestañas de 'Para mí' y 'A mi cargo', actualización en vivo y control por agente IA.",
   "icon": "🗒️",
   "author": "kimos",
   "entry": "dist/index.js",
+  "css": "dist/index.css",
   "appShellApi": "1.x",
   "multiInstance": true,
-  "permissions": ["agent.control"]
+  "permissions": ["instance.read", "instance.write", "agent.control"]
 }

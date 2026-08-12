@@ -1311,29 +1311,39 @@ export default function mount(shell) {
     });
 
     return h('div', { className: 'kimos-gantt' },
-      // Pestañas de planes
-      h('div', { className: 'kg-tabs' },
-        h('button', { className: 'kg-tab' + (m.tab === '' ? ' kg-tab-active' : ''), onClick: () => setModel({ tab: '' }) }, 'Resumen'),
-        m.gantts.map((g) => h('button', {
-          key: g.id,
-          className: 'kg-tab' + (m.tab === g.id ? ' kg-tab-active' : ''),
-          style: m.tab === g.id ? { borderBottomColor: g.color } : undefined,
-          onClick: () => setModel({ tab: g.id }),
-        }, g.shortName || g.name)),
-        h('button', { className: 'kg-tab kg-tab-new', onClick: () => setNewPlan({ name: '', objective: '', ownerId: '' }) },
-          '+ ' + m.planLabel),
-        h('span', { className: 'kg-spacer' }),
-        h('span', {
-          className: 'kg-live' + (m.sync.offline ? ' kg-live-off' : m.sync.saving ? ' kg-live-busy' : ''),
-          title: syncLabel + '. Varias personas pueden editar a la vez: los cambios se fusionan tarea a tarea.',
-        }, h('span', { className: 'kg-live-dot' }), m.sync.offline ? 'Sin conexión' : m.sync.saving ? 'Guardando' : 'En vivo'),
-        m.isAdmin && h('button', {
-          className: 'kg-btn', title: 'Ajustes de la línea temporal',
-          onClick: () => setSettings(settings ? null : {
-            granularity: m.granularity, periodsCount: m.periodsCount, timelineStartDate: m.timelineStartDate,
-            planLabel: m.planLabel, taskLabel: m.taskLabel, enabledEntityTypeIds: [...(m.enabledEntityTypeIds || [])],
-          }),
-        }, '⚙'),
+      // Header: título · pestañas de planes · acciones
+      h('div', { className: 'kg-hd' },
+        h('div', { className: 'kg-hd-title' },
+          h('span', null, '📊 ' + (m.docName || 'Planificación')),
+          h('span', { className: 'kg-hd-sub' },
+            m.gantts.length + ' ' + m.planLabel.toLowerCase() + (m.gantts.length === 1 ? '' : 'es')),
+        ),
+        h('div', { className: 'kg-tabbar' },
+          h('button', { className: 'kg-tab' + (m.tab === '' ? ' kg-tab-active' : ''), onClick: () => setModel({ tab: '' }) }, 'Resumen'),
+          m.gantts.map((g) => h('button', {
+            key: g.id,
+            className: 'kg-tab' + (m.tab === g.id ? ' kg-tab-active' : ''),
+            title: g.name,
+            onClick: () => setModel({ tab: g.id }),
+          },
+            h('span', { className: 'kg-tab-dot', style: { background: g.color } }),
+            g.shortName || g.name)),
+        ),
+        h('div', { className: 'kg-hd-actions' },
+          h('span', {
+            className: 'kg-live' + (m.sync.offline ? ' kg-live-off' : m.sync.saving ? ' kg-live-busy' : ''),
+            title: syncLabel + '. Varias personas pueden editar a la vez: los cambios se fusionan tarea a tarea.',
+          }, h('span', { className: 'kg-live-dot' }), m.sync.offline ? 'Sin conexión' : m.sync.saving ? 'Guardando' : 'En vivo'),
+          m.isAdmin && h('button', {
+            className: 'kg-btn kg-btn-icon', title: 'Ajustes de la línea temporal',
+            onClick: () => setSettings(settings ? null : {
+              granularity: m.granularity, periodsCount: m.periodsCount, timelineStartDate: m.timelineStartDate,
+              planLabel: m.planLabel, taskLabel: m.taskLabel, enabledEntityTypeIds: [...(m.enabledEntityTypeIds || [])],
+            }),
+          }, '⚙'),
+          h('button', { className: 'kg-btn kg-btn-primary', onClick: () => setNewPlan({ name: '', objective: '', ownerId: '' }) },
+            '+ ' + m.planLabel),
+        ),
       ),
 
       // Ajustes (admins) — sobre un borrador, para que el sync no lo pise
@@ -1401,7 +1411,7 @@ export default function mount(shell) {
                 s(g.objective) && h('div', { className: 'kg-card-obj' }, g.objective),
                 h('div', { className: 'kg-bar' }, h('div', { className: 'kg-bar-fill', style: { width: prog + '%', background: g.color } })),
                 h('div', { className: 'kg-card-meta' },
-                  h('span', null, tasks.length + ' tareas'),
+                  h('span', null, tasks.length + ' ' + (tasks.length === 1 ? 'tarea' : 'tareas')),
                   STATUS.map(([k, l]) => byStatus[k] ? h('span', { key: k, className: 'kg-chip ' + STATUS_CLASS[k] }, byStatus[k] + ' ' + l.toLowerCase()) : null),
                   late > 0 && h('span', { className: 'kg-chip kg-st-blocked' }, late + ' atrasada' + (late > 1 ? 's' : '')),
                   s(g.owner) && h('span', { className: 'kg-owner' }, g.owner),
@@ -1466,7 +1476,7 @@ export default function mount(shell) {
               h('span', { className: 'kg-muted' },
                 filtersOn
                   ? viewTasks(active, m).length + ' de ' + (active.tasks || []).length + ' tareas'
-                  : (active.tasks || []).length + ' tareas'),
+                  : (active.tasks || []).length + ((active.tasks || []).length === 1 ? ' tarea' : ' tareas')),
             ),
 
             h('div', { className: 'kg-timeline-wrap' },
