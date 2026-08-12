@@ -4,13 +4,26 @@ Bloc de notas del equipo, multi-instancia (cada documento es un bloc distinto).
 Cada nota es un item de la instancia (`shell.items`), así que dos personas
 escribiendo notas distintas no se pisan: el CRUD ya es por nota.
 
-## Qué hace (v2)
+## Qué hace (v2.1)
 
+- **Etiquetar escribiendo `@`**: al teclear `@` dentro del redactor se despliega
+  la lista de la organización debajo del cursor y se filtra mientras se escribe
+  (sin acentos y por cualquier parte del nombre). `↑ ↓` para moverse,
+  `Enter` o `Tab` para etiquetar, `Esc` para cerrar; también se elige con el
+  mouse. Al etiquetar queda el `@Nombre` en el texto **y** el chip de la nota.
+  El botón `👥` sigue abriendo la lista completa en chips, para quien la prefiera.
+- **Personas y agentes IA**: la lista junta a los actores del equipo
+  (`/api/identity/actors`) con los **agentes IA** de la organización
+  (`/api/identity/agents`), marcados con 🤖 tanto en el menú como en los chips y
+  en el texto de la nota. Un agente IA se etiqueta igual que una persona.
 - **Notas editables**: texto, responsable y destinatarios se cambian después de
   creadas, desde la propia nota (✎ Editar) o desde el agente.
 - **Responsable** de la nota (quién se hace cargo) y **menciones** a las
   personas a las que va dirigida. Las menciones se marcan con chips y también
   se resaltan como `@Nombre` dentro del texto.
+- **Texto y chips sincronizados**: quitar un chip borra su `@Nombre` del texto,
+  y cualquier `@Nombre` escrito a mano (sin pasar por el menú) queda etiquetado
+  al guardar, así que la pestaña *Para mí* nunca se pierde una nota.
 - **Redactor de verdad**: área multilínea donde **Enter hace salto de línea**
   (se envía con el botón o con `Ctrl/⌘+Enter`) y barra de formato con
   **negrita**, *cursiva*, ~~tachado~~, `código`, viñetas, **numeración**, cita,
@@ -40,9 +53,10 @@ cual está escrita.
 | `DELETE_NOTE` | Elimina una nota |
 | `LIST_NOTES` | Lista las notas con su responsable y destinatarios |
 
-Las notas y las personas se pueden referenciar por **nombre** (sin acentos y
-parcial); si algo no calza, el error trae los candidatos para que el agente se
-corrija solo.
+Las notas, las personas y los agentes IA se pueden referenciar por **nombre**
+(sin acentos y parcial); si algo no calza, el error trae los candidatos para que
+el agente se corrija solo. Escribir `@Nombre` dentro del `text` también etiqueta,
+sin necesidad de repetirlo en `mentions`.
 
 ## Diseño
 

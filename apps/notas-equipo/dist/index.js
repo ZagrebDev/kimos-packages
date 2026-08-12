@@ -1,8 +1,18 @@
 /**
- * Notas de Equipo — app instalable multi-instancia (v2.0).
+ * Notas de Equipo — app instalable multi-instancia (v2.1).
  *
  * Cada nota es un item de la instancia (`shell.items`), así que dos personas
  * escribiendo notas distintas nunca se pisan: el CRUD ya es por nota.
+ *
+ * v2.1
+ *   - **Etiquetar escribiendo `@`**: al teclear `@` en el redactor se despliega
+ *     la lista de la organización (personas y agentes IA) filtrada mientras se
+ *     escribe; ↑↓ para moverse, Enter/Tab para etiquetar, Esc para cerrar.
+ *   - La lista junta los **actores humanos** (`/api/identity/actors`) y los
+ *     **agentes IA** (`/api/identity/agents`), marcados con 🤖.
+ *   - Lo escrito y los chips van sincronizados: etiquetar deja `@Nombre` en el
+ *     texto, y quitar un chip borra ese `@Nombre`. Al guardar, cualquier
+ *     `@Nombre` escrito a mano también queda etiquetado.
  *
  * v2.0
  *   - Notas EDITABLES (texto, responsable y personas mencionadas).
@@ -94,8 +104,19 @@ export default function mount(shell) {
       if (res.ok) {
         const data = await res.json();
         setModel({
-          members: (data.actors || []).filter((a) => a && a.active !== false)
-            .map((a) => ({ id: a.id, name: a.displayName || a.name || a.email || a.id })),
+          members: mergeMembers(model.members, (data.actors || []).filter((a) => a && a.active !== false)
+            .map((a) => ({ id: s(a.id), name: s(a.displayName || a.name || a.email || a.id), kind: actorKind(a) }))),
+        });
+      }
+    } catch (e) { /* opcional */ }
+    // Agentes IA de la organización: se etiquetan igual que una persona.
+    try {
+      const res = await req(API + '/api/identity/agents', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setModel({
+          members: mergeMembers(model.members, (data.agents || []).filter((a) => a && a.active !== false)
+            .map((a) => ({ id: s(a.id), name: s(a.name || a.displayName || a.id), kind: 'ai' }))),
         });
       }
     } catch (e) { /* opcional */ }
@@ -142,7 +163,53 @@ export default function mount(shell) {
     };
   }
 
-  // ── Personas ────────────────────────────────────────────────────────────
+  // ── Personas y agentes IA ───────────────────────────────────────────────
+  /** ¿Este actor es un agente IA o una persona? (el backend lo puede decir de
+   *  varias formas; si no lo dice, es una persona). */
+  function actorKind(a) {
+    if (a.isAgent === true || a.isBot === true || a.agent === true) return 'ai';
+    const raw = canon([a.kind, a.type, a.actorType, a.category].filter(Boolean).join(' '));
+    return /(^| )(ai|ia|bot|agent|agente|assistant|asistente|virtual)( |$)/.test(raw) ? 'ai' : 'human';
+  }
+  const isAi = (m) => !!m && m.kind === 'ai';
+  /** Une listas de personas sin repetir (ni por id ni por nombre): humanos
+   *  primero, luego los agentes IA, cada grupo alfabético. */
+  function mergeMembers(...lists) {
+    const out = [];
+    const seen = new Set();
+    for (const list of lists) {
+      for (const m of list || []) {
+        if (!m || !m.id || !m.name) continue;
+        const keys = [m.id, 'n:' + canon(m.name)];
+        if (keys.some((k) => seen.has(k))) continue;
+        keys.forEach((k) => seen.add(k));
+        out.push({ id: m.id, name: m.name, kind: m.kind === 'ai' ? 'ai' : 'human' });
+      }
+    }
+    return out.sort((a, b) => (isAi(a) === isAi(b) ? a.name.localeCompare(b.name) : (isAi(a) ? 1 : -1)));
+  }
+
+  const escapeRx = (v) => s(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /** Personas escritas como `@Nombre` dentro del texto (para que etiquetar a
+   *  mano, sin pasar por el menú, también cuente). */
+  function mentionsInText(text) {
+    const body = s(text);
+    if (body.indexOf('@') < 0) return [];
+    return model.members
+      .filter((m) => new RegExp('@' + escapeRx(m.name) + '(?![\\p{L}\\p{N}_])', 'iu').test(body))
+      .map((m) => m.id);
+  }
+  /** Agrega al par (ids, names) las personas mencionadas en el texto. */
+  function withTextMentions(text, ids, names) {
+    const outIds = [...ids], outNames = [...names];
+    for (const id of mentionsInText(text)) {
+      if (outIds.includes(id)) continue;
+      const m = model.members.find((x) => x.id === id);
+      if (m) { outIds.push(m.id); outNames.push(m.name); }
+    }
+    return { ids: outIds, names: outNames };
+  }
+
   function findMember(ref) {
     const raw = s(ref).trim();
     if (!raw) return null;
@@ -174,11 +241,12 @@ export default function mount(shell) {
     if (men.missing.length) {
       return { success: false, error: 'No encontré a: ' + men.missing.join(', ') + '. Personas: ' + memberNames() + '.' };
     }
+    const tagged = withTextMentions(text, men.ids, men.names);
     const payload = {
       text,
       responsibleId: resp ? resp.id : '',
       responsibleName: resp ? resp.name : '',
-      mentionIds: men.ids, mentionNames: men.names,
+      mentionIds: tagged.ids, mentionNames: tagged.names,
       createdAt: stamp(), createdBy: meLabel(), createdById: meId(),
       updatedAt: stamp(), updatedBy: meLabel(),
     };
@@ -232,6 +300,15 @@ export default function mount(shell) {
     if (!Object.keys(next).length) {
       return { success: false, error: 'Nada que cambiar. Campos válidos: text, responsible, mentions.' };
     }
+    // Lo escrito manda: los `@Nombre` del texto también quedan etiquetados.
+    const finalText = next.text != null ? next.text : s(note.text);
+    const tagged = withTextMentions(
+      finalText,
+      next.mentionIds != null ? next.mentionIds : (note.mentionIds || []),
+      next.mentionNames != null ? next.mentionNames : (note.mentionNames || []),
+    );
+    next.mentionIds = tagged.ids;
+    next.mentionNames = tagged.names;
     next.updatedAt = stamp();
     next.updatedBy = meLabel();
     const optimistic = Object.assign({}, note, next);
@@ -267,7 +344,7 @@ export default function mount(shell) {
   /** Trocea una línea en **negrita**, *cursiva*, ~~tachado~~, `código`,
    *  enlaces y @menciones (contra los nombres reales del equipo). */
   function inline(line, key) {
-    const names = model.members.map((m) => m.name).sort((a, b) => b.length - a.length);
+    const people = model.members.slice().sort((a, b) => b.name.length - a.name.length);
     const out = [];
     let buf = '';
     let i = 0;
@@ -297,10 +374,11 @@ export default function mount(shell) {
         continue;
       }
       if (rest[0] === '@') {
-        const hit = names.find((nm) => canon(rest.slice(1, 1 + nm.length)) === canon(nm));
-        const word = hit || (rest.slice(1).match(/^[^\s,.;:]+/) || [''])[0];
+        const hit = people.find((p) => canon(rest.slice(1, 1 + p.name.length)) === canon(p.name));
+        const word = (hit && hit.name) || (rest.slice(1).match(/^[^\s,.;:]+/) || [''])[0];
         if (word) {
-          push(h('span', { key: key + '-' + (n++), className: 'nt-mention' }, '@' + word));
+          push(h('span', { key: key + '-' + (n++), className: 'nt-mention' + (isAi(hit) ? ' nt-mention-ai' : '') },
+            (isAi(hit) ? '🤖 @' : '@') + word));
           i += 1 + word.length;
           continue;
         }
@@ -378,7 +456,7 @@ export default function mount(shell) {
       inputSchema: { type: 'object', properties: {
         text: { type: 'string', description: 'Texto de la nota; \\n para saltos de línea.' },
         responsible: { type: 'string', description: 'id o nombre de la persona responsable' },
-        mentions: { type: 'array', items: { type: 'string' }, description: 'personas a las que va dirigida' },
+        mentions: { type: 'array', items: { type: 'string' }, description: 'personas o agentes IA a los que va dirigida (también sirve escribir @Nombre dentro del texto)' },
       }, required: ['text'] } },
     { name: 'UPDATE_NOTE', description: 'Edita una nota existente: texto, responsable y/o menciones.',
       inputSchema: { type: 'object', properties: {
@@ -409,7 +487,7 @@ export default function mount(shell) {
       getSnapshot: () => ({
         document: model.docName || undefined,
         total: model.notes.length,
-        personas: model.members.map((m) => ({ id: m.id, name: m.name })),
+        personas: model.members.map((m) => ({ id: m.id, name: m.name, tipo: isAi(m) ? 'agente IA' : 'persona' })),
         notas: model.notes.map((n) => ({
           id: n.id, text: n.text,
           responsable: n.responsibleName || null,
@@ -460,6 +538,35 @@ export default function mount(shell) {
 
   // ── UI ──────────────────────────────────────────────────────────────────
 
+  /** Iniciales para el avatar del menú de @menciones. */
+  function initials(name) {
+    const parts = s(name).trim().split(/\s+/).filter(Boolean);
+    return ((parts[0] || '?')[0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+  /** Candidatos para el menú de `@`: empiezan por lo escrito, luego el resto. */
+  function matchMembers(members, query) {
+    const needle = canon(query);
+    if (!needle) return members;
+    const starts = [], has = [];
+    for (const m of members) {
+      const c = canon(m.name);
+      if (c.startsWith(needle)) starts.push(m);
+      else if (c.includes(needle) || canon(m.id).includes(needle)) has.push(m);
+    }
+    return starts.concat(has);
+  }
+  /** `@` escrito justo antes del cursor (o null si el cursor no está en uno). */
+  function mentionTrigger(text, caret) {
+    const upto = s(text).slice(0, caret);
+    const at = upto.lastIndexOf('@');
+    if (at < 0) return null;
+    const before = at > 0 ? upto[at - 1] : '';
+    if (before && !/[\s(["'*_~>-]/.test(before)) return null;   // parte de un correo, no una mención
+    const query = upto.slice(at + 1);
+    if (query.length > 32 || /[\n@]/.test(query)) return null;
+    return { start: at, query };
+  }
+
   /** Selector de personas (chips). `multi` para las menciones. */
   function PeoplePick({ members, value, onChange, multi, empty }) {
     const sel = multi ? (value || []) : (value ? [value] : []);
@@ -478,7 +585,7 @@ export default function mount(shell) {
             if (!multi) { onChange(on ? '' : m.id); return; }
             onChange(on ? sel.filter((x) => x !== m.id) : [...sel, m.id]);
           },
-        }, (on && multi ? '@' : '') + m.name);
+        }, (isAi(m) ? '🤖 ' : '') + (on && multi ? '@' : '') + m.name);
       }),
     );
   }
@@ -490,6 +597,53 @@ export default function mount(shell) {
   function Editor({ value, onChange, onSubmit, onCancel, members, responsible, onResponsible, mentions, onMentions, submitLabel, autoFocus }) {
     const ref = useRef(null);
     const [showPeople, setShowPeople] = useState(false);
+    // Menú de @menciones: {start, query} del `@` que se está escribiendo.
+    const [at, setAt] = useState(null);
+    const [pick, setPick] = useState(0);
+    const closedAt = useRef(-1);
+    const listRef = useRef(null);
+
+    const options = useMemo(() => (at ? matchMembers(members, at.query).slice(0, 8) : []), [at, members]);
+    const menuOpen = !!at && options.length > 0;
+    const active = options[Math.min(pick, options.length - 1)];
+
+    useEffect(() => {
+      const el = listRef.current && listRef.current.querySelector('.nt-mention-opt-on');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }, [pick, menuOpen]);
+
+    /** Recalcula el menú a partir del texto y de dónde está el cursor. */
+    const syncMenu = (text, caret) => {
+      const t = mentionTrigger(text, caret);
+      if (!t || closedAt.current === t.start) { setAt(null); return; }
+      closedAt.current = -1;
+      setAt(t);
+      setPick(0);
+    };
+    const closeMenu = () => { if (at) closedAt.current = at.start; setAt(null); };
+    const caretNow = () => (ref.current ? ref.current.selectionStart : s(value).length);
+    const putCaret = (pos) => setTimeout(() => {
+      const ta = ref.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(pos, pos); }
+    }, 0);
+
+    /** Etiqueta a alguien: deja `@Nombre` en el texto y su chip en la nota. */
+    const tag = (member) => {
+      if (!member || !at) return;
+      const caret = caretNow();
+      const txt = '@' + member.name + ' ';
+      onChange(value.slice(0, at.start) + txt + value.slice(caret));
+      if (!(mentions || []).includes(member.id)) onMentions([...(mentions || []), member.id]);
+      closedAt.current = -1;
+      setAt(null);
+      putCaret(at.start + txt.length);
+    };
+    /** Al destildar a alguien, se va también su `@Nombre` del texto. */
+    const untag = (member) => {
+      if (!member) return;
+      const rx = new RegExp('[ \\t]?@' + escapeRx(member.name) + '(?![\\p{L}\\p{N}_])', 'giu');
+      if (rx.test(value)) onChange(value.replace(rx, ''));
+    };
 
     /** Envuelve la selección (o inserta un ejemplo si no hay selección). */
     const wrap = (mark, sample) => {
@@ -545,31 +699,81 @@ export default function mount(shell) {
         tool('❝', 'Cita', null, () => prefix((l) => '> ' + l)),
         tool('🔗', 'Enlace', null, () => insert('https://')),
         h('span', { className: 'nt-toolsep', key: 'sep2' }),
-        tool('@', 'Mencionar a alguien', null, () => setShowPeople(!showPeople)),
+        tool('@', 'Etiquetar escribiendo @ (personas y agentes IA)', null, () => {
+          const a = caretNow();
+          const txt = (a > 0 && !/\s/.test(value[a - 1]) ? ' ' : '') + '@';
+          const end = ref.current ? ref.current.selectionEnd : a;
+          onChange(value.slice(0, a) + txt + value.slice(end));
+          closedAt.current = -1;
+          setAt({ start: a + txt.length - 1, query: '' });
+          setPick(0);
+          putCaret(a + txt.length);
+        }),
+        tool('👥', 'Elegir de la lista del equipo', null, () => setShowPeople(!showPeople)),
         h('span', { className: 'nt-spacer', key: 'sp' }),
         h('span', { className: 'nt-muted', key: 'hint' },
-          'Enter = salto de línea · ', h('span', { className: 'nt-kbd' }, 'Ctrl+Enter'), ' envía'),
+          h('span', { className: 'nt-kbd' }, '@'), ' etiqueta · Enter = salto de línea · ',
+          h('span', { className: 'nt-kbd' }, 'Ctrl+Enter'), ' envía'),
       ),
-      h('textarea', {
-        ref, className: 'nt-textarea', value, autoFocus: !!autoFocus,
-        placeholder: 'Escribe la nota…  **negrita**, *cursiva*, "- " para viñetas, "1. " para numerar.',
-        onChange: (e) => onChange(e.target.value),
-        onKeyDown: (e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit(); return; }
-          if (e.key === 'Escape' && onCancel) { e.preventDefault(); onCancel(); }
-        },
-      }),
-      showPeople && h('div', { className: 'nt-field' }, 'Mencionar:',
+      h('div', { className: 'nt-ta-wrap' },
+        h('textarea', {
+          ref, className: 'nt-textarea', value, autoFocus: !!autoFocus,
+          placeholder: 'Escribe la nota…  @ para etiquetar, **negrita**, *cursiva*, "- " para viñetas.',
+          role: 'combobox', 'aria-expanded': menuOpen, 'aria-autocomplete': 'list',
+          onChange: (e) => { onChange(e.target.value); syncMenu(e.target.value, e.target.selectionStart); },
+          onClick: (e) => syncMenu(value, e.target.selectionStart),
+          onBlur: () => setAt(null),
+          onKeyUp: (e) => {
+            if (menuOpen && ['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key)) return;
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) syncMenu(value, e.target.selectionStart);
+          },
+          onKeyDown: (e) => {
+            if (menuOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setPick((i) => (i + 1) % options.length); return; }
+              if (e.key === 'ArrowUp') { e.preventDefault(); setPick((i) => (i - 1 + options.length) % options.length); return; }
+              if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); tag(active); return; }
+              if (e.key === 'Escape') { e.preventDefault(); closeMenu(); return; }
+            }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit(); return; }
+            if (e.key === 'Escape' && onCancel) { e.preventDefault(); onCancel(); }
+          },
+        }),
+        menuOpen && h('div', { className: 'nt-mentions', role: 'listbox' },
+          h('div', { className: 'nt-mentions-hd' },
+            at.query ? 'Etiquetar a “' + at.query + '”' : 'Etiquetar a…'),
+          h('div', { className: 'nt-mentions-list', ref: listRef },
+            options.map((mem, i) => h('button', {
+              key: mem.id, type: 'button', role: 'option', 'aria-selected': i === pick,
+              className: 'nt-mention-opt' + (i === pick ? ' nt-mention-opt-on' : ''),
+              onMouseDown: (e) => e.preventDefault(),
+              onMouseEnter: () => setPick(i),
+              onClick: () => tag(mem),
+            },
+              h('span', { className: 'nt-mention-av' + (isAi(mem) ? ' nt-mention-av-ai' : '') },
+                isAi(mem) ? '🤖' : initials(mem.name)),
+              h('span', { className: 'nt-mention-nm' }, mem.name),
+              isAi(mem) && h('span', { className: 'nt-mention-tag' }, 'Agente IA'),
+              (mentions || []).includes(mem.id) && h('span', { className: 'nt-mention-on' }, '✓'),
+            ))),
+          h('div', { className: 'nt-mentions-ft' },
+            h('span', { className: 'nt-kbd' }, '↑↓'), ' moverse · ',
+            h('span', { className: 'nt-kbd' }, 'Enter'), ' etiquetar · ',
+            h('span', { className: 'nt-kbd' }, 'Esc'), ' cerrar'),
+        ),
+      ),
+      showPeople && h('div', { className: 'nt-field' }, 'Etiquetar:',
         h(PeoplePick, {
           members, value: mentions, multi: true,
           onChange: (ids) => {
             const added = ids.filter((x) => !(mentions || []).includes(x));
+            const gone = (mentions || []).filter((x) => !ids.includes(x));
             onMentions(ids);
-            // Al marcar a alguien, deja también su @nombre en el texto.
+            // Chips y texto van juntos: marcar deja el @nombre, desmarcar lo quita.
             for (const id of added) {
-              const m = members.find((x) => x.id === id);
-              if (m && value.indexOf('@' + m.name) < 0) insert((value && !/\s$/.test(value) ? ' ' : '') + '@' + m.name + ' ');
+              const mem = members.find((x) => x.id === id);
+              if (mem && value.indexOf('@' + mem.name) < 0) insert((value && !/\s$/.test(value) ? ' ' : '') + '@' + mem.name + ' ');
             }
+            for (const id of gone) untag(members.find((x) => x.id === id));
           },
         })),
       h('div', { className: 'nt-composer-foot' },
@@ -579,11 +783,15 @@ export default function mount(shell) {
             onChange: (e) => onResponsible(e.target.value),
           },
             h('option', { value: '' }, 'Sin asignar'),
-            members.map((m) => h('option', { key: m.id, value: m.id }, m.name)))),
+            members.map((m) => h('option', { key: m.id, value: m.id }, (isAi(m) ? '🤖 ' : '') + m.name)))),
         (mentions || []).length > 0 && h('span', { className: 'nt-field' }, 'Dirigida a:',
           (mentions || []).map((id) => {
-            const m = members.find((x) => x.id === id);
-            return m && h('span', { key: id, className: 'nt-chip nt-chip-active' }, '@' + m.name);
+            const mem = members.find((x) => x.id === id);
+            return mem && h('button', {
+              key: id, type: 'button', className: 'nt-chip nt-chip-btn nt-chip-active',
+              title: 'Quitar la etiqueta de ' + mem.name,
+              onClick: () => { onMentions((mentions || []).filter((x) => x !== id)); untag(mem); },
+            }, (isAi(mem) ? '🤖 ' : '') + '@' + mem.name, h('span', { className: 'nt-chip-x' }, '×'));
           })),
         h('span', { className: 'nt-spacer' }),
         onCancel && h('button', { className: 'nt-btn', onClick: onCancel }, 'Cancelar'),
@@ -630,7 +838,13 @@ export default function mount(shell) {
           note.responsibleName
             ? h('span', { className: 'nt-chip nt-chip-resp', title: 'Responsable de la nota' }, '◆ ' + note.responsibleName)
             : h('span', { className: 'nt-chip', title: 'Sin responsable' }, 'Sin responsable'),
-          (note.mentionNames || []).map((nm) => h('span', { key: nm, className: 'nt-chip nt-chip-active', title: 'Dirigida a' }, '@' + nm)),
+          (note.mentionNames || []).map((nm, i) => {
+            const mem = m.members.find((x) => x.id === (note.mentionIds || [])[i]) || m.members.find((x) => canon(x.name) === canon(nm));
+            return h('span', {
+              key: nm + i, className: 'nt-chip nt-chip-active',
+              title: isAi(mem) ? 'Dirigida a un agente IA' : 'Dirigida a',
+            }, (isAi(mem) ? '🤖 ' : '') + '@' + nm);
+          }),
         ),
         h('div', { className: 'nt-note-tools' },
           h('button', { className: 'nt-mini', title: 'Editar nota', onClick: startEdit }, '✎ Editar'),

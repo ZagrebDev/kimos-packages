@@ -404,7 +404,9 @@ alineadas. Copia su hoja de estilos como plantilla. Reglas:
 
 - **`apps/kanban`** — `saveData/loadData`, drag&drop nativo, sin agente.
 - **`apps/notas-equipo`** — `shell.items` + agente, edición en la propia tarjeta,
-  redactor con formato (marcas tipo markdown pintadas como elementos React).
+  redactor con formato (marcas tipo markdown pintadas como elementos React) y
+  menú de `@menciones` sobre el textarea (personas y agentes IA de la
+  organización).
 - **`apps/gantt`** — colaboración multiusuario (§5.1), tabla con orden y filtros,
   agente con paridad total sobre la UI.
 - **`apps/fossflow`** — modelo JSON complejo, render SVG isométrico, iconos
