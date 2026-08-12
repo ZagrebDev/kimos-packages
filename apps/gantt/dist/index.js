@@ -15,9 +15,9 @@
  *      trabajar a la vez sobre el mismo plan; cada tarea lleva su `updatedAt`
  *      y gana la edición más reciente, tarea por tarea (no el último PUT
  *      completo). Las bajas se propagan con lápidas (`deletedTasks`) para que
- *      una tarea borrada no reaparezca. Cada guardado es leer-fusionar-escribir
- *      con CAS (`_expectedUpdatedAt`): si alguien escribió en el intertanto se
- *      reintenta sobre la copia fresca en vez de pisarla.
+ *      una tarea borrada no reaparezca. Cada guardado es leer-fusionar-escribir,
+ *      y lo que se cuele en la ventana de red lo repone la auto-reparación.
+ *      TODO vive en este bundle: no toca el backend ni el modelo de datos.
  *   2. Fechas ↔ barra: `taskStartDate`/`taskEndDate` determinan y pintan los
  *      recuadros de la línea temporal; el clic en las celdas define el rango.
  *   3. Filtros por período y responsable + orden por CUALQUIER columna
@@ -242,7 +242,7 @@ export default function mount(shell) {
     granularity: 'weekly', periodsCount: 8, timelineStartDate: '',
     docName: '', me: null, isAdmin: false, loaded: false, error: null,
     // Vista compartida por usuario y agente (el agente puede filtrar/ordenar).
-    tab: '', filterOwner: '', filterPeriod: '', sort: null,
+    tab: '', filterOwner: '', filterPeriod: '', filterEntities: [], sort: null,
     sync: { at: '', saving: 0, offline: false },
   };
   const listeners = new Set();
@@ -318,13 +318,12 @@ export default function mount(shell) {
     return (await res.json()) || {};
   }
   /**
-   * PUT del plan con control de concurrencia optimista: `_expectedUpdatedAt`
-   * es el sello que leímos; si el backend lo soporta y no coincide devuelve
-   * 409 con la copia vigente y reintentamos fusionando sobre ella.
+   * PUT del plan. Se manda el plan ya fusionado con lo que hay en el servidor
+   * (ver doSave); el backend hace merge a nivel de campos, así que el array
+   * `tasks` se reemplaza completo — por eso la fusión tiene que ocurrir aquí.
    */
-  async function putGantt(g, expected) {
+  async function putGantt(g) {
     const body = serializeGantt(g);
-    if (expected) body._expectedUpdatedAt = expected;
     const res = await req(INSTANCE_URL + '/items/' + encodeURIComponent(g.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -376,6 +375,39 @@ export default function mount(shell) {
     next.sync = Object.assign({}, model.sync, { at: stamp(), offline: false });
     model = next;
     if (!quiet) emit();
+    repairLostWrites(remote);
+  }
+
+  /**
+   * Auto-reparación. Si una tarea NUESTRA y RECIENTE ya no está en el servidor
+   * y nadie la borró (no hay lápida que la tape, si no la fusión la habría
+   * descartado), es que otra escritura la pisó en la ventana entre nuestro
+   * read y nuestro write. La reponemos guardando de nuevo.
+   *
+   * Acotado a lo propio y reciente a propósito: así nunca resucita la tarea
+   * que borró otra persona, ni siquiera desde un cliente de una versión vieja
+   * que no escriba lápidas.
+   */
+  const REPAIR_WINDOW_MS = 60000;
+  function repairLostWrites(remoteGantts) {
+    const me = meLabel();
+    const remoteById = new Map(remoteGantts.map((g) => [g.id, g]));
+    for (const g of model.gantts) {
+      if (pendingWrite.has(g.id)) continue;      // ya hay un guardado en camino
+      const rg = remoteById.get(g.id);
+      if (!rg) continue;                          // plan aún no creado en el servidor
+      const mineAndFresh = (by, at) => {
+        if (by !== me || !at) return false;
+        const age = Date.now() - Date.parse(at);
+        return !isNaN(age) && age >= 0 && age < REPAIR_WINDOW_MS;
+      };
+      const remoteIds = new Set((rg.tasks || []).map((t) => t.id));
+      // Alta/edición nuestra que ya no está arriba…
+      const lostTask = (g.tasks || []).some((t) => !remoteIds.has(t.id) && mineAndFresh(t.updatedBy, t.updatedAt));
+      // …o baja nuestra que se deshizo (la tarea sigue arriba pese a la lápida).
+      const lostTomb = tombOf(g).some((d) => remoteIds.has(d.id) && mineAndFresh(d.by, d.at));
+      if (lostTask || lostTomb) queueSave(g.id);
+    }
   }
 
   async function doRefresh(withInstance) {
@@ -400,32 +432,29 @@ export default function mount(shell) {
   /**
    * Guardado leer-fusionar-escribir: relee el plan del servidor, fusiona lo
    * ajeno con lo propio y recién ahí escribe. Ningún cambio de otra persona
-   * se pierde por el simple hecho de que nosotros hayamos guardado después.
+   * se pierde por el hecho de que nosotros hayamos guardado después.
+   *
+   * Queda una ventana mínima —lo que tarda el viaje de red entre el read y el
+   * write— en la que otra escritura podría colarse. Como el backend no ofrece
+   * escritura condicional, esa ventana la cubre la auto-reparación de
+   * `applyRemote`: si al sincronizar falta algo nuestro y reciente que nadie
+   * borró, se vuelve a guardar solo.
    */
   async function doSave(id) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      let expected = null;
-      const items = await fetchItems().catch(() => null);
-      if (items) {
-        applyRemote(items, null);
-        const remote = items.find((it) => it && it.id === id);
-        expected = remote ? s(remote.updatedAt) : null;
-      } else {
-        setModel({ sync: Object.assign({}, model.sync, { offline: true }) });
-      }
-      const merged = model.gantts.find((g) => g.id === id);
-      if (!merged) return;   // el plan dejó de existir (borrado local o remoto)
-      const res = await putGantt(merged, expected);
-      if (res.ok) {
-        setModel({ sync: Object.assign({}, model.sync, { at: stamp(), offline: false }) });
-        return;
-      }
-      if (res.status === 409) continue;                   // alguien escribió: reintenta
-      if (res.status === 404) { pendingDelete.delete(id); return; }
-      shell.notify({ level: 'error', text: 'No se pudo guardar el plan.' });
+    const items = await fetchItems().catch(() => null);
+    if (items) applyRemote(items, null);
+    else setModel({ sync: Object.assign({}, model.sync, { offline: true }) });
+
+    const merged = model.gantts.find((g) => g.id === id);
+    if (!merged) return;   // el plan dejó de existir (borrado local o remoto)
+    const res = await putGantt(merged);
+    if (res.ok) {
+      setModel({ sync: Object.assign({}, model.sync, { at: stamp(), offline: false }) });
       return;
     }
-    shell.notify({ level: 'warn', text: 'El plan cambió mientras guardabas; revisa el resultado.' });
+    if (res.status === 404) { pendingDelete.delete(id); return; }
+    setModel({ sync: Object.assign({}, model.sync, { offline: true }) });
+    shell.notify({ level: 'error', text: 'No se pudo guardar el plan; se reintentará.' });
   }
 
   function queueSave(id) {
@@ -852,9 +881,10 @@ export default function mount(shell) {
       gantt: { type: 'string' }, task: { type: 'string' }, entityNames: { type: 'array', items: { type: 'string' } } }, required: ['task'] } },
     { name: 'DELETE_TASK', description: 'Elimina una tarea.', inputSchema: { type: 'object', properties: {
       gantt: { type: 'string' }, task: { type: 'string' } }, required: ['task'] } },
-    { name: 'SET_FILTER', description: 'Filtra la vista por responsable y/o período. clear:true limpia.', inputSchema: { type: 'object', properties: {
+    { name: 'SET_FILTER', description: 'Filtra la vista por responsable, período y/o atributos (AND). clear:true limpia.', inputSchema: { type: 'object', properties: {
       ownerName: { type: 'string' }, ownerId: { type: 'string' },
-      period: { type: 'string', description: 'id, sigla o índice del período' }, clear: { type: 'boolean' } } } },
+      period: { type: 'string', description: 'id, sigla o índice del período' },
+      entityNames: { type: 'array', items: { type: 'string' } }, clear: { type: 'boolean' } } } },
     { name: 'SET_SORT', description: 'Ordena las tareas por una columna.', inputSchema: { type: 'object', properties: {
       column: { type: 'string', description: 'name|responsible|status|progress|start|end o la sigla/índice de un período' },
       direction: { type: 'string', description: 'asc|desc' }, clear: { type: 'boolean' } } } },
@@ -919,6 +949,8 @@ export default function mount(shell) {
         responsable: model.filterOwner
           ? ((model.members.find((m) => m.id === model.filterOwner) || {}).name || model.filterOwner) : null,
         periodo: model.filterPeriod || null,
+        atributos: (model.filterEntities || [])
+          .map((id) => (model.entities.find((e) => e.id === id) || {}).name).filter(Boolean),
         orden: model.sort ? model.sort.key + ':' + model.sort.dir : null,
       },
       settings: {
@@ -1068,8 +1100,25 @@ export default function mount(shell) {
         }
         case 'DELETE_TASK': return deleteTask(p.gantt, p.task);
         case 'SET_FILTER': {
-          if (p.clear) { setModel({ filterOwner: '', filterPeriod: '' }); return { success: true, message: 'Filtros limpiados.' }; }
+          if (p.clear) {
+            setModel({ filterOwner: '', filterPeriod: '', filterEntities: [] });
+            return { success: true, message: 'Filtros limpiados.' };
+          }
           const patch = {};
+          if (Array.isArray(p.entityNames) || Array.isArray(p.entityIds)) {
+            const names = p.entityNames || p.entityIds;
+            const ids = [];
+            const missing = [];
+            for (const n of names) {
+              const ent = model.entities.find((e) => e.id === n || canon(e.name) === canon(n));
+              if (ent) ids.push(ent.id); else missing.push(s(n));
+            }
+            if (missing.length) {
+              return { success: false, error: 'Atributos no encontrados: ' + missing.join(', ') + '. Disponibles: '
+                + (model.entities.map((e) => '"' + e.name + '"').join(', ') || '(ninguno)') + '.' };
+            }
+            patch.filterEntities = ids;
+          }
           if (p.responsibleId != null || p.ownerName != null) {
             const raw = p.responsibleId != null ? p.responsibleId : p.ownerName;
             if (!s(raw).trim()) patch.filterOwner = '';
@@ -1095,7 +1144,7 @@ export default function mount(shell) {
               patch.filterPeriod = found.id;
             }
           }
-          if (!Object.keys(patch).length) return { success: false, error: 'Indica ownerName, period y/o clear:true.' };
+          if (!Object.keys(patch).length) return { success: false, error: 'Indica ownerName, period, entityNames y/o clear:true.' };
           setModel(patch);
           return { success: true, message: 'Filtros aplicados.' };
         }
@@ -1189,9 +1238,11 @@ export default function mount(shell) {
   }
   function filterTasks(tasks, m) {
     const pIdx = m.filterPeriod ? m.periods.findIndex((p) => p.id === m.filterPeriod) : -1;
+    const ents = m.filterEntities || [];
     return tasks.filter((t) => {
       if (m.filterOwner && t.responsibleId !== m.filterOwner) return false;
       if (pIdx >= 0 && !(t.periods || [])[pIdx]) return false;
+      if (ents.length && !ents.every((id) => (t.entityIds || []).includes(id))) return false;
       return true;
     });
   }
@@ -1250,7 +1301,7 @@ export default function mount(shell) {
     if (!m.loaded) return h('div', { className: 'kimos-gantt' }, h('div', { className: 'kg-empty' }, 'Cargando…'));
     if (m.error) return h('div', { className: 'kimos-gantt' }, h('div', { className: 'kg-empty' }, m.error));
 
-    const filtersOn = !!(m.filterOwner || m.filterPeriod);
+    const filtersOn = !!(m.filterOwner || m.filterPeriod || (m.filterEntities || []).length);
     const syncLabel = m.sync.offline ? 'Sin conexión — reintentando'
       : m.sync.saving ? 'Guardando…'
       : 'En vivo · sincronizado ' + (m.sync.at ? m.sync.at.slice(11, 19) : '—');
@@ -1395,12 +1446,21 @@ export default function mount(shell) {
                 h('option', { value: '' }, 'Período: todos'),
                 m.periods.map((p) => h('option', { key: p.id, value: p.id },
                   p.shortName + ' · ' + dmy(p.startDate) + '–' + dmy(p.endDate)))),
+              enabledEntities.length > 0 && h('select', {
+                className: 'kg-select', title: 'Filtrar por atributo',
+                value: (m.filterEntities || [])[0] || '',
+                onChange: (e) => setModel({ filterEntities: e.target.value ? [e.target.value] : [] }),
+              },
+                h('option', { value: '' }, 'Atributo: todos'),
+                enabledEntities.map((e2) => h('option', { key: e2.id, value: e2.id }, e2.name))),
+              (m.filterEntities || []).length > 1 && h('span', { className: 'kg-chip' },
+                (m.filterEntities || []).length + ' atributos'),
               m.sort && h('span', { className: 'kg-chip' },
                 'Orden: ' + (SORT_COLUMNS[m.sort.key] || ('período ' + (Number(m.sort.key.slice(2)) + 1)))
                 + (m.sort.dir === 'asc' ? ' ↑' : ' ↓')),
               (filtersOn || m.sort) && h('button', {
                 className: 'kg-mini', title: 'Limpiar filtros y orden',
-                onClick: () => setModel({ filterOwner: '', filterPeriod: '', sort: null }),
+                onClick: () => setModel({ filterOwner: '', filterPeriod: '', filterEntities: [], sort: null }),
               }, '✕ limpiar'),
               h('span', { className: 'kg-spacer' }),
               h('span', { className: 'kg-muted' },

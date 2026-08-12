@@ -203,18 +203,23 @@ implementa el patrón completo y es la referencia a copiar:
    y descarta al fusionar todo id con lápida más nueva que su `updatedAt`. Sin
    esto, lo que borra una persona reaparece desde la pantalla de la otra.
 3. **Leer-fusionar-escribir.** Antes de cada `PUT`, relee del servidor, fusiona
-   y recién ahí escribe.
-4. **CAS opcional.** Manda `_expectedUpdatedAt` (el `updatedAt` que leíste) en
-   el body del `PUT` de un item: si otro escribió en el intertanto el backend
-   responde **409** con el item vigente y reintentas fusionando sobre él.
+   y recién ahí escribe. El `PUT` de un item hace merge de campos de primer
+   nivel, así que un array (`tasks`, `cards`…) se reemplaza entero: la fusión
+   tiene que ocurrir en el cliente.
+4. **Auto-reparación.** Queda una ventana mínima (el viaje de red entre el read
+   y el write) donde otra escritura puede quedar pisada. Cada sesión repara lo
+   suyo: si al sincronizar falta algo **propio y reciente** que nadie borró, se
+   vuelve a guardar solo. Acótalo a lo propio y reciente — si no, resucitarás lo
+   que borró otra persona.
 5. **No repintar de más.** Compara una firma del estado visible y emite solo si
    cambió: repintar cada pocos segundos molesta a quien está escribiendo.
 6. **Cadencia según el foco.** Rápido con la ventana enfocada, lento de fondo,
    en pausa si la pestaña no se ve. Y serializa la red mutante en una cadena de
    promesas para no cruzar un guardado con un refresh.
 
-Nada de esto necesita backend a medida ni cambia el modelo de datos: son
-campos añadidos al documento que ya guardas.
+Nada de esto necesita backend a medida ni cambia el modelo de datos: son campos
+añadidos al documento que ya guardas. **No mandes campos de control en el body
+del `PUT`** (`_loQueSea`): el backend los persistiría como parte del item.
 
 ---
 

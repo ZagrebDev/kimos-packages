@@ -31,15 +31,22 @@ cambios de las demás sin recargar:
   distintas del mismo plan no se pisan.
 - **Lápidas** (`deletedTasks`): una tarea borrada no reaparece desde la pantalla
   de otra persona que todavía la tenía cargada. Se purgan a los 30 días.
-- **Guardado leer-fusionar-escribir con CAS**: cada guardado relee el plan,
-  fusiona lo ajeno y escribe con `_expectedUpdatedAt`; si alguien escribió en el
-  intertanto el backend responde 409 y se reintenta sobre la copia fresca.
+- **Guardado leer-fusionar-escribir**: cada guardado relee el plan del servidor,
+  fusiona lo ajeno con lo propio y recién ahí escribe (el backend reemplaza el
+  array `tasks` completo, así que la fusión tiene que pasar aquí).
+- **Auto-reparación**: queda una ventana mínima —lo que tarda el viaje de red
+  entre el read y el write— en la que otra escritura podría colarse y quedar
+  pisada. Como el backend no ofrece escritura condicional, cada sesión repara lo
+  suyo: si al sincronizar falta una tarea **propia y reciente** que nadie borró
+  (o si una baja propia se deshizo), se vuelve a guardar sola en el siguiente
+  ciclo. Está acotado a lo propio y reciente a propósito, para no resucitar
+  nunca lo que borró otra persona.
 - La UI no se repinta si el servidor no trae novedades (no molesta a quien está
   escribiendo), y un indicador muestra **En vivo / Guardando / Sin conexión**.
 
-Todo esto vive en el bundle: no requiere backend a medida ni cambia el modelo de
-datos. El único apoyo del backend es el CAS opcional (`_expectedUpdatedAt`), que
-si no estuviera disponible degrada a leer-fusionar-escribir a secas.
+Todo esto vive **en el bundle**: no toca el backend, no requiere desplegar nada
+en `kimos-enterprice` y no cambia el modelo de datos. Basta con que la instancia
+actualice la app desde este repo.
 
 ## Agente IA
 
@@ -53,7 +60,7 @@ El agente puede hacer **todo lo que se puede hacer en la app**:
 | `UPDATE_TASK_PROGRESS` / `UPDATE_TASK_STATUS` / `UPDATE_TASK_DATES` | Avance, estado y fechas |
 | `SET_TASK_PERIOD` / `UPDATE_TASK_PERIODS` | Tramo de la tarea por períodos |
 | `ASSIGN_ENTITY` | Atributos de una tarea |
-| `SET_FILTER` / `SET_SORT` | Filtrar por responsable/período y ordenar por columna |
+| `SET_FILTER` / `SET_SORT` | Filtrar por responsable, período y atributos, y ordenar por columna |
 | `SET_TIMELINE` / `SET_LABELS` | Línea temporal (admins) y etiquetas de plan/tarea |
 | `RENAME_DOCUMENT` | Renombrar el documento abierto |
 
