@@ -1,0 +1,39 @@
+{
+  "_comentario": [
+    "MODO C — PASOS QUE CAMBIAN EL PRODUCTO (no solo el color).",
+    "Componentes para el panel ranurado: la base y el kit de accesorios que se",
+    "puede incluir o no. Créalos antes de aplicar pasos-con-piezas.json."
+  ],
+  "componentes": [
+    {
+      "name": "Panel ranurado terciado 18mm",
+      "type": "material",
+      "cost": 38000,
+      "currency": "CLP",
+      "stock": 25,
+      "deliveryDays": 3,
+      "specs": "Terciado 18 mm ranurado CNC, 100×60 cm",
+      "tags": "material:terciado"
+    },
+    {
+      "name": "Montaje a muro (kit)",
+      "type": "insumo",
+      "cost": 5200,
+      "currency": "CLP",
+      "stock": 50,
+      "deliveryDays": 2,
+      "specs": "Tarugos, tirafondos y plantilla de perforación",
+      "tags": "insumo:herrajes"
+    },
+    {
+      "name": "Kit de accesorios (repisa + ganchos)",
+      "type": "insumo",
+      "cost": 12000,
+      "currency": "CLP",
+      "stock": 18,
+      "deliveryDays": 3,
+      "specs": "Repisa de 30 cm y 4 ganchos de terciado para el ranurado",
+      "tags": "insumo:accesorios"
+    }
+  ]
+}

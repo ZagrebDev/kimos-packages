@@ -1,0 +1,52 @@
+{
+  "_comentario": [
+    "MODO C — PASOS QUE CAMBIAN EL PRODUCTO, no solo su color.",
+    "El paso 'Accesorios' usa el efecto 3D `hide`: al elegir 'Sin accesorios' la",
+    "repisa y los ganchos DESAPARECEN del modelo en vivo, y el precio baja porque",
+    "ese valor no lleva el componente del kit. Es la demo de que el configurador",
+    "arma el producto, no solo lo pinta.",
+    "",
+    "Requiere componentes.json aplicado antes, y los componentes BASE del panel:",
+    "  UPSERT_PRODUCTO { name: 'Panel Ranurado',",
+    "                    baseComponents: ['Panel ranurado terciado 18mm', 'Montaje a muro (kit)'] }"
+  ],
+  "producto": "Panel Ranurado",
+  "steps": [
+    {
+      "label": "Accesorios",
+      "default": "Con repisa y ganchos",
+      "values": [
+        {
+          "label": "Con repisa y ganchos",
+          "components": ["Kit de accesorios (repisa + ganchos)"],
+          "model3d": []
+        },
+        {
+          "label": "Sin accesorios",
+          "model3d": [{ "partId": "accesorios", "type": "hide" }]
+        }
+      ]
+    },
+    {
+      "label": "Color paneles",
+      "default": "Natural",
+      "values": [
+        { "label": "Natural", "swatchColor": "#f0dfc2", "model3d": [{ "partId": "paneles", "type": "finish", "finishId": "natural" }] },
+        { "label": "Blanco", "swatchColor": "#f2f1ee", "model3d": [{ "partId": "paneles", "type": "finish", "finishId": "blanco" }] },
+        { "label": "Celeste", "swatchColor": "#8fc3e8", "model3d": [{ "partId": "paneles", "type": "finish", "finishId": "celeste" }] },
+        { "label": "Verde", "swatchColor": "#9ec9a3", "model3d": [{ "partId": "paneles", "type": "finish", "finishId": "verde" }] }
+      ]
+    },
+    {
+      "label": "Color accesorios",
+      "default": "Natural",
+      "_comentario": "Paso DEPENDIENTE: solo se ofrece si el cliente eligió llevar accesorios.",
+      "dependsOn": { "step": "Accesorios", "values": ["Con repisa y ganchos"] },
+      "values": [
+        { "label": "Natural", "swatchColor": "#f0dfc2", "model3d": [{ "partId": "accesorios", "type": "finish", "finishId": "natural" }] },
+        { "label": "Rosa", "swatchColor": "#f0a8b8", "model3d": [{ "partId": "accesorios", "type": "finish", "finishId": "rosa" }] },
+        { "label": "Amarillo", "swatchColor": "#f2cf75", "model3d": [{ "partId": "accesorios", "type": "finish", "finishId": "amarillo" }] }
+      ]
+    }
+  ]
+}

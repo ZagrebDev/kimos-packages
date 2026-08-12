@@ -1,0 +1,63 @@
+{
+  "_comentario": [
+    "MODO A — PRECIO REAL DESDE COMPONENTES (el completo).",
+    "Payloads de UPSERT_COMPONENT: créalos ANTES de aplicar pasos-con-precio.json.",
+    "Al agente: 'crea estos componentes' + este JSON (uno por uno o toda la lista).",
+    "Los costos son de PROVEEDOR: el precio de venta lo calcula la app con los",
+    "márgenes de la pestaña Parámetros (por tipo o el global).",
+    "El `type` debe existir en el catálogo de tipos de la app (Parámetros → Tipos):",
+    "si no están, créalos o cambia estos por los tuyos."
+  ],
+  "componentes": [
+    {
+      "name": "Plancha terciado abedul 15mm (1,22×2,44)",
+      "type": "material",
+      "cost": 45000,
+      "currency": "CLP",
+      "stock": 40,
+      "deliveryDays": 3,
+      "supplierName": "Maderas del Sur",
+      "specs": "Terciado de abedul 15 mm, grado BB/BB, cara lijada",
+      "tags": "material:terciado"
+    },
+    {
+      "name": "Kit de herrajes torre",
+      "type": "insumo",
+      "cost": 4500,
+      "currency": "CLP",
+      "stock": 60,
+      "deliveryDays": 2,
+      "specs": "Tornillos, insertos y tuercas de barril",
+      "tags": "insumo:herrajes"
+    },
+    {
+      "name": "Corte CNC y armado",
+      "type": "servicio",
+      "cost": 25000,
+      "currency": "CLP",
+      "deliveryDays": 4,
+      "specs": "Corte, canteado y armado en taller",
+      "tags": "servicio:produccion"
+    },
+    {
+      "name": "Barniz natural al agua",
+      "type": "acabado",
+      "cost": 6000,
+      "currency": "CLP",
+      "stock": 30,
+      "deliveryDays": 2,
+      "specs": "Barniz incoloro al agua, apto para mobiliario infantil",
+      "tags": "acabado:natural"
+    },
+    {
+      "name": "Pintura al agua (color)",
+      "type": "acabado",
+      "cost": 9500,
+      "currency": "CLP",
+      "stock": 25,
+      "deliveryDays": 2,
+      "specs": "Esmalte al agua sin COV, dos manos",
+      "tags": "acabado:color"
+    }
+  ]
+}

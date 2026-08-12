@@ -53,10 +53,23 @@ para llenar `realSizeCm` — el dato que habilita "Ver en tu espacio" (AR).
 Para sumar productos al demo: repetir 3→5 con otro pack (la textura ya está
 subida, así que son dos pasos menos).
 
-## Qué hace falta para que un producto se pueda VENDER
+## Los tres modos de precio (para mostrar en el demo)
 
-Los pasos de estos packs son **acabados** (no suman costo). Para que el precio
-salga de la realidad, dale al producto sus **componentes base** en el Paso 00
-(la plancha de terciado, herrajes, mano de obra) — o pon `priceDelta` en los
-acabados premium. Sin eso el producto se ve y se configura, pero se publica con
-el precio que tenga en la tienda.
+Los `pasos.json` genéricos son **solo acabados**: se ven y se configuran, pero
+no mueven el precio. Eso es de los EJEMPLOS, no del sistema — ProductLab calcula
+precio, margen, stock y entrega desde los componentes. Tres packs traen cada
+modo listo para probar:
+
+| Modo | Pack | Archivos extra | Qué muestra |
+|---|---|---|---|
+| **A · Precio real desde componentes** | `torre-aprendizaje` | `componentes.json` + `pasos-con-precio.json` | El Paso 00 (plancha + herrajes + corte y armado) forma el costo base; cada acabado enlaza su insumo real (barniz vs pintura) → elegir color **sube el precio** y la diferencia se ve en la card. Stock y entrega salen de los componentes. |
+| **B · Recargo simple** | `balancin` | `pasos-con-recargo.json` | Sin modelar costos: precio fijo del producto y `priceDelta` por acabado premium (+$8.000 laterales, +$5.000 peldaños). La vía rápida para vender. |
+| **C · Pasos que cambian el producto** | `panel-ranurado` | `componentes.json` + `pasos-con-piezas.json` | El paso *Accesorios* usa el efecto `hide`: "Sin accesorios" **hace desaparecer la repisa y los ganchos del modelo** y baja el precio (no lleva ese componente). Incluye un paso **dependiente** (el color de los accesorios solo se ofrece si los lleva). |
+
+Los tres conviven en el mismo demo: puedes tener un producto con precio
+calculado, otro con recargos y otro que se arma por piezas.
+
+**Orden para los modos A y C**: crear los componentes (`componentes.json`) →
+`UPSERT_PRODUCTO` con los `baseComponents` que indica el propio archivo →
+aplicar los pasos. Los márgenes salen de la pestaña **Parámetros** (por tipo o
+el global), así que el precio de venta se calcula solo.

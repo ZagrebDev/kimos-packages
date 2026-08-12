@@ -1,0 +1,42 @@
+{
+  "_comentario": [
+    "MODO B — RECARGO SIMPLE (priceDelta), sin modelar costos.",
+    "La vía rápida: el producto mantiene su precio (el de la tienda o uno fijo)",
+    "y los acabados premium suman un recargo fijo. No hay componentes que",
+    "mantener, pero tampoco cálculo de costo, margen ni stock.",
+    "",
+    "Reemplaza a pasos.json. Ideal para mostrar en el demo la diferencia con el",
+    "MODO A (torre-aprendizaje/pasos-con-precio.json): mismo comportamiento 3D,",
+    "distinta profundidad de negocio.",
+    "",
+    "Recuerda poner el producto en precio FIJO o de la TIENDA:",
+    "  UPSERT_PRODUCTO { name: 'Balancín', priceMode: 'fixed', fixedPrice: 89990 }"
+  ],
+  "producto": "Balancín",
+  "steps": [
+    {
+      "label": "Color laterales",
+      "default": "Natural",
+      "values": [
+        { "label": "Natural", "swatchColor": "#f0dfc2", "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "natural" }] },
+        { "label": "Blanco", "swatchColor": "#f2f1ee", "priceDelta": 8000, "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "blanco" }] },
+        { "label": "Rosa", "swatchColor": "#f0a8b8", "priceDelta": 8000, "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "rosa" }] },
+        { "label": "Celeste", "swatchColor": "#8fc3e8", "priceDelta": 8000, "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "celeste" }] },
+        { "label": "Verde", "swatchColor": "#9ec9a3", "priceDelta": 8000, "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "verde" }] },
+        { "label": "Amarillo", "swatchColor": "#f2cf75", "priceDelta": 8000, "model3d": [{ "partId": "laterales", "type": "finish", "finishId": "amarillo" }] }
+      ]
+    },
+    {
+      "label": "Color peldaños",
+      "default": "Natural",
+      "values": [
+        { "label": "Natural", "swatchColor": "#f0dfc2", "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "natural" }] },
+        { "label": "Blanco", "swatchColor": "#f2f1ee", "priceDelta": 5000, "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "blanco" }] },
+        { "label": "Rosa", "swatchColor": "#f0a8b8", "priceDelta": 5000, "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "rosa" }] },
+        { "label": "Celeste", "swatchColor": "#8fc3e8", "priceDelta": 5000, "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "celeste" }] },
+        { "label": "Verde", "swatchColor": "#9ec9a3", "priceDelta": 5000, "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "verde" }] },
+        { "label": "Amarillo", "swatchColor": "#f2cf75", "priceDelta": 5000, "model3d": [{ "partId": "peldanos", "type": "finish", "finishId": "amarillo" }] }
+      ]
+    }
+  ]
+}
