@@ -11,7 +11,7 @@ acoplamiento del theme y operación diaria.
 | Pieza | Requisito |
 |---|---|
 | KIMOS (kimos-enterprice) | Backend jul-2026+ (persistencia de `permissions` en installs de registry, gateway público, AR GLB). Desplegado con setup-kimos. |
-| App **Productos** v2.1+ | Instalada, con credenciales Jumpseller cargadas en Integraciones (login + authtoken), instancia vinculada y catálogo importado (`sync-to-apps`). |
+| App **Productos** v2.1+ | Instalada, con credenciales Jumpseller cargadas en Integraciones, instancia vinculada y catálogo importado (`sync-to-apps`). Las credenciales son los **dos códigos** del recuadro **API** en Jumpseller → menú de usuario → **Cuenta**: un *Login* (un código, no el email) y un *Auth Token* de 32 caracteres. |
 | Usuario operador | Escritura en el equipo dueño de la instancia de Productos (el push usa su RBAC vía `shell.authFetch`). |
 | Theme Jumpseller | Cualquier theme con las dependencias de §3 (Streamly funciona tal cual; otros requieren adaptar el add-to-cart). |
 

@@ -39,7 +39,9 @@ para llenar `realSizeCm` — el dato que habilita "Ver en tu espacio" (AR).
 1. **Plataforma lista**: despliega con setup-kimos e instala desde la Tienda de
    aplicaciones **Productos** y **ProductLab**.
 2. **Conecta la tienda**: KIMOS → Configuración → Integraciones → Jumpseller →
-   login + authtoken → *Probar conexión* → *Sincronizar*.
+   Login + Auth Token → *Probar conexión* → *Sincronizar*. Los dos códigos están
+   juntos en Jumpseller: menú de usuario → **Cuenta** → recuadro **API**. El
+   Login es un código, no el email de la cuenta.
 3. **Crea el producto** en ProductLab con el nombre del pack.
 4. **Visor 3D** → activar → subir el `.glb`; en **Acabados**, subir
    `plywood_col.webp`. Copiar ambas URLs al `model3d.json` y aplicarlo
