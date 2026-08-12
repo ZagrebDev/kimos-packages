@@ -405,6 +405,73 @@
         "newConnStyle": "solid",
         "newConnArrow": "arrow"
       }
+    },
+    {
+      "id": "funplai",
+      "name": "Kimos FunPlai",
+      "description": "Juegos interactivos para tótem: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara + detección de pose), 'Lanza y acierta - Rayuela' (táctil, gesto o tracker externo) y 'LaserGun' (pistola IR o puntero). Todo editable desde la app: nombres, textos, colores, temática, dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA.",
+      "icon": "🎉",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos FunPlai",
+        "fields": [
+          {
+            "key": "theme",
+            "label": "Temática",
+            "type": "select",
+            "options": [
+              {
+                "value": "fiestas-patrias",
+                "label": "Fiestas Patrias de Chile"
+              },
+              {
+                "value": "neutro",
+                "label": "Neutro Kimos"
+              },
+              {
+                "value": "verano",
+                "label": "Verano / playa"
+              }
+            ],
+            "help": "Cambia colores y adornos de todas las pantallas."
+          },
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca del cliente; vacío usa el del tema."
+          },
+          {
+            "key": "idleSeconds",
+            "label": "Volver al inicio tras inactividad (s)",
+            "type": "number",
+            "min": 0,
+            "max": 900,
+            "help": "0 = nunca. Modo kiosco para ferias y eventos."
+          },
+          {
+            "key": "camaraHabilitada",
+            "label": "Permitir juegos con cámara",
+            "type": "boolean",
+            "help": "Desactívalo en tótems sin cámara o donde no se permita su uso."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "theme": "fiestas-patrias",
+        "accent": "#D52B1E",
+        "idleSeconds": 120,
+        "camaraHabilitada": true
+      }
     }
   ]
 }

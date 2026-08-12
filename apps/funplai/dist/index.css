@@ -1,0 +1,304 @@
+/* Kimos FunPlai — estilos con scope en .kimos-funplai (no filtran al shell). */
+
+.kimos-funplai {
+  --fp-accent: #D52B1E;
+  --fp-accent2: #0039A6;
+  --fp-bg: #12213F;
+  --fp-bg2: #0B1730;
+  --fp-surface: #F6F1E4;
+  --fp-ink: #1B2436;
+  --fp-radius: 18px;
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, var(--fp-bg), var(--fp-bg2));
+  color: #fff;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.kimos-funplai *,
+.kimos-funplai *::before,
+.kimos-funplai *::after { box-sizing: border-box; }
+
+.kimos-funplai h1, .kimos-funplai h2, .kimos-funplai h3, .kimos-funplai h4,
+.kimos-funplai p, .kimos-funplai ul, .kimos-funplai ol { margin: 0; }
+.kimos-funplai ul, .kimos-funplai ol { padding-left: 1.2em; }
+
+/* ── Botones ─────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .12s ease, background .12s ease, opacity .12s ease;
+  min-height: 46px;
+}
+.kimos-funplai .fp-btn:hover { background: rgba(255, 255, 255, .18); }
+.kimos-funplai .fp-btn:active { transform: scale(.97); }
+.kimos-funplai .fp-btn:disabled { opacity: .5; cursor: default; }
+.kimos-funplai .fp-btn--primary {
+  background: var(--fp-accent);
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+  font-size: 17px;
+  padding: 14px 26px;
+}
+.kimos-funplai .fp-btn--soft { background: rgba(255, 255, 255, .16); }
+.kimos-funplai .fp-btn--ghost { background: transparent; border-color: rgba(255, 255, 255, .28); }
+.kimos-funplai .fp-btn--danger { background: #7f1d1d; border-color: transparent; }
+.kimos-funplai .fp-linkbtn {
+  background: none; border: 0; color: #9fd0ff; cursor: pointer;
+  text-decoration: underline; font-size: 13px; padding: 0 6px;
+}
+
+.kimos-funplai .fp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .18);
+  font-size: 13px; font-weight: 600; color: #fff; cursor: default;
+}
+.kimos-funplai button.fp-chip { cursor: pointer; }
+.kimos-funplai .fp-chip--accent { background: var(--fp-accent); border-color: transparent; }
+.kimos-funplai .fp-chip--ok { background: #15803d; border-color: transparent; }
+.kimos-funplai .fp-chip.is-on { background: var(--fp-accent2); border-color: transparent; }
+.kimos-funplai .fp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+/* ── Portada ─────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-home {
+  position: relative; flex: 1; display: flex; flex-direction: column;
+  overflow: auto; padding: 0 0 18px;
+}
+.kimos-funplai .fp-stage-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+.kimos-funplai .fp-stage-svg { width: 100%; height: 100%; display: block; }
+.kimos-funplai .fp-garland-wrap { position: absolute; top: 0; left: 0; right: 0; }
+.kimos-funplai .fp-garland { width: 100%; height: 110px; display: block; }
+
+.kimos-funplai .fp-home-head,
+.kimos-funplai .fp-hero,
+.kimos-funplai .fp-cards,
+.kimos-funplai .fp-home-foot { position: relative; z-index: 1; }
+
+.kimos-funplai .fp-home-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 96px 22px 0; flex-wrap: wrap;
+}
+.kimos-funplai .fp-brand { display: flex; align-items: center; gap: 14px; }
+.kimos-funplai .fp-brand-logo { font-size: 40px; }
+.kimos-funplai .fp-brand h1 { font-size: 26px; letter-spacing: -.02em; }
+.kimos-funplai .fp-brand p { font-size: 14px; opacity: .75; }
+.kimos-funplai .fp-home-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.kimos-funplai .fp-hero { text-align: center; padding: 18px 22px 8px; }
+.kimos-funplai .fp-hero-rosette { filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .45)); }
+.kimos-funplai .fp-hero h2 { font-size: 34px; margin-top: 10px; letter-spacing: -.02em; }
+.kimos-funplai .fp-hero p { opacity: .8; margin-top: 6px; font-size: 16px; }
+
+.kimos-funplai .fp-cards {
+  display: grid; gap: 16px; padding: 18px 22px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.kimos-funplai .fp-card {
+  display: flex; flex-direction: column; gap: 8px; text-align: left;
+  padding: 22px; border-radius: var(--fp-radius); cursor: pointer;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .2);
+  backdrop-filter: blur(6px);
+  color: #fff; transition: transform .14s ease, background .14s ease;
+  min-height: 180px;
+}
+.kimos-funplai .fp-card:hover { background: rgba(255, 255, 255, .17); transform: translateY(-3px); }
+.kimos-funplai .fp-card:active { transform: scale(.985); }
+.kimos-funplai .fp-card-icon { font-size: 42px; }
+.kimos-funplai .fp-card-name { font-size: 21px; font-weight: 700; }
+.kimos-funplai .fp-card-blurb { font-size: 14px; opacity: .78; flex: 1; }
+.kimos-funplai .fp-card-tag {
+  align-self: flex-start; font-size: 12px; font-weight: 700;
+  padding: 5px 12px; border-radius: 999px; background: var(--fp-accent2);
+}
+.kimos-funplai .fp-home-foot {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 10px 22px; opacity: .8; font-size: 13px; margin-top: auto;
+}
+.kimos-funplai .fp-foot-art { display: flex; align-items: center; gap: 12px; }
+.kimos-funplai .fp-empty { opacity: .7; padding: 20px; text-align: center; }
+
+/* ── Chrome de juego ─────────────────────────────────────────────────── */
+.kimos-funplai .fp-game { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-game-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 18px; background: rgba(0, 0, 0, .28); flex-wrap: wrap;
+}
+.kimos-funplai .fp-game-title { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 700; }
+.kimos-funplai .fp-game-icon { font-size: 24px; }
+.kimos-funplai .fp-meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.kimos-funplai .fp-game-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.kimos-funplai .fp-hint { text-align: center; padding: 10px 18px 16px; opacity: .85; font-size: 15px; }
+
+/* ── Juego del burro ─────────────────────────────────────────────────── */
+.kimos-funplai .fp-burro-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-burro-svg {
+  flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
+}
+.kimos-funplai .fp-mira { pointer-events: none; }
+.kimos-funplai .fp-cola { transition: none; }
+.kimos-funplai .fp-cola.is-active { filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .45)); }
+.kimos-funplai .fp-live-score { font: 700 34px ui-sans-serif, system-ui; fill: #111827; }
+.kimos-funplai .fp-hit-score { font: 800 44px ui-sans-serif, system-ui; fill: #111827; paint-order: stroke; stroke: #fff; stroke-width: 8px; }
+.kimos-funplai .fp-svg-label { font: 700 26px ui-sans-serif, system-ui; fill: #fff; }
+.kimos-funplai .fp-svg-sub { font: 600 20px ui-sans-serif, system-ui; fill: rgba(255, 255, 255, .8); }
+.kimos-funplai .fp-svg-score { font: 800 30px ui-sans-serif, system-ui; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .6); stroke-width: 6px; }
+.kimos-funplai .fp-svg-warn { font: 800 22px ui-sans-serif, system-ui; fill: #fff; }
+
+/* ── Resultado ───────────────────────────────────────────────────────── */
+.kimos-funplai .fp-result {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 26px; text-align: center;
+}
+.kimos-funplai .fp-result h2 { font-size: 30px; }
+.kimos-funplai .fp-result-score { font-size: 78px; font-weight: 800; line-height: 1; color: var(--fp-accent); }
+.kimos-funplai .fp-result-score small { font-size: 26px; opacity: .6; color: #fff; }
+.kimos-funplai .fp-result-stars { font-size: 34px; letter-spacing: 6px; color: #FFD54F; }
+.kimos-funplai .fp-result-msg { font-size: 17px; opacity: .9; max-width: 620px; }
+.kimos-funplai .fp-result-detail { margin-top: 4px; }
+.kimos-funplai .fp-result-save { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+.kimos-funplai .fp-result-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+
+/* ── Baile ───────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-intro {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center;
+}
+.kimos-funplai .fp-intro-svg { width: 260px; height: 320px; }
+.kimos-funplai .fp-steps { text-align: left; max-width: 520px; opacity: .88; line-height: 1.7; }
+.kimos-funplai .fp-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.kimos-funplai .fp-privacy { font-size: 13px; opacity: .7; max-width: 560px; }
+.kimos-funplai .fp-error { color: #fecaca; background: rgba(127, 29, 29, .5); padding: 10px 14px; border-radius: 12px; }
+
+.kimos-funplai .fp-dance {
+  flex: 1; display: grid; gap: 16px; padding: 16px; min-height: 0;
+  grid-template-columns: 1fr; align-content: start;
+}
+@media (min-width: 900px) { .kimos-funplai .fp-dance { grid-template-columns: 1fr 1fr; } }
+.kimos-funplai .fp-dance-avatar { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.kimos-funplai .fp-avatar-svg { width: 100%; max-height: 46vh; }
+.kimos-funplai .fp-dance-step { text-align: center; }
+.kimos-funplai .fp-dance-step b { display: block; font-size: 22px; }
+.kimos-funplai .fp-dance-step span { opacity: .75; font-size: 15px; }
+.kimos-funplai .fp-dance-cam { position: relative; display: flex; flex-direction: column; gap: 10px; }
+
+.kimos-funplai .fp-cam { position: relative; border-radius: var(--fp-radius); overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.kimos-funplai .fp-cam.is-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.kimos-funplai .fp-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.kimos-funplai .fp-video.is-mirror { transform: scaleX(-1); }
+.kimos-funplai .fp-video--mini { width: 200px; height: 150px; border-radius: 12px; }
+.kimos-funplai .fp-skeleton,
+.kimos-funplai .fp-silhouette { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.kimos-funplai .fp-cam-notice {
+  position: absolute; left: 10px; bottom: 10px; font-size: 12px; font-weight: 700;
+  background: rgba(0, 0, 0, .6); color: #fca5a5; padding: 6px 12px; border-radius: 999px;
+}
+.kimos-funplai .fp-calib { text-align: center; }
+.kimos-funplai .fp-calib b { display: block; font-size: 19px; }
+.kimos-funplai .fp-calib span { opacity: .8; font-size: 15px; }
+.kimos-funplai .fp-count {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 110px; font-weight: 800; color: #fff; text-shadow: 0 8px 30px rgba(0, 0, 0, .6);
+  pointer-events: none;
+}
+.kimos-funplai .fp-progress { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, .16); overflow: hidden; }
+.kimos-funplai .fp-progress i { display: block; height: 100%; background: var(--fp-accent); transition: width .2s linear; }
+.kimos-funplai .fp-scorebar {
+  position: relative; height: 26px; border-radius: 999px; background: rgba(255, 255, 255, .16); overflow: hidden;
+}
+.kimos-funplai .fp-scorebar i { display: block; height: 100%; background: linear-gradient(90deg, var(--fp-accent2), var(--fp-accent)); transition: width .15s linear; }
+.kimos-funplai .fp-scorebar b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; }
+
+/* ── Lanza y acierta / LaserGun ──────────────────────────────────────── */
+.kimos-funplai .fp-lanza-wrap,
+.kimos-funplai .fp-laser-wrap { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-lanza-svg,
+.kimos-funplai .fp-laser-svg { flex: 1; width: 100%; min-height: 0; display: block; touch-action: none; cursor: crosshair; }
+/* El SVG conserva su proporción: el fondo evita bandas negras en el tótem. */
+.kimos-funplai .fp-lanza-svg { background: linear-gradient(#123C6B, #2E7BB8 26%, #5E8C3A 26%); }
+.kimos-funplai .fp-laser-svg { background: linear-gradient(#0B2E5B, #3E86C4 60%, #5E8C3A); }
+.kimos-funplai .fp-lanza-wrap .fp-video--mini { position: absolute; top: 10px; right: 10px; z-index: 2; }
+
+/* ── Paneles (ranking, editor, diagnóstico) ──────────────────────────── */
+.kimos-funplai .fp-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 18px; background: rgba(0, 0, 0, .3); flex-wrap: wrap;
+}
+.kimos-funplai .fp-panel-head h2 { font-size: 20px; }
+.kimos-funplai .fp-saved { font-size: 12px; opacity: .6; }
+.kimos-funplai .fp-panel-body { flex: 1; overflow: auto; padding: 18px; }
+.kimos-funplai .fp-lead { opacity: .85; margin-bottom: 12px; max-width: 780px; line-height: 1.6; }
+.kimos-funplai .fp-note { opacity: .7; font-size: 13px; margin-top: 12px; }
+.kimos-funplai .fp-h3 { margin: 20px 0 10px; font-size: 18px; }
+.kimos-funplai .fp-h4 { margin: 18px 0 8px; font-size: 15px; opacity: .8; grid-column: 1 / -1; }
+
+.kimos-funplai .fp-tabs { display: flex; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap; }
+.kimos-funplai .fp-tab {
+  border: 0; background: rgba(255, 255, 255, .08); color: #fff; cursor: pointer;
+  padding: 10px 18px; border-radius: 12px 12px 0 0; font-weight: 600; font-size: 14px;
+}
+.kimos-funplai .fp-tab.is-on { background: rgba(255, 255, 255, .18); }
+
+.kimos-funplai .fp-form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.kimos-funplai .fp-field { display: flex; flex-direction: column; gap: 6px; }
+.kimos-funplai .fp-field > label { font-size: 13px; font-weight: 600; opacity: .85; }
+.kimos-funplai .fp-field small { font-size: 12px; opacity: .6; }
+.kimos-funplai .fp-input {
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .2);
+  color: #fff; border-radius: 12px; padding: 11px 14px; font-size: 15px; font-family: inherit;
+  width: 100%; min-height: 44px;
+}
+.kimos-funplai .fp-input:focus { outline: 2px solid var(--fp-accent); }
+.kimos-funplai select.fp-input option { color: #111; }
+.kimos-funplai textarea.fp-input { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.kimos-funplai .fp-switch { display: flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; }
+.kimos-funplai .fp-switch input { width: 22px; height: 22px; accent-color: var(--fp-accent); }
+.kimos-funplai .fp-range { display: flex; align-items: center; gap: 12px; }
+.kimos-funplai .fp-range input { flex: 1; accent-color: var(--fp-accent); }
+
+.kimos-funplai .fp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.kimos-funplai .fp-table th, .kimos-funplai .fp-table td {
+  text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+.kimos-funplai .fp-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+
+.kimos-funplai .fp-diag-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.kimos-funplai .fp-diag-card {
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: var(--fp-radius); padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.kimos-funplai .fp-diag-card h3 { font-size: 15px; }
+.kimos-funplai .fp-diag-card ul { font-size: 13px; line-height: 1.7; opacity: .9; }
+.kimos-funplai .fp-diag-card code { font-size: 12px; word-break: break-all; }
+.kimos-funplai .fp-target-test {
+  height: 110px; border-radius: 12px; border: 2px dashed rgba(255, 255, 255, .35);
+  display: grid; place-items: center; cursor: crosshair; font-size: 14px; opacity: .9; touch-action: none;
+}
+
+.kimos-funplai .fp-loading {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; opacity: .85;
+}
+
+/* Tótem vertical: una sola columna y tipografías mayores. */
+@media (max-aspect-ratio: 3/4) {
+  .kimos-funplai .fp-cards { grid-template-columns: 1fr; }
+  .kimos-funplai .fp-hero h2 { font-size: 40px; }
+  .kimos-funplai .fp-card-name { font-size: 24px; }
+  .kimos-funplai .fp-btn { font-size: 17px; min-height: 54px; }
+}
