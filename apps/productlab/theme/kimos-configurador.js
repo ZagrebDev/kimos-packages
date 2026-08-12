@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.21.1';
+  var VERSION = '5.22.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -907,6 +907,13 @@
       sec.appendChild(head);
 
       var cards = el('div', 'kc-cards');
+      // Paso de COLOR: si sus valores traen swatch y ninguno foto, las cards
+      // se pintan como muestras grandes de color (el nombre debajo) en vez de
+      // cajas con hueco de imagen — es lo que se espera al elegir un tono.
+      var valsK = (kg && kg.values) || [];
+      var esPasoColor = valsK.length > 0
+        && valsK.every(function (x) { return x.swatchColor && !x.imageUrl; });
+      if (esPasoColor) cards.setAttribute('data-modo', 'color');
       g.values.forEach(function (v) {
         var kv = kg ? (kg.values || []).filter(function (x) { return norm(x.name) === norm(v.name); })[0] : null;
         if (esRelleno(kv)) return;   // relleno: no se ofrece cuando el paso se ve
@@ -2365,12 +2372,32 @@
           panelBox = el('div', 'kc-panel');
           confView = el('div', 'kc-panel-foto');
           if (has3d) {
+            confPanel.setAttribute('data-viewer', '3d');
             var cv = el('canvas', 'kc-canvas');
             confView.appendChild(cv);
             var msg = el('div', 'kc-canvas-msg', 'Cargando 3D…');
             confView.appendChild(msg);
             loadEngine().then(function (eng) {
               viewer = eng.createViewer(cv, { podium: false });
+              // Ver en grande: el visor a pantalla completa (y de vuelta con
+              // Esc). El motor necesita que se le avise del nuevo tamaño.
+              var exp = el('button', 'kc-canvas-exp', '⤢');
+              exp.type = 'button';
+              exp.title = 'Ver en grande';
+              exp.setAttribute('aria-label', 'Ver el modelo en grande');
+              var grande = false;
+              var alternar = function () {
+                grande = !grande;
+                confView.classList.toggle('kc-3d-full', grande);
+                exp.textContent = grande ? '✕' : '⤢';
+                exp.title = grande ? 'Salir de pantalla completa' : 'Ver en grande';
+                setTimeout(function () { if (viewer && viewer.resize) viewer.resize(); }, 60);
+              };
+              exp.addEventListener('click', alternar);
+              document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape' && grande) alternar();
+              });
+              confView.appendChild(exp);
               return viewer.setModel({
                 url: entry.model3d.url, rotation: entry.model3d.rotation,
                 mirror: entry.model3d.mirror, parts: entry.model3d.parts,
