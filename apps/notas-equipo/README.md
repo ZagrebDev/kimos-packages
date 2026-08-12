@@ -2,9 +2,14 @@
 
 **Versión actual: 2.2.0** — la app la muestra en su cabecera (`v2.2.0`, junto al
 nombre del documento), así se sabe de un vistazo qué build quedó instalado al
-probar. El número vive en tres lugares que deben ir siempre juntos:
-`manifest.json` (`version`), la constante `APP_VERSION` de `dist/index.js` y
-esta línea del README.
+probar. El número vive en **cuatro** lugares que deben ir siempre juntos:
+
+1. `manifest.json` de la app (`version`);
+2. la constante `APP_VERSION` de `dist/index.js` (la que pinta el chip);
+3. el **catálogo raíz del repo** (`/manifest.json` → `apps[] → notas-equipo`),
+   que es lo que lee la Tienda de KIMOS: **si este no sube, no aparece la
+   actualización** aunque el resto esté al día;
+4. esta línea del README y la tabla de versiones del final.
 
 Bloc de notas del equipo, multi-instancia (cada documento es un bloc distinto).
 Cada nota es un item de la instancia (`shell.items`), así que dos personas
@@ -86,7 +91,8 @@ Bundle ESM puro (`dist/index.js` + `dist/index.css`) que usa `globalThis.React`
 | 2.0.0 | Notas editables, responsable y menciones, redactor con formato, pestañas *Para mí* / *A mi cargo*, actualización en vivo. |
 | 1.x | Bloc de notas simple por instancia, con agente. |
 
-Al publicar un cambio hay que subir el número en `manifest.json` y en
-`APP_VERSION` (`dist/index.js`) a la vez, y anotar aquí qué trae: el host cachea
-el bundle por versión, y la cabecera es lo que se mira para confirmar que el
-KIMOS de pruebas ya tomó el build nuevo.
+Al publicar un cambio hay que subir el número en los cuatro lugares de arriba
+—incluido el catálogo raíz `/manifest.json`, que es de donde la Tienda saca la
+versión ofrecida— y anotar aquí qué trae: el host cachea el bundle por versión,
+y la cabecera es lo que se mira para confirmar que el KIMOS de pruebas ya tomó
+el build nuevo.
