@@ -1,0 +1,100 @@
+{
+  "_comentario": [
+    "Payload de SET_MODEL3D para \"Panel Ranurado\" (mueble infantil de terciado).",
+    "ANTES DE USARLO: sube el .glb y la textura desde la app (pestaña Visor 3D)",
+    "y reemplaza las URLs REEMPLAZAR_… por las que devuelve la plataforma.",
+    "realSizeCm (100) se midió del propio GLB: es lo que habilita \"Ver en tu espacio\" (AR)."
+  ],
+  "producto": "Panel Ranurado",
+  "url": "REEMPLAZAR_URL_DE_panel_ranurado.glb",
+  "enabled": true,
+  "publish": true,
+  "rotation": [
+    -1.5707963267948966,
+    0,
+    0
+  ],
+  "realSizeCm": 100,
+  "parts": [
+    {
+      "id": "paneles",
+      "label": "Paneles",
+      "materials": [
+        "paneles"
+      ],
+      "defaultColor": "#e8dcc8",
+      "defaultFinish": "natural"
+    },
+    {
+      "id": "accesorios",
+      "label": "Accesorios",
+      "materials": [
+        "accesorios"
+      ],
+      "defaultColor": "#e8dcc8",
+      "defaultFinish": "natural"
+    }
+  ],
+  "finishes": [
+    {
+      "id": "natural",
+      "label": "Natural",
+      "color": "#f0dfc2",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.65,
+      "textureScale": 2,
+      "grain": 0.25,
+      "triplanar": true
+    },
+    {
+      "id": "blanco",
+      "label": "Blanco",
+      "color": "#f2f1ee",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.55,
+      "textureScale": 2,
+      "grain": 0.12,
+      "triplanar": true
+    },
+    {
+      "id": "rosa",
+      "label": "Rosa",
+      "color": "#f0a8b8",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.55,
+      "textureScale": 2,
+      "grain": 0.12,
+      "triplanar": true
+    },
+    {
+      "id": "celeste",
+      "label": "Celeste",
+      "color": "#8fc3e8",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.55,
+      "textureScale": 2,
+      "grain": 0.12,
+      "triplanar": true
+    },
+    {
+      "id": "verde",
+      "label": "Verde",
+      "color": "#9ec9a3",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.55,
+      "textureScale": 2,
+      "grain": 0.12,
+      "triplanar": true
+    },
+    {
+      "id": "amarillo",
+      "label": "Amarillo",
+      "color": "#f2cf75",
+      "texture": "REEMPLAZAR_URL_DE_plywood_col.webp",
+      "roughness": 0.55,
+      "textureScale": 2,
+      "grain": 0.12,
+      "triplanar": true
+    }
+  ]
+}

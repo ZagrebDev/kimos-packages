@@ -1,0 +1,83 @@
+{
+  "_comentario": [
+    "Payload de SET_PRODUCTO_STEPS para \"Pieza de Unión\": un paso por parte, un valor",
+    "por acabado, cada uno vinculado al 3D — la elección del cliente repinta el modelo.",
+    "Los valores con efectos `model3d` son acabados del visor: no necesitan componentes.",
+    "Si quieres cobrar un acabado, agrégale \"priceDelta\" (o enlázale un componente)."
+  ],
+  "producto": "Pieza de Unión",
+  "steps": [
+    {
+      "label": "Color madera",
+      "default": "Natural",
+      "values": [
+        {
+          "label": "Natural",
+          "swatchColor": "#f0dfc2",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "natural"
+            }
+          ]
+        },
+        {
+          "label": "Blanco",
+          "swatchColor": "#f2f1ee",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "blanco"
+            }
+          ]
+        },
+        {
+          "label": "Rosa",
+          "swatchColor": "#f0a8b8",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "rosa"
+            }
+          ]
+        },
+        {
+          "label": "Celeste",
+          "swatchColor": "#8fc3e8",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "celeste"
+            }
+          ]
+        },
+        {
+          "label": "Verde",
+          "swatchColor": "#9ec9a3",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "verde"
+            }
+          ]
+        },
+        {
+          "label": "Amarillo",
+          "swatchColor": "#f2cf75",
+          "model3d": [
+            {
+              "partId": "madera",
+              "type": "finish",
+              "finishId": "amarillo"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

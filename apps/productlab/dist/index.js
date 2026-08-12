@@ -1453,7 +1453,13 @@ export default function mount(shell) {
       grain: num(f.grain, 0),
       opacity: f.opacity == null || f.opacity === '' ? 1 : num(f.opacity, 1),
       triplanar: f.triplanar !== false,
+      // Terciado: espesor de cada lámina. Vacío = se deduce del espesor real
+      // que trae el GLB (plyThickness de sus extras).
       plySpacing: f.plySpacing == null || f.plySpacing === '' ? null : num(f.plySpacing, 0),
+      // Relieve del grano (0 = plano) e intensidad del reflejo del entorno:
+      // el motor ya los usa; sin persistirlos se perdían al guardar.
+      bump: f.bump == null || f.bump === '' ? 0 : num(f.bump, 0),
+      envIntensity: f.envIntensity == null || f.envIntensity === '' ? 1 : num(f.envIntensity, 1),
     })).filter((f) => f.label || f.texture || f.color);
     // Sin modelo ni partes no hay nada que guardar: se deja limpio.
     if (!url && !parts.length) return null;
