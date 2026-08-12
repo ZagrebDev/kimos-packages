@@ -312,6 +312,34 @@
 .kimos-funplai .fp-gato-fin { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
 .kimos-funplai .fp-gato-fin b { font-size: 22px; }
 
+/* Selección de rival y de ficha (gato) */
+.kimos-funplai .fp-setup {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 24px; text-align: center;
+}
+.kimos-funplai .fp-setup h2 { font-size: 24px; }
+.kimos-funplai .fp-setup-ops,
+.kimos-funplai .fp-fichas { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.kimos-funplai .fp-setup-op,
+.kimos-funplai .fp-ficha-op {
+  background: rgba(255, 255, 255, .08); border: 3px solid transparent; color: #fff;
+  border-radius: var(--fp-radius); padding: 18px 22px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 190px;
+  transition: transform .12s ease, background .12s ease;
+}
+.kimos-funplai .fp-setup-op:active,
+.kimos-funplai .fp-ficha-op:active { transform: scale(.97); }
+.kimos-funplai .fp-setup-op.is-on,
+.kimos-funplai .fp-ficha-op.is-on { border-color: var(--fp-accent); background: rgba(255, 255, 255, .17); }
+.kimos-funplai .fp-setup-op b,
+.kimos-funplai .fp-ficha-op b { font-size: 18px; }
+.kimos-funplai .fp-setup-op small,
+.kimos-funplai .fp-ficha-op small { font-size: 13px; opacity: .7; }
+.kimos-funplai .fp-setup-emoji { font-size: 44px; }
+.kimos-funplai .fp-ficha-svg { width: 96px; height: 96px; background: #F7F5EF; border-radius: 14px; padding: 6px; }
+.kimos-funplai .fp-setup-nivel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.kimos-funplai .fp-setup-nota { font-size: 14px; opacity: .75; max-width: 560px; }
+
 /* ── Paneles (ranking, editor, diagnóstico) ──────────────────────────── */
 .kimos-funplai .fp-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .kimos-funplai .fp-panel-head {

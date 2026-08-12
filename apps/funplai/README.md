@@ -11,7 +11,7 @@ Chile, con toda la temática, textos y dificultad editables desde la propia app.
 | LaserGun dieciochero | Pistola IR / puntero / dedo | — | Empanada +20, choripán +15, volantín +10; ají y schop restan |
 | Rayuela Chilena | Deslizar (estilo Golf Clash) o cámara | Medio cuerpo | Reglas oficiales: quemada = 2 pts, tejo más cercano = 1 pt |
 | Boxeo | Cámara | Medio cuerpo | Daño al canguro o al boxeador humano, con guardia y esquiva |
-| Gato | Táctil | — | Serie contra el tótem (minimax) o entre dos personas |
+| Gato | Táctil | — | Se elige en pantalla rival (tótem con minimax o 2 jugadores) y ficha: cruces o círculos |
 
 Los juegos con cámara, salvo el baile, necesitan ver **solo el medio cuerpo
 superior** —torso, brazos y cabeza—, así que se juegan a ~1,5 m del tótem y
@@ -36,5 +36,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai     # → funplai-1.2.0.kapp
+node tools/pack.mjs apps/funplai     # → funplai-1.2.1.kapp
 ```

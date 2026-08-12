@@ -1,8 +1,8 @@
 {
   "id": "funplai",
   "name": "Kimos FunPlai",
-  "version": "1.2.0",
-  "description": "Seis juegos interactivos para tótem: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara, cuerpo completo), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando con mecánica estilo Golf Clash o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) y 'Gato' (tres en línea contra el tótem o entre dos personas). Los juegos con cámara, salvo el baile, necesitan ver solo el medio cuerpo superior —torso, brazos y cabeza—, así que funcionan en espacios reducidos a ~1,5 m del tótem. Todo editable desde la app: nombres, textos, colores, temática, dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA.",
+  "version": "1.2.1",
+  "description": "Seis juegos interactivos para tótem: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara, cuerpo completo), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando con mecánica estilo Golf Clash o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) y 'Gato' (tres en línea: cada partida empieza eligiendo en pantalla si se juega contra el tótem o entre dos personas, y si cada jugador usa cruces o círculos). Los juegos con cámara, salvo el baile, necesitan ver solo el medio cuerpo superior —torso, brazos y cabeza—, así que funcionan en espacios reducidos a ~1,5 m del tótem. Todo editable desde la app: nombres, textos, colores, temática, dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA.",
   "icon": "🎉",
   "author": "kimos",
   "entry": "dist/index.js",

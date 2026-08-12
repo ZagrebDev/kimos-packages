@@ -265,7 +265,7 @@ export default function mount(shell) {
     {
       id: 'gato', type: 'gato', enabled: true, order: 6,
       name: 'Gato', icon: '⭕',
-      blurb: 'El clásico tres en línea: contra el tótem o entre dos personas.',
+      blurb: 'Tres en línea: elige rival (tótem o dos jugadores) y si juegas con cruces o círculos.',
       config: {
         modo: 'maquina',         // maquina | dos-jugadores
         dificultad: 'media',     // facil | media | dificil (imbatible)
@@ -3082,18 +3082,28 @@ export default function mount(shell) {
 
   function JuegoGato(props) {
     const cfg = props.game.config || {};
-    const contraMaquina = cfg.modo !== 'dos-jugadores';
-    const nivel = s(cfg.dificultad) || 'media';
-    const humano = 'x', maquina = 'o';
+    const rondas = clamp(Math.round(num(cfg.rondas, 3)), 1, 9);
+
+    // ── Configuración de la partida, elegida en pantalla ──────────────
+    // El Editor solo define los valores por DEFECTO: quién juega y con qué
+    // ficha se elige siempre en el tótem, antes de cada serie.
+    const [fase, setFase] = useState('setup');            // setup | juego
+    const [rival, setRival] = useState(cfg.modo === 'dos-jugadores' ? 'humano' : 'maquina');
+    const [nivel, setNivel] = useState(s(cfg.dificultad) || 'media');
+    const [fichaJ1, setFichaJ1] = useState('x');          // ficha del jugador 1
+    const fichaJ2 = fichaJ1 === 'x' ? 'o' : 'x';          // el otro se queda con la contraria
+    const contraMaquina = rival === 'maquina';
 
     const [tablero, setTablero] = useState(['', '', '', '', '', '', '', '', '']);
-    const [turno, setTurno] = useState('x');
+    const [turno, setTurno] = useState('x');              // las cruces siempre parten
     const [serie, setSerie] = useState({ x: 0, o: 0, empates: 0, jugadas: 0 });
     const [pensando, setPensando] = useState(false);
 
     const res = ganadorGato(tablero);
-    const rondas = clamp(Math.round(num(cfg.rondas, 3)), 1, 9);
     const terminada = serie.jugadas >= rondas;
+    const nombreDe = (f) => (f === fichaJ1
+      ? (contraMaquina ? 'Tú' : 'Jugador 1')
+      : (contraMaquina ? 'Tótem' : 'Jugador 2'));
 
     const jugar = useCallback((i, quien) => {
       setTablero((prev) => {
@@ -3116,52 +3126,118 @@ export default function mount(shell) {
       if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) { /* noop */ } }
     }, []);
 
-    // Turno de la máquina.
+    // Turno del tótem. Si el jugador eligió círculos, el tótem lleva las cruces
+    // y por lo tanto abre la partida.
     useEffect(() => {
-      if (!contraMaquina || res || turno !== maquina) return undefined;
+      if (fase !== 'juego' || !contraMaquina || res || turno !== fichaJ2) return undefined;
       setPensando(true);
       const t = setT(() => {
         setPensando(false);
-        const i = jugadaMaquina(tablero, maquina, nivel);
-        if (i >= 0) jugar(i, maquina);
+        const i = jugadaMaquina(tablero, fichaJ2, nivel);
+        if (i >= 0) jugar(i, fichaJ2);
       }, 520);
       return () => clrT(t);
-    }, [turno, tablero, res, contraMaquina, nivel, jugar]);
+    }, [fase, turno, tablero, res, contraMaquina, fichaJ2, nivel, jugar]);
 
     const nuevaMano = () => {
       setTablero(['', '', '', '', '', '', '', '', '']);
       setTurno('x');
     };
+    const volverASetup = () => {
+      setSerie({ x: 0, o: 0, empates: 0, jugadas: 0 });
+      nuevaMano();
+      setFase('setup');
+    };
 
+    // ── Pantalla de selección: rival y ficha ──────────────────────────
+    if (fase === 'setup') {
+      const opcionFicha = (f, quien) => h('button', {
+        key: f, type: 'button',
+        className: 'fp-ficha-op' + (fichaJ1 === f ? ' is-on' : ''),
+        onClick: () => setFichaJ1(f),
+      },
+        h('svg', { viewBox: '-100 -100 200 200', className: 'fp-ficha-svg' }, h(FichaGato, { valor: f })),
+        h('b', null, f === 'x' ? 'Cruces' : 'Círculos'),
+        h('small', null, quien));
+
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-setup' },
+          h('h2', null, '¿Contra quién juegas?'),
+          h('div', { className: 'fp-setup-ops' },
+            h('button', {
+              type: 'button', className: 'fp-setup-op' + (rival === 'maquina' ? ' is-on' : ''),
+              onClick: () => setRival('maquina'),
+            },
+              h('span', { className: 'fp-setup-emoji' }, '🤖'),
+              h('b', null, 'Contra el tótem'),
+              h('small', null, 'Juega la máquina')),
+            h('button', {
+              type: 'button', className: 'fp-setup-op' + (rival === 'humano' ? ' is-on' : ''),
+              onClick: () => setRival('humano'),
+            },
+              h('span', { className: 'fp-setup-emoji' }, '👥'),
+              h('b', null, 'Dos jugadores'),
+              h('small', null, 'Por turnos en esta pantalla'))),
+
+          contraMaquina ? h('div', { className: 'fp-setup-nivel' },
+            h('span', null, 'Nivel del tótem:'),
+            [['facil', 'Fácil'], ['media', 'Media'], ['dificil', 'Difícil']].map(([k, l]) =>
+              h('button', {
+                key: k, type: 'button', className: 'fp-chip' + (nivel === k ? ' is-on' : ''),
+                onClick: () => setNivel(k),
+              }, l))) : null,
+
+          h('h2', null, contraMaquina ? 'Elige tu ficha' : 'Jugador 1 elige su ficha'),
+          h('div', { className: 'fp-fichas' },
+            opcionFicha('x', contraMaquina
+              ? (fichaJ1 === 'x' ? 'tú' : 'el tótem')
+              : (fichaJ1 === 'x' ? 'Jugador 1' : 'Jugador 2')),
+            opcionFicha('o', contraMaquina
+              ? (fichaJ1 === 'o' ? 'tú' : 'el tótem')
+              : (fichaJ1 === 'o' ? 'Jugador 1' : 'Jugador 2'))),
+
+          h('p', { className: 'fp-setup-nota' },
+            'Las cruces siempre abren la partida' +
+            (fichaJ1 === 'o'
+              ? (contraMaquina ? ', así que el tótem parte jugando.' : ', así que parte el Jugador 2.')
+              : ', así que partes tú.')),
+
+          h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => { nuevaMano(); setFase('juego'); } },
+              'Comenzar · ' + rondas + (rondas === 1 ? ' mano' : ' manos')))));
+    }
+
+    // ── Fin de la serie ───────────────────────────────────────────────
     if (terminada) {
-      const gano = serie.x, perdio = serie.o;
-      const p10 = clamp((gano * 10 + serie.empates * 5) / Math.max(1, serie.jugadas), 0, 10);
+      const mias = serie[fichaJ1], suyas = serie[fichaJ2];
+      const p10 = clamp((mias * 10 + serie.empates * 5) / Math.max(1, serie.jugadas), 0, 10);
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
         h(Resultado, {
           puntaje10: p10,
           juego: props.game.name,
-          titulo: gano > perdio ? '¡Ganaste la serie!' : gano === perdio ? 'Serie empatada' : (contraMaquina ? 'Ganó el tótem' : 'Ganó el jugador O'),
+          titulo: mias > suyas
+            ? (contraMaquina ? '¡Le ganaste al tótem!' : '¡Gana el Jugador 1!')
+            : mias === suyas ? 'Serie empatada'
+            : (contraMaquina ? 'Ganó el tótem' : '¡Gana el Jugador 2!'),
           detalle: h('div', { className: 'fp-chips' },
-            h(Chip, { tone: 'accent' }, 'X: ' + serie.x),
-            h(Chip, null, 'O: ' + serie.o),
+            h(Chip, { tone: 'accent' }, nombreDe(fichaJ1) + ' (' + (fichaJ1 === 'x' ? 'cruces' : 'círculos') + '): ' + mias),
+            h(Chip, null, nombreDe(fichaJ2) + ' (' + (fichaJ2 === 'x' ? 'cruces' : 'círculos') + '): ' + suyas),
             h(Chip, null, 'Empates: ' + serie.empates)),
-          detalleTexto: 'X ' + serie.x + ' · O ' + serie.o + ' · empates ' + serie.empates,
+          detalleTexto: nombreDe(fichaJ1) + ' ' + mias + ' · ' + nombreDe(fichaJ2) + ' ' + suyas + ' · empates ' + serie.empates,
           onExit: props.onExit,
-          onReplay: () => { setSerie({ x: 0, o: 0, empates: 0, jugadas: 0 }); nuevaMano(); },
+          onReplay: volverASetup,
         }));
     }
 
+    // ── Tablero ───────────────────────────────────────────────────────
+    const puedeTocar = !res && !pensando && !(contraMaquina && turno === fichaJ2);
     const celda = (i) => {
       const cx = 170 + (i % 3) * 250, cy = 170 + Math.floor(i / 3) * 250;
       const ganadora = res && res.linea && res.linea.indexOf(i) >= 0;
       return h('g', {
         key: i, transform: 'translate(' + cx + ',' + cy + ')',
-        onPointerDown: () => {
-          if (res || tablero[i] || pensando) return;
-          if (contraMaquina && turno !== humano) return;
-          jugar(i, turno);
-        },
-        style: { cursor: tablero[i] || res ? 'default' : 'pointer' },
+        onPointerDown: () => { if (puedeTocar && !tablero[i]) jugar(i, turno); },
+        style: { cursor: puedeTocar && !tablero[i] ? 'pointer' : 'default' },
       },
         h('rect', {
           x: -110, y: -110, width: 220, height: 220, rx: 18,
@@ -3175,8 +3251,8 @@ export default function mount(shell) {
       icon: props.game.icon, title: props.game.name, onExit: props.onExit,
       meta: h('div', { className: 'fp-meta-row' },
         h(Chip, null, 'Mano ' + Math.min(serie.jugadas + 1, rondas) + '/' + rondas),
-        h(Chip, { tone: 'accent' }, 'X ' + serie.x + ' · O ' + serie.o),
-        contraMaquina ? h(Chip, null, 'vs tótem (' + nivel + ')') : h(Chip, null, '2 jugadores')),
+        h(Chip, { tone: 'accent' }, nombreDe(fichaJ1) + ' ' + serie[fichaJ1] + ' · ' + nombreDe(fichaJ2) + ' ' + serie[fichaJ2]),
+        contraMaquina ? h(Chip, null, 'tótem ' + nivel) : h(Chip, null, '2 jugadores')),
     },
       h('div', { className: 'fp-gato-wrap' },
         h('svg', { className: 'fp-gato-svg', viewBox: '0 0 840 840' },
@@ -3190,10 +3266,11 @@ export default function mount(shell) {
         h('div', { className: 'fp-gato-pie' },
           res
             ? h('div', { className: 'fp-gato-fin' },
-                h('b', null, res.jugador === 'empate' ? '¡Empate!' : (res.jugador === 'x' ? '¡Ganan las X!' : (contraMaquina ? 'Gana el tótem' : '¡Ganan las O!'))),
-                h(Boton, { variant: 'primary', onClick: nuevaMano }, 'Siguiente mano'))
+                h('b', null, res.jugador === 'empate' ? '¡Empate!' : '¡Gana ' + nombreDe(res.jugador) + '!'),
+                h(Boton, { variant: 'primary', onClick: nuevaMano }, 'Siguiente mano'),
+                h(Boton, { onClick: volverASetup }, 'Cambiar rival o ficha'))
             : h('div', { className: 'fp-gato-turno' },
-                h('span', null, 'Turno de'),
+                h('span', null, 'Juega ' + nombreDe(turno)),
                 h('svg', { viewBox: '-90 -90 180 180', className: 'fp-gato-turno-svg' }, h(FichaGato, { valor: turno })),
                 pensando ? h('span', null, 'pensando…') : null))));
   }
@@ -3245,7 +3322,7 @@ export default function mount(shell) {
     if (tipo === 'laser') return '🔫 Pistola / puntero';
     if (tipo === 'rayuela') return '👆 Deslizar o 📷 medio cuerpo';
     if (tipo === 'boxeo') return '📷 Medio cuerpo';
-    if (tipo === 'gato') return '👆 Pantalla táctil';
+    if (tipo === 'gato') return '👆 Táctil · 1 o 2 jugadores';
     return '🎮 Juego';
   }
 
@@ -3518,11 +3595,11 @@ export default function mount(shell) {
       { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 0.8, max: 3, step: 0.1 },
     ],
     gato: [
-      { key: 'modo', label: 'Modalidad', type: 'select', options: [
+      { key: 'modo', label: 'Modalidad inicial', type: 'select', help: 'Solo el valor por defecto: el jugador elige rival y ficha en pantalla.', options: [
         { value: 'maquina', label: 'Contra el tótem' },
         { value: 'dos-jugadores', label: 'Dos jugadores por turnos' },
       ] },
-      { key: 'dificultad', label: 'Nivel del tótem', type: 'select', options: [
+      { key: 'dificultad', label: 'Nivel inicial del tótem', type: 'select', help: 'También se puede cambiar en la pantalla de selección.', options: [
         { value: 'facil', label: 'Fácil' },
         { value: 'media', label: 'Media' },
         { value: 'dificil', label: 'Difícil (imbatible)' },
