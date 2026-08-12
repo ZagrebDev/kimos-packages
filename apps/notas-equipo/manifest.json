@@ -1,7 +1,7 @@
 {
   "id": "notas-equipo",
   "name": "Notas de Equipo",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Bloc de notas del equipo: notas editables con responsable y etiquetado escribiendo @ (personas y agentes IA de la organización, con menú de autocompletado en el propio texto), redactor con formato (negrita, cursiva, listas, numeración, cita, título y enlaces), pestañas de 'Para mí' y 'A mi cargo', actualización en vivo y control por agente IA.",
   "icon": "🗒️",
   "author": "kimos",

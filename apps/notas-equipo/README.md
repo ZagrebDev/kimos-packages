@@ -1,6 +1,6 @@
 # 🗒️ Notas de Equipo
 
-**Versión actual: 2.1.0** — la app la muestra en su cabecera (`v2.1.0`, junto al
+**Versión actual: 2.2.0** — la app la muestra en su cabecera (`v2.2.0`, junto al
 nombre del documento), así se sabe de un vistazo qué build quedó instalado al
 probar. El número vive en tres lugares que deben ir siempre juntos:
 `manifest.json` (`version`), la constante `APP_VERSION` de `dist/index.js` y
@@ -10,7 +10,7 @@ Bloc de notas del equipo, multi-instancia (cada documento es un bloc distinto).
 Cada nota es un item de la instancia (`shell.items`), así que dos personas
 escribiendo notas distintas no se pisan: el CRUD ya es por nota.
 
-## Qué hace (v2.1)
+## Qué hace (v2.2)
 
 - **Etiquetar escribiendo `@`**: al teclear `@` dentro del redactor se despliega
   la lista de la organización debajo del cursor y se filtra mientras se escribe
@@ -81,7 +81,8 @@ Bundle ESM puro (`dist/index.js` + `dist/index.css`) que usa `globalThis.React`
 
 | Versión | Qué trae |
 |---|---|
-| **2.1.0** | Etiquetar escribiendo `@` en el propio texto (menú con autocompletado), personas **y agentes IA** de la organización en la misma lista, chips y texto sincronizados, versión visible en la cabecera. |
+| **2.2.0** | Versión instalada visible en la cabecera (`v2.2.0`), para confirmar qué build tomó el host al actualizar. |
+| 2.1.0 | Etiquetar escribiendo `@` en el propio texto (menú con autocompletado), personas **y agentes IA** de la organización en la misma lista, chips y texto sincronizados. |
 | 2.0.0 | Notas editables, responsable y menciones, redactor con formato, pestañas *Para mí* / *A mi cargo*, actualización en vivo. |
 | 1.x | Bloc de notas simple por instancia, con agente. |
 

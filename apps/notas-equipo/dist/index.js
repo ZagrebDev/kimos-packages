@@ -1,8 +1,12 @@
 /**
- * Notas de Equipo — app instalable multi-instancia (v2.1).
+ * Notas de Equipo — app instalable multi-instancia (v2.2).
  *
  * Cada nota es un item de la instancia (`shell.items`), así que dos personas
  * escribiendo notas distintas nunca se pisan: el CRUD ya es por nota.
+ *
+ * v2.2
+ *   - La **versión instalada** se ve en la cabecera (`v2.2.0`), para saber al
+ *     probar qué build tomó el host.
  *
  * v2.1
  *   - **Etiquetar escribiendo `@`**: al teclear `@` en el redactor se despliega
@@ -42,7 +46,7 @@ export default function mount(shell) {
 
   // Versión de la app: se muestra en la cabecera para saber, al probar, qué
   // build está instalado. Mantener en sincronía con manifest.json.
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.2.0';
 
   const instanceId = shell.app && shell.app.instanceId;
   const teamId = shell.app && shell.app.teamId;
