@@ -284,6 +284,56 @@ embébelos en el bundle, como hace FossFLOW con sus SVG.)
 
 ---
 
+## 7.a Versionado: dónde vive la versión (y por qué falla la actualización)
+
+La Tienda decide si hay actualización comparando la versión **instalada** con la
+del **catálogo raíz** (`/manifest.json` → `apps[]`). Ese es el número que manda:
+si se sube la versión dentro de `apps/{id}/` pero no en el catálogo, la app
+instalada se queda con el bundle viejo y **no aparece nada que actualizar**
+(pasó con `notas-equipo` 2.1.0 → la tarjeta seguía mostrando v2.0.0).
+
+Al publicar un cambio, la versión sube en **los cuatro lugares, en el mismo commit**:
+
+| # | Dónde | Para qué sirve |
+|---|---|---|
+| 1 | `apps/{id}/manifest.json` → `version` | Fuente de verdad de la app; es lo que valida `tools/pack.mjs` y lo que viaja en el `.kapp`. |
+| 2 | **`/manifest.json` raíz** → `apps[] → {id}.version` | **Lo que lee la Tienda**: sin esto no se ofrece la actualización. Sube también la `description` si cambió. |
+| 3 | `apps/{id}/dist/index.js` → `const APP_VERSION` | La versión que la app **muestra en pantalla** (ver abajo). |
+| 4 | `apps/{id}/README.md` → “Versión actual” + tabla de historial | Documenta qué trae cada versión. |
+
+**Verifícalo antes de commitear** (falla con código 1 si algo quedó desalineado):
+
+```bash
+node tools/check-versions.mjs                # todas las apps
+node tools/check-versions.mjs notas-equipo   # una sola
+```
+
+**Criterio del número** (semver): parche `x.y.Z` para arreglos, menor `x.Y.0`
+para funciones nuevas compatibles, mayor `X.0.0` si cambia el formato de los
+datos guardados o el contrato del agente. Nunca reutilices un número ya
+publicado: el backend guarda el bundle en `/apps/{id}/{version}/` y lo cachea,
+así que repetir versión sirve bundles viejos.
+
+### La versión, siempre a la vista
+
+Toda app debe **identificar en pantalla el build que está corriendo**: sin eso no
+hay forma de saber, al probar, si el host tomó la actualización o quedó con la
+copia cacheada. La convención:
+
+```js
+// Mantener en sincronía con manifest.json (y con el catálogo raíz).
+const APP_VERSION = '2.2.0';
+…
+h('span', { className: 'nt-ver', title: 'Notas de Equipo v' + APP_VERSION }, 'v' + APP_VERSION),
+```
+
+- Un chip discreto en la cabecera, junto al título (ver `apps/notas-equipo`).
+- Si la app tiene pantalla de bienvenida o vacía, repítelo ahí.
+- Si registra agente, incluye `version: APP_VERSION` en `getSnapshot()`, así el
+  agente IA puede responder qué build está corriendo.
+
+---
+
 ## 7.b Endpoints públicos para tu app (sin backend a medida)
 
 Si tu app necesita recibir datos desde **sitios web externos** (formularios,
@@ -352,6 +402,8 @@ Reglas:
 
 ## 8. Checklist antes de publicar
 
+- [ ] **Versión subida en los cuatro lugares** (§7.a) y `node tools/check-versions.mjs` en verde.
+- [ ] La app **muestra su versión** en pantalla (`APP_VERSION` en la cabecera).
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
 - [ ] `dist/index.js` exporta `default mount(shell)` y usa `globalThis.React`.
 - [ ] Estado dentro del closure; `unmount()` limpia timers/listeners/agente.

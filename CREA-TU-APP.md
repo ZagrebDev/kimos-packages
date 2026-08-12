@@ -65,6 +65,25 @@ mi-app/
 }
 ```
 
+**La versión, a la vista.** Declara el mismo número en el bundle y píntalo en la
+cabecera de tu app: es la única forma de saber, al probar una actualización, si
+KIMOS tomó el build nuevo o quedó con el cacheado.
+
+```js
+// Mantener en sincronía con manifest.json.
+const APP_VERSION = '1.0.0';
+…
+h('span', { className: 'mi-ver' }, 'v' + APP_VERSION),
+```
+
+Cada vez que entregues un cambio, **sube el número en `manifest.json` y en
+`APP_VERSION` a la vez** (SemVer: parche para arreglos, menor para funciones
+nuevas, mayor si cambia el formato de tus datos). Nunca reutilices una versión
+ya entregada: el host cachea el bundle por versión. Si tu app se publica en el
+repositorio oficial, la versión sube **además** en el `manifest.json` raíz, que
+es de donde la Tienda saca la actualización (ver `APP-SPEC.md` §7.a) — y
+`node tools/check-versions.mjs` lo verifica por ti.
+
 ### 2.3 `dist/index.js`
 
 ```js
@@ -287,6 +306,8 @@ pestaña Resultados.
 
 - [ ] `manifest.json` con `id` con namespace propio, `version` SemVer y solo los
       `permissions` que de verdad usas.
+- [ ] La `version` es **nueva** (nunca una ya entregada), coincide con
+      `APP_VERSION` del bundle y la app la **muestra en pantalla**.
 - [ ] `dist/index.js` exporta `default mount(shell)`, usa `globalThis.React` y
       no importa dependencias externas en runtime.
 - [ ] Estado en el closure; `unmount()` limpia todo.
