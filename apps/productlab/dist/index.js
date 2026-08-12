@@ -2314,7 +2314,7 @@ export default function mount(shell) {
     const def = Object.assign({}, model.def || defaultDefinition());
     const antes = def.public || {};
     const data = enabled ? buildPublicData() : (antes.data || null);
-    // Se CONSERVA todo lo demás de `public` (kitInstall, extraDefs, …):
+    // Se CONSERVA todo lo demás de `public` (extraDefs, pushPage, …):
     // publicar solo actualiza enabled/data/pagePush, no resetea el resto.
     const pub = Object.assign({}, antes, { enabled: !!enabled, channels: antes.channels || [], pushPage: antes.pushPage === true, data });
     if (pub.pushPage) {
@@ -3214,7 +3214,6 @@ export default function mount(shell) {
             paginaTienda: pub.pushPage === true
               ? { activa: true, ok: !!(pub.pagePush && pub.pagePush.ok), permalink: s(pub.pagePush && pub.pagePush.permalink) || null }
               : { activa: false },
-            kitJsApp: !!(pub.kitInstall && pub.kitInstall.ok && !pub.kitInstall.removed),
           };
         })(),
         storeBaseUrl: s(model.def && model.def.storeBaseUrl),
@@ -7554,7 +7553,7 @@ export default function mount(shell) {
             shell.notify({ level: 'info', text: 'Configurador despublicado: el gateway responderá 403.' });
           } }, 'Despublicar'),
         ]),
-        // ── Vía A — KIT MANUAL (funciona HOY, sin OAuth ni JsApps): se
+        // ── KIT del theme: descarga los 3 archivos y súbelos a Assets. Se
         // descargan los archivos del kit YA CONFIGURADOS con la URL de esta
         // instancia y se suben a Assets del theme. Toda mejora del kit
         // (multi-instancia, lectura local de la página, presets…) viaja en
@@ -7629,65 +7628,6 @@ export default function mount(shell) {
             ]),
           ]);
         })(),
-        // ── Vía B — JSAPP AUTOMÁTICO (opcional; requiere app OAuth de
-        // Jumpseller): mismo kit inyectado por la tienda sin tocar el theme.
-        // Ambas vías conviven: si custom.js está configurado, manda él.
-        (function () {
-          const ki = pub.kitInstall || null;
-          // OJO: aquí `stamp` es la FECHA de publicación (const de esta
-          // pestaña), no el helper — el busteo de caché usa nowIso().
-          // def= lleva TODOS los catálogos (propia + "otras instancias").
-          const urlEmbed = () => {
-            const propia = API + '/api/public/app/' + s(instanceId) + '/definition';
-            const todas = [propia].concat(
-              s(pub.extraDefs).split(',').map((x) => x.trim()).filter(Boolean).filter((u) => u !== propia));
-            return API + '/api/apps/productlab/asset/kimos-embed.js?def='
-              + encodeURIComponent(todas.join(','))
-              + '&v=' + encodeURIComponent(nowIso().slice(0, 19));
-          };
-          const llamar = async (remove) => {
-            setBusy(true);
-            let res = { ok: false, error: 'error' };
-            try {
-              const r = await fetchReintento(API + '/api/integrations/jumpseller/install-kit', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(remove ? { remove: true } : { url: urlEmbed() }),
-              }, 2);
-              const dd = await r.json().catch(() => ({}));
-              res = r.ok ? dd : { ok: false, error: s(dd.detail) || ('HTTP ' + r.status) };
-            } catch (e) { res = { ok: false, error: (e && e.message) || 'error de red' }; }
-            const next = Object.assign({}, state.def || defaultDefinition());
-            // `removed` SIEMPRE al final: el backend devuelve removed=<n>
-            // (cuántos borró) y con 0 pisaba la marca booleana — el chip
-            // decía "instalado" tras un Quitar sin nada que quitar.
-            next.public = Object.assign({}, next.public || {}, {
-              kitInstall: Object.assign({ at: nowIso() }, res, { removed: remove === true, borrados: num(res.removed) }) });
-            await saveDefinition(next, ['public']);
-            setBusy(false);
-            if (res.ok) shell.notify({ level: 'success', text: remove ? 'Kit quitado de la tienda.' : 'Kit instalado/actualizado en la tienda (JsApp).' });
-            else if (res.needsOauth) shell.notify({ level: 'warn', text: 'Jumpseller exige una app OAuth para JsApps: ' + s(res.error) });
-            else shell.notify({ level: 'error', text: 'Kit en la tienda: ' + s(res.error) });
-          };
-          return h('div', { key: 'kit', className: 'gp-compline' }, [
-            h('span', { key: 'l', className: 'gp-label' }, 'KIT AUTOMÁTICO (JsApp · opcional)'),
-            ki ? (ki.ok
-              ? h('span', { key: 'st', className: 'gp-chip ok', title: fmtDateTime(ki.at) }, ki.removed ? 'quitado' : 'instalado' + (ki.id ? ' · JsApp #' + ki.id : ''))
-              : h('span', { key: 'st', className: 'gp-chip ' + (ki.needsOauth ? 'warn' : 'err'), title: s(ki.error) }, ki.needsOauth ? 'requiere OAuth' : 'falló'))
-              : h('span', { key: 'st', className: 'gp-chip gris' }, 'no instalado'),
-            h('span', { key: 'sp', className: 'grow' }),
-            h('button', { key: 'go', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: busy,
-              title: 'Crea (o recrea) el JsApp de Jumpseller que inyecta el kit en todas las páginas de la tienda — sin tocar el theme. Actualizar el kit = volver a pulsar aquí. Si tienes custom.js configurado a mano, sigue mandando él.',
-              onClick: () => llamar(false) }, 'Instalar / actualizar kit'),
-            h('button', { key: 'rm', className: 'gp-btn gp-btn-sm', disabled: busy,
-              title: 'Elimina el JsApp del kit (la tienda vuelve a depender solo de custom.js, si existe)',
-              onClick: () => llamar(true) }, 'Quitar'),
-          ]);
-        })(),
-        // El acceso OAuth (requisito de los JsApps) se configura donde vive
-        // toda la integración: KIMOS → Configuración → Integraciones →
-        // Jumpseller → "Acceso OAuth". Es de empresa, no de esta app.
-        (pub.kitInstall && pub.kitInstall.needsOauth) ? h('div', { key: 'oauthhint', className: 'gp-warnbox' },
-          'Los JsApps exigen una app OAuth de Jumpseller. Configúrala una única vez en Configuración → Integraciones → Jumpseller → "Acceso OAuth" (registrar app, autorizar y pegar el código) y vuelve a pulsar "Instalar / actualizar kit".') : null,
         // ── Canal "la tienda se sirve sola": copia del JSON en una página ──
         h('div', { key: 'pushpage', className: 'gp-compline' }, [
           h('label', { key: 'sw', className: 'gp-switch', style: { margin: 0 },
