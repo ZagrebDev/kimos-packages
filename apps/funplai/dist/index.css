@@ -262,6 +262,56 @@
   paint-order: stroke; stroke: rgba(0, 0, 0, .75); stroke-width: 7px;
 }
 
+/* ── Boxeo ───────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-box-wrap { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-box-svg {
+  flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
+  background: radial-gradient(circle at 50% 40%, #2E3A55, #141B2B);
+}
+.kimos-funplai .fp-box-vidas {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 10px 16px;
+  background: rgba(0, 0, 0, .3);
+}
+.kimos-funplai .fp-box-vidas small { font-size: 11px; letter-spacing: .06em; opacity: .8; }
+.kimos-funplai .fp-vida {
+  height: 18px; border-radius: 999px; background: rgba(255, 255, 255, .14); overflow: hidden; margin-top: 4px;
+}
+.kimos-funplai .fp-vida i { display: block; height: 100%; transition: width .2s ease; }
+.kimos-funplai .fp-vida.is-dcha { transform: scaleX(-1); }
+.kimos-funplai .fp-box-botones {
+  display: flex; gap: 10px; justify-content: center; padding: 10px; flex-wrap: wrap;
+}
+.kimos-funplai .fp-box-fx {
+  font: 800 54px ui-sans-serif, system-ui; fill: #FFD54F;
+  paint-order: stroke; stroke: rgba(0, 0, 0, .65); stroke-width: 10px;
+}
+.kimos-funplai .fp-box-fx.is-mal { fill: #FF6B6B; }
+.kimos-funplai .fp-box-fx.is-ko { font-size: 96px; fill: #7CFFB2; }
+.kimos-funplai .fp-box-aviso { font: 800 40px ui-sans-serif, system-ui; fill: #FFD54F; }
+.kimos-funplai .fp-rivales { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.kimos-funplai .fp-rival-card {
+  background: rgba(255, 255, 255, .08); border: 3px solid transparent; color: #fff;
+  border-radius: var(--fp-radius); padding: 12px; cursor: pointer; width: 200px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 15px;
+}
+.kimos-funplai .fp-rival-card.is-on { border-color: var(--fp-accent); background: rgba(255, 255, 255, .16); }
+.kimos-funplai .fp-rival-svg { width: 100%; height: 190px; }
+
+/* ── Gato ────────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-gato-wrap {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 16px; min-height: 0;
+}
+.kimos-funplai .fp-gato-svg {
+  width: min(78vh, 92%); max-width: 620px; height: auto; touch-action: manipulation;
+  filter: drop-shadow(0 14px 34px rgba(0, 0, 0, .45));
+}
+.kimos-funplai .fp-gato-pie { min-height: 64px; display: flex; align-items: center; }
+.kimos-funplai .fp-gato-turno { display: flex; align-items: center; gap: 12px; font-size: 17px; }
+.kimos-funplai .fp-gato-turno-svg { width: 44px; height: 44px; }
+.kimos-funplai .fp-gato-fin { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.kimos-funplai .fp-gato-fin b { font-size: 22px; }
+
 /* ── Paneles (ranking, editor, diagnóstico) ──────────────────────────── */
 .kimos-funplai .fp-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .kimos-funplai .fp-panel-head {

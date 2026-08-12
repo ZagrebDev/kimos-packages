@@ -1,8 +1,8 @@
 {
   "id": "funplai",
   "name": "Kimos FunPlai",
-  "version": "1.1.1",
-  "description": "Juegos interactivos para tótem: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara + detección de pose), 'Lanza y acierta' (táctil, gesto o tracker externo), 'LaserGun' (pistola IR o puntero) y 'Rayuela Chilena', el deporte nacional con reglas oficiales: la pantalla es el cajón de arcilla, el tótem muestra primero el área de posicionamiento y la cámara lee el lanzamiento para proyectar dónde cae el tejo (quemada = 2 puntos). Todo editable desde la app: nombres, textos, colores, temática, dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA.",
+  "version": "1.2.0",
+  "description": "Seis juegos interactivos para tótem: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara, cuerpo completo), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando con mecánica estilo Golf Clash o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) y 'Gato' (tres en línea contra el tótem o entre dos personas). Los juegos con cámara, salvo el baile, necesitan ver solo el medio cuerpo superior —torso, brazos y cabeza—, así que funcionan en espacios reducidos a ~1,5 m del tótem. Todo editable desde la app: nombres, textos, colores, temática, dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA.",
   "icon": "🎉",
   "author": "kimos",
   "entry": "dist/index.js",
