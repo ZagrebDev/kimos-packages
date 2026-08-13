@@ -524,26 +524,37 @@ const composed = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headli
 if (composed.message.indexOf('2 características') === -1 || composed.message.indexOf('[clasico]') === -1) {
   throw new Error('COMPOSE_HERO sin detalle esperado: ' + composed.message);
 }
+// Sin heroIndex se AGREGA: pedir un hero nuevo no puede borrar el que había
+// (un agente dejó a un producto sin su hero principal haciendo justo esto).
+const herosAntes = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente')
+  .storefront.pageSections.filter((x) => x.kind === 'hero').length;
 const composedEq = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente');
-const composedHero = composedEq.storefront.pageSections.find((x) => x.kind === 'hero');
+const herosTras = composedEq.storefront.pageSections.filter((x) => x.kind === 'hero');
+if (herosTras.length !== herosAntes) throw new Error('COMPOSE_HERO sin heroIndex no agregó: ' + herosAntes + ' → ' + herosTras.length);
+// El compuesto es el ÚLTIMO; el anterior sigue intacto.
+const composedHero = herosTras[herosTras.length - 1];
 const nBlocks = Object.keys(composedHero.slots).reduce((a, k) => a + composedHero.slots[k].length, 0);
 if (nBlocks < 4) throw new Error('COMPOSE_HERO dejó pocos bloques: ' + nBlocks);
 if (!composedHero.slots.center || composedHero.slots.center[0].type !== 'photo') throw new Error('foto no quedó al centro');
 if (!composedHero.slots.left || composedHero.slots.left[0].type !== 'items' || composedHero.slots.left[0].items.length !== 2) throw new Error('features no quedaron como items');
 if (!composedHero.slots.bottom || composedHero.slots.bottom[0].type !== 'cta') throw new Error('CTA no quedó abajo');
-// Reemplazo del mismo hero conservando el fondo cuando no se envía uno nuevo
-const composed2 = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Calce perfecto', features: [{ title: 'Puño doble' }] });
+// Con heroIndex SÍ reemplaza, y conserva el fondo cuando no se envía uno nuevo.
+const idxNuevo = herosTras.length;
+const composed2 = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Calce perfecto', features: [{ title: 'Puño doble' }], heroIndex: idxNuevo });
+if (composed2.message.indexOf('reemplazado') === -1) throw new Error('COMPOSE_HERO con heroIndex no reportó reemplazo: ' + composed2.message);
 const hero2 = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.filter((x) => x.kind === 'hero');
-if (hero2.length !== 1) throw new Error('COMPOSE_HERO duplicó heros: ' + hero2.length);
-if (hero2[0].bgColor !== '#1D1D1B') throw new Error('no conservó el fondo: ' + hero2[0].bgColor);
+if (hero2.length !== idxNuevo) throw new Error('COMPOSE_HERO con heroIndex duplicó heros: ' + hero2.length);
+if (hero2[idxNuevo - 1].bgColor !== '#1D1D1B') throw new Error('no conservó el fondo: ' + hero2[idxNuevo - 1].bgColor);
 // v3.6.1: reparto de features entre ambos laterales
 const split = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Reparto', featuresRightCount: 2,
   features: [{ title: 'F1' }, { title: 'F2' }, { title: 'F3' }, { title: 'F4' }, { title: 'F5' }] });
-const splitHero = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.find((x) => x.kind === 'hero');
+// El hero recién compuesto es el ÚLTIMO (sin heroIndex se agrega, no reemplaza).
+const splitHeros = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.filter((x) => x.kind === 'hero');
+const splitHero = splitHeros[splitHeros.length - 1];
 if (splitHero.slots.left[0].items.length !== 3 || !splitHero.slots.right || splitHero.slots.right[0].items.length !== 2) {
   throw new Error('reparto incorrecto: izq=' + splitHero.slots.left[0].items.length + ' der=' + (splitHero.slots.right && splitHero.slots.right[0] ? splitHero.slots.right[0].items.length : 0));
 }
-console.log('agente: COMPOSE_HERO (composición plana, reemplazo, fondo conservado y reparto 3/2) OK');
+console.log('agente: COMPOSE_HERO (agrega por defecto, reemplaza con heroIndex, fondo conservado y reparto 3/2) OK');
 
 // ── Dropshipping (v3.5.0): impuesto %, entrega en serie, producto sin pasos ──
 // Impuesto adicional %: se suma al costo ANTES del margen — misma base, +10%.

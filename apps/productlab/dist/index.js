@@ -3034,7 +3034,7 @@ export default function mount(shell) {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
           }, required: ['producto', 'steps'] } },
-        { name: 'COMPOSE_HERO', description: 'ARMA o reemplaza un hero del producto SIN construir estructura anidada: entregas los contenidos como campos simples y la app compone los bloques y contenedores correctamente. PREFIERE esta tool sobre SET_STOREFRONT.pageSections para crear o editar heros.',
+        { name: 'COMPOSE_HERO', description: 'AGREGA un hero al producto SIN construir estructura anidada: entregas los contenidos como campos simples y la app compone los bloques y contenedores correctamente. Por omisión el hero se AÑADE detrás de los que ya existan, así que crear una sección nueva nunca borra la anterior; para REEMPLAZAR uno hay que decir cuál con heroIndex. PREFIERE esta tool sobre SET_STOREFRONT.pageSections para crear o editar heros.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             headline: { type: 'string', description: 'frase grande destacada (ej: "Crea sin límites")' },
@@ -3050,7 +3050,7 @@ export default function mount(shell) {
             bgColor: { type: 'string', description: '#hex de fondo (opcional)' },
             bgImageUrl: { type: 'string', description: 'imagen de fondo (opcional, tapa el color)' },
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
-            heroIndex: { type: 'number', description: 'cuál hero reemplazar (1 = primero, default); si no hay heros se agrega al inicio' },
+            heroIndex: { type: 'number', description: 'SOLO para REEMPLAZAR un hero existente: cuál (1 = el primero). OMÍTELO para AGREGAR un hero nuevo detrás de los que ya hay — que es lo que corresponde cuando piden "otra sección" o "un hero debajo". Reemplazar pisa el contenido anterior y no se puede deshacer.' },
           }, required: ['producto'] } },
         { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
@@ -3735,8 +3735,20 @@ export default function mount(shell) {
             const secs = (((eq.storefront || {}).pageSections) || []).slice();
             const heroPositions = [];
             secs.forEach((x, i) => { if (x && x.kind === 'hero') heroPositions.push(i); });
+            // Reemplazar un hero PISA lo que había, y eso no puede ser lo que
+            // ocurre cuando nadie lo pidió: se vio a un agente borrar el hero
+            // principal de un producto al pedirle "un hero nuevo debajo", sin
+            // forma de recuperarlo. Sin `heroIndex` se AÑADE detrás del último
+            // hero; reemplazar exige decir cuál, y así el caso destructivo es
+            // siempre una decisión explícita.
+            const pidioIndice = p.heroIndex !== undefined && p.heroIndex !== null && s(p.heroIndex).trim() !== '';
+            let accion;
             if (!heroPositions.length) {
               secs.unshift(heroSec);
+              accion = 'creado';
+            } else if (!pidioIndice) {
+              secs.splice(heroPositions[heroPositions.length - 1] + 1, 0, heroSec);
+              accion = 'agregado';
             } else {
               const want = Math.max(1, num(p.heroIndex, 1)) - 1;
               const pos = heroPositions[Math.min(want, heroPositions.length - 1)];
@@ -3747,6 +3759,7 @@ export default function mount(shell) {
                 heroSec.bgImageUrl = s(secs[pos].bgImageUrl);
               }
               secs[pos] = heroSec;
+              accion = 'reemplazado (hero ' + (Math.min(want, heroPositions.length - 1) + 1) + ')';
             }
             const r = await saveProducto(Object.assign({}, eq, { storefront: Object.assign({}, eq.storefront, { pageSections: secs }) }));
             if (!r.success) return { success: false, error: r.error };
@@ -3756,7 +3769,7 @@ export default function mount(shell) {
                 .map((k) => k + ': ' + hx.slots[k].map((b) => b.type).join('+'));
               return 'hero ' + (i + 1) + ' [' + hx.pattern + '] ' + (parts.join(' · ') || 'SIN BLOQUES');
             }).join(' — ');
-            return { success: true, message: 'Hero de "' + r.item.name + '" compuesto y guardado (' + feats.length + ' características). ' + det + '. Republicado automáticamente.' };
+            return { success: true, message: 'Hero ' + accion + ' en "' + r.item.name + '" (' + feats.length + ' características). El producto queda con ' + savedHeros.length + ' hero(s): ' + det + '. Republicado automáticamente.' };
           }
           if (type === 'SET_STOREFRONT') {
             const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);

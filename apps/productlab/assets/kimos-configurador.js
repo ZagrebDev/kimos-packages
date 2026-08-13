@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.26.0';
+  var VERSION = '5.27.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -2310,7 +2310,20 @@
       if (panelImg) panelImg.src = fotoSeleccion();
       var mini = bar.querySelector('[data-kc-photo]');
       if (mini) mini.src = fotoSeleccion();
-      if (panelPrecio) panelPrecio.textContent = themePriceText() || '—';
+      // Combinación que la tienda no conoce: ocurre cuando la publicación de
+      // variantes quedó a medias y el cliente arma un set que nunca llegó a
+      // Jumpseller. El síntoma que se veía era el peor posible — precio "$0" y
+      // el botón de comprar habilitado, que al pulsarlo respondía "Variante
+      // del producto no fue encontrada". Aquí se dice antes de intentarlo.
+      var sinVariante = VARIANTES.length > 0 && !varianteActual(groups);
+      if (panelPrecio) {
+        panelPrecio.textContent = sinVariante ? 'No disponible' : (themePriceText() || '—');
+      }
+      if (panelBox) panelBox.setAttribute('data-kc-sin-variante', sinVariante ? '1' : '0');
+      if (sinVariante) {
+        console.warn(LOG, 'esta combinación no existe como variante en la tienda: '
+          + 'vuelve a aplicar el producto desde ProductLab para publicar las variantes que faltan.');
+      }
       if (panelEntrega) panelEntrega.textContent = textoEntrega();
       if (panelResumen) {
         var sel = readSelection(groups);
@@ -2328,7 +2341,9 @@
       var real = botonCarro();
       // `disabled` es la única señal fiable de que la combinación no se puede
       // comprar; si el theme no expone su botón, no se inventa un aviso.
-      var noHay = !!(real && real.disabled);
+      // Una combinación sin variante en la tienda tampoco se puede comprar,
+      // aunque el theme deje su botón habilitado: él no sabe que le falta.
+      var noHay = !!(real && real.disabled) || sinVariante;
       if (panelCta) {
         panelCta.textContent = (real && (real.textContent || '').trim()) || 'Añadir al carro';
         panelCta.disabled = noHay;
@@ -2640,12 +2655,19 @@
         // builder, y las pestañas de arriba solo bajan hasta ellas. Tenerlas
         // como pestañas aparte rompía la lectura en trozos inconexos.
         anclas = {};
+        // La nota se ve UNA vez. `photosNote` alimentaba dos secciones a la
+        // vez —la de fotos la pintaba dentro y la de nota la repetía debajo—,
+        // así que quien tuviera ambas la veía duplicada y no podía quitarla de
+        // la galería. Manda la sección de nota: si está en la lista, la
+        // galería no la pinta; si no está, la galería la conserva (que es lo
+        // que veían las fichas armadas antes de que la nota fuera sección).
+        var hayNota = secs.some(function (x) { return x && x.kind === 'note'; });
         secs.forEach(function (s) {
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, sf.photosNote, style.photos, altDe); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, hayNota ? '' : sf.photosNote, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
