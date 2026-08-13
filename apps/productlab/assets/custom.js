@@ -32,7 +32,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // solos en la siguiente hora. El custom.js que descarga ProductLab
 // (Publicación → "custom.js (configurado)") ya trae aquí una marca nueva en
 // cada descarga: subirlo junto a los otros archivos los refresca al instante.
-window.KIMOS_ASSET_V = '53';
+window.KIMOS_ASSET_V = '54';
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,

@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.24.0';
+  var VERSION = '5.25.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -216,9 +216,37 @@
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
     };
+    // Un catálogo que NO EXISTE es el peor caso de todos: una tienda puede
+    // quedar con el kit apuntando a una instancia borrada o despublicada, y
+    // entonces cada visitante pide un catálogo ausente. Visto en producción:
+    // una tienda viva golpeando un backend dormido, con compradores esperando
+    // hasta 30 segundos el arranque en frío para recibir un 404.
+    //
+    // Cuando el catálogo responde que no está, se anota y no se vuelve a
+    // preguntar por un rato. La tienda cae a su ficha normal al instante, sin
+    // velo y sin espera. El plazo es corto para que publicar se note enseguida.
+    var AUSENTE_MS = 10 * 60 * 1000;
+    var claveAusente = function (u) { return 'kc-sin-catalogo:' + u; };
+    var estaAusente = function (u) {
+      try {
+        var t = parseInt(localStorage.getItem(claveAusente(u)) || '0', 10);
+        return t && (Date.now() - t) < AUSENTE_MS;
+      } catch (e) { return false; }
+    };
+    var marcarAusente = function (u) {
+      try { localStorage.setItem(claveAusente(u), String(Date.now())); } catch (e) {}
+    };
     var pedir = function (u) {
+      if (estaAusente(u)) {
+        console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
+        return Promise.resolve(null);
+      }
       return pedirLocal(u)
         .catch(function () { return pedirRemoto(u); })
+        .catch(function (err) {
+          if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);
+          throw err;
+        })
         .then(function (def) {
           // Cada producto recuerda su instancia de origen: el AR y cualquier
           // llamada por-producto van al backend correcto aunque haya varios.
