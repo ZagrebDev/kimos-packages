@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.22.0';
+  var VERSION = '5.23.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -971,6 +971,42 @@
       if (min) { out.push(a, b); } else { out.push(b, a); }
     });
     return out;
+  }
+  // ── De dónde sale el .glb ────────────────────────────────────────────────
+  // Igual que el catálogo: la tienda primero, KIMOS como respaldo. Si el
+  // modelo se subió a los Assets del theme (a mano, como el kit), la ficha lo
+  // carga desde ahí y deja de necesitar a KIMOS para mostrarse. Jumpseller le
+  // quita los guiones al nombre al subirlo, así que se prueban las variantes.
+  function modeloUrls(m3) {
+    var out = [];
+    var nombre = String((m3 && m3.asset) || '').trim().replace(/^.*[/\\]/, '');
+    if (nombre) {
+      var src = (SELF && SELF.src) || '';
+      var base = src ? src.replace(/[^/]*$/, '') : '';
+      if (base) {
+        var q = (src.match(/\?.*$/) || [''])[0];
+        var plano = nombre.replace(/-/g, '');
+        out.push(base + nombre + q);
+        if (plano !== nombre) out.push(base + plano + q);
+      }
+    }
+    var propia = String((m3 && m3.url) || '').trim();
+    if (propia) out.push(propia);
+    return out;
+  }
+  function ponerModelo(viewer, m3) {
+    var urls = modeloUrls(m3);
+    var i = 0;
+    var intentar = function () {
+      if (i >= urls.length) return Promise.reject(new Error('modelo 3D no disponible'));
+      var u = urls[i++];
+      return viewer.setModel({ url: u, rotation: m3.rotation, mirror: m3.mirror, parts: m3.parts })
+        .catch(function (err) {
+          if (i < urls.length) { console.warn(LOG, 'modelo no está en', u, '— probando el siguiente'); return intentar(); }
+          throw err;
+        });
+    };
+    return intentar();
   }
   function loadEngine() {
     if (window.KimosEngine3D) return Promise.resolve(window.KimosEngine3D);
@@ -2398,10 +2434,7 @@
                 if (ev.key === 'Escape' && grande) alternar();
               });
               confView.appendChild(exp);
-              return viewer.setModel({
-                url: entry.model3d.url, rotation: entry.model3d.rotation,
-                mirror: entry.model3d.mirror, parts: entry.model3d.parts,
-              }).then(function () {
+              return ponerModelo(viewer, entry.model3d).then(function () {
                 viewer.setFinishes(entry.model3d.finishes || []);
                 viewer.setState(build3dState(entry, groups));
                 msg.style.display = 'none';

@@ -1479,6 +1479,12 @@ export default function mount(shell) {
       // intent, así que necesita una URL pública — un blob del navegador no
       // le sirve.
       arUrl: s(m.arUrl).trim(),
+      // Nombre del .glb dentro de los Assets del theme. La API de Jumpseller
+      // no recibe archivos que no sean imágenes, así que el modelo se sube a
+      // mano al theme —igual que el kit— y aquí solo viaja su nombre: la
+      // tienda lo busca primero ahí y solo cae a KIMOS si no está. Es lo que
+      // permite que una ficha con 3D no dependa de KIMOS para mostrarse.
+      asset: s(m.asset).trim(),
       parts,
       finishes,
     };
@@ -2210,6 +2216,9 @@ export default function mount(shell) {
           // (assets/engine3d.js), así la tienda reutiliza el núcleo tal cual.
           model3d: pubModel3d ? {
             url: pubModel3d.url,
+            // Si el .glb está en los Assets del theme, la tienda lo carga de
+            // ahí y no toca KIMOS (ver `asset` en normalizeModel3d).
+            asset: s(pubModel3d.asset).trim(),
             rotation: pubModel3d.rotation,
             mirror: pubModel3d.mirror === true,
             // Sin medida real la tienda no ofrece "Ver en tu espacio": es
@@ -7051,6 +7060,16 @@ export default function mount(shell) {
                       h('input', { key: 'c', type: 'checkbox', checked: m.mirror === true, onChange: (e) => upM({ mirror: e.target.checked }) }),
                       h('span', { key: 's' }, 'Reflejar en el eje X'),
                     ]),
+                    // Las fotos las copia KIMOS al CDN de la tienda al
+                    // publicar, pero la API de Jumpseller no recibe archivos
+                    // que no sean imágenes: el .glb se sube a mano a los
+                    // Assets del theme, igual que el kit. Con el nombre aquí,
+                    // la ficha lo carga de la tienda y solo cae a KIMOS si no
+                    // lo encuentra — así el 3D no depende de KIMOS en vivo.
+                    h(Row, { key: 'asset', label: 'Nombre del .glb en Assets del theme (súbelo ahí y la tienda lo sirve sin pasar por KIMOS)' },
+                      h(TextInput, { mono: true, value: s(m.asset),
+                        placeholder: 'ej: torre-aprendizaje.glb — vacío = se carga desde KIMOS',
+                        onChange: (e) => upM({ asset: e.target.value }) })),
                     // Realidad aumentada: el visor encuadra el modelo a un
                     // tamaño arbitrario, así que apoyarlo en el suelo real
                     // exige saber cuánto mide de verdad. Sin este dato el
