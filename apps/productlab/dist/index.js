@@ -1516,6 +1516,14 @@ export default function mount(shell) {
     return st;
   }
 
+  // Texto para las respuestas del agente cuando el guardado tuvo que fusionar:
+  // quien pidió el cambio debe enterarse de que había otra mano trabajando.
+  function avisoFusion(r) {
+    const k = (r && r.fusionadas) || [];
+    return k.length
+      ? ' OJO: mientras tanto se editó este producto fuera de aquí y esos cambios se conservaron (' + k.slice(0, 4).join(', ') + ') — díselo al usuario.'
+      : '';
+  }
   async function saveProducto(draft) {
     // Un producto NUEVO no puede nacer en $0. El modo por defecto ("calculado
     // desde los costos") da 0 mientras no haya componentes cargados, y ese 0
@@ -1704,11 +1712,50 @@ export default function mount(shell) {
     item.price = productoComputedPrice(item);
     if (!item.name) return { success: false, error: 'El producto requiere nombre.' };
     const isNew = !model.productos.some((e) => e.id === item.id);
-    setModel({ productos: isNew ? model.productos.concat([item]) : model.productos.map((e) => (e.id === item.id ? item : e)) });
+
+    // FUSIÓN AL GUARDAR. Antes esto escribía el item COMPLETO tal como lo
+    // traía quien llamara, así que la última escritura borraba lo que hubiera
+    // cambiado mientras tanto: el agente guardaba con un modelo de hasta 45
+    // segundos y se llevaba por delante lo que la persona acababa de editar
+    // (y al revés). El editor ya hacía esta fusión en pantalla; faltaba
+    // hacerla en el guardado, que es por donde pasan TODOS —persona, agente y
+    // cualquier otra pestaña.
+    //
+    // Se parte de lo que hay AHORA en el servidor y encima se aplican solo las
+    // claves que este guardado cambió respecto de la copia con la que trabajó.
+    // Lo que tocó otro y este no, se conserva.
+    let aGuardar = item;
+    let ajenas = [];
+    if (!isNew) {
+      const partida = model.productos.find((e) => e.id === item.id) || null;
+      let vivo = null;
+      try {
+        const items = await shell.items.list();
+        vivo = (items || []).find((i) => i.id === item.id) || null;
+      } catch (e) { /* sin red: se guarda la copia local, como antes */ }
+      if (vivo && partida) {
+        const mias = Object.keys(Object.assign({}, partida, item)).filter((k) =>
+          k !== 'updatedAt' && JSON.stringify(item[k]) !== JSON.stringify(partida[k]));
+        ajenas = Object.keys(vivo).filter((k) =>
+          k !== 'updatedAt' && mias.indexOf(k) === -1
+          && JSON.stringify(vivo[k]) !== JSON.stringify(partida[k]));
+        if (ajenas.length) {
+          aGuardar = Object.assign({}, vivo);
+          mias.forEach((k) => { aGuardar[k] = item[k]; });
+          aGuardar.updatedAt = item.updatedAt;
+        }
+      }
+    }
+    setModel({ productos: isNew ? model.productos.concat([aGuardar]) : model.productos.map((e) => (e.id === aGuardar.id ? aGuardar : e)) });
     try {
-      if (isNew) await shell.items.create(item); else await shell.items.update(item.id, item);
+      if (isNew) await shell.items.create(aGuardar); else await shell.items.update(aGuardar.id, aGuardar);
       scheduleRepublish();
-      return { success: true, message: 'Producto "' + item.name + '" guardado en ' + fmtMoney(item.price) + '.', item };
+      // Que se sepa cuándo hubo dos manos sobre el mismo producto: si el
+      // agente lo dice en su respuesta, la persona se entera sin tener que
+      // comparar a ojo.
+      return { success: true, item: aGuardar, fusionadas: ajenas,
+        message: 'Producto "' + aGuardar.name + '" guardado en ' + fmtMoney(aGuardar.price) + '.'
+          + (ajenas.length ? ' Se conservaron cambios hechos fuera de aquí mientras tanto (' + ajenas.slice(0, 4).join(', ') + ').' : '') };
     } catch (e) {
       shell.notify({ level: 'error', text: 'No se pudo guardar el producto: ' + ((e && e.message) || 'error desconocido') });
       await load();
@@ -3622,7 +3669,8 @@ export default function mount(shell) {
             return { success: true, message: (existing ? 'Producto actualizado: ' : 'Producto creado: ') + r.item.name
               + ' · precio ' + (modo === 'auto' ? 'calculado desde costos' : modo === 'store' ? 'tomado del catálogo' : 'fijo') + ': ' + fmtMoney(r.item.price)
               + ((r.item.baseComponentIds || []).length ? ' · ' + r.item.baseComponentIds.length + ' componente(s) base' : '')
-              + '. Define pasos con SET_PRODUCTO_STEPS (o BUILD_3D_STEPS si tiene visor 3D) y la ficha con SET_STOREFRONT.' };
+              + '. Define pasos con SET_PRODUCTO_STEPS (o BUILD_3D_STEPS si tiene visor 3D) y la ficha con SET_STOREFRONT.'
+              + avisoFusion(r) };
           }
           if (type === 'SET_PRODUCTO_STEPS') {
             const eqRef = productoRefIn(['id', 'name', 'nombre', 'sku']);

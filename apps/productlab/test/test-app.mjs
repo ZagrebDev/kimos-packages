@@ -1202,5 +1202,30 @@ expectEq('modo skip no crea duplicados', agentReg.getSnapshot().components.lengt
 if (impSkip.message.indexOf('omitidos') === -1) throw new Error('modo skip no informó omisiones: ' + impSkip.message);
 console.log('ProductLab: migración desde otra app, export/import JSON y CSV (ida y vuelta) OK');
 
+// ── Guardado concurrente: dos manos sobre el mismo producto ──────────────────
+// El agente guarda con el modelo que tenía cargado (hasta 45 s viejo) y una
+// persona puede haber editado otra cosa mientras tanto. Antes ganaba la última
+// escritura y la otra edición desaparecía sin aviso.
+{
+  await act('UPSERT_PRODUCTO', { nombre: 'Silla Concurrente', precioFijo: 50000 });
+  const antes = agentReg.getSnapshot().productos.find((e) => e.name === 'Silla Concurrente');
+
+  // Alguien más cambia el SKU directamente en el servidor (otra pestaña).
+  const enServidor = store.get(antes.id);
+  store.set(antes.id, { ...enServidor, sku: 'SKU-DE-OTRO' });
+
+  // El agente guarda partiendo de su copia, que NO trae ese SKU, y cambia
+  // OTRO campo (los días de preparación).
+  const r = await act('UPSERT_PRODUCTO', { name: 'Silla Concurrente', deliveryExtraDays: 7 });
+  if (!r.success) throw new Error('el guardado concurrente falló: ' + r.error);
+
+  const final = store.get(antes.id);
+  if (Number(final.deliveryExtraDays) !== 7) throw new Error('no se aplicó el cambio propio: ' + final.deliveryExtraDays);
+  if (final.sku !== 'SKU-DE-OTRO') throw new Error('SE PISÓ el cambio ajeno: sku=' + final.sku);
+  if (r.message.indexOf('fuera de aquí') === -1) throw new Error('no avisó de la fusión: ' + r.message);
+  if (!r.message.includes('sku')) throw new Error('no dijo QUÉ se conservó: ' + r.message);
+  console.log('ProductLab: guardado concurrente conserva los cambios de la otra mano OK');
+}
+
 console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen, estilo por producto y plantillas de estilo válidos');
 cleanups.forEach((c) => c());
