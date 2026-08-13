@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.27.0';
+  var VERSION = '5.28.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -2655,19 +2655,16 @@
         // builder, y las pestañas de arriba solo bajan hasta ellas. Tenerlas
         // como pestañas aparte rompía la lectura en trozos inconexos.
         anclas = {};
-        // La nota se ve UNA vez. `photosNote` alimentaba dos secciones a la
-        // vez —la de fotos la pintaba dentro y la de nota la repetía debajo—,
-        // así que quien tuviera ambas la veía duplicada y no podía quitarla de
-        // la galería. Manda la sección de nota: si está en la lista, la
-        // galería no la pinta; si no está, la galería la conserva (que es lo
-        // que veían las fichas armadas antes de que la nota fuera sección).
-        var hayNota = secs.some(function (x) { return x && x.kind === 'note'; });
+        // La nota es SU PROPIA sección y solo se ve ahí. La galería la pintaba
+        // además dentro de sí misma, así que salía duplicada y no había forma
+        // de quitarla de ahí: quien no la quería bajo las fotos no tenía
+        // interruptor. Ahora la lista de secciones manda y punto.
         secs.forEach(function (s) {
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, hayNota ? '' : sf.photosNote, style.photos, altDe); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, '', style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });

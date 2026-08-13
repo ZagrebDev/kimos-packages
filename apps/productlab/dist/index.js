@@ -3034,18 +3034,18 @@ export default function mount(shell) {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
           }, required: ['producto', 'steps'] } },
-        { name: 'COMPOSE_HERO', description: 'AGREGA un hero al producto SIN construir estructura anidada: entregas los contenidos como campos simples y la app compone los bloques y contenedores correctamente. Por omisión el hero se AÑADE detrás de los que ya existan, así que crear una sección nueva nunca borra la anterior; para REEMPLAZAR uno hay que decir cuál con heroIndex. PREFIERE esta tool sobre SET_STOREFRONT.pageSections para crear o editar heros.',
+        { name: 'COMPOSE_HERO', description: 'AGREGA un hero al producto SIN construir estructura anidada: entregas los contenidos como campos simples y la app compone los bloques y contenedores correctamente. Por omisión el hero se AÑADE detrás de los que ya existan, así que crear una sección nueva nunca borra la anterior; para REEMPLAZAR uno hay que decir cuál con heroIndex. Cada llamada agrega UN hero: si piden cuatro secciones, son cuatro llamadas. DECIDE TÚ la forma de cada una — el patrón (`pattern`) y si el contenido va como lista o como iconos destacados (`features[].icon`) salen de lo que la sección cuenta, no de repetir la anterior: una sección de garantías no se ve como el hero principal del producto. PREFIERE esta tool sobre SET_STOREFRONT.pageSections para crear o editar heros.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             headline: { type: 'string', description: 'frase grande destacada (ej: "Crea sin límites")' },
             text: { type: 'string', description: 'párrafo breve adicional (opcional)' },
-            features: { type: 'array', items: { type: 'object' }, description: 'características: [{title, text?}, …] (title corto, text detalle). Para REDISTRIBUIR un hero existente, reenvía sus contenidos (están en productos[].storefront) con el reparto deseado.' },
+            features: { type: 'array', items: { type: 'object' }, description: 'características: [{title, text?, icon?}, …] (title corto, text detalle). Si alguna trae `icon` (un emoji o carácter, ej "🛡"), TODAS se pintan como ICONOS DESTACADOS en vez de lista — es lo que corresponde para garantías, beneficios, pasos o cualquier contenido que se lea de un vistazo. Para REDISTRIBUIR un hero existente, reenvía sus contenidos (están en productos[].storefront) con el reparto deseado.' },
             featuresRightCount: { type: 'number', description: 'cuántas de las características van al LADO DERECHO de la foto (el resto queda a la izquierda); 0/omitido = todas a la izquierda' },
             ctaLabel: { type: 'string', description: 'texto del botón (vacío = automático)' },
             showTitle: { type: 'boolean', description: 'mostrar el nombre del producto (default true)' },
             showPhoto: { type: 'boolean', description: 'mostrar la foto del producto (default true)' },
             photoSize: { type: 'string', description: 's|m|l|xl (default l)' },
-            pattern: { type: 'string', description: 'patrón del hero (ver builderRef.patterns; default clasico)' },
+            pattern: { type: 'string', description: 'ELIGE el patrón según el contenido que vas a poner — no uses siempre el mismo, y no repitas el del hero anterior si la sección cuenta otra cosa. Guía: `clasico` (foto al centro con contenido a ambos lados) para el hero principal de producto; `tercios` para TRES bloques equivalentes — garantías, beneficios, pasos; `destacado` para una idea grande arriba y tres apoyos debajo; `columnas` para dos ideas enfrentadas — antes/después, incluye/no incluye; `banda` para una franja baja de una sola línea; `apilado` para un texto centrado sin foto; `sidebar-izq`/`sidebar-der` para contenido con una columna de apoyo; `filas` para dos bandas apiladas; `mosaico` para cuatro celdas. Default: clasico.' },
             height: { type: 'string', description: 's|m|l|xl (default l)' },
             bgColor: { type: 'string', description: '#hex de fondo (opcional)' },
             bgImageUrl: { type: 'string', description: 'imagen de fondo (opcional, tapa el color)' },
@@ -3711,13 +3711,23 @@ export default function mount(shell) {
               .map((f) => ({
                 title: (s(f.title).trim() || s(f.text).trim()).slice(0, 80),
                 text: s(f.title).trim() ? s(f.text).trim() : '',
+                icon: s(f.icon).trim().slice(0, 4),
               }));
+            // Con iconos el contenido se lee de un vistazo (garantías,
+            // beneficios, pasos) y merece el bloque de destaques, no una lista
+            // de texto. Basta que UNA característica traiga icono: mezclarlos
+            // dejaría media sección con filete y media sin él.
+            const conIconos = feats.some((f) => f.icon);
+            const tipoFeats = conIconos ? 'icons' : 'items';
             const nRight = Math.max(0, Math.min(feats.length, num(p.featuresRightCount, 0)));
             const featsLeft = nRight > 0 ? feats.slice(0, feats.length - nRight) : feats;
             const featsRight = nRight > 0 ? feats.slice(feats.length - nRight) : [];
-            if (featsLeft.length) slots[side].push({ type: 'items', items: featsLeft, float: true });
-            if (featsRight.length && side2 !== side) slots[side2].push({ type: 'items', items: featsRight, float: true });
-            else if (featsRight.length) slots[side].push({ type: 'items', items: featsRight, float: true });
+            const bloqueFeats = (lista) => (conIconos
+              ? { type: 'icons', items: lista }
+              : { type: 'items', items: lista.map((f) => ({ title: f.title, text: f.text })), float: true });
+            if (featsLeft.length) slots[side].push(bloqueFeats(featsLeft));
+            if (featsRight.length && side2 !== side) slots[side2].push(bloqueFeats(featsRight));
+            else if (featsRight.length) slots[side].push(bloqueFeats(featsRight));
             if (p.showPhoto !== false) {
               slots[mid].push({ type: 'photo', size: ['s', 'm', 'xl'].indexOf(p.photoSize) !== -1 ? p.photoSize : 'l', anim: 'none' });
             }
