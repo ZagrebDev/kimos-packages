@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.23.0';
+  var VERSION = '5.24.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -179,13 +179,29 @@
   }
   function loadDefinition() {
     var hit = defCacheRead();
-    // Marca única por carga: ni el navegador ni el CDN de la tienda pueden
-    // servir una copia vieja del JSON — "publicar" recarga a todos de verdad.
-    var bust = Date.now();
+    // CACHÉ DEL CATÁLOGO. Aquí había una marca única por carga (`_t=Date.now()`)
+    // que garantizaba ver siempre lo último — al precio de que NADA pudiera
+    // guardarse: ni el navegador, ni el CDN de la tienda, ni el de KIMOS. Cada
+    // visita a cada ficha era una descarga completa desde el origen.
+    //
+    // Eso no escala: en un día de tráfico alto, cada visitante golpea el
+    // backend en vez de que el CDN absorba la carga. Ahora el catálogo se pide
+    // de forma normal y quien decide cuánto dura la copia es la cabecera que
+    // manda el servidor (unos segundos, con revalidación en segundo plano):
+    // publicar sigue llegando a todos enseguida, pero mil visitantes en el
+    // mismo minuto son UNA petición al origen, no mil.
+    //
+    // Para forzar una recarga inmediata en pruebas, define en custom.js
+    // `window.KIMOS_CATALOG_V = 'loQueSea'` y cámbialo.
+    var ver = String(window.KIMOS_CATALOG_V || '').trim();
+    var conVer = function (u) {
+      if (!ver) return u;
+      return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(ver);
+    };
     var pedirLocal = function (u) {
       var p = permalinkLocal(u);
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch('/' + p + '?_t=' + bust, { credentials: 'omit', cache: 'no-store' })
+      return fetch(conVer('/' + p), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
@@ -196,7 +212,7 @@
         });
     };
     var pedirRemoto = function (u) {
-      return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit', cache: 'no-store' })
+      return fetch(conVer(u), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
     };
