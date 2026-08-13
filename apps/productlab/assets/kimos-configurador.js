@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.25.0';
+  var VERSION = '5.26.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -155,17 +155,20 @@
   // del mismo origen: rapidísima). La copia en localStorage queda SOLO de
   // respaldo: si ni la página ni KIMOS responden, la tienda usa la última
   // buena y no se queda sin ficha.
-  function defCacheKey() { return 'kc-def::' + CFG_URLS.join('|'); }
-  function defCacheRead() {
+  // La clave lleva el producto: desde que el gateway puede devolver el
+  // catálogo recortado a uno solo, una copia guardada bajo una clave común
+  // dejaría a las demás fichas leyendo un catálogo donde su producto no está.
+  function defCacheKey(ref) { return 'kc-def::' + CFG_URLS.join('|') + (ref ? '::' + ref : ''); }
+  function defCacheRead(ref) {
     try {
-      var raw = localStorage.getItem(defCacheKey());
+      var raw = localStorage.getItem(defCacheKey(ref));
       if (!raw) return null;
       var c = JSON.parse(raw);
       return (c && c.def) ? c : null;
     } catch (e) { return null; }
   }
-  function defCacheWrite(def) {
-    try { localStorage.setItem(defCacheKey(), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
+  function defCacheWrite(ref, def) {
+    try { localStorage.setItem(defCacheKey(ref), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
   }
   // Copia LOCAL del catálogo: ProductLab puede publicar el JSON en una
   // página de la propia tienda (permalink derivado de la instancia). Se
@@ -177,8 +180,15 @@
     return ('kimos-productlab-' + m[1]).toLowerCase()
       .replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
   }
-  function loadDefinition() {
-    var hit = defCacheRead();
+  function loadDefinition(prod) {
+    // La ficha necesita UN producto, no el catálogo entero. Al gateway se le
+    // pide recortado (`?product=`): con cincuenta productos, quien mira una
+    // silla ya no descarga también las otras cuarenta y nueve con sus fotos,
+    // pasos y presets. La copia local de la tienda sigue siendo el catálogo
+    // completo —es un solo archivo servido por el CDN de Jumpseller— y se
+    // intenta primero, así que esto solo aligera el camino de respaldo.
+    var refProd = prod ? String(prod.id || prod.sku || prod.name || '').trim() : '';
+    var hit = defCacheRead(refProd);
     // CACHÉ DEL CATÁLOGO. Aquí había una marca única por carga (`_t=Date.now()`)
     // que garantizaba ver siempre lo último — al precio de que NADA pudiera
     // guardarse: ni el navegador, ni el CDN de la tienda, ni el de KIMOS. Cada
@@ -212,6 +222,7 @@
         });
     };
     var pedirRemoto = function (u) {
+      if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);
       return fetch(conVer(u), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
@@ -268,7 +279,7 @@
         for (var i = 0; i < defs.length; i++) prods = prods.concat((defs[i].productos || defs[i].equipos) || []);
         def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store, productos: prods };
       }
-      defCacheWrite(def);
+      defCacheWrite(refProd, def);
       return def;
     });
   }
@@ -2798,7 +2809,7 @@
     // Cuando NO se va a reemplazar nada, el velo sobra: fuera de inmediato,
     // sin fundido, que la ficha del theme ya está lista debajo.
     if (!prod) { destapar(true); return; }
-    loadDefinition().then(function (def) {
+    loadDefinition(prod).then(function (def) {
       var entry = findEntry(def, prod);
       if (!entry) { destapar(true); return; }
       // Sin ficha ni 3D no hay nada que reemplazar: se deja el theme como está.
