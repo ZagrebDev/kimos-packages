@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.32.0';
+  var VERSION = '5.33.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -233,7 +233,11 @@
     var pedirLocal = function (u, marca, pagina) {
       var p = String(pagina || '').trim() || permalinkLocal(u);
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'omit' })
+      // MISMO ORIGEN y CON COOKIES ('same-origin'): en una tienda protegida
+      // con contraseña, pedir la página sin la cookie de sesión choca contra
+      // el muro y responde 404 — parecía que la copia local no existía cuando
+      // en realidad existía y el visitante (que ya pasó el muro) SÍ podía verla.
+      return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
@@ -287,20 +291,30 @@
         console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · versión ' + (def && def.updatedAt || '?'));
         return def;
       };
+      // Copia POR URL en localStorage, con su versión: si el faro confirma que
+      // no cambió nada, no se baja ni un byte de catálogo — también en tiendas
+      // con varias instancias (la copia fusionada de defCache no servía ahí).
+      var claveUrl = 'kc-defu::' + u + (refProd ? '::' + refProd : '');
+      var leerUrl = function () {
+        try { var c = JSON.parse(localStorage.getItem(claveUrl) || 'null'); return c && c.def ? c : null; }
+        catch (e) { return null; }
+      };
+      var guardarUrl = function (def) {
+        try { localStorage.setItem(claveUrl, JSON.stringify({ v: String((def && def.updatedAt) || ''), def: def })); } catch (e) {}
+        return def;
+      };
       return pedirVersion(u)
         .then(function (faro) {
           var marca = faro.v;
-          // Misma versión que la copia guardada = mismo contenido: cero red.
-          // (Solo con una instancia: con varias, la copia guardada es la
-          // FUSIÓN y no puede compararse contra la versión de una sola.)
-          if (marca && CFG_URLS.length === 1 && hit && hit.def
-              && String(hit.def.updatedAt || '') === String(marca)) {
-            return cuenta(hit.def, 'copia del navegador (versión vigente confirmada por el faro)');
+          var enCache = leerUrl();
+          if (marca && enCache && enCache.v === String(marca)) {
+            return cuenta(enCache.def, 'copia del navegador (versión vigente confirmada por el faro)');
           }
           return pedirLocal(u, marca, faro.page)
+            .then(guardarUrl)
             .then(function (def) { return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ') — independiente de KIMOS'); })
             .catch(function () {
-              return pedirRemoto(u, marca).then(function (def) {
+              return pedirRemoto(u, marca).then(guardarUrl).then(function (def) {
                 return cuenta(def, 'KIMOS (respaldo' + (marca ? '' : ', faro sin respuesta') + ')');
               });
             });
@@ -3023,7 +3037,15 @@
     };
     var imgs = raiz.querySelectorAll('img');
     for (var i = 0; i < imgs.length; i++) {
-      if (imgs[i].src && !imgs[i].complete) pendientes.push(espera(imgs[i]));
+      if (!imgs[i].src || imgs[i].complete) continue;
+      // Solo lo que el cliente VE al entrar: esperar también las fotos de las
+      // cards del fondo de la página retenía el velo más de un segundo sin
+      // que nadie lo notara — esas cargan solas mientras se hace scroll.
+      try {
+        var rc = imgs[i].getBoundingClientRect();
+        if (rc.top > (window.innerHeight || 800) * 1.2) continue;
+      } catch (e) { /* sin rect: se espera como siempre */ }
+      pendientes.push(espera(imgs[i]));
     }
     // Fondos de hero: se precargan en un <img> suelto, que es lo que permite
     // saber cuándo están listos. Es la foto grande que aparecía a destiempo.

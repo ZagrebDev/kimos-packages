@@ -78,9 +78,10 @@ async function montar(opts) {
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: defDe(opts.versionCatalogo || opts.versionFaro) }) });
   };
   if (opts.cachea) {
-    // Copia previa en localStorage bajo la clave real del kit.
-    w.localStorage.setItem('kc-def::' + KURL + '::23008278',
-      JSON.stringify({ t: Date.now(), def: defDe(opts.cachea) }));
+    // Copia previa en localStorage bajo la clave POR URL del kit (la que el
+    // faro compara por versión).
+    w.localStorage.setItem('kc-defu::' + KURL + '::23008278',
+      JSON.stringify({ v: opts.cachea, def: defDe(opts.cachea) }));
   }
   w.eval(SRC);
   await new Promise((r) => setTimeout(r, 250));

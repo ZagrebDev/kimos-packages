@@ -32,7 +32,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // solos en la siguiente hora. El custom.js que descarga ProductLab
 // (Publicación → "custom.js (configurado)") ya trae aquí una marca nueva en
 // cada descarga: subirlo junto a los otros archivos los refresca al instante.
-window.KIMOS_ASSET_V = '65';
+window.KIMOS_ASSET_V = '66';
 
 // ── SERVICE WORKER ZOMBI: fuera ─────────────────────────────────────────────
 // Si la tienda tuvo una PWA (o Jumpseller registró un service worker en algún
