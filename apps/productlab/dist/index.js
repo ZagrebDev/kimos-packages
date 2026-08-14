@@ -2120,10 +2120,33 @@ export default function mount(shell) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemIds: [ref.itemId] }),
       });
-      const data = await pushRes.json().catch(() => ({}));
+      let data = await pushRes.json().catch(() => ({}));
       if (!pushRes.ok) return { success: false, error: errorTienda(data.detail, pushRes.status) };
-      const itemRes = (data.results || {})[ref.itemId] || {};
-      const js = ((itemRes.results || {}).jumpseller) || {};
+      let itemRes = (data.results || {})[ref.itemId] || {};
+      let js = ((itemRes.results || {}).jumpseller) || {};
+
+      // La subida se corta por tiempo cuando hay muchas combinaciones, y
+      // retoma sola. Continuarla es trabajo de la app, no del usuario pulsando
+      // "aplicar" hasta que el mensaje deje de contar pendientes: aquí se
+      // encadenan las tandas mostrando el avance. El tope evita quedarse dando
+      // vueltas si una tanda deja de progresar.
+      const MAX_TANDAS = 12;
+      for (let tanda = 1; num(js.variantsPendientes, 0) > 0 && tanda <= MAX_TANDAS; tanda++) {
+        const faltaban = num(js.variantsPendientes, 0);
+        shell.notify({ level: 'info', text: 'Subiendo variantes de "' + eq.name + '": quedan '
+          + faltaban + ' de ' + variants.length + '…' });
+        const sigue = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/sync-push', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemIds: [ref.itemId] }),
+        });
+        const d2 = await sigue.json().catch(() => ({}));
+        if (!sigue.ok) break;
+        data = d2;
+        itemRes = (d2.results || {})[ref.itemId] || {};
+        js = ((itemRes.results || {}).jumpseller) || {};
+        // Sin avance no tiene sentido insistir: se sale y el mensaje lo dirá.
+        if (num(js.variantsPendientes, 0) >= faltaban) break;
+      }
       // Los avisos de custom field NO bloquean (se puede poner a mano):
       // solo los errores de producto/opciones/variantes marcan sync_error.
       const cfWarns = js.customFieldErrors || [];
@@ -2158,7 +2181,7 @@ export default function mount(shell) {
         return { success: true, status: 'pending',
           message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + ', ' + options.length + ' opciones. '
             + 'Variantes: ' + (variants.length - faltan) + ' de ' + variants.length + ' subidas, quedan ' + faltan
-            + '. La subida se corta por tiempo y RETOMA sola: vuelve a aplicar hasta que no queden pendientes.' + cfNote };
+            + '. La subida dejó de avanzar antes de terminar — vuelve a aplicar; si se queda en el mismo número, avísanos.' + cfNote };
       }
       return { success: true, status, message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + (variants.length ? ', ' + options.length + ' opciones, ' + variants.length + ' variantes.' : ' — producto simple sin variantes (compra directa).') + cfNote };
     } catch (e) { return { success: false, error: (e && e.message) || 'Error de red.' }; }
