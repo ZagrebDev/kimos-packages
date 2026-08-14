@@ -2148,6 +2148,18 @@ export default function mount(shell) {
       scheduleRepublish();
       if (errs.length) return { success: false, status, error: 'Sincronizado con errores: ' + errs.join(' · ') };
       const cfNote = cfWarns.length ? ' (aviso: ' + cfWarns.join(' · ') + ' — puedes ponerlo a mano en el admin)' : '';
+      // Lo que REALMENTE llegó a la tienda, no lo que se preparó. El mensaje
+      // decía "108 variantes" contando las combinaciones construidas aquí,
+      // aunque la subida se hubiera cortado por tiempo a la mitad: se leía como
+      // un éxito completo mientras en Jumpseller faltaban y el stock de las que
+      // no alcanzaron a subir se quedaba en ilimitado.
+      const faltan = num(js.variantsPendientes, 0);
+      if (faltan) {
+        return { success: true, status: 'pending',
+          message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + ', ' + options.length + ' opciones. '
+            + 'Variantes: ' + (variants.length - faltan) + ' de ' + variants.length + ' subidas, quedan ' + faltan
+            + '. La subida se corta por tiempo y RETOMA sola: vuelve a aplicar hasta que no queden pendientes.' + cfNote };
+      }
       return { success: true, status, message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + (variants.length ? ', ' + options.length + ' opciones, ' + variants.length + ' variantes.' : ' — producto simple sin variantes (compra directa).') + cfNote };
     } catch (e) { return { success: false, error: (e && e.message) || 'Error de red.' }; }
   }
