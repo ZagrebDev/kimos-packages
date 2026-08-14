@@ -2409,6 +2409,67 @@ export default function mount(shell) {
       return { ok: true, bytes: num(d2.bytes), permalink: s(d2.permalink), updated: d2.updated === true };
     } catch (e) { return { ok: false, error: (e && e.message) || 'error de red' }; }
   }
+  // ── Imágenes de la ficha alojadas en la tienda ───────────────────────────
+  // Las fotos de la GALERÍA ya se suben al producto desde la Galería, y son
+  // decisión de una persona. Las demás —fondos de hero, muestras, fotos de
+  // valor de paso— viven en KIMOS, y son las que hacían que una ficha
+  // dependiera de KIMOS para verse completa.
+  //
+  // Van como ADJUNTOS del producto: admiten varios y no entran en la galería,
+  // así que alojarlas no cambia el aspecto de la ficha. (Las páginas de
+  // Jumpseller admiten UNA sola imagen; ese camino no servía.)
+  function urlsDeKimos(nodo, out) {
+    out = out || [];
+    if (typeof nodo === 'string') {
+      if (nodo.indexOf(API + '/api/public/') === 0 && out.indexOf(nodo) === -1) out.push(nodo);
+    } else if (Array.isArray(nodo)) {
+      nodo.forEach((x) => urlsDeKimos(x, out));
+    } else if (nodo && typeof nodo === 'object') {
+      Object.keys(nodo).forEach((k) => urlsDeKimos(nodo[k], out));
+    }
+    return out;
+  }
+  function reemplazarUrls(nodo, mapa) {
+    if (typeof nodo === 'string') return mapa[nodo] || nodo;
+    if (Array.isArray(nodo)) return nodo.map((x) => reemplazarUrls(x, mapa));
+    if (nodo && typeof nodo === 'object') {
+      const out = {};
+      Object.keys(nodo).forEach((k) => { out[k] = reemplazarUrls(nodo[k], mapa); });
+      return out;
+    }
+    return nodo;
+  }
+  // Cada producto aloja LO SUYO en su propio producto de la tienda.
+  async function alojarImagenesFicha(data) {
+    if (!shell.authFetch || !data || !Array.isArray(data.productos)) {
+      return { data, copiadas: 0, pendientes: 0, errores: [] };
+    }
+    let copiadas = 0; let pendientes = 0; const errores = [];
+    const productos = [];
+    for (const p of data.productos) {
+      const sid = s(p && p.productId).trim();
+      const urls = urlsDeKimos(p);
+      if (!sid || !urls.length) { productos.push(p); pendientes += urls.length; continue; }
+      try {
+        const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-product-assets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceId: sid, urls }),
+        }, 2);
+        const d = await r.json().catch(() => ({}));
+        const mapa = (d && d.map) || {};
+        const n = Object.keys(mapa).length;
+        copiadas += n; pendientes += urls.length - n;
+        if (d && d.errors && d.errors.length) errores.push(...d.errors.slice(0, 2));
+        else if (!r.ok) errores.push(s(d.detail) || ('HTTP ' + r.status));
+        productos.push(n ? reemplazarUrls(p, mapa) : p);
+      } catch (e) {
+        pendientes += urls.length;
+        errores.push((e && e.message) || 'error de red');
+        productos.push(p);
+      }
+    }
+    return { data: Object.assign({}, data, { productos }), copiadas, pendientes, errores };
+  }
   async function publish(enabled) {
     const def = Object.assign({}, model.def || defaultDefinition());
     const antes = def.public || {};
@@ -2432,7 +2493,21 @@ export default function mount(shell) {
       // se sirve desde KIMOS con caché de un año (nombre único por archivo, ver
       // publicFilesAPI), así que el CDN las entrega tras la primera visita.
       // Para independencia total van a Assets del theme, como el kit y los .glb.
-      const rp = await pushPaginaTienda(enabled ? data : null);
+      // Primero se alojan las imágenes de la ficha: lo que se copie entra ya
+      // reescrito en el catálogo, tanto en la página como en el que sirve
+      // KIMOS, así la ficha las toma de la tienda por cualquiera de los dos.
+      let aPublicar = enabled ? data : null;
+      if (enabled && aPublicar) {
+        const al = await alojarImagenesFicha(aPublicar);
+        aPublicar = al.data;
+        pub.data = al.data;
+        pub.assetMirror = { at: nowIso(), copiadas: al.copiadas, pendientes: al.pendientes };
+        if (al.errores.length) {
+          shell.notify({ level: 'warn', text: 'Algunas imágenes de la ficha no se alojaron en la tienda: '
+            + al.errores.slice(0, 2).join(' · ') + ' — esas seguirán sirviéndose desde KIMOS.' });
+        }
+      }
+      const rp = await pushPaginaTienda(aPublicar);
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
       if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
     }
