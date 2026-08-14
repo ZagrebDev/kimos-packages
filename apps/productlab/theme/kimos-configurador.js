@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.31.0';
+  var VERSION = '5.31.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1045,11 +1045,48 @@
   //             el theme publica para la variante actual (server-side, en
   //             product-form-json) más la diferencia de deltas del JSON;
   //   'none'  → sin precio en las cards.
-  function cardPrecio(mode, on, kv, kvSel, precioAhora) {
-    if (mode === 'none' || on || !kv || kv.delta == null) return '';
-    var dlt = (Number(kv.delta) || 0) - (kvSel && kvSel.delta != null ? Number(kvSel.delta) || 0 : 0);
+  // El recargo mostrado en la card sale DE LA TIENDA cuando se puede saber
+  // (dltTienda): data-addon-price de los addons, o diferencia de precio entre
+  // variantes para el paso de color. Es EXACTAMENTE lo que el servidor va a
+  // cobrar — los deltas del catálogo (kv.delta, con su propio redondeo)
+  // quedan solo de respaldo para fichas del modelo antiguo, donde el número
+  // mostrado y el cobrado podían diferir en el redondeo.
+  function cardPrecio(mode, on, kv, kvSel, precioAhora, dltTienda) {
+    if (mode === 'none' || on) return '';
+    var dlt = dltTienda != null ? dltTienda
+      : (kv && kv.delta != null
+        ? (Number(kv.delta) || 0) - (kvSel && kvSel.delta != null ? Number(kvSel.delta) || 0 : 0)
+        : null);
+    if (dlt == null) return '';
     if (mode === 'total' && precioAhora != null) return fmtMonto(precioAhora + dlt);
     return dlt === 0 ? '' : fmtDelta(dlt);
+  }
+  // Precio de la variante que resultaría de SUSTITUIR, en la selección actual
+  // de los grupos reales, el valor del grupo `g` por `valueId`. null cuando la
+  // combinación no existe en la lista del theme (se cae al delta del catálogo).
+  function precioVarianteSustituyendo(g, valueId) {
+    var reales = gruposDeVariante(VARIANT_GROUPS || []);
+    if (!reales.length || !VARIANTES.length || valueId == null) return null;
+    var sel = readSelection(reales);
+    sel[g.id] = String(valueId);
+    var ids = reales.map(function (x) { return String(sel[x.id] || ''); }).filter(Boolean);
+    if (ids.length !== reales.length) return null;
+    for (var i = 0; i < VARIANTES.length; i++) {
+      var e = VARIANTES[i] || {};
+      var crudos = e.values || e.options || [];
+      var vals = [];
+      for (var k = 0; k < crudos.length; k++) {
+        var x = crudos[k] || {};
+        var vid = (x.value && x.value.id != null) ? x.value.id
+          : (x.value_id != null ? x.value_id : x.id);
+        if (vid != null) vals.push(String(vid));
+      }
+      if (vals.length !== ids.length) continue;
+      var todos = true;
+      for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+      if (todos) return precioDeVariante(e.variant || e);
+    }
+    return null;
   }
 
   // ── Pasos de configuración ───────────────────────────────────────────────
@@ -1130,7 +1167,17 @@
         nombre.appendChild(document.createTextNode(v.name));
         c.appendChild(nombre);
         if (kv && kv.desc) c.appendChild(el('span', 'kc-card-d', kv.desc));
-        var precio = cardPrecio(st.showDeltas || 'delta', on, kv, kvSel, precioAhora);
+        // Recargo REAL de esta card según la tienda: addons por su
+        // data-addon-price; color por la diferencia de precio entre variantes.
+        var dltTienda = null;
+        if (g.virtual) {
+          dltTienda = addonPriceDe(g, v.id) - (selId != null ? addonPriceDe(g, selId) : 0);
+        } else if (VARIANTES.length) {
+          var pCand = precioVarianteSustituyendo(g, v.id);
+          var pAct = selId != null ? precioVarianteSustituyendo(g, selId) : null;
+          if (pCand != null && pAct != null) dltTienda = pCand - pAct;
+        }
+        var precio = cardPrecio(st.showDeltas || 'delta', on, kv, kvSel, precioAhora, dltTienda);
         if (precio) c.appendChild(el('span', 'kc-card-price', precio));
         c.addEventListener('click', function () {
           applyNative(g, v.id);

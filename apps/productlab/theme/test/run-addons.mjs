@@ -172,6 +172,14 @@ t('el paso oculto no deja checkboxes marcados', cb(920).checked === false && cb(
 t('precio = variante Negro + addons marcados ($100.000)', /100\.000/.test(precioPanel()));
 t('no marca "No disponible" (la variante casa solo con el color)', precioPanel().indexOf('No disponible') === -1);
 
+console.log('— ancla+addons: el recargo mostrado es el de la TIENDA —');
+{
+  const paso = pasoPorTitulo('Tarjeta de video');
+  const card = cardDe(paso, 'RTX 4060');
+  const precioCard = (card.querySelector('.kc-card-price') || {}).textContent || '';
+  t('la card muestra el data-addon-price de la tienda (+$350.000)', /350\.000/.test(precioCard));
+}
+
 console.log('— ancla+addons: elegir un addon con recargo —');
 {
   const paso = pasoPorTitulo('Tarjeta de video');
