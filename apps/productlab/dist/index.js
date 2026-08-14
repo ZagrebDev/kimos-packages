@@ -2446,7 +2446,11 @@ export default function mount(shell) {
       }, 2);
       const d2 = await r.json().catch(() => ({}));
       if (!r.ok) return { ok: false, error: s(d2.detail) || ('HTTP ' + r.status) };
-      return { ok: true, bytes: num(d2.bytes), permalink: s(d2.permalink), updated: d2.updated === true };
+      // `aviso` trae lo que la API aceptó pero la tienda no cumple (página con
+      // otro permalink, o guardada pero sin servirse): sin mostrarlo, el panel
+      // decía "publicado · 31 KB" mientras cada visita caía a KIMOS.
+      return { ok: true, bytes: num(d2.bytes), permalink: s(d2.permalink), updated: d2.updated === true,
+        served: d2.served, aviso: s(d2.aviso), publicUrl: s(d2.publicUrl) };
     } catch (e) { return { ok: false, error: (e && e.message) || 'error de red' }; }
   }
   // ── Imágenes de la ficha alojadas en la tienda ───────────────────────────
@@ -2550,6 +2554,7 @@ export default function mount(shell) {
       const rp = await pushPaginaTienda(aPublicar);
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
       if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
+      else if (rp.aviso) shell.notify({ level: 'warn', text: 'Copia en la tienda: ' + rp.aviso });
     }
     def.public = pub;
     // Solo `public`: publicar es lo que MÁS se escribe (auto-republish) y no
