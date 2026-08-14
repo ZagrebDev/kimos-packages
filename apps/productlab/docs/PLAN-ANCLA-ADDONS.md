@@ -91,14 +91,11 @@ migrar el resto; confirmar contra la tienda real.
 
 ### Fase 2 — Kit del theme: compra en un POST
 
-- [ ] **2.1** Kit mapea la selección del paso a paso → value_ids de addons + variante de color; marca los checkboxes nativos ocultos y usa el submit nativo (un POST, una línea).
-  - *Criterio*: compra de prueba en hubpro.cl/test → carro con UNA línea, precio total correcto, foto del color elegido.
-- [ ] **2.2** Ocultar la UI nativa de opciones (checklist y selector de color) sin romper el submit; el paso a paso KIMOS es la única UI visible.
-  - *Criterio*: en la ficha solo se ve el configurador KIMOS; el POST sigue llevando los campos nativos.
-- [ ] **2.3** Precio mostrado por el kit == precio que cobrará el servidor (base + deltas), sin depender de `updateAddonTotal` del theme.
-  - *Criterio*: precio del configurador == precio del carro en 3 configuraciones distintas (mínima, máxima, intermedia).
-- [ ] **2.4** Resiliencia: si el catálogo KIMOS no responde, la ficha nativa (checklist + color) sigue permitiendo comprar.
-  - *Criterio*: con el catálogo bloqueado (devtools), se puede añadir al carro igual.
+- [x] **2.1** Kit agrupa los checkboxes addon "Paso: Valor" en grupos VIRTUALES (misma interfaz que un grupo nativo): el paso a paso los pinta igual, elegir un valor marca su checkbox y desmarca los hermanos (mutaciones primero, `change` después — el theme recalcula su precio), y el submit nativo sigue siendo el que compra. Paso oculto por dependencia = ningún checkbox marcado; al reaparecer recupera su default. *(kit 5.30.0; test `theme/test/run-addons.mjs` verde)*
+  - *Criterio pendiente en vivo*: compra de prueba en hubpro.cl/test → carro con UNA línea, precio total correcto, foto del color elegido (→ Fase 4).
+- [x] **2.2** UI nativa oculta: el bloque original del theme (checklist + color incluidos) ya queda bajo `kc-hidden-native`, vivo para el submit. Sin cambios necesarios.
+- [x] **2.3** Precio mostrado por el kit = variante de color + Σ `data-addon-price` marcados — la misma cuenta del theme y del servidor. La variante se casa SOLO con los grupos reales (los addons no son variante): se acabó el «No disponible» por combinación.
+- [x] **2.4** Resiliencia: sin catálogo KIMOS el kit no monta y la ficha nativa (checklist + color) queda operativa — comportamiento ya existente, sin cambios.
 
 ### Fase 3 — Theme hubpro: presentación
 

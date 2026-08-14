@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.29.0';
+  var VERSION = '5.30.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -294,10 +294,38 @@
 
   // ── Controles nativos del theme: la única vía para elegir variante ────────
   // Cada grupo de KIMOS se empareja con su control por NOMBRE de opción.
+  //
+  // CONTRATO ANCLA + ADDONS: además de los grupos de variantes (select/radio),
+  // la ficha trae un checkbox por cada opción `addon` "Paso: Valor" (con su
+  // `data-addon-price`). Aquí esos checkboxes se agrupan por paso en grupos
+  // VIRTUALES con la misma interfaz que un grupo nativo: el paso a paso los
+  // pinta igual, y elegir un valor marca su checkbox (y desmarca los hermanos)
+  // — el theme suma los addon_price al precio y el submit nativo los envía.
   function nativeGroups(prod) {
-    return Array.prototype.map.call(document.querySelectorAll('.prod-options'), function (g) {
+    var reales = [], virtuales = [], porPaso = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.prod-options'), function (g) {
       var optId = g.getAttribute('data-optionid');
       var opt = (prod.options || []).filter(function (o) { return String(o.id) === String(optId); })[0];
+      if (g.tagName === 'INPUT' && (g.getAttribute('type') || '').toLowerCase() === 'checkbox') {
+        var nom = opt ? String(opt.name || '') : '';
+        if (!nom) {
+          var lb = g.closest && g.closest('label');
+          nom = lb ? (lb.textContent || '').trim() : '';
+        }
+        var corte = nom.indexOf(': ');
+        if (corte === -1) return;   // checkbox ajeno al contrato: es del theme
+        var paso = nom.slice(0, corte).trim();
+        var valor = nom.slice(corte + 2).trim();
+        var clave = norm(paso);
+        var vg = porPaso[clave];
+        if (!vg) {
+          vg = porPaso[clave] = { el: null, id: 'kc-addon:' + clave, name: paso, values: [], inputs: {}, virtual: true };
+          virtuales.push(vg);
+        }
+        vg.values.push({ id: String(optId), name: valor });
+        vg.inputs[String(optId)] = g;
+        return;
+      }
       var name = opt ? opt.name : '';
       if (!name) {
         var fs = (g.closest && (g.closest('.product-options__fieldset') || g.closest('fieldset'))) || g.parentElement;
@@ -315,14 +343,30 @@
           return { id: i.value, name: lab ? lab.textContent.trim() : i.value };
         });
       }
-      return { el: g, id: optId, name: name, values: values };
+      reales.push({ el: g, id: optId, name: name, values: values });
     });
+    return reales.concat(virtuales);
+  }
+  // Solo los grupos que la TIENDA usa para casar variante (los addons no
+  // generan variantes: viajan aparte en el mismo POST del carro).
+  function gruposDeVariante(groups) {
+    return (groups || []).filter(function (g) { return !g.virtual; });
+  }
+  // Recargo del addon elegido en un grupo virtual (lo declara el theme en
+  // data-addon-price). Para grupos reales no aplica: su precio va en la variante.
+  function addonPriceDe(g, valueId) {
+    var cb = g && g.virtual && g.inputs[String(valueId)];
+    return cb ? (Number(cb.getAttribute('data-addon-price')) || 0) : 0;
   }
 
   function readSelection(groups) {
     var out = {};
     groups.forEach(function (g) {
-      if (g.el.tagName === 'SELECT') out[g.id] = g.el.value;
+      if (g.virtual) {
+        for (var k in g.inputs) {
+          if (g.inputs[k].checked) { out[g.id] = k; break; }
+        }
+      } else if (g.el.tagName === 'SELECT') out[g.id] = g.el.value;
       else {
         var c = g.el.querySelector('input[type=radio]:checked');
         if (c) out[g.id] = c.value;
@@ -334,6 +378,28 @@
   // Escribe en el control nativo y avisa al theme. Es el theme quien decide
   // precio, variante y disponibilidad: aquí solo se refleja la elección.
   function applyNative(g, valueId) {
+    if (g.virtual) {
+      // Grupo de addons: marcar el checkbox elegido y desmarcar los hermanos
+      // (un paso = una elección). `valueId` null/desconocido desmarca todo —
+      // es lo que corresponde cuando el paso queda oculto por dependencia.
+      // PRIMERO todas las mutaciones y DESPUÉS los avisos: el primer `change`
+      // repinta y re-evalúa dependencias, y con el grupo a medias (el viejo
+      // desmarcado, el nuevo aún sin marcar) el ajuste re-marcaba el default.
+      var tocados = [];
+      Object.keys(g.inputs).forEach(function (k) {
+        var cb = g.inputs[k];
+        var debe = String(k) === String(valueId);
+        if (cb.checked !== debe) {
+          cb.checked = debe;
+          tocados.push(cb);
+        }
+      });
+      tocados.forEach(function (cb) {
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        if (window.jQuery) { try { window.jQuery(cb).trigger('change'); } catch (e) {} }
+      });
+      return;
+    }
     if (g.el.tagName === 'SELECT') {
       g.el.value = String(valueId);
     } else {
@@ -417,16 +483,27 @@
       var changed = false;
       kgs.forEach(function (kg) {
         var visible = isGroupVisible(entry, kg, selMap);
+        var g = nativeOf(groups, kg);
+        // Grupos de ADDONS (contrato ancla+addons). Un paso oculto no deja
+        // NINGÚN checkbox marcado: su relleno no existe como addon, y marcar
+        // el default cobraría (y listaría en el carro) lo que el cliente no
+        // ve. Uno visible sin nada marcado —al montar la ficha, o al
+        // reaparecer tras estar oculto— recupera su primer valor elegible.
+        var sinMarca = !!(g && g.virtual) && readSelection([g])[g.id] == null;
+        if (g && g.virtual && !visible) {
+          if (!sinMarca) { applyNative(g, null); changed = true; }
+          selMap[kg.id] = (kimosDefault(kg) || {}).id;   // para las cadenas
+          return;
+        }
         // OCULTO → su valor por defecto (que debería ser el de relleno).
         // VISIBLE → nunca el relleno: ese valor solo existe para sostener las
         // variantes en las que el paso no se muestra. Sin esto, el "No aplica"
         // que hace falta para las combinaciones ocultas se podía comprar.
         var dv = visible ? primerElegible(kg) : kimosDefault(kg);
-        if (visible && !esRelleno(valorPorId(kg, selMap[kg.id]))) return;
-        if (!dv || String(selMap[kg.id]) === String(dv.id)) return;
+        if (visible && !sinMarca && !esRelleno(valorPorId(kg, selMap[kg.id]))) return;
+        if (!dv || (!sinMarca && String(selMap[kg.id]) === String(dv.id))) return;
         selMap[kg.id] = dv.id;
         changed = true;
-        var g = nativeOf(groups, kg);
         if (g) {
           var nat = g.values.filter(function (v) { return norm(v.name) === norm(dv.name); })[0];
           if (nat && String(readSelection(groups)[g.id]) !== String(nat.id)) {
@@ -476,12 +553,15 @@
       return [];
     } catch (e) { return []; }
   })();
-  // La variante que casa con lo elegido en los controles nativos.
+  // La variante que casa con lo elegido en los controles nativos. Solo cuentan
+  // los grupos REALES (con ancla+addons la variante es únicamente el color;
+  // los addons no forman parte de ninguna variante).
   function varianteActual(groups) {
-    if (!VARIANTES.length || !groups || !groups.length) return null;
-    var sel = readSelection(groups);
-    var ids = groups.map(function (g) { return String(sel[g.id] || ''); }).filter(Boolean);
-    if (ids.length !== groups.length) return null;
+    var reales = gruposDeVariante(groups);
+    if (!VARIANTES.length || !reales || !reales.length) return null;
+    var sel = readSelection(reales);
+    var ids = reales.map(function (g) { return String(sel[g.id] || ''); }).filter(Boolean);
+    if (ids.length !== reales.length) return null;
     for (var i = 0; i < VARIANTES.length; i++) {
       var e = VARIANTES[i] || {};
       // Formas vistas en producción: {values:[{value:{id}}]}, {values:[{id}]},
@@ -527,10 +607,18 @@
    * lista de variantes (theme raro o producto sin ellas), se cae al JSON de
    * arranque, que al menos es correcto para un producto simple.
    */
-  function themePriceValue(groups) {
-    var v = varianteActual(groups || VARIANT_GROUPS);
-    var real = precioDeVariante(v);
-    if (real != null && isFinite(real)) return real;
+  // Suma de los addons MARCADOS ahora mismo (contrato ancla+addons): la misma
+  // cuenta que hace el theme para repintar su precio (data-addon-price de los
+  // checkboxes marcados). En una ficha sin addons vale 0 y no cambia nada.
+  function addonsMarcados() {
+    var t = 0;
+    var cbs = document.querySelectorAll('input.prod-options[type=checkbox]:checked');
+    for (var i = 0; i < cbs.length; i++) t += Number(cbs[i].getAttribute('data-addon-price')) || 0;
+    return t;
+  }
+  // Precio de arranque del producto según el theme (JSON de la ficha), sin
+  // variante ni addons: el respaldo cuando no hay lista de variantes.
+  function precioBaseProducto() {
     var f = document.querySelector('script.product-form-json');
     if (!f) return null;
     try {
@@ -540,6 +628,15 @@
       var n = vp != null ? Number(vp) : (p != null ? Number(p) : null);
       return n != null && isFinite(n) ? n : null;
     } catch (e) { return null; }
+  }
+  function themePriceValue(groups) {
+    var v = varianteActual(groups || VARIANT_GROUPS);
+    var real = precioDeVariante(v);
+    // La variante (el color) es la BASE; los addons marcados suman encima —
+    // exactamente lo que cobrará el servidor de la tienda al añadir al carro.
+    if (real != null && isFinite(real)) return real + addonsMarcados();
+    var n = precioBaseProducto();
+    return n != null ? n + addonsMarcados() : null;
   }
   var digitos = function (t) { return String(t).replace(/\D/g, ''); };
 
@@ -2317,7 +2414,7 @@
       // Jumpseller. El síntoma que se veía era el peor posible — precio "$0" y
       // el botón de comprar habilitado, que al pulsarlo respondía "Variante
       // del producto no fue encontrada". Aquí se dice antes de intentarlo.
-      var sinVariante = VARIANTES.length > 0 && !varianteActual(groups);
+      var sinVariante = VARIANTES.length > 0 && gruposDeVariante(groups).length > 0 && !varianteActual(groups);
       if (panelPrecio) {
         panelPrecio.textContent = sinVariante ? 'No disponible' : (themePriceText() || '—');
       }
@@ -2575,29 +2672,45 @@
       return ids;
     }
     function precioPreset(pz) {
-      if (!VARIANTES.length) return null;
       // Selección actual + el preset encima: los pasos que el preset no toca
-      // conservan su valor (los ocultos, su comodín).
+      // conservan su valor (los ocultos, su comodín). La BASE la pone la
+      // variante (solo grupos reales — con ancla+addons, el color); encima
+      // suman los addon_price de los pasos virtuales elegidos.
       var sel = readSelection(groups);
       var pre = idsDePreset(pz);
-      var ids = groups.map(function (g) { return String(pre[g.id] || sel[g.id] || ''); }).filter(Boolean);
-      if (ids.length !== groups.length) return null;
-      for (var i = 0; i < VARIANTES.length; i++) {
-        var e = VARIANTES[i] || {};
-        var crudos = e.values || e.options || [];
-        var vals = [];
-        for (var k = 0; k < crudos.length; k++) {
-          var x = crudos[k] || {};
-          var vid = (x.value && x.value.id != null) ? x.value.id
-            : (x.value_id != null ? x.value_id : x.id);
-          if (vid != null) vals.push(String(vid));
+      var eleccion = function (g) { return String(pre[g.id] != null ? pre[g.id] : (sel[g.id] || '')); };
+      var reales = gruposDeVariante(groups);
+      var base = null;
+      if (reales.length && VARIANTES.length) {
+        var ids = reales.map(eleccion).filter(Boolean);
+        if (ids.length !== reales.length) return null;
+        for (var i = 0; i < VARIANTES.length; i++) {
+          var e = VARIANTES[i] || {};
+          var crudos = e.values || e.options || [];
+          var vals = [];
+          for (var k = 0; k < crudos.length; k++) {
+            var x = crudos[k] || {};
+            var vid = (x.value && x.value.id != null) ? x.value.id
+              : (x.value_id != null ? x.value_id : x.id);
+            if (vid != null) vals.push(String(vid));
+          }
+          if (vals.length !== ids.length) continue;
+          var todos = true;
+          for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+          if (todos) { base = precioDeVariante(e.variant || e); break; }
         }
-        if (vals.length !== ids.length) continue;
-        var todos = true;
-        for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
-        if (todos) return precioDeVariante(e.variant || e);
+        if (base == null) return null;
+      } else {
+        base = precioBaseProducto();
+        if (base == null) return null;
       }
-      return null;
+      var total = base;
+      groups.forEach(function (g) {
+        if (!g.virtual) return;
+        var id = eleccion(g);
+        if (id) total += addonPriceDe(g, id);
+      });
+      return total;
     }
     function aplicarPreset(pz) {
       var pre = idsDePreset(pz);
