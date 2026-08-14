@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.33.0';
+  var VERSION = '5.34.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -240,8 +240,12 @@
       return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
-          var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
-          if (!m) throw new Error('sin datos embebidos');
+          // Dos envases posibles: el <script> clásico y el <textarea> oculto
+          // (hay tiendas donde Jumpseller sanitiza el cuerpo de las páginas y
+          // elimina los <script> — la página se servía perfecta… sin datos).
+          var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/)
+            || html.match(/<textarea[^>]*id="kimos-productlab-datos"[^>]*>([\s\S]*?)<\/textarea>/);
+          if (!m) throw new Error('la página existe pero viene SIN el bloque de datos (¿republicar?)');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
           // La copia de la tienda declara su versión (updatedAt). Si el faro
@@ -313,9 +317,13 @@
           return pedirLocal(u, marca, faro.page)
             .then(guardarUrl)
             .then(function (def) { return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ') — independiente de KIMOS'); })
-            .catch(function () {
+            .catch(function (eLocal) {
+              // El MOTIVO por el que se descartó la copia local va en la
+              // línea: "respaldo" a secas obligaba a adivinar (¿404?, ¿sin
+              // bloque de datos?, ¿desactualizada?).
               return pedirRemoto(u, marca).then(guardarUrl).then(function (def) {
-                return cuenta(def, 'KIMOS (respaldo' + (marca ? '' : ', faro sin respuesta') + ')');
+                return cuenta(def, 'KIMOS (respaldo — copia local: '
+                  + ((eLocal && eLocal.message) || '?') + (marca ? '' : ' · faro sin respuesta') + ')');
               });
             });
         })

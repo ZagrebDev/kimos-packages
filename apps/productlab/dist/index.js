@@ -2544,7 +2544,14 @@ export default function mount(shell) {
     // `data` null = despublicar: la página queda con el marcador vacío y el
     // kit cae a KIMOS (que responde 403) — la tienda deja de configurar.
     const json = JSON.stringify(data == null ? null : data).replace(/<\//g, '<\\/');
+    // DOS envases con los mismos datos. El <script> es el histórico; pero hay
+    // tiendas donde Jumpseller SANITIZA el cuerpo de las páginas y elimina los
+    // <script> (comprobado en producción con view-source: la página se servía
+    // perfecta… sin datos, y el kit caía a KIMOS en silencio). El <textarea>
+    // oculto es un elemento de formulario que los sanitizadores respetan y el
+    // kit lo lee igual. Se envían ambos: el kit toma el que sobreviva.
     const cuerpo = '<script type="application/json" id="kimos-productlab">' + json + '</scr' + 'ipt>'
+      + '<textarea id="kimos-productlab-datos" style="display:none" readonly>' + json + '</textarea>'
       + '<p style="display:none">Datos del configurador KIMOS — página técnica, no enlazar en el menú.</p>';
     try {
       const r = await fetchReintento(API + '/api/integrations/jumpseller/config-page', {
