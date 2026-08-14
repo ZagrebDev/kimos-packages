@@ -273,8 +273,11 @@ const optAlg = prod.options.find((o) => o.name === 'Tela: Algodón');
 if (optAlg.sourceOptionId !== '900') throw new Error('no se preservó sourceOptionId');
 if (optAlg.values.find((v) => v.name === 'Sí').sourceValueId !== '901') throw new Error('no se preservó sourceValueId');
 expectEq('addon del valor más barato sin recargo', optAlg.addonPrice, 0);
-// Lino: 406980 − 157080 (algodón, el mínimo del paso) = 249900.
-expectEq('addon Lino = delta sobre el mínimo del paso', prod.options.find((o) => o.name === 'Tela: Lino').addonPrice, 249900);
+// Lino: 406980 − 157080 (algodón, el mínimo del paso) = 249900 → 250000:
+// con redondeo "final 990" los recargos van al múltiplo de $1.000, para que
+// ancla (…990) + Σ addons siga terminando en 990 en cualquier configuración.
+expectEq('addon Lino = delta redondeado al múltiplo del paso de redondeo', prod.options.find((o) => o.name === 'Tela: Lino').addonPrice, 250000);
+expectEq('ancla + addon conserva el final 990', (prod.price + prod.options.find((o) => o.name === 'Tela: Lino').addonPrice) % 1000, 990);
 expectEq('addon Nácar (único valor) sin recargo', prod.options.find((o) => o.name === 'Botones: Nácar').addonPrice, 0);
 if (prod.options.some((o) => o.name.indexOf('Kingston') !== -1 || o.name.indexOf('8500G') !== -1)) throw new Error('los addons deben usar etiquetas genéricas sin marca');
 if (prod.options.some((o) => o.name.indexOf('Acabado') !== -1)) throw new Error('el paso sin valores disponibles no debe generar addons');

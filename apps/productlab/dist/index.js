@@ -2002,9 +2002,24 @@ export default function mount(shell) {
     (((existing || {}).variants) || []).forEach((v) => { if (v && v.options) exBySig.set(sig(v.options), v); });
     const options = [];
     const variants = [];
+    // REDONDEO de los recargos. El "final 990" ya no puede aplicarse por
+    // combinación (no existen combinaciones), pero la política sobrevive por
+    // otra vía: con el ancla ya redondeada (…990), basta que cada recargo sea
+    // MÚLTIPLO del paso de redondeo (p. ej. $1.000) para que ancla + Σ addons
+    // siga terminando igual en cualquier configuración. En precio fijo no se
+    // toca nada: los montos valen exactamente lo definido.
+    const rr = rules();
+    const redondeaDelta = (n) => {
+      if (fixed) return Math.round(n);
+      const to = Math.max(1, num(rr.roundTo, 1));
+      if (to > 1 && ['ending', 'nearest', 'up'].indexOf(rr.roundMode) !== -1) {
+        return Math.round(n / to) * to;
+      }
+      return Math.round(n);
+    };
     pasos.forEach((x) => {
       const min = minPor.get(x.g.id) || 0;
-      const delta = (v) => Math.max(0, Math.round((v.sintetico ? 0 : valueExtra(eq, x.g, v)) - min));
+      const delta = (v) => Math.max(0, redondeaDelta((v.sintetico ? 0 : valueExtra(eq, x.g, v)) - min));
       if (colorG && x.g.id === colorG.id) {
         // Paso de color → opción `option` + variantes. Dependiente: el comodín
         // cubre las ramas donde el paso no aplica (comodinDe reutiliza el

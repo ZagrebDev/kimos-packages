@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.30.0';
+  var VERSION = '5.30.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -663,16 +663,19 @@
         if (!t || t.length > 40 || !/\d/.test(t) || t.indexOf('{') !== -1) continue;
         if (!simbolo) simbolo = (t.match(/^[^\d]*/) || [''])[0].trim();
         if (!vivo) vivo = t;
-        // Con precio conocido solo vale el nodo que lo muestra.
-        if (buscado) { if (digitos(t).indexOf(buscado) !== -1) return t; }
+        // Con precio conocido solo vale el nodo que lo muestra EXACTO. Antes
+        // bastaba con "contener" los dígitos, y al sumar addons el theme
+        // repinta su precio con decimales fantasma ("$1,482,811.000"): esa
+        // cadena contiene el número buscado y se copiaba tal cual a la barra.
+        if (buscado) { if (digitos(t) === buscado) return t; }
         else if (valor == null) return t;   // sin JSON no queda otra que confiar
       }
     }
-    // El theme muestra un precio DISTINTO del calculado: gana el theme, que es
-    // quien cobra. Pasa cuando su product-json trae otra forma de variantes y
-    // el cálculo se queda con la de arranque — el precio "que no cambiaba".
-    if (vivo && buscado && digitos(vivo) !== buscado) return vivo;
-    if (valor == null) return '';
+    // Con ancla + addons el total es NUESTRA suma (precio de variante + los
+    // data-addon-price marcados, ambos impresos por el servidor): si ningún
+    // nodo del theme lo muestra bien formateado, se formatea aquí en el
+    // locale de la tienda — nunca se copia un texto que diga otro número.
+    if (valor == null) return vivo || '';
     // El producto está a CERO en la tienda. Se dice en claro en vez de pintar
     // un "0" suelto al lado de "Añadir al carro", que parece un fallo de la
     // ficha cuando en realidad es el precio del producto en Jumpseller.
@@ -683,7 +686,7 @@
     }
     // Hay precio pero ningún nodo del theme lo muestra: se formatea aquí.
     try {
-      return (simbolo || '$') + new Intl.NumberFormat(document.documentElement.lang || 'es-CL').format(valor);
+      return (simbolo || '$') + new Intl.NumberFormat(document.documentElement.lang || 'es-CL', { maximumFractionDigits: 0 }).format(valor);
     } catch (e) { return (simbolo || '$') + valor; }
   }
 
@@ -2871,6 +2874,9 @@
         var g = nativeOf(groups, kg);
         if (!g) { faltan.push('el paso "' + kg.label + '" no existe como opción en la tienda'); return; }
         var sinTienda = (kg.values || []).filter(function (v) {
+          // El relleno ("No aplica") de un paso dependiente no se publica como
+          // addon a propósito: no es un valor comprable y no debe acusarse.
+          if (g.virtual && esRelleno(v)) return false;
           return !g.values.some(function (n) { return norm(n.name) === norm(v.name); });
         }).map(function (v) { return v.name; });
         if (sinTienda.length) faltan.push('"' + kg.label + '" sin ' + sinTienda.join(', ') + ' en la tienda');
