@@ -2384,57 +2384,6 @@ export default function mount(shell) {
       return { ok: true, bytes: num(d2.bytes), permalink: s(d2.permalink), updated: d2.updated === true };
     } catch (e) { return { ok: false, error: (e && e.message) || 'error de red' }; }
   }
-  // ── Espejo de imágenes en la tienda ──────────────────────────────────────
-  // Las fotos viven en KIMOS, así que la ficha necesitaba a KIMOS en pie para
-  // mostrarlas. Jumpseller acepta una URL, se descarga el archivo y lo aloja
-  // en su CDN: al publicar se copian ahí y el catálogo sale reescrito con las
-  // URLs de la tienda. Desde entonces la ficha se sirve sola.
-  function urlsDeKimos(nodo, out) {
-    out = out || [];
-    if (typeof nodo === 'string') {
-      if (nodo.indexOf(API + '/api/public/') === 0 && out.indexOf(nodo) === -1) out.push(nodo);
-    } else if (Array.isArray(nodo)) {
-      nodo.forEach((x) => urlsDeKimos(x, out));
-    } else if (nodo && typeof nodo === 'object') {
-      Object.keys(nodo).forEach((k) => urlsDeKimos(nodo[k], out));
-    }
-    return out;
-  }
-  function reemplazarUrls(nodo, mapa) {
-    if (typeof nodo === 'string') return mapa[nodo] || nodo;
-    if (Array.isArray(nodo)) return nodo.map((x) => reemplazarUrls(x, mapa));
-    if (nodo && typeof nodo === 'object') {
-      const out = {};
-      Object.keys(nodo).forEach((k) => { out[k] = reemplazarUrls(nodo[k], mapa); });
-      return out;
-    }
-    return nodo;
-  }
-  async function espejarAssets(data) {
-    const urls = urlsDeKimos(data);
-    if (!urls.length) return { ok: true, data, copiadas: 0, pendientes: 0 };
-    try {
-      const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-assets', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permalink: permalinkTienda(), urls, title: 'KIMOS ProductLab (datos)' }),
-      }, 2);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) return { ok: false, data, error: s(d.detail) || ('HTTP ' + r.status), copiadas: 0, pendientes: urls.length };
-      const mapa = (d && d.map) || {};
-      const copiadas = Object.keys(mapa).length;
-      return {
-        ok: d.ok !== false,
-        data: copiadas ? reemplazarUrls(data, mapa) : data,
-        copiadas: copiadas,
-        // Lo que sigue viniendo de KIMOS: los .glb no son imágenes y la tienda
-        // no los recibe por esta vía (van a Assets del theme, a mano).
-        pendientes: urls.length - copiadas,
-        errores: (d && d.errors) || [],
-      };
-    } catch (e) {
-      return { ok: false, data, error: (e && e.message) || 'error de red', copiadas: 0, pendientes: urls.length };
-    }
-  }
   async function publish(enabled) {
     const def = Object.assign({}, model.def || defaultDefinition());
     const antes = def.public || {};
@@ -2446,17 +2395,19 @@ export default function mount(shell) {
       // Las fotos primero: lo que se copia a la tienda entra ya reescrito en el
       // catálogo, tanto en la página como en el que sirve KIMOS. Así la ficha
       // toma sus imágenes de la tienda por cualquiera de los dos caminos.
-      let aPublicar = enabled ? data : null;
-      if (enabled && aPublicar) {
-        const esp = await espejarAssets(aPublicar);
-        aPublicar = esp.data;
-        pub.data = esp.data;
-        pub.assetMirror = { at: nowIso(), ok: esp.ok, copiadas: esp.copiadas, pendientes: esp.pendientes };
-        if (!esp.ok) {
-          shell.notify({ level: 'warn', text: 'Algunas fotos no se copiaron a la tienda: ' + (esp.error || (esp.errores || []).slice(0, 2).join('; ')) + ' — esas seguirán sirviéndose desde KIMOS.' });
-        }
-      }
-      const rp = await pushPaginaTienda(aPublicar);
+      // AQUÍ SE INTENTÓ copiar las fotos al CDN de la tienda colgándolas de
+      // esta misma página, y no se puede: Jumpseller admite UNA imagen por
+      // página ("Sólo se permite una imagen por página"), así que todas menos
+      // la primera fallaban y cada publicación dejaba una ristra de errores
+      // sin que nada mejorara.
+      //
+      // Las fotos del producto sí se alojan en la tienda, pero por la vía que
+      // ya existía y que decide una persona: el botón de la Galería que las
+      // sube al producto. El resto —fondos de hero, swatches, fotos de valor—
+      // se sirve desde KIMOS con caché de un año (nombre único por archivo, ver
+      // publicFilesAPI), así que el CDN las entrega tras la primera visita.
+      // Para independencia total van a Assets del theme, como el kit y los .glb.
+      const rp = await pushPaginaTienda(enabled ? data : null);
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
       if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
     }
