@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.31.1';
+  var VERSION = '5.32.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -215,21 +215,25 @@
     // siempre: la ficha jamás se queda sin catálogo por culpa del faro.
     var pedirVersion = function (u) {
       var base = u.replace(/\/definition(\?.*)?$/, '/definition/version');
-      if (base === u) return Promise.resolve('');
+      if (base === u) return Promise.resolve({ v: '', page: '' });
       return fetch(base, { credentials: 'omit', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (j) { return String((j && j.v) || '').trim(); })
-        .catch(function () { return ''; });
+        .then(function (j) {
+          // `page` es el permalink REAL de la copia en la tienda (lo devuelve
+          // la última publicación): se usa tal cual en vez de adivinarlo.
+          return { v: String((j && j.v) || '').trim(), page: String((j && j.page) || '').trim() };
+        })
+        .catch(function () { return { v: '', page: '' }; });
     };
     var conVer = function (u, marca) {
       var v = String(marca || ver || '').trim();
       if (!v) return u;
       return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(v);
     };
-    var pedirLocal = function (u, marca) {
-      var p = permalinkLocal(u);
+    var pedirLocal = function (u, marca, pagina) {
+      var p = String(pagina || '').trim() || permalinkLocal(u);
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch(conVer('/' + p, marca), { credentials: 'omit' })
+      return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
@@ -276,17 +280,30 @@
         console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
         return Promise.resolve(null);
       }
+      var t0 = Date.now();
+      // De DÓNDE salió el catálogo, en una línea de consola: es la respuesta
+      // verificable a "¿estoy sirviéndome de la tienda o de KIMOS?".
+      var cuenta = function (def, origen) {
+        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · versión ' + (def && def.updatedAt || '?'));
+        return def;
+      };
       return pedirVersion(u)
-        .then(function (marca) {
+        .then(function (faro) {
+          var marca = faro.v;
           // Misma versión que la copia guardada = mismo contenido: cero red.
           // (Solo con una instancia: con varias, la copia guardada es la
           // FUSIÓN y no puede compararse contra la versión de una sola.)
           if (marca && CFG_URLS.length === 1 && hit && hit.def
               && String(hit.def.updatedAt || '') === String(marca)) {
-            return hit.def;
+            return cuenta(hit.def, 'copia del navegador (versión vigente confirmada por el faro)');
           }
-          return pedirLocal(u, marca)
-            .catch(function () { return pedirRemoto(u, marca); });
+          return pedirLocal(u, marca, faro.page)
+            .then(function (def) { return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ') — independiente de KIMOS'); })
+            .catch(function () {
+              return pedirRemoto(u, marca).then(function (def) {
+                return cuenta(def, 'KIMOS (respaldo' + (marca ? '' : ', faro sin respuesta') + ')');
+              });
+            });
         })
         .catch(function (err) {
           if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);
@@ -3026,11 +3043,15 @@
   }
 
   function start() {
+    // Radiografía del arranque: cuánto tardó cada tramo, para optimizar con
+    // números y no con sensaciones (el velo se retira cuando esto termina).
+    var tInicio = Date.now();
     var prod = currentProduct();
     // Cuando NO se va a reemplazar nada, el velo sobra: fuera de inmediato,
     // sin fundido, que la ficha del theme ya está lista debajo.
     if (!prod) { destapar(true); return; }
     loadDefinition(prod).then(function (def) {
+      var tCatalogo = Date.now();
       var entry = findEntry(def, prod);
       if (!entry) { destapar(true); return; }
       // Sin ficha ni 3D no hay nada que reemplazar: se deja el theme como está.
@@ -3053,7 +3074,13 @@
       // Se destapa cuando la ficha está pintada Y sus fotos han cargado: así
       // no se ve ni la ficha vieja ni el hero sin su imagen.
       var raiz = document.querySelector('.kimos-cfg') || document;
-      esperarImagenes(raiz, CFG.bootMax).then(function () { destapar(); });
+      var tMontaje = Date.now();
+      esperarImagenes(raiz, CFG.bootMax).then(function () {
+        destapar();
+        console.info(LOG, 'ficha lista en ' + (Date.now() - tInicio) + ' ms — catálogo '
+          + (tCatalogo - tInicio) + ' ms · montaje ' + (tMontaje - tCatalogo) + ' ms · imágenes '
+          + (Date.now() - tMontaje) + ' ms');
+      });
     }).catch(function (e) { destapar(); console.warn(LOG, 'no se pudo leer la definición:', e.message); });
   }
 
