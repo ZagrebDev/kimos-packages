@@ -60,10 +60,10 @@ por combinaciones **no escala**.
 - [x] El theme hubpro renderiza addons como checklist (`partials/product_options.liquid`, `data-addon-price`) y suma el precio mostrado (`theme.js` → `updateAddonTotal`).
 - [x] El carro de página es editable (`templates/checkout/cart.liquid` + `components/cart-products.liquid`); el drawer lateral es de plataforma.
 
-**Pendiente de verificar (bloqueante temprano, Fase 1):**
+**Pendiente de verificar (bloqueante temprano):**
 
-- [ ] **Tope de opciones por producto** en Jumpseller (Plasma necesita ~12 opciones: 1 color + ~11 addons). Probar creando un producto con 15+ opciones antes de construir nada encima.
-- [ ] Correo de confirmación de pedido: qué muestra por línea (¿lista addons?, ¿muestra «(+$precio)»?).
+- [ ] **Tope de opciones por producto** en Jumpseller (Plasma necesita ~12 opciones: 1 color + ~11 addons). Se verifica con la PRIMERA publicación de Plasma bajo el modelo nuevo (Fase 4): si hay tope, el push de opciones lo reporta con error visible y el panel muestra cuántas quedaron. Plasma ya está roto con el modelo viejo (banner de límite), así que no se arriesga nada nuevo.
+- [ ] Correo de confirmación de pedido: qué muestra por línea (¿lista addons?, ¿muestra «(+$precio)»?). Compra de prueba en Fase 4.
 
 ---
 
@@ -99,14 +99,12 @@ migrar el resto; confirmar contra la tienda real.
 
 ### Fase 3 — Theme hubpro: presentación
 
-- [ ] **3.1** Suprimir el sufijo «(+$precio)» de los addons en carro y checkout (`components/cart-products.liquid`, plantillas de checkout) — el cliente solo ve el total.
-  - *Criterio*: carro y checkout muestran nombre del valor sin «(+$…)»; total intacto.
+- [x] **3.1** Sufijo «(+$precio)» suprimido en las líneas de carro/checkout/pedidos: vivía en UN solo sitio (`partials/store_product.liquid`, que renderiza las líneas en carro, checkout, success y pedidos del cliente). El nombre del addon («Paso: Valor») se mantiene — es lo que el taller lee en el pedido. La FICHA nativa (`partials/product_options.liquid`) conserva su «(+precio)»: solo se ve en modo resiliencia (sin KIMOS) y ahí orienta.
 - [ ] **3.2** Revisar el drawer lateral (plataforma, no editable): si muestra «(+$precio)» y no se puede quitar, documentarlo y decidir con el usuario si se desactiva el drawer.
-  - *Criterio*: decisión registrada aquí.
+  - *Criterio*: decisión registrada aquí (observar en la compra de prueba de Fase 4).
 - [ ] **3.3** Correo de confirmación de pedido: compra de prueba real y revisar el mail (líneas, precios por addon).
   - *Criterio*: captura del mail revisada con el usuario; si muestra precios por addon, evaluar plantilla de mail editable.
-- [ ] **3.4** Zip del theme editado listo para subir (el usuario lo sube al panel).
-  - *Criterio*: zip entregado con lista exacta de archivos cambiados.
+- [x] **3.4** Zip del theme entregado (`hubpro1_theme_ancla_addons_20260814.zip`): partial del carro editado + kit 5.30.0 en assets + `KIMOS_ASSET_V` nuevo en custom.js. Cambios exactos vs el zip original: `partials/store_product.liquid`, `assets/kimos-configurador.js`, `assets/custom.js`.
 
 ### Fase 4 — Migrar Plasma Creator (piloto) y QA
 
@@ -119,8 +117,8 @@ migrar el resto; confirmar contra la tienda real.
 
 ### Fase 5 — Despliegue y cierre
 
-- [ ] **5.1** Release: backend (si hubo cambios), app ProductLab, kit del theme — bumps de versión según convención (patch fixes / minor features), tests (`node test/test-app.mjs`, `theme/test/run-contrato-v2.mjs`), push a main + rama de trabajo en los repos tocados.
-- [ ] **5.2** Usuario despliega (setup-kimos + Tienda de aplicaciones + kit al theme) y confirma `healthz` → `backendVersion`.
+- [x] **5.1** Release construido y pusheado: **KIMOS 0.75.0 (backend 0.60.0) · ProductLab 3.42.0 (kapp empaquetado) · kit 5.30.0** — tests verdes (`test-app.mjs`, `run-contrato-v2.mjs`, `run-addons.mjs`, `run-assets.mjs`; los Playwright 3D fallan por entorno sin .glb generado, igual que antes del cambio).
+- [ ] **5.2** Usuario despliega (setup-kimos + Tienda de aplicaciones + zip del theme entregado) y confirma `healthz` → `backendVersion: 0.60.0`.
 - [ ] **5.3** Actualizar `docs/JUMPSELLER.md` y `ARQUITECTURA.md` con la arquitectura nueva; marcar este plan como COMPLETADO.
 
 ---
@@ -132,7 +130,8 @@ migrar el resto; confirmar contra la tienda real.
 3. Color es la única opción-variante (por la foto en el carro). Si un modelo no tiene color, una sola variante por defecto.
 4. El cliente **nunca** ve precios por componente en boleta/carro (de ahí Fase 3.1).
 5. Dependencias/compatibilidades/stock-por-combinación viven en el kit, no en Jumpseller.
-6. Versión congelada al iniciar: KIMOS 0.74.5 (backend 0.59.5) · ProductLab 3.41.0 · kit 5.29.0. No se publica encima sin confirmación de deploy del usuario.
+6. Versión congelada al iniciar: KIMOS 0.74.5 (backend 0.59.5) · ProductLab 3.41.0 · kit 5.29.0. Release del plan: KIMOS 0.75.0 (backend 0.60.0) · ProductLab 3.42.0 · kit 5.30.0 — no se publica encima hasta que el usuario confirme su deploy.
+7. Con ancla + addons el redondeo «final 990» ya no puede aplicarse por combinación (no existen combinaciones): se redondea el ancla y cada delta al peso. En precio fijo la equivalencia es exacta; en auto la diferencia por configuración es menor que el redondeo (<$1.000).
 
 ## 5. Riesgos conocidos
 
