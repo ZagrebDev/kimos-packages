@@ -1210,7 +1210,10 @@ export default function mount(shell) {
       }
       if (!page.some((x) => x && x.kind === 'specs')) page.push({ id: newId('ps'), kind: 'specs', show: true });
       if (!page.some((x) => x && x.kind === 'fotos')) page.push({ id: newId('ps'), kind: 'fotos', show: true });
-      if (!page.some((x) => x && x.kind === 'note')) page.push({ id: newId('ps'), kind: 'note', show: true });
+      // La nota se siembra APAGADA. Sembrarla visible ponía un bloque de texto
+      // bajo la galería de todos los productos sin que nadie lo pidiera: la
+      // sección existe en el editor para poder activarla, y nada más.
+      if (!page.some((x) => x && x.kind === 'note')) page.push({ id: newId('ps'), kind: 'note', show: false });
       eq.storefront = Object.assign({}, sf1, { pageSections: page });
     }
     if (!Array.isArray(eq.baseComponentIds)) eq.baseComponentIds = [];
@@ -1627,7 +1630,9 @@ export default function mount(shell) {
       }
       if (!seen.specs) out.push({ id: newId('ps'), kind: 'specs', show: true });
       if (!seen.fotos) out.push({ id: newId('ps'), kind: 'fotos', show: true });
-      if (!seen.note) out.push({ id: newId('ps'), kind: 'note', show: true });
+      // Apagada por defecto (ver la nota en la migración): la nota solo se ve
+      // si alguien la enciende en la Experiencia.
+      if (!seen.note) out.push({ id: newId('ps'), kind: 'note', show: false });
       return out;
     })();
     item.storefront = {
