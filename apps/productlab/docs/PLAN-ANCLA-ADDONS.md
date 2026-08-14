@@ -54,7 +54,7 @@ por combinaciones **no escala**.
 
 ## 2. Verificaciones ya realizadas (2026-08-14)
 
-- [x] Opción tipo `addon` con `addon_price` se crea vía API (`push_options` ya lo soporta).
+- [x] Opción addon con `addon_price` vía API: el `option_type` REAL es **`checklist`** (enum de la doc: option|input|text|file|color|checklist — "addon" no existe y devolvía 500 seco por cada opción; backend 0.60.3 lo traduce). `addon_price` "se usa con opciones checklist" según la misma doc.
 - [x] El storefront agrega al carro con `POST /cart/add/{product_id}` con campos `option_id=value_id` (+ qty); líneas de la misma combinación fusionan qty.
 - [x] El servidor suma base + addons: TEST $1.000 + «PRUEBA» $500 → carro $1.500.
 - [x] El theme hubpro renderiza addons como checklist (`partials/product_options.liquid`, `data-addon-price`) y suma el precio mostrado (`theme.js` → `updateAddonTotal`).
