@@ -2006,6 +2006,18 @@ export default function mount(shell) {
     const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
+    // Cada combinación viaja a la tienda como un mapa opción→valor, y la clave
+    // es el NOMBRE del paso. Dos pasos con el mismo nombre se pisan: la
+    // combinación pierde una dimensión y varias distintas quedan idénticas, o
+    // sea variantes duplicadas que la tienda rechaza. No es recuperable desde
+    // el otro lado, así que se detiene aquí y se dice cuál repetir.
+    const etiquetas = gruposPersonalizables(eq).map((g) => s(g.label || typeLabel(g.typeId)).trim().toLowerCase());
+    const repetida = etiquetas.find((x, i) => x && etiquetas.indexOf(x) !== i);
+    if (repetida) {
+      return { success: false, error: 'Hay dos pasos con el mismo nombre ("' + repetida
+        + '"). La tienda identifica cada opción por su nombre, así que no puede distinguirlos y las '
+        + 'combinaciones se pisarían entre sí. Renombra uno de los dos y vuelve a aplicar.' };
+    }
     if (n > MAX_COMBOS) {
       return { success: false, error: 'Demasiadas combinaciones ALCANZABLES (' + n + ' variantes; máximo ' + MAX_COMBOS + '). '
         + 'Reduce alternativas por paso, divide el producto o encadena pasos con dependencias: lo que no se puede elegir ya no se publica.' };
