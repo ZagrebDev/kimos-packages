@@ -1211,12 +1211,16 @@ export default function mount(shell) {
       if (!page.length && Array.isArray(sf1.heroes) && sf1.heroes.length) {
         page = sf1.heroes.map((hx) => Object.assign({ kind: 'hero' }, hx));
       }
-      if (!page.some((x) => x && x.kind === 'specs')) page.push({ id: newId('ps'), kind: 'specs', show: true });
-      if (!page.some((x) => x && x.kind === 'fotos')) page.push({ id: newId('ps'), kind: 'fotos', show: true });
+      // Ids DETERMINISTAS en lo sembrado: esta normalización corre en cada
+      // carga, y con newId() dos pasadas del mismo producto nunca eran
+      // iguales — el vigilante del editor veía "storefront cambió fuera de
+      // esta ventana" sin que nadie hubiera tocado nada.
+      if (!page.some((x) => x && x.kind === 'specs')) page.push({ id: 'ps-specs', kind: 'specs', show: true });
+      if (!page.some((x) => x && x.kind === 'fotos')) page.push({ id: 'ps-fotos', kind: 'fotos', show: true });
       // La nota se siembra APAGADA. Sembrarla visible ponía un bloque de texto
       // bajo la galería de todos los productos sin que nadie lo pidiera: la
       // sección existe en el editor para poder activarla, y nada más.
-      if (!page.some((x) => x && x.kind === 'note')) page.push({ id: newId('ps'), kind: 'note', show: false });
+      if (!page.some((x) => x && x.kind === 'note')) page.push({ id: 'ps-note', kind: 'note', show: false });
       eq.storefront = Object.assign({}, sf1, { pageSections: page });
     }
     if (!Array.isArray(eq.baseComponentIds)) eq.baseComponentIds = [];
@@ -5870,13 +5874,26 @@ export default function mount(shell) {
       const contable = (x) => JSON.stringify((Array.isArray(x) ? x : []).map((y) => {
         const c = Object.assign({}, y); delete c.sourceVariantId; return c;
       }));
-      const deSistema = ['updatedAt', 'syncStatus', 'sourceLinks', 'galleryImages'];
+      // lastPush/price/storeRef/imageUrl son contabilidad que "Aplicar a la
+      // tienda" escribe de vuelta — anunciarlos como cambio ajeno es acusar
+      // al usuario de su propia publicación.
+      const deSistema = ['updatedAt', 'syncStatus', 'sourceLinks', 'galleryImages', 'lastPush', 'price', 'storeRef', 'imageUrl'];
       const ajenas = Object.keys(Object.assign({}, base, nv)).filter((k) => {
         if (deSistema.indexOf(k) !== -1) return false;
         if (k === 'variants') return contable(nv[k]) !== contable(base[k]);
         return JSON.stringify(nv[k]) !== JSON.stringify(base[k]);
       });
       if (!ajenas.length) return;
+      // Volcado del diff exacto: si el aviso vuelve a salir sin que nadie más
+      // haya tocado el producto, la consola dice QUÉ difiere y se puede cazar.
+      try {
+        ajenas.slice(0, 4).forEach((k) => {
+          const a = JSON.stringify(base[k]) || ''; const b = JSON.stringify(nv[k]) || '';
+          let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+          console.warn('[productlab] cambio fuera de la ventana en "' + k + '" (primer punto que difiere, base vs vivo):',
+            a.slice(Math.max(0, i - 60), i + 120), '⇄', b.slice(Math.max(0, i - 60), i + 120));
+        });
+      } catch (e) { /* solo diagnóstico */ }
       shell.notify({ level: 'info', text: 'Este producto también cambió fuera de esta ventana ('
         + ajenas.slice(0, 4).join(', ') + '): se cargó lo nuevo y tu edición en curso se conservó'
         + (pisado ? ' (donde ambos tocaron lo mismo, vale lo de esta ventana al guardar)' : '') + '.' });
