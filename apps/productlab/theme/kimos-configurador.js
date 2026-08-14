@@ -2871,6 +2871,9 @@
         var g = nativeOf(groups, kg);
         if (!g) { faltan.push('el paso "' + kg.label + '" no existe como opción en la tienda'); return; }
         var sinTienda = (kg.values || []).filter(function (v) {
+          // El relleno ("No aplica") de un paso dependiente no se publica como
+          // addon a propósito: no es un valor comprable y no debe acusarse.
+          if (g.virtual && esRelleno(v)) return false;
           return !g.values.some(function (n) { return norm(n.name) === norm(v.name); });
         }).map(function (v) { return v.name; });
         if (sinTienda.length) faltan.push('"' + kg.label + '" sin ' + sinTienda.join(', ') + ' en la tienda');
