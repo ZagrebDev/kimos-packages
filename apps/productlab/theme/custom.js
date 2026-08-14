@@ -32,7 +32,7 @@ window.KIMOS_3D_AUTOLOAD = false;
 // solos en la siguiente hora. El custom.js que descarga ProductLab
 // (Publicación → "custom.js (configurado)") ya trae aquí una marca nueva en
 // cada descarga: subirlo junto a los otros archivos los refresca al instante.
-window.KIMOS_ASSET_V = '64';
+window.KIMOS_ASSET_V = '65';
 
 // ── SERVICE WORKER ZOMBI: fuera ─────────────────────────────────────────────
 // Si la tienda tuvo una PWA (o Jumpseller registró un service worker en algún
@@ -54,6 +54,24 @@ window.KIMOS_ASSET_V = '64';
       console.warn('[kimos] service worker antiguo dado de baja (' + regs.length + '): recarga la página para ver la versión vigente.');
     });
   } catch (e) { /* mejor una tienda sin purga que una purga que rompa */ }
+})();
+
+// ── PWA DE LA PLATAFORMA: neutralizada ──────────────────────────────────────
+// Jumpseller inyecta <link rel="manifest" href="/manifest.json"> en todas las
+// páginas aunque la tienda no use PWA: el manifest no existe (un 404 en cada
+// carga) y es el vector por el que se registró el service worker zombi. No se
+// puede quitar desde el theme (lo inyecta la plataforma), así que se retira
+// aquí antes de que el navegador lo pida.
+(function () {
+  try {
+    var quitar = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('link[rel="manifest"]'), function (l) {
+        if (l.parentNode) l.parentNode.removeChild(l);
+      });
+    };
+    quitar();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', quitar);
+  } catch (e) { /* sin drama: era solo limpieza */ }
 })();
 
 // Huella visible en consola: la primera línea kimos dice qué custom.js corre.
