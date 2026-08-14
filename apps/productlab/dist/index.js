@@ -2569,10 +2569,22 @@ export default function mount(shell) {
   // Van como ADJUNTOS del producto: admiten varios y no entran en la galería,
   // así que alojarlas no cambia el aspecto de la ficha. (Las páginas de
   // Jumpseller admiten UNA sola imagen; ese camino no servía.)
+  // Recolecta las URLs ALOJABLES del catálogo: las servidas por KIMOS y
+  // TAMBIÉN las fotos hotlinkeadas a terceros (los componentes suelen traer la
+  // imagen del sitio del PROVEEDOR): dependen de un dominio ajeno que puede
+  // borrarla o bloquearla, y de paso le muestran al cliente dónde se compra
+  // cada pieza — basta mirar la URL de la imagen. Todas se copian a la tienda
+  // al publicar y el catálogo sale reescrito con las URLs propias.
+  // Lo ya alojado en Jumpseller se deja tal cual; los LINKS (CTA, secciones)
+  // no se tocan: solo strings con pinta de imagen.
   function urlsDeKimos(nodo, out) {
     out = out || [];
     if (typeof nodo === 'string') {
-      if (nodo.indexOf(API + '/api/public/') === 0 && out.indexOf(nodo) === -1) out.push(nodo);
+      const esKimos = nodo.indexOf(API + '/api/public/') === 0;
+      const esImagenExterna = /^https?:\/\//i.test(nodo)
+        && /\.(jpe?g|png|webp|gif|avif)([?#]|$)/i.test(nodo)
+        && !/^https?:\/\/[^/]*jumpseller\.(com|cl)\//i.test(nodo);
+      if ((esKimos || esImagenExterna) && out.indexOf(nodo) === -1) out.push(nodo);
     } else if (Array.isArray(nodo)) {
       nodo.forEach((x) => urlsDeKimos(x, out));
     } else if (nodo && typeof nodo === 'object') {
