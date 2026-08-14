@@ -5660,7 +5660,23 @@ export default function mount(shell) {
       });
       baseRef.current = JSON.stringify(nv);
       setD(out);
-      shell.notify({ level: 'info', text: 'Este producto también cambió fuera de esta ventana: se cargó lo nuevo y tu edición en curso se conservó'
+      // ¿Cambió algo que una PERSONA reconocería como una edición? Aplicar a
+      // la tienda escribe de vuelta los ids de las variantes y el estado de
+      // sincronización, y eso hacía saltar el aviso de "cambió fuera de esta
+      // ventana" por la propia publicación de quien lo estaba leyendo. Anunciar
+      // como ajeno lo que uno acaba de hacer es peor que no anunciar nada.
+      const contable = (x) => JSON.stringify((Array.isArray(x) ? x : []).map((y) => {
+        const c = Object.assign({}, y); delete c.sourceVariantId; return c;
+      }));
+      const deSistema = ['updatedAt', 'syncStatus', 'sourceLinks', 'galleryImages'];
+      const ajenas = Object.keys(Object.assign({}, base, nv)).filter((k) => {
+        if (deSistema.indexOf(k) !== -1) return false;
+        if (k === 'variants') return contable(nv[k]) !== contable(base[k]);
+        return JSON.stringify(nv[k]) !== JSON.stringify(base[k]);
+      });
+      if (!ajenas.length) return;
+      shell.notify({ level: 'info', text: 'Este producto también cambió fuera de esta ventana ('
+        + ajenas.slice(0, 4).join(', ') + '): se cargó lo nuevo y tu edición en curso se conservó'
         + (pisado ? ' (donde ambos tocaron lo mismo, vale lo de esta ventana al guardar)' : '') + '.' });
     };
     useEffect(() => {
