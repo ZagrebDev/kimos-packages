@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.28.0';
+  var VERSION = '5.29.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -814,7 +814,10 @@
 
   // `cfg` = storefront.style.photos: tamaño de la galería dentro de Explorar
   // (s|m|l|xl) y fotos por fila (0 = automático). Sin cfg, todo como antes.
-  function renderPhotos(images, note, cfg, altDe) {
+  // La galería es SOLO la galería. La nota es su propia sección y se ve
+  // únicamente si está en la lista de la experiencia: pintarla también aquí
+  // dejaba texto bajo las fotos que no había forma de quitar.
+  function renderPhotos(images, cfg, altDe) {
     altDe = altDe || function () { return ''; };
     var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
@@ -877,7 +880,6 @@
       });
       wrap.appendChild(thumbs);
     }
-    if (note) wrap.appendChild(el('div', 'kc-foto-note', note));
     return wrap;
   }
 
@@ -2664,7 +2666,7 @@
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, '', style.photos, altDe); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
