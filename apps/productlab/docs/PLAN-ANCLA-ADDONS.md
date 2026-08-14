@@ -131,7 +131,8 @@ migrar el resto; confirmar contra la tienda real.
 4. El cliente **nunca** ve precios por componente en boleta/carro (de ahí Fase 3.1).
 5. Dependencias/compatibilidades/stock-por-combinación viven en el kit, no en Jumpseller.
 6. Versión congelada al iniciar: KIMOS 0.74.5 (backend 0.59.5) · ProductLab 3.41.0 · kit 5.29.0. Release del plan: KIMOS 0.75.0 (backend 0.60.0) · ProductLab 3.42.0 · kit 5.30.0 — no se publica encima hasta que el usuario confirme su deploy.
-7. Con ancla + addons el redondeo «final 990» ya no puede aplicarse por combinación (no existen combinaciones): se redondea el ancla y cada delta al peso. En precio fijo la equivalencia es exacta; en auto la diferencia por configuración es menor que el redondeo (<$1.000).
+7. Redondeo con ancla + addons (3.42.2): el ancla se redondea con la política de siempre (…990) y cada recargo va al MÚLTIPLO del paso de redondeo ($1.000) — así ancla + Σ addons termina en 990 en cualquier configuración. En precio fijo los montos son exactos, sin redondeo.
+8. «Publicar SE VE» (backend 0.61.0 + kit 5.31.0): faro `GET /definition/version` (~40 bytes, max-age=5) + catálogo con la versión en la URL (immutable 1 año). Ninguna caché del camino puede servir catálogo viejo; editar y ver cambios no requiere limpiar nada. Cobertura: `theme/test/run-faro.mjs`.
 
 ## 5. Riesgos conocidos
 

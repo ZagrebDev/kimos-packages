@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.30.1';
+  var VERSION = '5.31.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -204,26 +204,50 @@
     // Para forzar una recarga inmediata en pruebas, define en custom.js
     // `window.KIMOS_CATALOG_V = 'loQueSea'` y cámbialo.
     var ver = String(window.KIMOS_CATALOG_V || '').trim();
-    var conVer = function (u) {
-      if (!ver) return u;
-      return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(ver);
+    // FARO DE VERSIÓN: publicar TIENE que verse, sin que nadie limpie cachés.
+    // Antes de pedir el catálogo se pregunta al backend cuál es la versión
+    // vigente (una respuesta de ~40 bytes con caché de 5 s) y esa versión
+    // viaja EN LA URL del catálogo: cada publicación produce una URL nueva,
+    // así que ninguna caché del camino —navegador, proxy, VPN, service
+    // worker, CDN— puede servir un catálogo viejo. Y como la URL identifica
+    // el contenido, el catálogo pesado se cachea largo sin riesgo.
+    // Si el faro no responde (backend caído, red), se sigue por el camino de
+    // siempre: la ficha jamás se queda sin catálogo por culpa del faro.
+    var pedirVersion = function (u) {
+      var base = u.replace(/\/definition(\?.*)?$/, '/definition/version');
+      if (base === u) return Promise.resolve('');
+      return fetch(base, { credentials: 'omit', cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (j) { return String((j && j.v) || '').trim(); })
+        .catch(function () { return ''; });
     };
-    var pedirLocal = function (u) {
+    var conVer = function (u, marca) {
+      var v = String(marca || ver || '').trim();
+      if (!v) return u;
+      return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(v);
+    };
+    var pedirLocal = function (u, marca) {
       var p = permalinkLocal(u);
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch(conVer('/' + p), { credentials: 'omit' })
+      return fetch(conVer('/' + p, marca), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
           if (!m) throw new Error('sin datos embebidos');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
+          // La copia de la tienda declara su versión (updatedAt). Si el faro
+          // dice que hay una más nueva, esta copia está desactualizada (caché
+          // de página de la tienda, o falta re-publicar): manda lo fresco.
+          if (marca && def.updatedAt && String(def.updatedAt) !== String(marca)) {
+            throw new Error('copia local desactualizada');
+          }
           return def;
         });
     };
-    var pedirRemoto = function (u) {
+    var pedirRemoto = function (u, marca) {
       if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);
-      return fetch(conVer(u), { credentials: 'omit' })
+      return fetch(conVer(u, marca), { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
     };
@@ -252,8 +276,18 @@
         console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
         return Promise.resolve(null);
       }
-      return pedirLocal(u)
-        .catch(function () { return pedirRemoto(u); })
+      return pedirVersion(u)
+        .then(function (marca) {
+          // Misma versión que la copia guardada = mismo contenido: cero red.
+          // (Solo con una instancia: con varias, la copia guardada es la
+          // FUSIÓN y no puede compararse contra la versión de una sola.)
+          if (marca && CFG_URLS.length === 1 && hit && hit.def
+              && String(hit.def.updatedAt || '') === String(marca)) {
+            return hit.def;
+          }
+          return pedirLocal(u, marca)
+            .catch(function () { return pedirRemoto(u, marca); });
+        })
         .catch(function (err) {
           if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);
           throw err;

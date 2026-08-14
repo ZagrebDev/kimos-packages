@@ -13,6 +13,7 @@
     "build:engine:theme": "esbuild engine-src/engine3d.js --bundle --format=iife --global-name=KimosEngine3D --minify --target=es2019 --outfile=theme/kimos-engine3d.js",
     "test:theme": "node theme/test/run.mjs",
     "test:addons": "node theme/test/run-addons.mjs",
+    "test:faro": "node theme/test/run-faro.mjs",
     "test:ficha": "node theme/test/run-ficha.mjs",
     "test:recarga": "node theme/test/run-recarga.mjs",
     "test:assets": "node theme/test/run-assets.mjs",
