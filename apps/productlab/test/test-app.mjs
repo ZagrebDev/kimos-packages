@@ -1227,5 +1227,31 @@ console.log('ProductLab: migración desde otra app, export/import JSON y CSV (id
   console.log('ProductLab: guardado concurrente conserva los cambios de la otra mano OK');
 }
 
+// ── Stock por combinación ────────────────────────────────────────────────────
+// Cada variante debe llegar a la tienda con el stock del componente MÁS ESCASO
+// que esa combinación consume. Sin esto quedaban ilimitadas en Jumpseller y se
+// podían vender combinaciones cuyo componente ya estaba agotado.
+// Se reutiliza el producto ya enlazado: este bloque corre al final del archivo.
+{
+  await act('UPSERT_COMPONENT', { name: 'Forro escaso', type: 'forro', cost: 20000, stock: 2 });
+  await act('UPSERT_COMPONENT', { name: 'Forro surtido', type: 'forro', cost: 10000, stock: 30 });
+  await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
+    { label: 'Forro', values: [
+      { label: 'Escaso', components: ['Forro escaso'] },
+      { label: 'Surtido', components: ['Forro surtido'] },
+    ] },
+  ] });
+  await act('APPLY_PRODUCTO', { producto: 'Chaqueta Agente', confirm: true });
+  const vs = (productsStore.get('prod-1') || {}).variants || [];
+  const escaso = vs.find((v) => v.options['Forro'] === 'Escaso');
+  const surtido = vs.find((v) => v.options['Forro'] === 'Surtido');
+  if (!escaso || !surtido) throw new Error('faltan variantes: ' + JSON.stringify(vs.map((v) => v.options)));
+  if (escaso.stock !== 2) throw new Error('la combinación escasa debía quedar en 2: ' + escaso.stock);
+  if (surtido.stock !== 30) throw new Error('la combinación surtida debía quedar en 30: ' + surtido.stock);
+  if (escaso.stockUnlimited !== false) throw new Error('no marcó el stock como limitado');
+  console.log('ProductLab: stock por combinación = el componente más escaso OK');
+}
+
+
 console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen, estilo por producto y plantillas de estilo válidos');
 cleanups.forEach((c) => c());

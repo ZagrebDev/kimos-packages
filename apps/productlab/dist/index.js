@@ -1912,6 +1912,28 @@ export default function mount(shell) {
     // variantes): una opción sin valores en Jumpseller rompería el matching.
     .filter((o) => o.values.length > 0);
   }
+  // Stock vendible de UNA combinación concreta: el mínimo entre lo que limita
+  // la base (productoStock) y los componentes que ESA combinación elige, cada
+  // uno dividido por las unidades que consume. null = nadie lo limita.
+  //
+  // Sin esto, cada variante llegaba a la tienda sin stock y Jumpseller la daba
+  // por ilimitada: se podían vender combinaciones cuyo componente más escaso
+  // ya estaba agotado.
+  function comboStock(eq, sel) {
+    let min = productoStock(eq);
+    const usar = (c, veces) => {
+      if (!c || c.stock == null) return;
+      const n = Math.floor(num(c.stock) / Math.max(1, veces || 1));
+      min = min == null ? n : Math.min(min, n);
+    };
+    (eq.groups || []).forEach((g) => {
+      if (!g || g.baseStep === true) return;   // la base ya la contó productoStock
+      const v = groupValues(g).find((x) => x.id === (sel || {})[g.id]);
+      if (v && v.sintetico !== true) valueComps(v).forEach((c) => usar(c, valueQty(v)));
+    });
+    return min;
+  }
+
   function buildStoreVariants(eq, existing) {
     const fixed = isFixedPrice(eq);
     // Con precio fijo/de tienda se parte del precio decidido; con auto, del
@@ -1928,11 +1950,14 @@ export default function mount(shell) {
     // Solo las combinaciones que un cliente puede llegar a elegir (ver
     // enumerarCombos): las imposibles no se publican. El costo de cada valor es
     // SIEMPRE el de su alternativa más económica disponible en este momento.
-    const combos = enumerarCombos(eq).combos.map((c) => ({ opts: c.opts, gross: baseGross + c.extra }));
+    const combos = enumerarCombos(eq).combos.map((c) => ({ opts: c.opts, gross: baseGross + c.extra, sel: c.sel }));
     return combos.map((c) => {
       const ex = exBySig.get(sig(c.opts));
       // El precio fijo no se redondea: vale exactamente lo que se definió.
       const v = { options: c.opts, price: fixed ? Math.round(c.gross) : roundFinal(c.gross) };
+      const st = comboStock(eq, c.sel);
+      if (st == null) v.stockUnlimited = true;
+      else { v.stock = st; v.stockUnlimited = false; }
       if (ex && ex.sourceVariantId) v.sourceVariantId = ex.sourceVariantId;
       return v;
     });
