@@ -1774,8 +1774,12 @@ export default function mount(shell) {
   }
 
   // ── Aplicar a la tienda: options + variants escritos en la app products ───
-  const WARN_COMBOS = 150;   // sobre esto, avisar (mantenimiento pesado en JS)
-  const MAX_COMBOS = 400;    // sobre esto, no aplicar (riesgo de límites/timeout)
+  // El tope de 100 es de JUMPSELLER, no nuestro: con 102 variantes su panel
+  // muestra "Límite de variantes superado. No podrá guardar el producto…" y su
+  // API rechaza cada alta sobre el tope con un 404 sin causa. El 400 anterior
+  // era una suposición de rendimiento; el límite real de la tienda es este.
+  const WARN_COMBOS = 80;    // sobre esto, avisar: cerca del tope de la tienda
+  const MAX_COMBOS = 100;    // tope de variantes por producto en Jumpseller
   /**
    * COMBINACIONES ALCANZABLES — el corazón del asunto.
    *
@@ -2036,6 +2040,19 @@ export default function mount(shell) {
     const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
+    // Tope REAL de Jumpseller, visto en producción: con 102 variantes su panel
+    // muestra "Límite de variantes superado. No podrá guardar el producto…" y
+    // su API rechaza cada creación por encima del tope con un 404 que no dice
+    // la causa. Aplicar por sobre el límite deja el producto en un estado que
+    // el propio panel se niega a guardar, así que se detiene AQUÍ, con el
+    // número y las salidas delante.
+    const JS_TOPE_VARIANTES = 100;
+    if (n > JS_TOPE_VARIANTES) {
+      return { success: false, error: 'Jumpseller admite hasta ~' + JS_TOPE_VARIANTES + ' variantes por producto y este genera '
+        + n + ' combinaciones alcanzables (su panel lo llama "Límite de variantes superado"). Para publicarlo entero: '
+        + 'quita algún valor de un paso, marca incompatibilidades reales (las combinaciones vetadas no se publican) '
+        + 'o divide el producto (p. ej. uno por color de gabinete).' };
+    }
     // Cada combinación viaja a la tienda como un mapa opción→valor, y la clave
     // es el NOMBRE del paso. Dos pasos con el mismo nombre se pisan: la
     // combinación pierde una dimensión y varias distintas quedan idénticas, o
