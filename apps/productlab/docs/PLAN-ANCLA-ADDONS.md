@@ -82,16 +82,12 @@ migrar el resto; confirmar contra la tienda real.
 
 ### Fase 1 — App ProductLab: publicar como ancla + addons
 
-- [ ] **1.1** Cálculo de **rebase**: precio ancla = configuración más económica del modelo; delta por valor de paso = precio(valor) − precio(valor más barato del paso), garantizando deltas ≥ 0 y que Σ mínima = precio base.
-  - *Criterio*: para Plasma, precio(ancla) + Σ deltas de la config X == precio actual de la config X, para TODAS las combinaciones (test unitario que recorre el equipo completo).
-- [ ] **1.2** Publicación: color como única opción `option` (variantes con `image_id`); demás pasos como opciones `addon` (un valor = un addon con `addon_price` = delta). Adopción idempotente (re-publicar no duplica opciones ni variantes).
-  - *Criterio*: publicar dos veces seguidas → segunda pasada reporta «sin cambios»; panel muestra N variantes de color y M addons correctos.
-- [ ] **1.3** Poda de la estructura antigua al migrar: eliminar variantes-combinación sobrantes y opciones obsoletas del producto existente (Plasma tiene 102 variantes que deben bajar a las de color).
-  - *Criterio*: Plasma queda con solo las variantes de color; sin banner de límite; sin 404 al publicar.
-- [ ] **1.4** Stock: variantes de color con stock real (mínimo de componentes del color); stock de los demás componentes lo sigue gobernando el kit (`comboStock`), que deshabilita valores agotados.
-  - *Criterio*: valor agotado aparece deshabilitado en el configurador; la variante de color refleja el stock del componente más escaso.
-- [ ] **1.5** Bloqueo antiguo `MAX_COMBOS=100`: ya no aplica al publicar (no se generan combos); mantener el cálculo solo para lógica interna del kit si hace falta.
-  - *Criterio*: un modelo con >100 combinaciones publica sin advertencia de tope.
+- [x] **1.1** Cálculo de **rebase**: precio ancla = configuración más económica del modelo; delta por valor de paso = precio(valor) − precio(valor más barato del paso), garantizando deltas ≥ 0 y que Σ mínima = precio base. *(`buildStoreModel` + `minExtraDe`; test verde)*
+  - *Criterio*: ancla + Σ deltas == precio por combinación: EXACTO en precio fijo (test del pack); en precio auto la diferencia es < el redondeo (< $1.000), porque el redondeo final ya no puede aplicarse por combinación — no existen combinaciones. Modo «precio de la tienda» con default no-mínimo se bloquea con error explicativo (evita deriva del ancla).
+- [x] **1.2** Publicación: color como única opción `option` (variantes con `image_id` — el backend asegura la foto del color como imagen del producto y la asocia); demás pasos como opciones `addon` «Paso: Valor» con `addon_price` = delta y un valor «Sí» (el theme la pinta como checkbox, envía `option_id=Yes`). Adopción idempotente por nombre (opciones/valores) y por combinación (variantes). *(código + tests; verificación en panel pendiente → Fase 4)*
+- [x] **1.3** Poda de la estructura antigua al migrar: `push_options` ya borra opciones/valores ausentes y `push_variants` poda por combinación → al re-aplicar, las variantes-combinación viejas caen solas. *(verificación con Plasma en vivo → Fase 4)*
+- [x] **1.4** Stock: variantes de color con stock real (mínimo entre base y componentes del color); el resto lo gobierna el kit. *(test verde: escaso=2, surtido=30)*
+- [x] **1.5** Bloqueo `MAX_COMBOS=100` retirado del publicar y del botón Aplicar; `enumerarCombos` queda como conteo informativo y para la lógica del kit. Aviso suave si un producto genera >40 opciones (tope de opciones aún sin verificar → Fase 0).
 
 ### Fase 2 — Kit del theme: compra en un POST
 

@@ -857,11 +857,14 @@ export default function mount(shell) {
         }
       }
     });
-    // Aviso heredado de computadores (mantenimiento pesado sobre 150 variantes).
-    const n = comboCount(eq);
-    if (n > WARN_COMBOS && n <= MAX_COMBOS) {
-      warns.push('El producto publica ' + n + ' variantes (aviso sobre ' + WARN_COMBOS + '): la sincronización con la tienda se vuelve pesada y la ficha carga más lento. '
-        + 'Considera reducir alternativas por paso, dividir el producto o usar pasos dependientes — las combinaciones imposibles ya no se publican.');
+    // Con ancla + addons las combinaciones ya no se publican como variantes:
+    // el número de combos no limita nada. Lo que sí crece con los pasos es la
+    // cantidad de OPCIONES addon del producto (una por valor) — aviso suave
+    // mientras no conozcamos un tope duro de opciones en Jumpseller.
+    const nAddons = gruposPersonalizables(eq)
+      .reduce((acc, g) => acc + groupValues(g).filter(valueAvailable).filter((v) => v.fallback !== true).length, 0);
+    if (nAddons > 40) {
+      warns.push('El producto genera ' + nAddons + ' opciones en la tienda (una por valor de paso): revisa que el panel del producto las muestre todas tras aplicar.');
     }
     return warns.concat(checkSet(chosenSet));
   }
@@ -1773,13 +1776,26 @@ export default function mount(shell) {
     catch (e) { await load(); return { success: false, error: 'No se pudo eliminar.' }; }
   }
 
-  // ── Aplicar a la tienda: options + variants escritos en la app products ───
-  // El tope de 100 es de JUMPSELLER, no nuestro: con 102 variantes su panel
-  // muestra "Límite de variantes superado. No podrá guardar el producto…" y su
-  // API rechaza cada alta sobre el tope con un 404 sin causa. El 400 anterior
-  // era una suposición de rendimiento; el límite real de la tienda es este.
-  const WARN_COMBOS = 80;    // sobre esto, avisar: cerca del tope de la tienda
-  const MAX_COMBOS = 100;    // tope de variantes por producto en Jumpseller
+  // ── Aplicar a la tienda: ARQUITECTURA ANCLA + ADDONS ──────────────────────
+  // Jumpseller limita ~100 variantes por producto (su panel: "Límite de
+  // variantes superado" y su API rechaza cada alta sobre el tope con un 404
+  // sin causa), así que las combinaciones de pasos NO viajan como variantes.
+  // Lo que se publica es:
+  //   · el paso de COLOR (si existe) como única opción `option` → una
+  //     variante real por color, con su foto — es lo que el carro muestra;
+  //   · cada VALOR de los demás pasos como una opción `addon` (el theme la
+  //     pinta como checkbox con `addon_price` a nivel de opción) llamada
+  //     "Paso: Valor", con addon_price = su recargo sobre la configuración
+  //     más económica;
+  //   · el precio del producto (y de cada variante de color) es el ANCLA:
+  //     la configuración más económica. La tienda cobra por su cuenta
+  //     ancla + Σ addons marcados — verificado en vivo antes de adoptar esto.
+  // El kit del theme marca los checkboxes ocultos según el paso a paso y
+  // compra con el submit nativo: una línea en el carro, precio del servidor.
+  // Dependencias, compatibilidades y stock por combinación siguen siendo
+  // lógica del kit — la tienda solo cobra y despacha. Sin combinaciones
+  // generadas, el tope de variantes deja de existir para nosotros.
+  const TOPE_ENUM = 400;     // corte de enumeración (conteo informativo)
   /**
    * COMBINACIONES ALCANZABLES — el corazón del asunto.
    *
@@ -1802,7 +1818,7 @@ export default function mount(shell) {
    * producto desmedido, y quien llama sabe que el número viene truncado.
    */
   function enumerarCombos(eq, tope) {
-    const limite = Math.max(1, tope || (MAX_COMBOS * 4));
+    const limite = Math.max(1, tope || TOPE_ENUM);
     const pasos = gruposPersonalizables(eq)
       .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
       .filter((x) => x.vals.length > 0);
@@ -1894,32 +1910,141 @@ export default function mount(shell) {
       return (items || []).find((p) => p && p.id === ref.itemId) || null;
     } catch (e) { return null; }
   }
-  function buildStoreOptions(eq, existing) {
+  // El paso cuyo valor SÍ viaja como variante: el de color (por su foto en el
+  // carro). Se reconoce por el nombre del paso o de su tipo; sin paso de
+  // color, el producto se publica sin variantes (solo el ancla + addons).
+  function variantGroupOf(eq) {
+    return gruposPersonalizables(eq).find((g) =>
+      /color/i.test(s(g.label || '')) || /color/i.test(s(typeLabel(g.typeId) || ''))) || null;
+  }
+  // Contribución mínima de un paso al precio (para el REBASE del ancla): el
+  // extra más barato entre sus valores publicables; si el paso puede quedar
+  // oculto (dependiente), la rama oculta no suma nada, así que nunca es >0.
+  function minExtraDe(eq, g, vals) {
+    let min = null;
+    vals.forEach((v) => {
+      const e = v.sintetico ? 0 : valueExtra(eq, g, v);
+      min = min == null ? e : Math.min(min, e);
+    });
+    if (min == null) min = 0;
+    if (groupDependsOn(g)) min = Math.min(0, min);
+    return min;
+  }
+  /**
+   * MODELO ANCLA + ADDONS de un producto (lo que de verdad viaja a la tienda).
+   *
+   *   ancla   = precio de la configuración MÁS ECONÓMICA (base + Σ mínimos
+   *             por paso). Como el precio es aditivo (gross = base + Σ extras),
+   *             ancla + Σ deltas de una configuración == su precio de siempre.
+   *   color   → opción `option` + una variante por color (precio = ancla +
+   *             delta del color, stock = su componente más escaso).
+   *   resto   → cada valor es una opción `addon` "Paso: Valor" con
+   *             addon_price = extra(valor) − mínimo(paso) — siempre ≥ 0.
+   *
+   * Los valores de relleno (fallback/comodín) no se venden: no generan addon.
+   * Adopción idempotente: opciones/valores por nombre, variantes por su
+   * combinación — re-aplicar actualiza en vez de recrear.
+   */
+  function buildStoreModel(eq, existing) {
+    const fixed = isFixedPrice(eq);
+    const baseGross = fixed ? basePriceOf(eq) : baseBreakdown(eq).gross;
+    const errores = [];
+    const colorG = variantGroupOf(eq);
+    const pasos = gruposPersonalizables(eq)
+      .map((g) => ({ g, label: s(g.label || typeLabel(g.typeId)).trim(),
+        vals: groupValues(g).filter(valueAvailable).filter((v) => v.fallback !== true) }))
+      .filter((x) => x.vals.length > 0);
+    // Nombres de paso únicos: los addons heredan el prefijo y la opción de
+    // color se identifica por nombre — dos pasos iguales se pisarían.
+    const etiquetas = pasos.map((x) => x.label.toLowerCase());
+    const repetida = etiquetas.find((x, i) => x && etiquetas.indexOf(x) !== i);
+    if (repetida) {
+      errores.push('Hay dos pasos con el mismo nombre ("' + repetida
+        + '"). La tienda identifica cada opción por su nombre, así que no puede distinguirlos. Renombra uno de los dos y vuelve a aplicar.');
+    }
+    // Rebase: el ancla es la configuración más económica.
+    const minPor = new Map();
+    let anchorGross = baseGross;
+    pasos.forEach((x) => { const m = minExtraDe(eq, x.g, x.vals); minPor.set(x.g.id, m); anchorGross += m; });
+    const anchor = fixed ? Math.round(anchorGross) : roundFinal(anchorGross);
+    // Modo "precio de la tienda": el precio de referencia se relee del item en
+    // cada aplicación. Si algún valor es más barato que el default, el ancla
+    // queda bajo esa referencia y la SIGUIENTE aplicación la tomaría como
+    // configuración por defecto → el precio derivaría hacia abajo sin fin.
+    if (priceModeOf(eq) === 'store') {
+      const malo = pasos.find((x) => minPor.get(x.g.id) < 0);
+      if (malo) {
+        errores.push('En modo "precio de la tienda" el valor por defecto del paso "' + malo.label
+          + '" debe ser el más económico (hay valores más baratos que el default y el precio ancla derivaría en cada aplicación). '
+          + 'Cambia el default de ese paso o usa precio fijo.');
+      }
+    }
+    // Adopción de ids existentes (opciones/valores por nombre).
     const exByName = new Map();
     (((existing || {}).options) || []).forEach((o) => { if (o && o.name) exByName.set(norm(o.name), o); });
-    return gruposPersonalizables(eq).map((g) => {
-      const label = g.label || typeLabel(g.typeId);
-      const ex = exByName.get(norm(label)) || {};
+    const adoptar = (odef) => {
+      const ex = exByName.get(norm(odef.name)) || {};
+      if (ex.sourceOptionId) odef.sourceOptionId = ex.sourceOptionId;
       const exVals = new Map();
       ((ex.values) || []).forEach((v) => { if (v && v.name) exVals.set(norm(v.name), v); });
-      // Los valores de la tienda son las ETIQUETAS genéricas (sin marca).
-      const lista = groupValues(g).filter(valueAvailable);
-      // Paso dependiente: además de sus valores, la opción necesita el comodín
-      // (las variantes de las ramas ocultas lo usan). Sintetizado aquí: el
-      // usuario no lo crea ni lo ve en la app.
-      if (groupDependsOn(g) && !lista.some((v) => v.fallback === true)) lista.push(comodinDe(g));
-      const odef = { name: label, optionType: 'option', values: lista.map((v) => {
-        const exv = exVals.get(norm(v.label));
-        const out = { name: v.label };
-        if (exv && exv.sourceValueId) out.sourceValueId = exv.sourceValueId;
-        return out;
-      }) };
-      if (ex.sourceOptionId) odef.sourceOptionId = ex.sourceOptionId;
+      odef.values.forEach((v) => {
+        const xv = exVals.get(norm(v.name));
+        if (xv && xv.sourceValueId) v.sourceValueId = xv.sourceValueId;
+      });
       return odef;
-    })
-    // Un paso sin ningún valor disponible se EXCLUYE (igual que en las
-    // variantes): una opción sin valores en Jumpseller rompería el matching.
-    .filter((o) => o.values.length > 0);
+    };
+    const sig = (opts) => JSON.stringify(Object.keys(opts || {}).sort().map((k) => [norm(k), norm(opts[k])]));
+    const exBySig = new Map();
+    (((existing || {}).variants) || []).forEach((v) => { if (v && v.options) exBySig.set(sig(v.options), v); });
+    const options = [];
+    const variants = [];
+    pasos.forEach((x) => {
+      const min = minPor.get(x.g.id) || 0;
+      const delta = (v) => Math.max(0, Math.round((v.sintetico ? 0 : valueExtra(eq, x.g, v)) - min));
+      if (colorG && x.g.id === colorG.id) {
+        // Paso de color → opción `option` + variantes. Dependiente: el comodín
+        // cubre las ramas donde el paso no aplica (comodinDe reutiliza el
+        // fallback propio si existe).
+        const lista = x.vals.slice();
+        if (groupDependsOn(x.g)) lista.push(comodinDe(x.g));
+        options.push(adoptar({ name: x.label, optionType: 'option',
+          values: lista.map((v) => ({ name: v.label })) }));
+        lista.forEach((v) => {
+          const opts = {}; opts[x.label] = v.label;
+          const vv = { options: opts, price: anchor + delta(v) };
+          const sel = {}; sel[x.g.id] = v.id;
+          const st = comboStock(eq, sel);
+          if (st == null) vv.stockUnlimited = true;
+          else { vv.stock = st; vv.stockUnlimited = false; }
+          // Foto del color: el backend la asegura como imagen del producto y
+          // la asocia a la variante (image_id) — es la miniatura del carro.
+          const img = v.sintetico ? '' : valueImage(v);
+          if (img) vv.imageUrl = img;
+          const ex = exBySig.get(sig(opts));
+          if (ex && ex.sourceVariantId) vv.sourceVariantId = ex.sourceVariantId;
+          // El id de imagen ya resuelto viaja de vuelta para que el push no
+          // tenga que buscar nada si la URL no cambió.
+          if (ex && ex.sourceImageId) { vv.sourceImageId = ex.sourceImageId; vv.sourceImageUrl = ex.sourceImageUrl; }
+          variants.push(vv);
+        });
+      } else {
+        // Un valor = una opción addon. El nombre lleva el paso: es lo que el
+        // cliente ve en el carro y lo que el taller lee en el pedido.
+        x.vals.forEach((v) => {
+          options.push(adoptar({ name: x.label + ': ' + s(v.label).trim(),
+            optionType: 'addon', addonPrice: delta(v), values: [{ name: 'Sí' }] }));
+        });
+      }
+    });
+    const nombres = options.map((o) => norm(o.name));
+    const dup = options.find((o, i) => nombres.indexOf(norm(o.name)) !== i);
+    if (dup) {
+      errores.push('Dos valores generan la misma opción en la tienda ("' + dup.name
+        + '"). Renombra uno de los dos valores y vuelve a aplicar.');
+    }
+    return { options, variants, anchor, errores,
+      colorLabel: colorG ? s(colorG.label || typeLabel(colorG.typeId)).trim() : null,
+      addons: options.filter((o) => o.optionType === 'addon').length };
   }
   // Stock vendible de UNA combinación concreta: el mínimo entre lo que limita
   // la base (productoStock) y los componentes que ESA combinación elige, cada
@@ -1943,34 +2068,6 @@ export default function mount(shell) {
     return min;
   }
 
-  function buildStoreVariants(eq, existing) {
-    const fixed = isFixedPrice(eq);
-    // Con precio fijo/de tienda se parte del precio decidido; con auto, del
-    // costo. En ambos casos cada paso suma lo que corresponda (nada, si los
-    // valores no tienen recargo → todas las combinaciones al mismo precio).
-    const baseGross = fixed ? basePriceOf(eq) : baseBreakdown(eq).gross;
-    const groups = gruposPersonalizables(eq)
-      .map((g) => ({ g, label: g.label || typeLabel(g.typeId), vals: groupValues(g).filter(valueAvailable) }))
-      .filter((x) => x.vals.length > 0);
-    if (!groups.length) return [];
-    const sig = (opts) => JSON.stringify(Object.keys(opts || {}).sort().map((k) => [norm(k), norm(opts[k])]));
-    const exBySig = new Map();
-    (((existing || {}).variants) || []).forEach((v) => { if (v && v.options) exBySig.set(sig(v.options), v); });
-    // Solo las combinaciones que un cliente puede llegar a elegir (ver
-    // enumerarCombos): las imposibles no se publican. El costo de cada valor es
-    // SIEMPRE el de su alternativa más económica disponible en este momento.
-    const combos = enumerarCombos(eq).combos.map((c) => ({ opts: c.opts, gross: baseGross + c.extra, sel: c.sel }));
-    return combos.map((c) => {
-      const ex = exBySig.get(sig(c.opts));
-      // El precio fijo no se redondea: vale exactamente lo que se definió.
-      const v = { options: c.opts, price: fixed ? Math.round(c.gross) : roundFinal(c.gross) };
-      const st = comboStock(eq, c.sel);
-      if (st == null) v.stockUnlimited = true;
-      else { v.stock = st; v.stockUnlimited = false; }
-      if (ex && ex.sourceVariantId) v.sourceVariantId = ex.sourceVariantId;
-      return v;
-    });
-  }
   // El candado del SKU promete esto: al guardar con el SKU desbloqueado, el
   // cambio se escribe también en el item del producto (app Productos) y se
   // empuja a Jumpseller.
@@ -2040,35 +2137,6 @@ export default function mount(shell) {
     const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
-    // Tope REAL de Jumpseller, visto en producción: con 102 variantes su panel
-    // muestra "Límite de variantes superado. No podrá guardar el producto…" y
-    // su API rechaza cada creación por encima del tope con un 404 que no dice
-    // la causa. Aplicar por sobre el límite deja el producto en un estado que
-    // el propio panel se niega a guardar, así que se detiene AQUÍ, con el
-    // número y las salidas delante.
-    const JS_TOPE_VARIANTES = 100;
-    if (n > JS_TOPE_VARIANTES) {
-      return { success: false, error: 'Jumpseller admite hasta ~' + JS_TOPE_VARIANTES + ' variantes por producto y este genera '
-        + n + ' combinaciones alcanzables (su panel lo llama "Límite de variantes superado"). Para publicarlo entero: '
-        + 'quita algún valor de un paso, marca incompatibilidades reales (las combinaciones vetadas no se publican) '
-        + 'o divide el producto (p. ej. uno por color de gabinete).' };
-    }
-    // Cada combinación viaja a la tienda como un mapa opción→valor, y la clave
-    // es el NOMBRE del paso. Dos pasos con el mismo nombre se pisan: la
-    // combinación pierde una dimensión y varias distintas quedan idénticas, o
-    // sea variantes duplicadas que la tienda rechaza. No es recuperable desde
-    // el otro lado, así que se detiene aquí y se dice cuál repetir.
-    const etiquetas = gruposPersonalizables(eq).map((g) => s(g.label || typeLabel(g.typeId)).trim().toLowerCase());
-    const repetida = etiquetas.find((x, i) => x && etiquetas.indexOf(x) !== i);
-    if (repetida) {
-      return { success: false, error: 'Hay dos pasos con el mismo nombre ("' + repetida
-        + '"). La tienda identifica cada opción por su nombre, así que no puede distinguirlos y las '
-        + 'combinaciones se pisarían entre sí. Renombra uno de los dos y vuelve a aplicar.' };
-    }
-    if (n > MAX_COMBOS) {
-      return { success: false, error: 'Demasiadas combinaciones ALCANZABLES (' + n + ' variantes; máximo ' + MAX_COMBOS + '). '
-        + 'Reduce alternativas por paso, divide el producto o encadena pasos con dependencias: lo que no se puede elegir ya no se publica.' };
-    }
     const existing = await fetchProductItem(ref);
     // Sin el estado actual del item NO se aplica: se regenerarían opciones y
     // variantes sin sourceIds y el push las recrearía en Jumpseller (ids
@@ -2081,9 +2149,14 @@ export default function mount(shell) {
     if (priceModeOf(eq) === 'store' && existing && num(existing.price) > 0) {
       eq = Object.assign({}, eq, { fixedPrice: num(existing.price) });
     }
-    const options = buildStoreOptions(eq, existing);
-    const variants = buildStoreVariants(eq, existing);
-    const price = productoComputedPrice(eq);
+    const modelo = buildStoreModel(eq, existing);
+    if (modelo.errores.length) return { success: false, error: modelo.errores.join(' · ') };
+    const options = modelo.options;
+    const variants = modelo.variants;
+    // El precio que viaja a la tienda es el ANCLA (configuración más
+    // económica): los addons suman sobre él. El precio local del producto
+    // (configuración por defecto) sigue siendo el que muestra la app.
+    const price = modelo.anchor;
     // GUARDIA DE PRECIO CERO. Un 0 aquí nunca significa "producto gratis":
     // significa que falta un dato. Y como esto escribe en la tienda VIVA,
     // publicarlo deja el producto a $0 a la venta. Se para antes del PUT y se
@@ -2099,15 +2172,6 @@ export default function mount(shell) {
           : 'Está en precio fijo pero no hay precio escrito. Escríbelo en el producto.';
       return { success: false, error: 'No se aplicó nada: el precio calculado es ' + fmtMoney(price)
         + ' y publicarlo dejaría "' + eq.name + '" a $0 en la tienda. ' + porQue };
-    }
-    // Lo mismo por combinación: un recargo negativo puede hundir una variante
-    // aunque el precio por defecto esté bien.
-    const cero = variants.filter((v) => !(num(v.price) > 0));
-    if (cero.length) {
-      const ej = Object.keys(cero[0].options || {}).map((k) => k + ': ' + cero[0].options[k]).join(', ');
-      return { success: false, error: 'No se aplicó nada: ' + cero.length + ' de ' + variants.length
-        + ' variante(s) quedarían a ' + fmtMoney(0) + ' o menos (por ejemplo « ' + ej + ' »). '
-        + 'Revisa los recargos de los valores: alguno resta más de lo que vale la configuración por defecto.' };
     }
     try {
       // 1) Persistir en el item del producto (merge; auto-push de campos base).
@@ -2176,7 +2240,10 @@ export default function mount(shell) {
         .map((x) => errorTienda(x));
       const status = errs.length ? ((data.syncStatusByItem || {})[ref.itemId] || 'sync_error') : 'synced';
       const updated = Object.assign({}, eq, {
-        price,
+        // Localmente se guarda el precio de la configuración POR DEFECTO (lo
+        // que la app muestra); el ancla solo existe en la tienda. Persistir el
+        // ancla aquí haría que cada recálculo viera "cambios" fantasma.
+        price: productoComputedPrice(eq),
         lastPush: { at: nowIso(), status, errors: errs.slice(0, 5), warnings: cfWarns.slice(0, 3), variantCount: variants.length },
         // Refrescar la copia local de nombre/sku/imagen desde la tienda (la
         // foto del producto puede haber cambiado desde el enlace inicial).
@@ -2205,7 +2272,11 @@ export default function mount(shell) {
             + 'Variantes: ' + (variants.length - faltan) + ' de ' + variants.length + ' subidas, quedan ' + faltan
             + '. La subida dejó de avanzar antes de terminar — vuelve a aplicar; si se queda en el mismo número, avísanos.' + cfNote };
       }
-      return { success: true, status, message: '"' + eq.name + '" aplicado: ' + fmtMoney(price) + (variants.length ? ', ' + options.length + ' opciones, ' + variants.length + ' variantes.' : ' — producto simple sin variantes (compra directa).') + cfNote };
+      return { success: true, status, message: '"' + eq.name + '" aplicado: '
+        + (hasSteps
+          ? 'precio ancla ' + fmtMoney(price) + ' (configuración más económica), ' + modelo.addons + ' addon(s)'
+            + (variants.length ? ', ' + variants.length + ' variante(s) de ' + (modelo.colorLabel || 'color') + '.' : ', sin paso de color (sin variantes).')
+          : fmtMoney(price) + ' — producto simple sin variantes (compra directa).') + cfNote };
     } catch (e) { return { success: false, error: (e && e.message) || 'Error de red.' }; }
   }
 
@@ -2582,11 +2653,16 @@ export default function mount(shell) {
   // (inspección/depuración desde la pestaña Publicación).
   function storePlan(eq) {
     const ref = storeRefOf(eq);
+    const m = buildStoreModel(eq, null);
     return {
       storeRef: ref || null,
-      price: productoComputedPrice(eq),
-      options: buildStoreOptions(eq, null),
-      variants: buildStoreVariants(eq, null),
+      // `price` es el ANCLA (lo que se escribe en la tienda); el precio de la
+      // configuración por defecto va aparte para poder compararlos.
+      price: m.anchor,
+      precioConfigDefecto: productoComputedPrice(eq),
+      options: m.options,
+      variants: m.variants,
+      errores: m.errores,
     };
   }
 
@@ -3182,10 +3258,10 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             type: { type: 'string' }, marginPct: { type: 'number' },
           }, required: ['type', 'marginPct'] } },
-        { name: 'RECALC_PRICES', description: 'Recalcula precios de todos los productos según costos y reglas. apply=true persiste y aplica a la tienda (producto + opciones + variantes por combinación). Con apply:true exige además confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si no, muestra primero la vista previa (apply:false) y pregunta.',
+        { name: 'RECALC_PRICES', description: 'Recalcula precios de todos los productos según costos y reglas. apply=true persiste y aplica a la tienda (precio ancla + addons por valor + variantes de color). Con apply:true exige además confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si no, muestra primero la vista previa (apply:false) y pregunta.',
           inputSchema: { type: 'object', properties: { apply: { type: 'boolean' },
             confirm: { type: 'boolean', description: 'obligatorio con apply:true: confirma que el USUARIO pidió aplicar a la tienda en vivo' } } } },
-        { name: 'APPLY_PRODUCTO', description: 'Aplica un producto a la tienda: escribe precio, opciones y variantes (precio por combinación) en su producto Jumpseller vía la app products. Exige confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si fue idea tuya, pregúntale primero.',
+        { name: 'APPLY_PRODUCTO', description: 'Aplica un producto a la tienda: escribe el precio ancla (configuración más económica), un addon por valor de paso y las variantes de color en su producto Jumpseller vía la app products. La tienda cobra ancla + addons marcados. Exige confirm:true — pásalo SOLO si el usuario pidió aplicar explícitamente; si fue idea tuya, pregúntale primero.',
           inputSchema: { type: 'object', properties: { producto: { type: 'string', description: 'id o nombre' },
             confirm: { type: 'boolean', description: 'obligatorio: confirma que el USUARIO pidió aplicar a la tienda en vivo' } }, required: ['producto'] } },
         { name: 'UPSERT_PRODUCTO', description: 'Crea o actualiza los datos básicos de un producto por nombre (los pasos se gestionan con SET_PRODUCTO_STEPS, la ficha con SET_STOREFRONT y la descripción de la tienda con SET_DESCRIPCION_TIENDA). Incluye los COMPONENTES BASE (siempre incluidos: definen el costo base y el stock vendible — un producto simple es solo base, sin pasos), los costos adicionales manuales y la foto principal ★.',
@@ -5472,10 +5548,11 @@ export default function mount(shell) {
       const actual = groupValues(g).find((v) => v.id === selMap[g.id]);
       if (actual && actual.fallback === true && vals[0]) selMap[g.id] = vals[0].id;
     });
-    // Precio: mismas reglas que buildStoreVariants (oculto = default del paso).
+    // Precio: mismo modelo aditivo que buildStoreModel — el total simulado
+    // (base + extras de lo elegido) coincide con lo que la tienda cobra como
+    // ancla + addons marcados (oculto = no suma nada).
     let gross = fixed ? basePriceOf(draft) : baseBreakdown(draft).gross;
-    // Pasos COMPONENTE BASE: no se eligen, pero su default suma siempre
-    // (misma regla que buildStoreVariants con el precio calculado).
+    // Pasos COMPONENTE BASE: no se eligen, pero su default suma siempre.
     (draft.groups || []).filter((g) => g.baseStep === true).forEach((g) => {
       const dvb = groupDefaultValue(g);
       if (dvb) gross += fixed ? valueExtra(draft, g, dvb) : (valueGross(dvb) || 0);
@@ -5857,10 +5934,11 @@ export default function mount(shell) {
     useEffect(() => {
       setHdrExtra({
         precio: fmtMoney(price),
-        sub: (simple ? 'producto simple' : combos + ' variante(s)') + ' · entrega ' + productoDelivery(d) + 'd' + (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s)' : ''),
+        sub: (simple ? 'producto simple' : combos + ' configuración(es)') + ' · entrega ' + productoDelivery(d) + 'd' + (warns.length ? ' · ⚠ ' + warns.length + ' aviso(s)' : ''),
         busy,
         puedeGuardar: !busy && !!s(d.name).trim(),
-        puedeAplicar: !!ref && !busy && !!s(d.name).trim() && (simple || (combos > 0 && combos <= MAX_COMBOS)),
+        // Ancla + addons: las combinaciones ya no limitan la publicación.
+        puedeAplicar: !!ref && !busy && !!s(d.name).trim() && (simple || combos > 0),
         conTienda: !!ref,
         etiquetaGuardar: initial ? 'Guardar' : 'Crear producto',
         guardar: async () => {
@@ -7991,7 +8069,7 @@ export default function mount(shell) {
       h('div', { key: 'plan', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'JUMPSELLER'), 'Opciones y variantes por producto']),
         h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
-          'Las opciones (un paso = una opción) y las variantes con precio por combinación se escriben automáticamente al usar "Aplicar a la tienda" (van al item de la app Productos y su sync-push las empuja a Jumpseller). Aquí puedes inspeccionar el payload exacto que se generaría ahora.'),
+          'Al usar "Aplicar a la tienda" se escriben el precio ANCLA (configuración más económica), una opción addon por cada valor de paso (con su recargo) y las variantes del paso de color (van al item de la app Productos y su sync-push las empuja a Jumpseller). Aquí puedes inspeccionar el payload exacto que se generaría ahora.'),
         state.productos.length === 0
           ? h('div', { key: 'e', className: 'gp-muted' }, 'Sin productos.')
           : state.productos.map((eq) => h('div', { key: eq.id, className: 'gp-compline' }, [
