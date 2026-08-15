@@ -2629,8 +2629,14 @@ export default function mount(shell) {
         const mapa = (d && d.map) || {};
         const n = Object.keys(mapa).length;
         copiadas += n; pendientes += urls.length - n;
-        if (d && d.errors && d.errors.length) errores.push(...d.errors.slice(0, 2));
-        else if (!r.ok) errores.push(s(d.detail) || ('HTTP ' + r.status));
+        // El DIAG del backend (la forma real del listado de adjuntos) se
+        // muestra SIEMPRE: recortar a los 2 primeros errores lo dejaba fuera
+        // justo cuando más falta hacía.
+        if (d && d.errors && d.errors.length) {
+          const diag = d.errors.filter((x) => String(x).indexOf('DIAG') === 0);
+          const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
+          errores.push(...otros.slice(0, 2), ...diag.slice(0, 1));
+        } else if (!r.ok) errores.push(s(d.detail) || ('HTTP ' + r.status));
         productos.push(n ? reemplazarUrls(p, mapa) : p);
       } catch (e) {
         pendientes += urls.length;
