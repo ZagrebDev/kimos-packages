@@ -19,6 +19,9 @@
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
+  /* Móvil: sin doble-tap zoom, sin rebote ni "pull to refresh" durante el juego. */
+  touch-action: manipulation;
+  overscroll-behavior: contain;
 }
 
 .kimos-funplai *,
@@ -340,6 +343,30 @@
 .kimos-funplai .fp-setup-nivel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .kimos-funplai .fp-setup-nota { font-size: 14px; opacity: .75; max-width: 560px; }
 
+/* ── Mete gol ────────────────────────────────────────────────────────── */
+.kimos-funplai .fp-gol-wrap { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-gol-svg {
+  flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
+  background: linear-gradient(#0B2E5B, #4E86B8 26%, #5EA347 26%);
+}
+
+/* ── Esquiva y gana (2D y 3D) ────────────────────────────────────────── */
+.kimos-funplai .fp-esq-wrap { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-esq-svg,
+.kimos-funplai .fp-esq3d-svg {
+  flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
+}
+.kimos-funplai .fp-esq-svg { background: #7EC0EE; }
+.kimos-funplai .fp-esq3d-svg { background: #0A1120; }
+.kimos-funplai .fp-esq-botones {
+  display: flex; gap: 12px; justify-content: center; padding: 10px; flex-wrap: wrap;
+}
+.kimos-funplai .fp-esq-botones .fp-btn { min-width: 170px; }
+.kimos-funplai .fp-esq-aviso {
+  font-weight: 800; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .55); stroke-width: 6px;
+}
+.kimos-funplai .fp-contorno { filter: drop-shadow(0 0 12px rgba(74, 222, 128, .55)); }
+
 /* ── Paneles (ranking, editor, diagnóstico) ──────────────────────────── */
 .kimos-funplai .fp-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .kimos-funplai .fp-panel-head {
@@ -399,6 +426,91 @@
 
 .kimos-funplai .fp-loading {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; opacity: .85;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Adaptación a PC, móvil, tablet y tótem
+   La app no asume un tamaño: los juegos son SVG que escalan solos y estos
+   bloques ajustan densidad, tipografías y áreas táctiles a cada pantalla.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Móvil (y ventanas angostas de escritorio) */
+@media (max-width: 720px) {
+  .kimos-funplai { --fp-radius: 14px; }
+  .kimos-funplai .fp-home-head { padding: 78px 14px 0; }
+  .kimos-funplai .fp-brand-logo { font-size: 30px; }
+  .kimos-funplai .fp-brand h1 { font-size: 20px; }
+  .kimos-funplai .fp-brand p { font-size: 12px; }
+  .kimos-funplai .fp-home-tools .fp-btn { padding: 9px 12px; font-size: 13px; min-height: 40px; }
+  .kimos-funplai .fp-hero { padding: 10px 14px 4px; }
+  .kimos-funplai .fp-hero h2 { font-size: 24px; }
+  .kimos-funplai .fp-hero p { font-size: 14px; }
+  .kimos-funplai .fp-hero-rosette { width: 72px; height: 72px; }
+  .kimos-funplai .fp-cards { grid-template-columns: 1fr; gap: 12px; padding: 12px 14px; }
+  .kimos-funplai .fp-card { min-height: 0; padding: 16px; }
+  .kimos-funplai .fp-card-icon { font-size: 32px; }
+  .kimos-funplai .fp-card-name { font-size: 18px; }
+  .kimos-funplai .fp-card-blurb { font-size: 13px; }
+  .kimos-funplai .fp-game-head,
+  .kimos-funplai .fp-panel-head { padding: 8px 12px; gap: 8px; }
+  .kimos-funplai .fp-game-title { font-size: 15px; }
+  .kimos-funplai .fp-game-icon { font-size: 19px; }
+  .kimos-funplai .fp-chip { padding: 5px 10px; font-size: 11px; }
+  .kimos-funplai .fp-hint { font-size: 13px; padding: 8px 12px 12px; }
+  .kimos-funplai .fp-panel-body { padding: 12px; }
+  .kimos-funplai .fp-form { grid-template-columns: 1fr; }
+  .kimos-funplai .fp-diag-grid { grid-template-columns: 1fr; }
+  .kimos-funplai .fp-dance { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
+  .kimos-funplai .fp-avatar-svg { max-height: 34vh; }
+  .kimos-funplai .fp-result-score { font-size: 56px; }
+  .kimos-funplai .fp-result h2 { font-size: 22px; }
+  .kimos-funplai .fp-result-actions .fp-btn,
+  .kimos-funplai .fp-actions .fp-btn { flex: 1 1 220px; }
+  .kimos-funplai .fp-intro { padding: 14px; gap: 10px; }
+  .kimos-funplai .fp-intro-svg { width: 180px; height: 220px; }
+  .kimos-funplai .fp-steps { font-size: 14px; }
+  .kimos-funplai .fp-pos-cam,
+  .kimos-funplai .fp-pos-svg { width: 100%; }
+  .kimos-funplai .fp-ray-cam { width: 108px; height: 82px; top: 8px; left: 8px; }
+  .kimos-funplai .fp-rival-card { width: 148px; }
+  .kimos-funplai .fp-rival-svg { height: 130px; }
+  .kimos-funplai .fp-setup-op,
+  .kimos-funplai .fp-ficha-op { min-width: 140px; padding: 12px 14px; }
+  .kimos-funplai .fp-ficha-svg { width: 72px; height: 72px; }
+  .kimos-funplai .fp-esq-botones .fp-btn { min-width: 130px; }
+  .kimos-funplai .fp-box-botones .fp-btn { flex: 1 1 30%; padding: 12px 10px; }
+  .kimos-funplai .fp-table { font-size: 12px; }
+  .kimos-funplai .fp-table th, .kimos-funplai .fp-table td { padding: 7px 8px; }
+}
+
+/* Pantallas bajas (móvil en horizontal): el juego manda, el resto se comprime. */
+@media (max-height: 560px) {
+  .kimos-funplai .fp-game-head { padding: 6px 12px; }
+  .kimos-funplai .fp-hint { display: none; }
+  .kimos-funplai .fp-esq-botones,
+  .kimos-funplai .fp-box-botones { padding: 6px; }
+  .kimos-funplai .fp-home-head { padding-top: 62px; }
+  .kimos-funplai .fp-garland { height: 70px; }
+  .kimos-funplai .fp-hero { padding: 6px 14px 0; }
+  .kimos-funplai .fp-hero-rosette { display: none; }
+  .kimos-funplai .fp-cards { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .kimos-funplai .fp-card { min-height: 0; padding: 12px; }
+  .kimos-funplai .fp-card-blurb { display: none; }
+  .kimos-funplai .fp-gato-svg { width: min(62vh, 88%); }
+}
+
+/* Tablet: dos columnas cómodas y controles algo mayores. */
+@media (min-width: 721px) and (max-width: 1100px) {
+  .kimos-funplai .fp-cards { grid-template-columns: repeat(2, 1fr); }
+  .kimos-funplai .fp-card { min-height: 160px; }
+  .kimos-funplai .fp-btn { min-height: 50px; }
+}
+
+/* Punteros gruesos (dedo): áreas táctiles mayores en cualquier tamaño. */
+@media (pointer: coarse) {
+  .kimos-funplai .fp-btn { min-height: 52px; }
+  .kimos-funplai .fp-input { min-height: 50px; }
+  .kimos-funplai .fp-tab { padding: 12px 18px; }
 }
 
 /* Tótem vertical: una sola columna y tipografías mayores. */

@@ -263,6 +263,43 @@ export default function mount(shell) {
       },
     },
     {
+      id: 'gol', type: 'gol', enabled: true, order: 7,
+      name: 'Mete gol', icon: '⚽',
+      blurb: 'Patea al arco: la cámara mide tu pierna y el arquero se mueve para atajar.',
+      config: {
+        tiros: 5,
+        dificultad: 'media',       // facil | media | dificil (reflejos del arquero)
+        fuerzaReferencia: 3.0,     // patada que llega con potencia media
+        sensibilidadLateral: 0.55,
+        dispersion: 0.08,
+        distanciaMetros: 2.5,      // cuerpo entero: hay que ver los pies
+      },
+    },
+    {
+      id: 'esquiva2d', type: 'esquiva2d', enabled: true, order: 8,
+      name: 'Esquiva y gana', icon: '🏃',
+      blurb: 'Carrera lateral de obstáculos: salta y agáchate para no chocar.',
+      config: {
+        velocidad: 0.42,
+        aceleracion: 0.02,
+        cadaSegundos: 1.6,
+        vidas: 3,
+        metaPuntos: 900,
+      },
+    },
+    {
+      id: 'esquiva3d', type: 'esquiva3d', enabled: true, order: 9,
+      name: 'Esquiva y gana 3D', icon: '🕹️',
+      blurb: 'Los obstáculos vienen de frente y tu cuerpo es el contorno verde en pantalla.',
+      config: {
+        velocidad: 0.40,
+        aceleracion: 0.02,
+        cadaSegundos: 1.8,
+        vidas: 3,
+        metaPuntos: 900,
+      },
+    },
+    {
       id: 'gato', type: 'gato', enabled: true, order: 6,
       name: 'Gato', icon: '⭕',
       blurb: 'Tres en línea: elige rival (tótem o dos jugadores) y si juegas con cruces o círculos.',
@@ -3276,6 +3313,1009 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // 12.e Detectores compartidos: patada y salto/agachada
+  // ══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Detector de patada (juego "Mete gol"). Este SÍ necesita ver las piernas:
+   * se arma con los tobillos abajo y quietos, y dispara en el pico de
+   * velocidad del pie que se lanza hacia adelante y arriba. Todo se normaliza
+   * por la escala corporal para que un niño y un adulto peguen parejo.
+   */
+  function detectorPatada() {
+    let armado = false, enSwing = false, tSwing = 0, pico = null, hist = [];
+    return {
+      reset() { armado = false; enSwing = false; pico = null; hist = []; },
+      estado() { return enSwing ? 'pateando' : armado ? 'listo' : 'pies al suelo'; },
+      /** null, o { fuerza, lateral, altura, pierna }. */
+      actualizar(L, espejo) {
+        if (!L) return null;
+        const escala = escalaCorporal(L, 'completo');
+        if (!escala) return null;
+        const cI = L[IDX.caderaI], cD = L[IDX.caderaD];
+        if (!cI || !cD) return null;
+        const caderaY = (cI.y + cD.y) / 2;
+        const pies = [];
+        if (L[IDX.tobilloD]) pies.push({ pierna: 'derecha', p: L[IDX.tobilloD] });
+        if (L[IDX.tobilloI]) pies.push({ pierna: 'izquierda', p: L[IDX.tobilloI] });
+        if (!pies.length) return null;
+        const t = nowMs();
+        hist.push({ t, pies: pies.map((x) => ({ pierna: x.pierna, x: x.p.x, y: x.p.y })) });
+        if (hist.length > 14) hist.shift();
+        if (hist.length < 4) return null;
+
+        const a = hist[0], b = hist[hist.length - 1];
+        const dt = Math.max(0.04, (b.t - a.t) / 1000);
+        let mejor = null;
+        for (const f of b.pies) {
+          const prev = a.pies.find((z) => z.pierna === f.pierna);
+          if (!prev) continue;
+          const vx = ((f.x - prev.x) / dt) / escala * (espejo ? -1 : 1);
+          const vy = ((f.y - prev.y) / dt) / escala;
+          const subida = -vy;
+          const rapidez = Math.hypot(vx, subida);
+          if (!mejor || rapidez > mejor.rapidez) mejor = { pierna: f.pierna, vx, subida, rapidez, y: f.y };
+        }
+        if (!mejor) return null;
+
+        if (!armado) {
+          // Pie abajo (bien por debajo de la cadera) y quieto.
+          if (mejor.y > caderaY + escala * 0.8 && mejor.rapidez < 1.5) armado = true;
+          return null;
+        }
+        if (!enSwing) {
+          if (mejor.rapidez > 2.4) { enSwing = true; tSwing = t; pico = mejor; }
+          return null;
+        }
+        if (mejor.rapidez > pico.rapidez) pico = mejor;
+        if (t - tSwing > 200 || mejor.rapidez < pico.rapidez * 0.6) {
+          const r = {
+            fuerza: pico.rapidez,
+            lateral: pico.vx,
+            // Cuánto levantó el pie decide si el balón va alto o raso.
+            altura: clamp(pico.subida / Math.max(0.5, pico.rapidez), 0, 1),
+            pierna: pico.pierna,
+          };
+          armado = false; enSwing = false; pico = null; hist = [];
+          return r;
+        }
+        return null;
+      },
+    };
+  }
+
+  /**
+   * Detector de SALTO y AGACHADA por medio cuerpo (juegos "Esquiva y gana").
+   * Se calibra con la altura de reposo de la línea de hombros y compara contra
+   * ella, en anchos de hombro: así funciona igual de cerca o de lejos.
+   */
+  function detectorSaltoAgacharse() {
+    let base = null, suave = null, calib = 0;
+    return {
+      reset() { base = null; suave = null; calib = 0; },
+      listo() { return base != null; },
+      /** { accion: 'saltar'|'agachar'|null, desvio, calibrando }. */
+      actualizar(L, dt) {
+        if (!L) return { accion: null, desvio: 0, calibrando: base == null };
+        const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
+        const escala = escalaCorporal(L, 'superior');
+        if (!hI || !hD || !escala) return { accion: null, desvio: 0, calibrando: base == null };
+        const y = (hI.y + hD.y) / 2;
+        suave = suave == null ? y : suave + (y - suave) * clamp(dt * 12, 0, 1);
+        if (base == null) {
+          // Primer segundo de pie quieto: eso fija la referencia.
+          calib += dt;
+          base = calib > 1 ? suave : null;
+          return { accion: null, desvio: 0, calibrando: base == null };
+        }
+        // Deriva lenta para que la referencia siga a la persona si se reacomoda.
+        base += (suave - base) * clamp(dt * 0.12, 0, 1);
+        const desvio = (base - suave) / escala;      // + = subió (saltó)
+        let accion = null;
+        if (desvio > 0.33) accion = 'saltar';
+        else if (desvio < -0.30) accion = 'agachar';
+        return { accion, desvio, calibrando: false };
+      },
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 12.f Juego 7 — "Mete gol" (patada leída por cámara, arquero con vida propia)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // La pantalla es el arco visto desde el punto penal. El arquero se mueve de
+  // lado a lado de forma continua —nunca "teletransportado"— y se lanza cuando
+  // ve venir el balón. La patada del participante se lee con la cámara: la
+  // velocidad del pie define la potencia, su componente lateral la dirección y
+  // cuánto lo levanta, la altura del disparo.
+
+  const GOL_VB = { w: 1000, h: 1400 };
+  const ARCO = { x: 500, y: 470, w: 760, h: 300 };   // marco del arco en pantalla
+
+  /** Coordenadas de disparo (x −1..1, altura 0..1) → punto en el arco. */
+  function puntoEnArco(x, altura) {
+    return {
+      x: ARCO.x + clamp(x, -1.6, 1.6) * (ARCO.w / 2),
+      y: ARCO.y + ARCO.h / 2 - clamp(altura, -0.2, 1.4) * ARCO.h,
+    };
+  }
+
+  /** Resuelve el remate contra la posición del arquero. */
+  function resolverRemate(tiro, arqueroX, alcance) {
+    const dentro = Math.abs(tiro.x) <= 1 && tiro.altura >= 0 && tiro.altura <= 1;
+    if (!dentro) {
+      return { gol: false, atajada: false, fuera: true, motivo: Math.abs(tiro.x) > 1 ? 'Se fue desviado' : 'Se fue por arriba' };
+    }
+    // Al arquero le cuesta más llegar a los balones altos y a los ángulos.
+    const efectivo = alcance * (tiro.altura > 0.62 ? 0.62 : 1);
+    const atajada = Math.abs(tiro.x - arqueroX) < efectivo;
+    return {
+      gol: !atajada, atajada, fuera: false,
+      motivo: atajada ? '¡Atajó el arquero!' : '¡GOL!',
+    };
+  }
+
+  /** Arquero dibujado en SVG; `pose` describe qué está haciendo. */
+  function Arquero(props) {
+    const p = props.pose || {};
+    const dive = clamp(num(p.dive, 0), 0, 1);            // 0 = de pie, 1 = estirado
+    const lado = num(p.lado, 0) >= 0 ? 1 : -1;
+    const paso = Math.sin(num(p.t, 0) * 4) * 6;          // vaivén al desplazarse
+    const inclina = dive * 62 * lado;
+    const alto = 1 - dive * 0.42;
+    return h('g', { transform: 'rotate(' + inclina.toFixed(1) + ') scale(1,' + alto.toFixed(2) + ')' },
+      // piernas
+      h('line', { x1: -16, y1: 60, x2: -26 - dive * 40 * lado, y2: 150 - dive * 40, stroke: '#1F2937', strokeWidth: 20, strokeLinecap: 'round' }),
+      h('line', { x1: 16, y1: 60, x2: 26 + dive * 66 * lado, y2: 150 - dive * 70, stroke: '#1F2937', strokeWidth: 20, strokeLinecap: 'round' }),
+      // torso
+      h('path', { d: 'M-40 -46 q40 -14 80 0 l-6 108 q-34 12 -68 0 Z', fill: '#F4B400', stroke: '#B58200', strokeWidth: 4 }),
+      h('path', { d: 'M-34 6 q34 -10 68 0 l-2 18 q-32 10 -64 0 Z', fill: '#1F2937', opacity: 0.35 }),
+      // brazos + guantes (se estiran al lanzarse)
+      h('line', {
+        x1: -34, y1: -34, x2: -70 - dive * 120 * (lado > 0 ? 0.2 : 1), y2: -50 - dive * 60,
+        stroke: '#F4B400', strokeWidth: 18, strokeLinecap: 'round',
+      }),
+      h('line', {
+        x1: 34, y1: -34, x2: 70 + dive * 120 * (lado > 0 ? 1 : 0.2), y2: -50 - dive * 60,
+        stroke: '#F4B400', strokeWidth: 18, strokeLinecap: 'round',
+      }),
+      h('circle', { cx: -70 - dive * 120 * (lado > 0 ? 0.2 : 1), cy: -50 - dive * 60, r: 20, fill: '#2E7D32', stroke: '#1B5E20', strokeWidth: 3 }),
+      h('circle', { cx: 70 + dive * 120 * (lado > 0 ? 1 : 0.2), cy: -50 - dive * 60, r: 20, fill: '#2E7D32', stroke: '#1B5E20', strokeWidth: 3 }),
+      // cabeza
+      h('circle', { cx: 0 + paso * 0.2, cy: -78, r: 26, fill: '#E8B98F', stroke: '#C9925F', strokeWidth: 3 }),
+      h('path', { d: 'M-26 -86 q26 -22 52 0 q-4 -22 -26 -22 q-22 0 -26 22 Z', fill: '#3B2416' }));
+  }
+
+  function JuegoGol(props) {
+    const cfg = props.game.config || {};
+    const hw = model.hardware;
+    const tiros = clamp(Math.round(num(cfg.tiros, 5)), 1, 15);
+    const dificultad = s(cfg.dificultad) || 'media';
+    const NIVEL = {
+      facil: { alcance: 0.30, reaccion: 0.34, error: 0.55 },
+      media: { alcance: 0.38, reaccion: 0.26, error: 0.34 },
+      dificil: { alcance: 0.46, reaccion: 0.18, error: 0.18 },
+    };
+
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const detRef = useRef(detectorPatada());
+    const faseRef = useRef('intro');
+    const calibRef = useRef(0);
+    const arqRef = useRef({ x: 0, destino: 0, dive: 0, lado: 1, t: 0, decidido: false });
+    const volandoRef = useRef(false);
+
+    const [fase, setFase] = useState('intro');
+    const [error, setError] = useState('');
+    const [modoTactil, setModoTactil] = useState(false);
+    const [guia, setGuia] = useState({ motivo: '', ok: false, progreso: 0, landmarks: null });
+    const [arq, setArq] = useState({ x: 0, dive: 0, lado: 1, t: 0 });
+    const [balon, setBalon] = useState(null);
+    const [remates, setRemates] = useState([]);
+    const [ultimo, setUltimo] = useState(null);
+    const [gesto, setGesto] = useState('');
+
+    const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
+
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+
+    const soltarTodo = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    }, []);
+    useEffect(() => soltarTodo, [soltarTodo]);
+
+    /** Ejecuta el remate: vuelo del balón y resolución contra el arquero. */
+    const patear = useCallback((fuerza, lateral, alturaGesto) => {
+      if (volandoRef.current || faseRef.current !== 'juego') return;
+      volandoRef.current = true;
+      detRef.current.reset();
+      const N = NIVEL[dificultad] || NIVEL.media;
+      const fRef = Math.max(0.5, num(cfg.fuerzaReferencia, 3.0));
+      const potencia = clamp(fuerza / fRef, 0.25, 1.6);
+      const disp = clamp(num(cfg.dispersion, 0.08), 0, 0.5);
+      const tiro = {
+        x: clamp(lateral * num(cfg.sensibilidadLateral, 0.55) + (Math.random() * 2 - 1) * disp, -1.5, 1.5),
+        altura: clamp(0.18 + alturaGesto * 0.9 + (Math.random() * 2 - 1) * disp * 0.5, -0.1, 1.3),
+        potencia: potencia,
+      };
+      const destino = puntoEnArco(tiro.x, tiro.altura);
+      const origen = { x: GOL_VB.w / 2, y: GOL_VB.h - 190 };
+      // Más potencia = llega antes: el arquero tiene menos tiempo de reacción.
+      const dur = clamp(1250 / potencia, 420, 1700);
+      const t0 = nowMs();
+      arqRef.current.decidido = false;
+      const stop = loop(() => {
+        const k = clamp((nowMs() - t0) / dur, 0, 1);
+        const A = arqRef.current;
+        // El arquero reacciona cuando el balón lleva un tramo recorrido.
+        if (!A.decidido && k > N.reaccion) {
+          A.decidido = true;
+          A.destino = clamp(tiro.x + (Math.random() * 2 - 1) * N.error, -1, 1);
+          A.lado = A.destino >= A.x ? 1 : -1;
+        }
+        setBalon({
+          x: origen.x + (destino.x - origen.x) * k,
+          y: origen.y + (destino.y - origen.y) * k - Math.sin(k * Math.PI) * 120 * (1 - tiro.altura * 0.5),
+          escala: 1 - 0.55 * k,
+          k,
+        });
+        if (k < 1) return;
+        stop();
+        setBalon(null);
+        volandoRef.current = false;
+        const A2 = arqRef.current;
+        const res = resolverRemate(tiro, A2.x, N.alcance + A2.dive * 0.22);
+        setRemates((prev) => {
+          const next = prev.concat([Object.assign({ id: uid('r') }, res, { tiro })]);
+          setUltimo(next[next.length - 1]);
+          if (next.length >= tiros) setT(() => irA('fin'), 1500);
+          return next;
+        });
+        if (res.gol) notify('success', '¡GOL!');
+        if (navigator.vibrate) { try { navigator.vibrate(res.gol ? [40, 40, 80] : 25); } catch (e) { /* noop */ } }
+        setT(() => { arqRef.current.decidido = false; arqRef.current.destino = 0; }, 700);
+      });
+    }, [cfg, dificultad, tiros, irA]);
+
+    const iniciar = useCallback(async (modo) => {
+      setError('');
+      setRemates([]); setUltimo(null);
+      detRef.current.reset();
+      calibRef.current = 0;
+      arqRef.current = { x: 0, destino: 0, dive: 0, lado: 1, t: 0, decidido: false };
+      if (modo === 'tactil') { setModoTactil(true); irA('juego'); return; }
+      setModoTactil(false);
+      irA('abriendo');
+      try {
+        const stream = await abrirCamara(hw);
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) throw new Error('No se pudo montar el elemento de video.');
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(hw);
+        await prov.iniciar(v);
+        provRef.current = prov;
+        irA('posicion');
+      } catch (e) {
+        soltarTodo();
+        setError(s(e && e.message ? e.message : e));
+        irA('intro');
+      }
+    }, [hw, irA, soltarTodo]);
+
+    // Bucle: calibración (cuerpo entero, hay que ver los pies), arquero y patada.
+    useEffect(() => {
+      if (fase !== 'posicion' && fase !== 'juego') return undefined;
+      let ultimoHud = 0;
+      return loop((dt) => {
+        const t = nowMs();
+        const prov = provRef.current;
+        const lec = prov ? prov.leer() : null;
+        const L = lec && lec.landmarks;
+
+        if (faseRef.current === 'posicion') {
+          const enc = encuadreDePose(L, 'completo');
+          calibRef.current = enc.ok ? calibRef.current + dt : Math.max(0, calibRef.current - dt * 0.6);
+          if (t - ultimoHud > 100) {
+            ultimoHud = t;
+            setGuia({ motivo: enc.motivo, ok: !!enc.ok, progreso: clamp(calibRef.current / 1.8, 0, 1), landmarks: L });
+          }
+          if (calibRef.current >= 1.8) { detRef.current.reset(); irA('juego'); }
+          return;
+        }
+
+        // ── Arquero: movimiento continuo, nunca a saltos ───────────────
+        const A = arqRef.current;
+        A.t += dt;
+        if (!volandoRef.current) {
+          // De pie: patrulla el arco con un vaivén suave y algo de azar.
+          A.destino = Math.sin(A.t * 0.9) * 0.55 + Math.sin(A.t * 0.37) * 0.2;
+          A.dive = Math.max(0, A.dive - dt * 2.4);
+        } else if (A.decidido) {
+          A.dive = Math.min(1, A.dive + dt * 3.2);
+        }
+        const vel = volandoRef.current ? 4.2 : 1.6;         // se lanza más rápido de lo que patrulla
+        A.x += (A.destino - A.x) * clamp(dt * vel, 0, 1);
+        A.x = clamp(A.x, -1.05, 1.05);
+
+        if (!modoTactil) {
+          const r = detRef.current.actualizar(L, hw.espejo !== false);
+          if (r) patear(r.fuerza, r.lateral, r.altura);
+        }
+
+        if (t - ultimoHud > 60) {
+          ultimoHud = t;
+          setArq({ x: A.x, dive: A.dive, lado: A.lado, t: A.t });
+          if (!modoTactil) {
+            setGuia((g) => Object.assign({}, g, { landmarks: L }));
+            setGesto(L ? detRef.current.estado() : 'no te veo');
+          }
+        }
+      });
+    }, [fase, modoTactil, hw.espejo, patear, irA]);
+
+    // Remate táctil: deslizar desde el balón hacia donde se quiere colocar.
+    const svgRef = useRef(null);
+    const swipeRef = useRef(null);
+    const onDown = (e) => {
+      if (fase !== 'juego' || !modoTactil || volandoRef.current || !svgRef.current) return;
+      swipeRef.current = { p: svgPoint(svgRef.current, e, GOL_VB), t: nowMs() };
+    };
+    const onUp = (e) => {
+      if (!swipeRef.current || !svgRef.current) return;
+      const ini = swipeRef.current; swipeRef.current = null;
+      const fin = svgPoint(svgRef.current, e, GOL_VB);
+      const dy = ini.p.y - fin.y, dx = fin.x - ini.p.x;
+      if (dy < 70) return;
+      const dt = Math.max(80, nowMs() - ini.t);
+      const fRef = Math.max(0.5, num(cfg.fuerzaReferencia, 3.0));
+      const fuerza = fRef * clamp((dy / dt) / 1.4, 0.4, 1.8);
+      patear(fuerza, clamp(dx / 320, -1.4, 1.4), clamp(dy / 900, 0, 1));
+    };
+
+    const goles = remates.filter((r) => r.gol).length;
+    const espejo = hw.espejo !== false;
+    const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
+      h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
+      guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null,
+      fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
+      hw.avisoCamara !== false && streamRef.current
+        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+
+    if (fase === 'intro' || fase === 'abriendo') {
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-intro' },
+          h('svg', { viewBox: '0 0 320 200', className: 'fp-intro-svg fp-intro-svg--ancho' },
+            h('rect', { x: 40, y: 30, width: 240, height: 120, rx: 4, fill: 'rgba(255,255,255,.08)', stroke: '#fff', strokeWidth: 6 }),
+            h('path', { d: 'M46 36 L274 36 M46 66 L274 66 M46 96 L274 96 M46 126 L274 126 M70 36 L70 144 M110 36 L110 144 M150 36 L150 144 M190 36 L190 144 M230 36 L230 144', stroke: 'rgba(255,255,255,.35)', strokeWidth: 2 }),
+            h('g', { transform: 'translate(160,110) scale(0.28)' }, h(Arquero, { pose: { dive: 0, t: 0 } })),
+            h('circle', { cx: 160, cy: 178, r: 12, fill: '#fff', stroke: '#111', strokeWidth: 2 })),
+          h('h2', null, props.game.blurb || 'Patea y mete gol'),
+          h('ul', { className: 'fp-steps' },
+            h('li', null, 'La cámara mide tu patada: velocidad = potencia, dirección del pie = colocación.'),
+            h('li', null, 'Cuánto levantas el pie decide si el balón va raso o alto.'),
+            h('li', null, 'El arquero se mueve todo el tiempo y se lanza cuando ve venir el balón.')),
+          error ? h('div', { className: 'fp-error' }, '⚠ ' + error) : null,
+          fase === 'abriendo' ? h('p', null, 'Abriendo la cámara…') : h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => iniciar('camara') }, '📷 Patear de verdad'),
+            h(Boton, { onClick: () => iniciar('tactil') }, '👆 Deslizar para patear')),
+          h('p', { className: 'fp-privacy' },
+            '📷 Este juego necesita verte de cuerpo entero, porque mide la pierna. ' +
+            'El análisis ocurre en este equipo: no se graba ni se envía video.')),
+        videoBox);
+    }
+
+    if (fase === 'posicion') {
+      return h(Marco, {
+        icon: props.game.icon, title: props.game.name,
+        onExit: () => { soltarTodo(); props.onExit(); },
+        meta: h(Chip, null, 'Paso 1 de 2 · ubicación'),
+      },
+        h('div', { className: 'fp-pos' },
+          h('h2', { className: 'fp-pos-title' }, 'Ubícate para patear'),
+          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 2.5), nota: 'aquí sí hacen falta las piernas' }),
+          h('div', { className: 'fp-pos-cam' },
+            videoBox,
+            h('div', { className: 'fp-calib' },
+              h('b', null, guia.ok ? '¡Listo! No te muevas…' : 'Ubícate frente a la cámara'),
+              h('span', null, guia.motivo || 'Buscando a la persona…'),
+              h('div', { className: 'fp-progress' }, h('i', { style: { width: (guia.progreso * 100).toFixed(0) + '%' } })))),
+          h('p', { className: 'fp-hint' },
+            'Deben verse tus pies: la patada se mide con la pierna. Deja espacio para el swing.')));
+    }
+
+    if (fase === 'fin') {
+      const p10 = clamp((goles / Math.max(1, remates.length)) * 10, 0, 10);
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: () => { soltarTodo(); props.onExit(); }, meta: null },
+        h(Resultado, {
+          puntaje10: p10, juego: props.game.name,
+          titulo: goles === remates.length ? '¡Tanda perfecta!' : goles ? '¡' + goles + ' gol(es)!' : 'Se lució el arquero',
+          detalle: h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, goles + '/' + remates.length + ' goles'),
+            h(Chip, null, remates.filter((r) => r.atajada).length + ' atajadas'),
+            h(Chip, null, remates.filter((r) => r.fuera).length + ' afuera')),
+          detalleTexto: goles + ' de ' + remates.length + ' penales',
+          onExit: () => { soltarTodo(); props.onExit(); },
+          onReplay: () => {
+            setRemates([]); setUltimo(null); detRef.current.reset();
+            irA(modoTactil || !provRef.current ? 'juego' : 'posicion');
+            calibRef.current = 0;
+          },
+        }));
+    }
+
+    const arqueroPos = puntoEnArco(arq.x, 0);
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, null, 'Tiro ' + Math.min(remates.length + 1, tiros) + '/' + tiros),
+        h(Chip, { tone: 'accent' }, goles + ' gol(es)'),
+        !modoTactil ? h(Chip, null, '🦵 ' + (gesto || '…')) : null),
+    },
+      h('div', { className: 'fp-gol-wrap' },
+        h('svg', {
+          ref: svgRef, className: 'fp-gol-svg', viewBox: '0 0 1000 1400',
+          onPointerDown: onDown, onPointerUp: onUp, onPointerCancel: onUp,
+        },
+          h('defs', null,
+            h('linearGradient', { id: 'fp-cielo4', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#0B2E5B' }),
+              h('stop', { offset: '100%', stopColor: '#4E86B8' })),
+            h('linearGradient', { id: 'fp-pasto', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#3F7A34' }),
+              h('stop', { offset: '100%', stopColor: '#5EA347' }))),
+          h('rect', { width: 1000, height: 1400, fill: 'url(#fp-cielo4)' }),
+          // público
+          h('rect', { y: 180, width: 1000, height: 190, fill: '#243049' }),
+          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((i) => h('g', { key: 'p' + i },
+            h('circle', { cx: 40 + i * 84, cy: 250 + (i % 3) * 34, r: 16, fill: i % 2 ? '#D52B1E' : '#0039A6', opacity: 0.75 }))),
+          h('rect', { y: 360, width: 1000, height: 1040, fill: 'url(#fp-pasto)' }),
+          [0, 1, 2, 3, 4].map((i) => h('rect', { key: 'r' + i, y: 420 + i * 200, width: 1000, height: 100, fill: 'rgba(255,255,255,.04)' })),
+          // área
+          h('path', { d: 'M120 700 L880 700 L960 1000 L40 1000 Z', fill: 'none', stroke: 'rgba(255,255,255,.6)', strokeWidth: 6 }),
+          // arco
+          h('g', null,
+            h('rect', {
+              x: ARCO.x - ARCO.w / 2 - 10, y: ARCO.y - ARCO.h / 2 - 10,
+              width: ARCO.w + 20, height: ARCO.h + 20, fill: 'rgba(255,255,255,.06)',
+            }),
+            h('g', { stroke: 'rgba(255,255,255,.45)', strokeWidth: 2 },
+              [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => h('line', {
+                key: 'v' + i, x1: ARCO.x - ARCO.w / 2 + i * (ARCO.w / 12), y1: ARCO.y - ARCO.h / 2,
+                x2: ARCO.x - ARCO.w / 2 + i * (ARCO.w / 12), y2: ARCO.y + ARCO.h / 2,
+              })),
+              [0, 1, 2, 3, 4, 5, 6].map((i) => h('line', {
+                key: 'h' + i, x1: ARCO.x - ARCO.w / 2, y1: ARCO.y - ARCO.h / 2 + i * (ARCO.h / 6),
+                x2: ARCO.x + ARCO.w / 2, y2: ARCO.y - ARCO.h / 2 + i * (ARCO.h / 6),
+              }))),
+            h('path', {
+              d: 'M' + (ARCO.x - ARCO.w / 2) + ' ' + (ARCO.y + ARCO.h / 2) +
+                 ' L' + (ARCO.x - ARCO.w / 2) + ' ' + (ARCO.y - ARCO.h / 2) +
+                 ' L' + (ARCO.x + ARCO.w / 2) + ' ' + (ARCO.y - ARCO.h / 2) +
+                 ' L' + (ARCO.x + ARCO.w / 2) + ' ' + (ARCO.y + ARCO.h / 2),
+              fill: 'none', stroke: '#fff', strokeWidth: 14, strokeLinecap: 'round',
+            })),
+          // arquero
+          h('g', { transform: 'translate(' + arqueroPos.x.toFixed(1) + ',' + (ARCO.y + ARCO.h / 2 - 60) + ')' },
+            h(Arquero, { pose: arq })),
+          // balón
+          balon
+            ? h('g', { transform: 'translate(' + balon.x.toFixed(1) + ',' + balon.y.toFixed(1) + ') scale(' + balon.escala.toFixed(2) + ')' },
+                h('circle', { r: 38, fill: '#fff', stroke: '#111827', strokeWidth: 4 }),
+                h('path', { d: 'M0 -20 L18 -6 L11 16 L-11 16 L-18 -6 Z', fill: '#111827' }))
+            : h('g', { transform: 'translate(500,' + (GOL_VB.h - 190) + ')' },
+                h('ellipse', { cx: 0, cy: 44, rx: 46, ry: 14, fill: 'rgba(0,0,0,.3)' }),
+                h('circle', { r: 40, fill: '#fff', stroke: '#111827', strokeWidth: 5 }),
+                h('path', { d: 'M0 -21 L19 -7 L12 17 L-12 17 L-19 -7 Z', fill: '#111827' })),
+          ultimo && !balon ? h('g', { transform: 'translate(500,1075)' },
+            h('rect', { x: -300, y: -46, width: 600, height: 92, rx: 46, fill: 'rgba(0,0,0,.55)' }),
+            h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' }, ultimo.motivo)) : null),
+        !modoTactil ? h('div', { className: 'fp-ray-cam' },
+          h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
+          hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
+        h('p', { className: 'fp-hint' },
+          modoTactil
+            ? 'Desliza desde el balón hacia donde quieras colocarlo: más rápido, más potencia.'
+            : 'Patea con la pierna: la velocidad manda la potencia y el pie decide la dirección.')));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 12.g Juegos 8 y 9 — "Esquiva y gana" (2D lateral y 3D en profundidad)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Los dos comparten motor: una pista de obstáculos que se acercan y un
+  // avatar que solo puede SALTAR o AGACHARSE. Cambia el punto de vista:
+  //   · 2D  — vista lateral tipo Mario Bros / Metal Slug: el avatar avanza a
+  //           la derecha y los obstáculos entran por el costado.
+  //   · 3D  — vista en profundidad: los obstáculos vienen de frente y el
+  //           avatar es el CONTORNO VERDE del cuerpo del participante, con el
+  //           interior transparente para no tapar lo que se acerca.
+  // Control por cámara con medio cuerpo (salto = hombros arriba, agacharse =
+  // hombros abajo) y respaldo táctil o de teclado.
+
+  const OBST = {
+    bajo: { accion: 'saltar', nombre: 'Salta' },
+    alto: { accion: 'agachar', nombre: 'Agáchate' },
+  };
+
+  /**
+   * Motor de la pista. `d` es la distancia que le falta a cada obstáculo para
+   * llegar al avatar (1 = recién aparecido, 0 = encima).
+   */
+  function motorEsquiva(cfg) {
+    const base = clamp(num(cfg.velocidad, 0.42), 0.1, 2);
+    const acel = clamp(num(cfg.aceleracion, 0.02), 0, 0.3);
+    const cada = clamp(num(cfg.cadaSegundos, 1.6), 0.6, 5);
+    return {
+      obstaculos: [], distancia: 0, vidas: Math.max(1, Math.round(num(cfg.vidas, 3))),
+      esquivados: 0, choques: 0, t: 0, proximo: 1.2, invulnerable: 0,
+      velocidad() { return base + this.t * acel * 0.05; },
+      /**
+       * Avanza la pista. `estado` es 'saltar' | 'agachar' | null.
+       * Devuelve los eventos ocurridos en este paso.
+       */
+      paso(dt, estado) {
+        const ev = { choque: null, esquivado: null, fin: false };
+        this.t += dt;
+        const v = this.velocidad();
+        this.distancia += v * dt * 100;
+        this.invulnerable = Math.max(0, this.invulnerable - dt);
+        this.proximo -= dt;
+        if (this.proximo <= 0) {
+          const tipo = Math.random() > 0.5 ? 'bajo' : 'alto';
+          this.obstaculos.push({ id: uid('ob'), tipo, d: 1, resuelto: false });
+          this.proximo = cada * (0.7 + Math.random() * 0.6) / Math.max(0.3, v / 0.42);
+        }
+        for (const o of this.obstaculos) {
+          o.d -= v * dt;
+          if (o.resuelto || o.d > 0.06) continue;
+          // Ventana de contacto: se evalúa una sola vez por obstáculo.
+          o.resuelto = true;
+          const correcto = OBST[o.tipo].accion;
+          if (estado === correcto) { this.esquivados++; ev.esquivado = o; }
+          else if (this.invulnerable > 0) { ev.esquivado = o; }
+          else {
+            this.choques++; this.vidas--; this.invulnerable = 1.2;
+            ev.choque = o;
+            if (this.vidas <= 0) ev.fin = true;
+          }
+        }
+        this.obstaculos = this.obstaculos.filter((o) => o.d > -0.25);
+        return ev;
+      },
+      puntaje() { return Math.round(this.distancia) + this.esquivados * 25; },
+    };
+  }
+
+  /** Contorno del cuerpo del participante (versión 3D): perímetro verde. */
+  function ContornoCuerpo(props) {
+    const L = props.landmarks;
+    const W = props.w, H = props.h;
+    const espejo = props.espejo;
+    const px = (i, dx, dy) => {
+      const p = L && L[i];
+      if (!p) return null;
+      return { x: ((espejo ? 1 - p.x : p.x) + (dx || 0)) * W, y: (p.y + (dy || 0)) * H };
+    };
+    // Perímetro: hombro I → muñeca I → cadera I → tobillo I → tobillo D → …
+    const orden = [
+      [IDX.hombroI, -0.03, -0.02], [IDX.codoI, -0.03, 0], [IDX.munecaI, -0.03, 0.01],
+      [IDX.codoI, -0.01, 0.03], [IDX.caderaI, -0.03, 0], [IDX.rodillaI, -0.03, 0],
+      [IDX.tobilloI, -0.02, 0.02], [IDX.tobilloD, 0.02, 0.02], [IDX.rodillaD, 0.03, 0],
+      [IDX.caderaD, 0.03, 0], [IDX.codoD, 0.01, 0.03], [IDX.munecaD, 0.03, 0.01],
+      [IDX.codoD, 0.03, 0], [IDX.hombroD, 0.03, -0.02],
+    ];
+    const pts = orden.map(([i, dx, dy]) => px(i, dx, dy)).filter(Boolean);
+    if (pts.length < 6) return null;
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ') + ' Z';
+    const cabeza = px(IDX.nariz, 0, -0.02);
+    return h('g', { className: 'fp-contorno' },
+      h('path', {
+        d: d, fill: 'rgba(74,222,128,.10)', stroke: '#4ADE80', strokeWidth: 6,
+        strokeLinejoin: 'round', strokeLinecap: 'round',
+      }),
+      cabeza ? h('circle', { cx: cabeza.x, cy: cabeza.y, r: H * 0.055, fill: 'rgba(74,222,128,.10)', stroke: '#4ADE80', strokeWidth: 6 }) : null);
+  }
+
+  /** Avatar 2D estilo plataformas. `accion`: correr | saltar | agachar. */
+  function AvatarRunner(props) {
+    const a = props.accion, t = num(props.t, 0);
+    const paso = Math.sin(t * 14) * 22;
+    const agachado = a === 'agachar';
+    const salto = a === 'saltar';
+    const alto = agachado ? 0.6 : 1;
+    return h('g', { transform: 'scale(1,' + alto + ')', opacity: props.parpadeo ? 0.45 : 1 },
+      // piernas
+      salto
+        ? h('g', { stroke: '#1F2937', strokeWidth: 20, strokeLinecap: 'round' },
+            h('line', { x1: -14, y1: 60, x2: -44, y2: 96 }),
+            h('line', { x1: 14, y1: 60, x2: 42, y2: 84 }))
+        : h('g', { stroke: '#1F2937', strokeWidth: 20, strokeLinecap: 'round' },
+            h('line', { x1: -10, y1: 60, x2: -10 + paso, y2: 120 }),
+            h('line', { x1: 10, y1: 60, x2: 10 - paso, y2: 120 })),
+      // torso con camiseta tricolor
+      h('path', { d: 'M-40 -40 q40 -14 80 0 l-6 104 q-34 12 -68 0 Z', fill: '#D52B1E', stroke: '#8E1B1B', strokeWidth: 4 }),
+      h('path', { d: 'M-36 6 q36 -10 72 0 l-2 16 q-34 10 -68 0 Z', fill: '#fff' }),
+      h('path', { d: 'M-35 22 q36 -10 70 0 l-2 16 q-33 10 -66 0 Z', fill: '#0039A6' }),
+      // brazos
+      h('line', {
+        x1: -34, y1: -26, x2: salto ? -84 : -54 - paso * 0.6, y2: salto ? -66 : 24,
+        stroke: '#E8B98F', strokeWidth: 17, strokeLinecap: 'round',
+      }),
+      h('line', {
+        x1: 34, y1: -26, x2: salto ? 84 : 54 + paso * 0.6, y2: salto ? -66 : 24,
+        stroke: '#E8B98F', strokeWidth: 17, strokeLinecap: 'round',
+      }),
+      // cabeza
+      h('circle', { cx: 0, cy: -72, r: 30, fill: '#E8B98F', stroke: '#C9925F', strokeWidth: 4 }),
+      h('circle', { cx: 12, cy: -78, r: 5, fill: '#1F2937' }),
+      h('path', { d: 'M-30 -92 q30 -26 60 -4 q-6 -26 -30 -26 q-26 0 -30 30 Z', fill: '#3B2416' }));
+  }
+
+  /** Base común de los dos "Esquiva y gana": cámara, control y bucle. */
+  function usarEsquiva(props, opciones) {
+    const cfg = props.game.config || {};
+    const hw = model.hardware;
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const detRef = useRef(detectorSaltoAgacharse());
+    const faseRef = useRef('intro');
+    const pistaRef = useRef(null);
+    const accionRef = useRef({ accion: null, hasta: 0 });
+
+    const [fase, setFase] = useState('intro');
+    const [error, setError] = useState('');
+    const [modoTactil, setModoTactil] = useState(false);
+    const [hud, setHud] = useState({ vidas: 3, puntos: 0, accion: null, aviso: '', calibrando: true, t: 0 });
+    const [obstaculos, setObstaculos] = useState([]);
+    const [landmarks, setLandmarks] = useState(null);
+    const [fin, setFin] = useState(null);
+
+    const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+    const soltarTodo = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    }, []);
+    useEffect(() => soltarTodo, [soltarTodo]);
+
+    const iniciar = useCallback(async (modo) => {
+      setError(''); setFin(null);
+      detRef.current.reset();
+      pistaRef.current = motorEsquiva(cfg);
+      if (modo === 'tactil') { setModoTactil(true); irA('juego'); return; }
+      setModoTactil(false);
+      irA('abriendo');
+      try {
+        const stream = await abrirCamara(hw);
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) throw new Error('No se pudo montar el elemento de video.');
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(hw);
+        await prov.iniciar(v);
+        provRef.current = prov;
+        irA('juego');
+      } catch (e) {
+        soltarTodo();
+        setError(s(e && e.message ? e.message : e));
+        irA('intro');
+      }
+    }, [cfg, hw, irA, soltarTodo]);
+
+    /** Acción por toque o tecla: dura un instante, como un salto real. */
+    const accionar = useCallback((accion) => {
+      accionRef.current = { accion, hasta: nowMs() + (accion === 'saltar' ? 620 : 700) };
+    }, []);
+
+    useEffect(() => {
+      if (fase !== 'juego') return undefined;
+      const onTecla = (e) => {
+        if (e.key === 'ArrowUp' || e.key === ' ' || e.key === 'w') accionar('saltar');
+        if (e.key === 'ArrowDown' || e.key === 's') accionar('agachar');
+      };
+      window.addEventListener('keydown', onTecla);
+      return () => window.removeEventListener('keydown', onTecla);
+    }, [fase, accionar]);
+
+    useEffect(() => {
+      if (fase !== 'juego') return undefined;
+      let ultimoHud = 0;
+      return loop((dt) => {
+        const P = pistaRef.current;
+        if (!P) return;
+        const t = nowMs();
+        let accion = null, calibrando = false;
+        if (modoTactil) {
+          if (accionRef.current.hasta > t) accion = accionRef.current.accion;
+        } else {
+          const prov = provRef.current;
+          const lec = prov ? prov.leer() : null;
+          const L = lec && lec.landmarks;
+          const r = detRef.current.actualizar(L, dt);
+          accion = r.accion;
+          calibrando = r.calibrando;
+          if (accionRef.current.hasta > t) accion = accionRef.current.accion;   // respaldo táctil siempre activo
+          if (t - ultimoHud > 60) setLandmarks(L);
+        }
+        const ev = calibrando ? { choque: null, esquivado: null, fin: false } : P.paso(dt, accion);
+        if (ev.choque && navigator.vibrate) { try { navigator.vibrate(60); } catch (e) { /* noop */ } }
+        if (ev.fin) {
+          setFin({ puntos: P.puntaje(), esquivados: P.esquivados, choques: P.choques, distancia: Math.round(P.distancia) });
+          irA('fin');
+          return;
+        }
+        if (t - ultimoHud > 55) {
+          ultimoHud = t;
+          setObstaculos(P.obstaculos.slice());
+          setHud({
+            vidas: P.vidas, puntos: P.puntaje(), accion: accion,
+            aviso: calibrando ? 'Quédate quieto un segundo para calibrar…' : '',
+            calibrando: calibrando, t: P.t,
+            invulnerable: P.invulnerable > 0,
+          });
+        }
+      });
+    }, [fase, modoTactil, irA]);
+
+    return {
+      cfg, hw, fase, error, modoTactil, hud, obstaculos, landmarks, fin,
+      iniciar, accionar, soltarTodo, irA, attachVideo, streamRef, provRef, detRef, pistaRef,
+      reiniciar: () => {
+        pistaRef.current = motorEsquiva(cfg);
+        detRef.current.reset();
+        setFin(null); setObstaculos([]);
+        irA('juego');
+      },
+    };
+  }
+
+  /** Pantallas comunes (intro y resultado) de los dos "Esquiva y gana". */
+  function marcoEsquiva(props, E, extra) {
+    const espejo = E.hw.espejo !== false;
+    const videoBox = h('div', { className: 'fp-cam' + (E.fase === 'intro' || E.fase === 'fin' ? ' is-hidden' : '') },
+      h('video', { ref: E.attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
+      E.hw.avisoCamara !== false && E.streamRef.current
+        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+
+    if (E.fase === 'intro' || E.fase === 'abriendo') {
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-intro' },
+          extra.arte,
+          h('h2', null, props.game.blurb || 'Salta y agáchate para esquivar'),
+          h('ul', { className: 'fp-steps' },
+            h('li', null, h('b', null, 'Salta'), ' para pasar los obstáculos bajos.'),
+            h('li', null, h('b', null, 'Agáchate'), ' para pasar por debajo de los altos.'),
+            h('li', null, 'Con cámara basta el medio cuerpo: se mide la altura de tus hombros.')),
+          E.error ? h('div', { className: 'fp-error' }, '⚠ ' + E.error) : null,
+          E.fase === 'abriendo' ? h('p', null, 'Abriendo la cámara…') : h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => E.iniciar('camara') }, '📷 Jugar con el cuerpo'),
+            h(Boton, { onClick: () => E.iniciar('tactil') }, '👆 Jugar con botones')),
+          h('p', { className: 'fp-privacy' },
+            '📷 Solo se necesita ver tu torso y tu cabeza. El análisis ocurre en este equipo: no se graba ni se envía video.')),
+        videoBox);
+    }
+
+    if (E.fase === 'fin' && E.fin) {
+      const meta = Math.max(200, num(E.cfg.metaPuntos, 900));
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: () => { E.soltarTodo(); props.onExit(); }, meta: null },
+        h(Resultado, {
+          puntaje10: clamp((E.fin.puntos / meta) * 10, 0, 10),
+          juego: props.game.name,
+          titulo: E.fin.esquivados > 12 ? '¡Qué reflejos!' : '¡Buena carrera!',
+          detalle: h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, E.fin.puntos + ' puntos'),
+            h(Chip, null, E.fin.esquivados + ' esquivados'),
+            h(Chip, null, E.fin.choques + ' choques')),
+          detalleTexto: E.fin.puntos + ' pts · ' + E.fin.esquivados + ' obstáculos esquivados',
+          onExit: () => { E.soltarTodo(); props.onExit(); },
+          onReplay: E.reiniciar,
+        }));
+    }
+    return null;
+  }
+
+  /** Botones de control comunes (respaldo táctil, siempre disponibles). */
+  function botonesEsquiva(E) {
+    return h('div', { className: 'fp-esq-botones' },
+      h(Boton, { variant: 'primary', onClick: () => E.accionar('saltar') }, '⬆️ Saltar'),
+      h(Boton, { variant: 'primary', onClick: () => E.accionar('agachar') }, '⬇️ Agacharse'));
+  }
+
+  const ESQ_VB = { w: 1000, h: 1000 };
+
+  // ── Juego 8: versión 2D lateral ──────────────────────────────────────
+  function JuegoEsquiva2D(props) {
+    const E = usarEsquiva(props, {});
+    const comun = marcoEsquiva(props, E, {
+      arte: h('svg', { viewBox: '0 0 320 180', className: 'fp-intro-svg fp-intro-svg--ancho' },
+        h('rect', { width: 320, height: 180, fill: '#7EC0EE' }),
+        h('path', { d: 'M0 130 L320 130 L320 180 L0 180 Z', fill: '#5EA347' }),
+        h('g', { transform: 'translate(90,130) scale(0.32)' }, h(AvatarRunner, { accion: 'saltar', t: 0 })),
+        h('rect', { x: 200, y: 96, width: 30, height: 34, fill: '#8B5E34', stroke: '#5E3B18', strokeWidth: 3 }),
+        h('rect', { x: 262, y: 40, width: 40, height: 22, fill: '#8B5E34', stroke: '#5E3B18', strokeWidth: 3 })),
+    });
+    if (comun) return comun;
+
+    const suelo = 760;
+    const accion = E.hud.accion;
+    // El avatar se dibuja con los pies 120 unidades bajo su origen (60 si va
+    // agachado, porque se comprime): así queda siempre parado en el suelo.
+    const pies = accion === 'agachar' ? 72 : 120;
+    const yAvatar = suelo - pies - (accion === 'saltar' ? 190 : 0);
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { E.soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, { tone: 'accent' }, E.hud.puntos + ' pts'),
+        h(Chip, null, '❤️'.repeat(Math.max(0, E.hud.vidas)) || 'sin vidas'),
+        accion ? h(Chip, { tone: 'ok' }, accion === 'saltar' ? '⬆️ salto' : '⬇️ agachado') : null),
+    },
+      h('div', { className: 'fp-esq-wrap' },
+        h('svg', { className: 'fp-esq-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
+          h('rect', { width: 1000, height: 1000, fill: '#7EC0EE' }),
+          // parallax: cerros y nubes
+          h('g', { transform: 'translate(' + (-(E.hud.t * 40) % 1000) + ',0)' },
+            [0, 1].map((k) => h('g', { key: k, transform: 'translate(' + k * 1000 + ',0)' },
+              h('path', { d: 'M0 700 L180 470 L340 700 Z', fill: '#4E8FBF' }),
+              h('path', { d: 'M260 700 L470 430 L680 700 Z', fill: '#457FAC' }),
+              h('path', { d: 'M600 700 L820 480 L1000 700 Z', fill: '#4E8FBF' }),
+              h('ellipse', { cx: 180, cy: 190, rx: 90, ry: 40, fill: 'rgba(255,255,255,.85)' }),
+              h('ellipse', { cx: 640, cy: 130, rx: 110, ry: 44, fill: 'rgba(255,255,255,.8)' })))),
+          h('rect', { y: 700, width: 1000, height: 300, fill: '#5EA347' }),
+          h('rect', { y: 700, width: 1000, height: 26, fill: '#3F7A34' }),
+          // suelo con textura en movimiento
+          h('g', { transform: 'translate(' + (-(E.hud.t * 320) % 200) + ',0)' },
+            [0, 1, 2, 3, 4, 5, 6].map((i) => h('rect', {
+              key: i, x: i * 200, y: 726, width: 120, height: 12, rx: 6, fill: 'rgba(0,0,0,.12)',
+            }))),
+          // obstáculos: los bajos en el suelo, los altos colgando
+          E.obstaculos.map((o) => {
+            const x = 260 + o.d * 900;
+            return o.tipo === 'bajo'
+              ? h('g', { key: o.id, transform: 'translate(' + x.toFixed(0) + ',' + suelo + ')' },
+                  h('rect', { x: -46, y: -108, width: 92, height: 108, rx: 8, fill: '#8B5E34', stroke: '#5E3B18', strokeWidth: 6 }),
+                  h('path', { d: 'M-46 -70 L46 -70 M-46 -36 L46 -36', stroke: '#5E3B18', strokeWidth: 4 }))
+              // El obstáculo alto cuelga desde arriba: se pasa agachándose.
+              : h('g', { key: o.id, transform: 'translate(' + x.toFixed(0) + ',' + (suelo - 250) + ')' },
+                  h('rect', { x: -56, y: -(suelo - 250), width: 112, height: suelo - 250 + 12, rx: 8, fill: '#7A4A22', stroke: '#4E2E12', strokeWidth: 6 }),
+                  h('path', { d: 'M-56 -60 L56 -60 M-56 -160 L56 -160', stroke: '#4E2E12', strokeWidth: 5 }));
+          }),
+          // avatar
+          h('g', {
+            transform: 'translate(260,' + yAvatar + ')',
+            style: { transition: 'none' },
+          }, h(AvatarRunner, { accion: accion || 'correr', t: E.hud.t, parpadeo: E.hud.invulnerable })),
+          E.hud.aviso
+            ? h('text', { x: 500, y: 340, textAnchor: 'middle', className: 'fp-svg-label' }, E.hud.aviso)
+            : null),
+        !E.modoTactil ? h('div', { className: 'fp-ray-cam' },
+          h('video', { ref: E.attachVideo, className: 'fp-video is-mirror', autoPlay: true, playsInline: true, muted: true }),
+          h('div', { className: 'fp-cam-notice' }, '● Cámara activa')) : null,
+        botonesEsquiva(E),
+        h('p', { className: 'fp-hint' },
+          E.modoTactil
+            ? 'Usa los botones (o las flechas ↑ y ↓ del teclado) para saltar y agacharte.'
+            : 'Salta y agáchate de verdad: se mide la altura de tus hombros. Los botones siguen disponibles.')));
+  }
+
+  // ── Juego 9: versión 3D en profundidad ───────────────────────────────
+  function JuegoEsquiva3D(props) {
+    const E = usarEsquiva(props, {});
+    const comun = marcoEsquiva(props, E, {
+      arte: h('svg', { viewBox: '0 0 320 180', className: 'fp-intro-svg fp-intro-svg--ancho' },
+        h('rect', { width: 320, height: 180, fill: '#0E1729' }),
+        h('path', { d: 'M160 60 L40 180 M160 60 L280 180 M0 180 L320 180', stroke: '#2C3E63', strokeWidth: 3 }),
+        h('rect', { x: 120, y: 70, width: 80, height: 18, fill: 'rgba(213,43,30,.5)', stroke: '#D52B1E', strokeWidth: 2 }),
+        h('rect', { x: 96, y: 128, width: 128, height: 22, fill: 'rgba(213,43,30,.35)', stroke: '#D52B1E', strokeWidth: 2 }),
+        h('path', { d: 'M160 96 a16 16 0 1 1 0 1 M136 176 q2 -50 24 -54 q22 4 24 54', fill: 'none', stroke: '#4ADE80', strokeWidth: 4 })),
+    });
+    if (comun) return comun;
+
+    const accion = E.hud.accion;
+    const desplazo = accion === 'saltar' ? -140 : accion === 'agachar' ? 120 : 0;
+    // Proyección: un obstáculo lejano es chico y está arriba; cerca es grande.
+    const proyectar = (d) => {
+      const z = clamp(d, 0, 1);
+      const escala = 0.18 + (1 - z) * 1.5;
+      return { escala, y: 300 + (1 - z) * (1 - z) * 620 };
+    };
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { E.soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, { tone: 'accent' }, E.hud.puntos + ' pts'),
+        h(Chip, null, '❤️'.repeat(Math.max(0, E.hud.vidas)) || 'sin vidas'),
+        accion ? h(Chip, { tone: 'ok' }, accion === 'saltar' ? '⬆️ salto' : '⬇️ agachado') : null),
+    },
+      h('div', { className: 'fp-esq-wrap' },
+        h('svg', { className: 'fp-esq3d-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
+          h('defs', null,
+            h('linearGradient', { id: 'fp-tunel', x1: 0, y1: 0, x2: 0, y2: 1 },
+              h('stop', { offset: '0%', stopColor: '#0A1120' }),
+              h('stop', { offset: '100%', stopColor: '#1B2946' }))),
+          h('rect', { width: 1000, height: 1000, fill: 'url(#fp-tunel)' }),
+          // punto de fuga y pista
+          h('path', { d: 'M500 300 L-120 1000 L1120 1000 Z', fill: '#16223C' }),
+          h('g', { stroke: 'rgba(124,255,178,.25)', strokeWidth: 3 },
+            [0, 1, 2, 3, 4, 5].map((i) => {
+              const k = ((E.hud.t * 0.55 + i / 6) % 1);
+              const p = proyectar(1 - k);
+              const ancho = 40 + (1 - k) * 0 + k * 1100;
+              return h('line', { key: 'l' + i, x1: 500 - ancho / 2, y1: p.y, x2: 500 + ancho / 2, y2: p.y });
+            })),
+          h('path', { d: 'M500 300 L-120 1000 M500 300 L1120 1000', stroke: 'rgba(124,255,178,.4)', strokeWidth: 4 }),
+          // obstáculos que se acercan
+          E.obstaculos.slice().sort((a, b) => b.d - a.d).map((o) => {
+            const p = proyectar(o.d);
+            const w = 620 * p.escala, hh = 150 * p.escala;
+            const y = o.tipo === 'bajo' ? p.y : p.y - 300 * p.escala;
+            const col = o.tipo === 'bajo' ? '#D52B1E' : '#F4B400';
+            return h('g', { key: o.id, transform: 'translate(500,' + y.toFixed(0) + ')', opacity: clamp(1.15 - o.d, 0.25, 1) },
+              h('rect', {
+                x: -w / 2, y: -hh / 2, width: w, height: hh, rx: 10,
+                fill: col, opacity: 0.28, stroke: col, strokeWidth: Math.max(3, 8 * p.escala),
+              }),
+              p.escala > 0.6 ? h('text', {
+                y: -hh / 2 - 16, textAnchor: 'middle', className: 'fp-esq-aviso',
+                fontSize: Math.round(46 * p.escala),
+              }, OBST[o.tipo].nombre) : null);
+          }),
+          // el jugador: contorno verde de su cuerpo, interior transparente
+          h('g', { transform: 'translate(0,' + desplazo + ')' },
+            E.landmarks
+              ? h('svg', { x: 250, y: 380, width: 500, height: 600, viewBox: '0 0 500 600', className: 'fp-contorno-svg' },
+                  h(ContornoCuerpo, { landmarks: E.landmarks, w: 500, h: 600, espejo: E.hw.espejo !== false }))
+              : h('g', { transform: 'translate(500,760) scale(0.62)' },
+                  h('circle', { cx: 0, cy: -190, r: 62, fill: 'rgba(74,222,128,.10)', stroke: '#4ADE80', strokeWidth: 9 }),
+                  h('path', {
+                    d: 'M-120 240 q10 -230 120 -240 q110 10 120 240 M-108 -60 q-52 44 -58 150 M108 -60 q52 44 58 150',
+                    fill: 'rgba(74,222,128,.10)', stroke: '#4ADE80', strokeWidth: 9, strokeLinejoin: 'round',
+                  }))),
+          E.hud.aviso
+            ? h('text', { x: 500, y: 210, textAnchor: 'middle', className: 'fp-svg-label' }, E.hud.aviso)
+            : null),
+        !E.modoTactil ? h('div', { className: 'fp-ray-cam' },
+          h('video', { ref: E.attachVideo, className: 'fp-video is-mirror', autoPlay: true, playsInline: true, muted: true }),
+          h('div', { className: 'fp-cam-notice' }, '● Cámara activa')) : null,
+        botonesEsquiva(E),
+        h('p', { className: 'fp-hint' },
+          'Tu cuerpo es el contorno verde: los obstáculos vienen de frente, salta los rojos y agáchate en los amarillos.')));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // 13. Portada (lanzador de juegos)
   // ══════════════════════════════════════════════════════════════════════
 
@@ -3323,6 +4363,9 @@ export default function mount(shell) {
     if (tipo === 'rayuela') return '👆 Deslizar o 📷 medio cuerpo';
     if (tipo === 'boxeo') return '📷 Medio cuerpo';
     if (tipo === 'gato') return '👆 Táctil · 1 o 2 jugadores';
+    if (tipo === 'gol') return '📷 Cuerpo entero (patada)';
+    if (tipo === 'esquiva2d') return '📷 Medio cuerpo · o botones';
+    if (tipo === 'esquiva3d') return '📷 Medio cuerpo · vista 3D';
     return '🎮 Juego';
   }
 
@@ -3606,7 +4649,27 @@ export default function mount(shell) {
       ] },
       { key: 'rondas', label: 'Manos por serie', type: 'number', min: 1, max: 9 },
     ],
+    gol: [
+      { key: 'tiros', label: 'Penales por partida', type: 'number', min: 1, max: 15 },
+      { key: 'dificultad', label: 'Reflejos del arquero', type: 'select', options: [
+        { value: 'facil', label: 'Fácil' },
+        { value: 'media', label: 'Media' },
+        { value: 'dificil', label: 'Difícil' },
+      ] },
+      { key: 'fuerzaReferencia', label: 'Patada de potencia media', type: 'range', min: 1, max: 6, step: 0.1, help: 'Calibración: súbela si todos los tiros salen demasiado fuertes.' },
+      { key: 'sensibilidadLateral', label: 'Sensibilidad de colocación', type: 'range', min: 0.1, max: 1.5, step: 0.05 },
+      { key: 'dispersion', label: 'Dispersión del remate', type: 'range', min: 0, max: 0.4, step: 0.01 },
+      { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 1.5, max: 5, step: 0.1 },
+    ],
+    esquiva2d: [
+      { key: 'velocidad', label: 'Velocidad inicial', type: 'range', min: 0.15, max: 1.2, step: 0.02 },
+      { key: 'aceleracion', label: 'Cuánto acelera', type: 'range', min: 0, max: 0.2, step: 0.005 },
+      { key: 'cadaSegundos', label: 'Cada cuántos segundos aparece un obstáculo', type: 'range', min: 0.6, max: 4, step: 0.1 },
+      { key: 'vidas', label: 'Vidas', type: 'number', min: 1, max: 9 },
+      { key: 'metaPuntos', label: 'Puntos equivalentes a un 10', type: 'number', min: 200, max: 5000 },
+    ],
   };
+  CAMPOS_JUEGO.esquiva3d = CAMPOS_JUEGO.esquiva2d;
 
   function Editor(props) {
     const m = props.model;
@@ -3712,6 +4775,7 @@ export default function mount(shell) {
   const RENDERERS = {
     burro: JuegoBurro, baile: JuegoBaile, laser: JuegoLaser,
     rayuela: JuegoRayuela, boxeo: JuegoBoxeo, gato: JuegoGato,
+    gol: JuegoGol, esquiva2d: JuegoEsquiva2D, esquiva3d: JuegoEsquiva3D,
   };
 
   function Component() {
