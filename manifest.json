@@ -408,6 +408,47 @@
         "newConnStyle": "solid",
         "newConnArrow": "arrow"
       }
+    },
+    {
+      "id": "evento-ciberseguridad",
+      "name": "Desayuno Ejecutivo de Ciberseguridad 2026",
+      "description": "Dashboard del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: cuenta regresiva en vivo, temario, speakers, lugar y tu plan personal (asistencia, preguntas y notas), con control por agente IA.",
+      "icon": "🛡️",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias del evento",
+        "fields": [
+          {
+            "key": "acento",
+            "label": "Color de acento",
+            "type": "color"
+          },
+          {
+            "key": "mostrarSegundos",
+            "label": "Mostrar los segundos en la cuenta regresiva",
+            "type": "boolean"
+          },
+          {
+            "key": "mostrarFotos",
+            "label": "Mostrar las fotos de los speakers",
+            "type": "boolean"
+          }
+        ]
+      },
+      "defaultConfig": {
+        "acento": "#00E9D8",
+        "mostrarSegundos": true,
+        "mostrarFotos": true
+      }
     }
   ]
 }
