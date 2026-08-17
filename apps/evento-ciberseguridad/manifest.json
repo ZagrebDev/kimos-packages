@@ -1,8 +1,8 @@
 {
   "id": "evento-ciberseguridad",
-  "name": "Desayuno Ejecutivo de Ciberseguridad 2026",
-  "version": "1.0.0",
-  "description": "Dashboard del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: cuenta regresiva en vivo, temario, speakers, lugar y tu plan personal (asistencia, preguntas y notas), con control por agente IA.",
+  "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
+  "version": "2.0.0",
+  "description": "Anfitrión consultivo para el totem del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: agenda en vivo, expositores, marco legal (Leyes 21.663 y 21.719), consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
   "icon": "🛡️",
   "author": "kimos",
   "entry": "dist/index.js",
@@ -11,28 +11,33 @@
   "multiInstance": true,
   "permissions": ["instance.read", "instance.write", "agent.control"],
   "configSchema": {
-    "title": "Preferencias del evento",
+    "title": "Preferencias del totem",
     "fields": [
       {
-        "key": "acento",
-        "label": "Color de acento",
-        "type": "color"
+        "key": "modo",
+        "label": "Disposición",
+        "type": "select",
+        "options": [
+          { "value": "auto", "label": "Automática (totem si la pantalla es vertical y grande)" },
+          { "value": "totem", "label": "Forzar totem (tipografía y botones XL)" },
+          { "value": "escritorio", "label": "Forzar escritorio" }
+        ]
       },
       {
-        "key": "mostrarSegundos",
-        "label": "Mostrar los segundos en la cuenta regresiva",
-        "type": "boolean"
+        "key": "segundosInactividad",
+        "label": "Segundos sin tocar antes de volver al inicio",
+        "type": "number",
+        "min": 15,
+        "max": 600
       },
-      {
-        "key": "mostrarFotos",
-        "label": "Mostrar las fotos de los speakers",
-        "type": "boolean"
-      }
+      { "key": "acento", "label": "Color de acento", "type": "color" },
+      { "key": "mostrarFotos", "label": "Mostrar las fotos de los expositores", "type": "boolean" }
     ]
   },
   "defaultConfig": {
-    "acento": "#00E9D8",
-    "mostrarSegundos": true,
+    "modo": "auto",
+    "segundosInactividad": 90,
+    "acento": "#05E0CE",
     "mostrarFotos": true
   }
 }
