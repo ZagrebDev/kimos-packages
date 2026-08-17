@@ -1,0 +1,43 @@
+{
+  "id": "estudio-precios",
+  "name": "Estudio de Precios KIMOS",
+  "version": "1.0.0",
+  "description": "Dashboard interactivo del estudio de mercado y del modelo de suscripción de KIMOS: 24 aplicaciones frente a 154 planes de la competencia (140 verificados en fuente), con mediana por categoría que excluye los planes Enterprise, precio sugerido por módulo, planes y kits con descuento de bundle editable, configurador de cotización en vivo contra el gasto actual del cliente, pros y contras módulo a módulo, y diagnóstico con sugerencias y conclusión. Todo es editable —supuestos, precios, filas, descuentos, composición de planes, textos y puntajes—, se recalcula al instante, se guarda por instancia y es operable por un agente IA.",
+  "icon": "📊",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"],
+  "configSchema": {
+    "title": "Preferencias del estudio",
+    "fields": [
+      {
+        "key": "acento",
+        "label": "Color de acento",
+        "type": "color",
+        "help": "Tiñe la cabecera, las pestañas y la primera serie de los gráficos."
+      },
+      {
+        "key": "mostrarFuentes",
+        "label": "Mostrar la columna Fuente en el detalle de precios",
+        "type": "boolean"
+      },
+      {
+        "key": "densidad",
+        "label": "Densidad de la interfaz",
+        "type": "select",
+        "options": [
+          { "value": "normal", "label": "Normal" },
+          { "value": "compacta", "label": "Compacta" }
+        ]
+      }
+    ]
+  },
+  "defaultConfig": {
+    "acento": "",
+    "mostrarFuentes": true,
+    "densidad": "normal"
+  }
+}

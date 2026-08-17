@@ -1,0 +1,389 @@
+/* Estudio de Precios KIMOS — dashboard interactivo de mercado y suscripciones.
+ *
+ * APP-SPEC §9: las superficies, el texto y los bordes salen de los tokens del
+ * tema del host (shadcn/HSL), así la app cambia de día/noche con KIMOS sin
+ * escuchar nada. Lo que SÍ es propio de esta app es la paleta de datos
+ * (violeta · calipso · fucsia · verde agua · naranja): no es decoración, es el
+ * código de color con el que se leen los gráficos y las tablas, y necesita
+ * mantener el mismo significado en ambos modos. Por eso está declarada dos
+ * veces: tonos saturados para fondo claro y tonos abiertos para fondo oscuro.
+ */
+
+.kimos-estudio-precios {
+  /* Superficies y texto: del tema del host, con fallback al tema claro. */
+  --ep-fg: hsl(var(--foreground, 222 25% 8%));
+  --ep-mut: hsl(var(--muted-foreground, 220 12% 42%));
+  --ep-dim: hsl(var(--muted-foreground, 220 12% 42%) / .72);
+  --ep-glass: hsl(var(--card, 0 0% 100%) / .74);
+  --ep-glass-2: hsl(var(--card, 0 0% 100%) / .92);
+  --ep-line: hsl(var(--border, 214 18% 72%) / .55);
+  --ep-line-soft: hsl(var(--border, 214 18% 72%) / .3);
+  --ep-input: hsl(var(--background, 0 0% 100%) / .7);
+  --ep-radius: var(--radius, 12px);
+  --ep-shadow-sm: var(--shadow-sm, 0 1px 2px 0 rgb(15 12 40 / .1));
+  --ep-shadow-md: var(--shadow-md, 0 12px 28px -12px rgb(15 12 40 / .35));
+
+  /* Paleta de datos — modo claro. */
+  --ep-violet: #7c3aed;
+  --ep-purple: #9333ea;
+  --ep-fuchsia: #c026d3;
+  --ep-pink: #db2777;
+  --ep-cyan: #0891b2;
+  --ep-teal: #0d9488;
+  --ep-blue: #2563eb;
+  --ep-green: #059669;
+  --ep-orange: #ea580c;
+  --ep-amber: #b45309;
+  --ep-red: #e11d48;
+  --ep-wash-1: rgb(124 58 237 / .1);
+  --ep-wash-2: rgb(8 145 178 / .09);
+  --ep-wash-3: rgb(192 38 211 / .07);
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(900px 460px at 6% -10%, var(--ep-wash-1), transparent 62%),
+    radial-gradient(760px 420px at 98% 2%, var(--ep-wash-2), transparent 58%),
+    radial-gradient(680px 460px at 55% 110%, var(--ep-wash-3), transparent 60%);
+  color: var(--ep-fg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.dark .kimos-estudio-precios {
+  /* Los mismos significados, abiertos para leerse sobre fondo oscuro. */
+  --ep-violet: #a78bfa;
+  --ep-purple: #c084fc;
+  --ep-fuchsia: #e879f9;
+  --ep-pink: #f472b6;
+  --ep-cyan: #22d3ee;
+  --ep-teal: #2dd4bf;
+  --ep-blue: #60a5fa;
+  --ep-green: #34d399;
+  --ep-orange: #fb923c;
+  --ep-amber: #fbbf24;
+  --ep-red: #fb7185;
+  --ep-wash-1: rgb(139 92 246 / .17);
+  --ep-wash-2: rgb(34 211 238 / .12);
+  --ep-wash-3: rgb(232 121 249 / .1);
+}
+
+.kimos-estudio-precios *,
+.kimos-estudio-precios *::before,
+.kimos-estudio-precios *::after { box-sizing: border-box; }
+
+/* Serie de color de los gráficos: un solo lugar donde cambiar el orden. */
+.kimos-estudio-precios {
+  --ep-s1: var(--ep-violet);
+  --ep-s2: var(--ep-cyan);
+  --ep-s3: var(--ep-fuchsia);
+  --ep-s4: var(--ep-teal);
+  --ep-s5: var(--ep-orange);
+  --ep-s6: var(--ep-blue);
+  --ep-s7: var(--ep-pink);
+  --ep-s8: var(--ep-green);
+  --ep-s9: var(--ep-purple);
+  --ep-s10: var(--ep-amber);
+  --ep-s11: var(--ep-red);
+  --ep-s12: var(--ep-mut);
+}
+
+/* ───────────────────────── Cabecera ───────────────────────── */
+.kimos-estudio-precios .ep-hd {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  padding: 10px 16px; flex-shrink: 0;
+  border-bottom: 1px solid var(--ep-line);
+  background: var(--ep-glass);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.kimos-estudio-precios .ep-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.kimos-estudio-precios .ep-logo {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center;
+  background: conic-gradient(from 210deg, var(--ep-violet), var(--ep-cyan), var(--ep-fuchsia), var(--ep-orange), var(--ep-violet));
+  color: #fff; font-weight: 800; font-size: 14px; letter-spacing: -.5px;
+  box-shadow: var(--ep-shadow-sm);
+}
+.kimos-estudio-precios .ep-tit { font-size: 14px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kimos-estudio-precios .ep-sub { font-size: 11px; color: var(--ep-mut); margin: 1px 0 0; }
+.kimos-estudio-precios .ep-ver {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 20px;
+  background: hsl(var(--muted, 220 14% 94%) / .8); color: var(--ep-mut); border: 1px solid var(--ep-line-soft);
+}
+.kimos-estudio-precios .ep-acciones { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* ───────────────────────── Pestañas ───────────────────────── */
+.kimos-estudio-precios .ep-tabs {
+  display: flex; gap: 4px; padding: 8px 14px 0; flex-shrink: 0; overflow-x: auto; scrollbar-width: thin;
+}
+.kimos-estudio-precios .ep-tab {
+  border: 1px solid transparent; background: transparent; color: var(--ep-mut);
+  padding: 7px 13px; border-radius: 10px 10px 0 0; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 7px;
+  transition: background .15s, color .15s;
+}
+.kimos-estudio-precios .ep-tab:hover { color: var(--ep-fg); background: hsl(var(--muted, 220 14% 94%) / .6); }
+.kimos-estudio-precios .ep-tab.on {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(135deg, var(--ep-violet), var(--ep-cyan));
+  box-shadow: var(--ep-shadow-sm);
+}
+.kimos-estudio-precios .ep-tab-ico { width: 15px; height: 15px; display: block; }
+
+/* ───────────────────────── Cuerpo ───────────────────────── */
+.kimos-estudio-precios .ep-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+.kimos-estudio-precios .ep-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.kimos-estudio-precios .ep-body::-webkit-scrollbar-thumb { background: var(--ep-line); border-radius: 8px; }
+
+.kimos-estudio-precios .ep-card {
+  background: var(--ep-glass); border: 1px solid var(--ep-line); border-radius: var(--ep-radius);
+  padding: 15px 16px; margin-bottom: 13px; box-shadow: var(--ep-shadow-sm);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.kimos-estudio-precios .ep-card > h2 {
+  margin: 0 0 3px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+}
+.kimos-estudio-precios .ep-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ep-g, var(--ep-cyan)); flex-shrink: 0; }
+.kimos-estudio-precios .ep-hint { color: var(--ep-mut); font-size: 11.5px; margin: 0 0 12px; }
+.kimos-estudio-precios .ep-g2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(410px, 1fr)); gap: 13px; }
+.kimos-estudio-precios .ep-g3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
+.kimos-estudio-precios .ep-col { display: flex; flex-direction: column; gap: 13px; }
+.kimos-estudio-precios .ep-col > .ep-card { margin-bottom: 0; }
+
+/* ───────────────────────── KPIs ───────────────────────── */
+.kimos-estudio-precios .ep-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 13px;
+}
+.kimos-estudio-precios .ep-kpi {
+  position: relative; overflow: hidden; padding: 12px 14px;
+  background: var(--ep-glass); border: 1px solid var(--ep-line); border-radius: var(--ep-radius);
+  box-shadow: var(--ep-shadow-sm);
+}
+.kimos-estudio-precios .ep-kpi::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--ep-g, var(--ep-violet));
+}
+.kimos-estudio-precios .ep-kpi-k {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--ep-dim);
+}
+.kimos-estudio-precios .ep-kpi-v { font-size: 22px; font-weight: 780; letter-spacing: -.8px; margin-top: 3px; color: var(--ep-g); font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-kpi-n { font-size: 10.5px; color: var(--ep-mut); }
+
+/* ───────────────────────── Botones y campos ───────────────────────── */
+.kimos-estudio-precios .ep-btn {
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  padding: 6px 12px; border-radius: 9px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--ep-line); background: var(--ep-glass-2); color: var(--ep-fg);
+  transition: background .15s, border-color .15s, transform .12s;
+}
+.kimos-estudio-precios .ep-btn:hover { border-color: var(--ep-violet); background: hsl(var(--muted, 220 14% 94%) / .8); }
+.kimos-estudio-precios .ep-btn:active { transform: translateY(1px); }
+.kimos-estudio-precios .ep-btn.on { background: linear-gradient(135deg, var(--ep-violet), var(--ep-cyan)); color: #fff; border-color: transparent; }
+.kimos-estudio-precios .ep-btn.pri { background: linear-gradient(135deg, var(--ep-violet), var(--ep-cyan)); color: #fff; border-color: transparent; }
+.kimos-estudio-precios .ep-btn.danger { color: var(--ep-red); }
+.kimos-estudio-precios .ep-btn.sm { padding: 3px 8px; font-size: 11px; border-radius: 7px; }
+
+.kimos-estudio-precios input[type=text],
+.kimos-estudio-precios input[type=number],
+.kimos-estudio-precios select,
+.kimos-estudio-precios textarea {
+  font: inherit; font-size: 12.5px; color: var(--ep-fg);
+  background: var(--ep-input); border: 1px solid var(--ep-line); border-radius: 8px; padding: 6px 9px;
+}
+.kimos-estudio-precios input:focus-visible,
+.kimos-estudio-precios select:focus-visible,
+.kimos-estudio-precios textarea:focus-visible { outline: 2px solid var(--ep-cyan); outline-offset: 1px; }
+.kimos-estudio-precios textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.kimos-estudio-precios input[type=range] { accent-color: var(--ep-fuchsia); flex: 1; min-width: 80px; }
+
+/* Celda numérica editable (precios, descuentos, overrides). */
+.kimos-estudio-precios .ep-edit {
+  font: inherit; font-size: 12px; font-weight: 650; text-align: right; width: 78px;
+  color: var(--ep-cyan); background: hsl(var(--card, 0 0% 100%) / .5);
+  border: 1px dashed var(--ep-cyan); border-radius: 7px; padding: 3px 7px;
+  font-variant-numeric: tabular-nums;
+}
+.kimos-estudio-precios .ep-edit:focus { outline: none; border-style: solid; background: var(--ep-glass-2); }
+.kimos-estudio-precios .ep-edit.w-sm { width: 56px; }
+.kimos-estudio-precios .ep-edit.txt { text-align: left; width: 100%; color: var(--ep-fg); font-weight: 500; }
+
+/* ───────────────────────── Controles (supuestos) ───────────────────────── */
+.kimos-estudio-precios .ep-ctrls {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 14px;
+  background: linear-gradient(135deg, var(--ep-wash-1), var(--ep-wash-2));
+  border: 1px solid var(--ep-line); border-radius: var(--ep-radius); padding: 14px; margin-bottom: 13px;
+}
+.kimos-estudio-precios .ep-ctrl label {
+  display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ep-dim); font-weight: 700; margin-bottom: 6px;
+}
+.kimos-estudio-precios .ep-ctrl-row { display: flex; align-items: center; gap: 9px; }
+.kimos-estudio-precios .ep-val {
+  font-weight: 750; font-size: 14px; min-width: 52px; text-align: right;
+  color: var(--ep-cyan); font-variant-numeric: tabular-nums;
+}
+
+/* ───────────────────────── Tablas ───────────────────────── */
+.kimos-estudio-precios .ep-tw { overflow: auto; border: 1px solid var(--ep-line); border-radius: 10px; background: var(--ep-glass-2); }
+.kimos-estudio-precios .ep-tw.alto { max-height: 560px; }
+.kimos-estudio-precios table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kimos-estudio-precios thead th {
+  position: sticky; top: 0; z-index: 2; text-align: left; white-space: nowrap;
+  padding: 9px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ep-fg); background: hsl(var(--muted, 220 14% 94%) / .96); border-bottom: 1px solid var(--ep-line);
+}
+.kimos-estudio-precios tbody td { padding: 8px 10px; border-top: 1px solid var(--ep-line-soft); vertical-align: top; }
+.kimos-estudio-precios tbody tr:hover { background: var(--ep-wash-1); }
+.kimos-estudio-precios .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kimos-estudio-precios .ep-sub-td { font-size: 10.5px; color: var(--ep-dim); }
+.kimos-estudio-precios .ep-tot-row { background: var(--ep-wash-1); font-weight: 700; }
+
+.kimos-estudio-precios .ep-pill {
+  display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; white-space: nowrap;
+  border: 1px solid currentColor;
+}
+.kimos-estudio-precios .ep-pill.ok { color: var(--ep-green); }
+.kimos-estudio-precios .ep-pill.est { color: var(--ep-amber); }
+.kimos-estudio-precios .ep-pill.ent { color: var(--ep-red); }
+.kimos-estudio-precios .ep-pill.v { color: var(--ep-violet); }
+.kimos-estudio-precios .ep-pill.c { color: var(--ep-cyan); }
+
+/* ───────────────────────── Gráficos (sin librerías) ───────────────────────── */
+.kimos-estudio-precios .ep-leg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ep-mut); margin-bottom: 10px; }
+.kimos-estudio-precios .ep-leg span { display: inline-flex; align-items: center; gap: 6px; }
+.kimos-estudio-precios .ep-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+.kimos-estudio-precios .ep-bars { display: grid; gap: 7px; }
+.kimos-estudio-precios .ep-bar-row { display: grid; grid-template-columns: minmax(96px, 150px) 1fr; gap: 10px; align-items: center; }
+.kimos-estudio-precios .ep-bar-lb { font-size: 11px; color: var(--ep-mut); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-estudio-precios .ep-bar-stack { display: grid; gap: 3px; }
+.kimos-estudio-precios .ep-bar-line { display: flex; align-items: center; gap: 7px; }
+.kimos-estudio-precios .ep-bar-track { flex: 1; height: 11px; background: hsl(var(--muted, 220 14% 94%) / .75); border-radius: 6px; overflow: hidden; }
+.kimos-estudio-precios .ep-bar-fill { display: block; height: 100%; border-radius: 6px; min-width: 2px; transition: width .3s ease; }
+.kimos-estudio-precios .ep-bar-v { font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; color: var(--ep-fg); }
+
+.kimos-estudio-precios .ep-cols { display: flex; align-items: flex-end; gap: 12px; height: 210px; padding-top: 8px; }
+.kimos-estudio-precios .ep-col-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; min-width: 0; }
+.kimos-estudio-precios .ep-col-bar { width: 100%; max-width: 74px; border-radius: 8px 8px 0 0; min-height: 3px; transition: height .3s ease; }
+.kimos-estudio-precios .ep-col-v { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-col-lb { font-size: 10.5px; color: var(--ep-mut); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+.kimos-estudio-precios .ep-dona { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.kimos-estudio-precios .ep-dona svg { flex-shrink: 0; }
+.kimos-estudio-precios .ep-dona-leg { display: grid; gap: 4px; font-size: 11px; min-width: 170px; flex: 1; }
+.kimos-estudio-precios .ep-dona-leg > div { display: flex; align-items: center; gap: 7px; }
+.kimos-estudio-precios .ep-dona-leg b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-dona-c { font-size: 17px; font-weight: 780; fill: var(--ep-fg); }
+.kimos-estudio-precios .ep-dona-c2 { font-size: 8.5px; fill: var(--ep-mut); }
+
+/* ───────────────────────── Tarjetas de app / plan ───────────────────────── */
+.kimos-estudio-precios .ep-appcard {
+  background: var(--ep-glass); border: 1px solid var(--ep-line); border-radius: var(--ep-radius);
+  padding: 14px; box-shadow: var(--ep-shadow-sm); transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.kimos-estudio-precios .ep-appcard:hover { transform: translateY(-2px); box-shadow: var(--ep-shadow-md); border-color: var(--ep-violet); }
+.kimos-estudio-precios .ep-appcard-top { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 9px; }
+.kimos-estudio-precios .ep-ico {
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--ep-c1, var(--ep-violet)), var(--ep-c2, var(--ep-cyan)));
+}
+.kimos-estudio-precios .ep-ico svg { width: 18px; height: 18px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kimos-estudio-precios .ep-appcard-nm { font-weight: 700; font-size: 13px; line-height: 1.25; }
+.kimos-estudio-precios .ep-appcard-cat { font-size: 10.5px; color: var(--ep-dim); }
+.kimos-estudio-precios .ep-pc { margin-top: 8px; padding: 8px 10px; border-radius: 9px; font-size: 11.5px; line-height: 1.5; }
+.kimos-estudio-precios .ep-pc.pro { background: hsl(var(--muted, 220 14% 94%) / .55); border-left: 3px solid var(--ep-green); }
+.kimos-estudio-precios .ep-pc.con { background: hsl(var(--muted, 220 14% 94%) / .55); border-left: 3px solid var(--ep-red); }
+.kimos-estudio-precios .ep-pc b { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
+.kimos-estudio-precios .ep-pc.pro b { color: var(--ep-green); }
+.kimos-estudio-precios .ep-pc.con b { color: var(--ep-red); }
+.kimos-estudio-precios .ep-prow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; }
+.kimos-estudio-precios .ep-prow div { background: hsl(var(--muted, 220 14% 94%) / .7); border-radius: 7px; padding: 4px 8px; }
+.kimos-estudio-precios .ep-prow b { color: var(--ep-cyan); font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-strat { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--ep-line-soft); font-size: 11.5px; color: var(--ep-mut); }
+.kimos-estudio-precios .ep-strat b { color: var(--ep-cyan); }
+
+.kimos-estudio-precios .ep-plan {
+  position: relative; overflow: hidden; padding: 16px;
+  background: var(--ep-glass); border: 1px solid var(--ep-line); border-radius: var(--ep-radius); box-shadow: var(--ep-shadow-sm);
+}
+.kimos-estudio-precios .ep-plan.hot { border-color: var(--ep-fuchsia); box-shadow: 0 0 0 1px var(--ep-fuchsia), var(--ep-shadow-md); }
+.kimos-estudio-precios .ep-plan-tag {
+  position: absolute; top: 11px; right: 11px; font-size: 9px; font-weight: 800; letter-spacing: .07em; color: #fff;
+  background: linear-gradient(135deg, var(--ep-fuchsia), var(--ep-orange)); padding: 2px 8px; border-radius: 20px;
+}
+.kimos-estudio-precios .ep-plan h3 { margin: 0 0 2px; font-size: 15px; font-weight: 720; }
+.kimos-estudio-precios .ep-plan-who { font-size: 11px; color: var(--ep-dim); min-height: 30px; }
+.kimos-estudio-precios .ep-plan-pz {
+  font-size: 29px; font-weight: 800; letter-spacing: -1.2px; margin: 8px 0 0; color: var(--ep-violet);
+  font-variant-numeric: tabular-nums;
+}
+.kimos-estudio-precios .ep-plan-pu { font-size: 11.5px; color: var(--ep-mut); margin-bottom: 10px; }
+.kimos-estudio-precios .ep-plan-desc { font-size: 11.5px; color: var(--ep-mut); margin-bottom: 9px; }
+.kimos-estudio-precios .ep-qline {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px dashed var(--ep-line-soft); font-size: 12px;
+}
+.kimos-estudio-precios .ep-qline:last-child { border-bottom: 0; }
+.kimos-estudio-precios .ep-qline b { font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-mods-edit { margin-top: 10px; border-top: 1px solid var(--ep-line-soft); padding-top: 9px; }
+
+/* ───────────────────────── Configurador ───────────────────────── */
+.kimos-estudio-precios .ep-cfg { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+.kimos-estudio-precios .ep-modgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 7px; }
+.kimos-estudio-precios .ep-mod {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;
+  background: var(--ep-glass-2); border: 1px solid var(--ep-line); border-radius: 9px; padding: 7px 10px;
+  transition: background .14s, border-color .14s;
+}
+.kimos-estudio-precios .ep-mod:hover { background: var(--ep-wash-1); }
+.kimos-estudio-precios .ep-mod.on { border-color: var(--ep-violet); background: var(--ep-wash-1); }
+.kimos-estudio-precios .ep-mod input { accent-color: var(--ep-fuchsia); width: 14px; height: 14px; flex-shrink: 0; }
+.kimos-estudio-precios .ep-mod-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-estudio-precios .ep-mod-pz { margin-left: auto; font-weight: 700; color: var(--ep-cyan); font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-quote {
+  position: sticky; top: 0; padding: 16px; border-radius: var(--ep-radius);
+  background: linear-gradient(135deg, var(--ep-wash-1), var(--ep-wash-2));
+  border: 1px solid var(--ep-violet); box-shadow: var(--ep-shadow-sm);
+}
+.kimos-estudio-precios .ep-qbig { font-size: 33px; font-weight: 800; letter-spacing: -1.4px; color: var(--ep-violet); font-variant-numeric: tabular-nums; }
+
+/* ───────────────────────── Diagnóstico ───────────────────────── */
+.kimos-estudio-precios .ep-diag {
+  border-left: 3px solid var(--ep-g, var(--ep-violet)); background: hsl(var(--muted, 220 14% 94%) / .5);
+  border-radius: 0 10px 10px 0; padding: 11px 14px; margin-bottom: 10px;
+}
+.kimos-estudio-precios .ep-diag h4 { margin: 0 0 4px; font-size: 12.5px; font-weight: 720; color: var(--ep-g); }
+.kimos-estudio-precios .ep-diag p { margin: 0; font-size: 12px; color: var(--ep-mut); line-height: 1.6; }
+.kimos-estudio-precios .ep-diag p b { color: var(--ep-fg); }
+.kimos-estudio-precios .ep-score { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; }
+.kimos-estudio-precios .ep-score-lb { font-size: 11.5px; width: 178px; flex-shrink: 0; color: var(--ep-mut); }
+.kimos-estudio-precios .ep-score-bar { flex: 1; height: 7px; background: hsl(var(--muted, 220 14% 94%) / .8); border-radius: 8px; overflow: hidden; }
+.kimos-estudio-precios .ep-score-bar i { display: block; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--ep-violet), var(--ep-cyan)); }
+.kimos-estudio-precios .ep-score-n { font-size: 12px; font-weight: 720; color: var(--ep-cyan); width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.kimos-estudio-precios .ep-score-help { font-size: 11px; color: var(--ep-dim); margin: 2px 0 10px 188px; }
+
+.kimos-estudio-precios .ep-note {
+  background: hsl(var(--muted, 220 14% 94%) / .6); border: 1px solid var(--ep-line);
+  border-left: 3px solid var(--ep-amber); border-radius: 0 10px 10px 0;
+  padding: 11px 14px; font-size: 12px; line-height: 1.6; color: var(--ep-mut); margin-bottom: 13px;
+}
+.kimos-estudio-precios .ep-note b { color: var(--ep-fg); }
+.kimos-estudio-precios .ep-ok { color: var(--ep-green); }
+.kimos-estudio-precios .ep-warn { color: var(--ep-amber); }
+.kimos-estudio-precios .ep-bad { color: var(--ep-red); }
+
+.kimos-estudio-precios .ep-empty { text-align: center; color: var(--ep-mut); font-size: 12.5px; padding: 26px 14px; }
+.kimos-estudio-precios .ep-foot { text-align: center; color: var(--ep-dim); font-size: 10.5px; padding: 10px 0 4px; }
+
+/* ───────────────────────── Angosto (§9.5) ───────────────────────── */
+@media (max-width: 860px) {
+  .kimos-estudio-precios .ep-hd { grid-template-columns: 1fr; }
+  .kimos-estudio-precios .ep-acciones { justify-content: flex-start; }
+  .kimos-estudio-precios .ep-cfg { grid-template-columns: 1fr; }
+  .kimos-estudio-precios .ep-quote { position: static; }
+  .kimos-estudio-precios .ep-bar-row { grid-template-columns: 1fr; gap: 2px; }
+  .kimos-estudio-precios .ep-bar-lb { text-align: left; }
+  .kimos-estudio-precios .ep-score-lb { width: 120px; }
+  .kimos-estudio-precios .ep-score-help { margin-left: 0; }
+}
