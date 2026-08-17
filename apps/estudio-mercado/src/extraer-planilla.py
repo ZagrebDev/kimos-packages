@@ -199,6 +199,20 @@ for r in d6[2:]:
 # ---------- notas metodologicas ----------
 notas = [r[0] for r in d['Como usar y Fuentes'] if r and isinstance(r[0], str) and re.match(r'^\d\.', r[0].strip())]
 
+# Icono de cada módulo (mismos glifos que el dashboard; los paths viven en visual.json).
+ICONOS = {
+ 'escritorio kimos': 'monitor', 'agentes': 'bot', 'agentes web': 'message', 'archivos': 'folder',
+ 'conocimiento': 'book', 'equipos': 'users', 'kanban': 'columns', 'planificacion (gantt)': 'calendar',
+ 'notas de equipo': 'note', 'html panel / dashboards': 'chart', 'fossflow (bpm)': 'flow',
+ 'digitai (automatizacion ia)': 'cpu', 'formularios de contacto': 'form', 'prospeccion comercial': 'target',
+ 'social planner': 'share', 'kreative studio': 'palette', 'kimos funplai (gamificacion)': 'game',
+ 'productlab': 'flask', 'productos (pim)': 'box', 'tienda (e-commerce)': 'cart',
+ 'vitrina (catalogo digital)': 'store', 'kimos cashflow': 'coins', 'gestion de eventos': 'ticket',
+ 'integraciones': 'plug',
+}
+for m in mods:
+    m['icono'] = ICONOS[m['app'].lower()]
+
 out = {
   'meta': {'fecha': '2026-08-16', 'moneda': 'USD',
            'fuente': 'KIMOS - Estudio de mercado y modelo de precios (planilla + dashboard, ago-2026)'},

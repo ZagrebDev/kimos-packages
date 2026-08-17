@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * smoke.mjs — verifica el bundle sin navegador: monta la app con un React
- * mínimo, renderiza las ocho pestañas y comprueba que el motor reproduce las
+ * mínimo, renderiza las diez pestañas y comprueba que el motor reproduce las
  * cifras de la planilla original (que es la fuente que hay que respetar).
  *
  *   node apps/estudio-mercado/test/smoke.mjs
@@ -70,17 +70,17 @@ ok(s.demanda.penetracionSAM === 0.0005, 'penetración del SAM = 0,05%', s.demand
 ok(s.oferta.modulos.length === 24, '24 módulos', s.oferta.modulos.length);
 ok(s.demanda.mercados === 30, '30 mercados', s.demanda.mercados);
 
-console.log('\nRender de las ocho pestañas');
+console.log('\nRender de las diez pestañas');
 const contar = (n) => {
   if (!n || typeof n !== 'object') return 0;
   if (Array.isArray(n)) return n.reduce((a, x) => a + contar(x), 0);
   return 1 + contar(n.hijos) + (n.props && n.props.children ? contar(n.props.children) : 0);
 };
-for (const tab of ['resumen', 'modulos', 'competencia', 'precios', 'mercados', 'economia', 'clientes', 'decisiones']) {
+for (const tab of ['resumen', 'mapa', 'competencia', 'planes', 'configurador', 'mercados', 'economia', 'clientes', 'proscontras', 'diagnostico']) {
   await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: tab } });
   try {
     const nodos = contar(app.Component());
-    ok(nodos > 20, 'pestaña ' + tab, nodos + ' nodos');
+    ok(nodos > 40, 'pestaña ' + tab, nodos + ' nodos');
   } catch (e) {
     ok(false, 'pestaña ' + tab, e.message);
   }
@@ -113,9 +113,28 @@ ok(!r.success, 'SET_DESCUENTO_PLAN rechaza descuentos fuera de rango', r.error);
 r = await agente.dispatchAction({ type: 'SET_ALCANCE', payload: { pais: 'Narnia' } });
 ok(!r.success, 'SET_ALCANCE rechaza países inexistentes', r.error);
 
+r = await agente.dispatchAction({ type: 'SET_PRECIO_COMPETIDOR', payload: { competidor: 'Trello', plan: 'Standard', precio: 50 } });
+let s3 = agente.getSnapshot();
+const kanban = s3.oferta.modulos.filter((m) => m.app === 'Kanban')[0];
+ok(r.success && kanban.mediana > 120, 'SET_PRECIO_COMPETIDOR mueve la mediana de Kanban', kanban.mediana);
+r = await agente.dispatchAction({ type: 'SET_PRECIO_COMPETIDOR', payload: { competidor: 'Trello', plan: 'Inexistente', precio: 9 } });
+ok(!r.success, 'SET_PRECIO_COMPETIDOR rechaza planes que no existen', r.error);
+
+r = await agente.dispatchAction({ type: 'COTIZAR', payload: { modulos: ['Kanban', 'Prospección Comercial'], descuento: 0.4 } });
+s3 = agente.getSnapshot();
+ok(r.success && s3.cotizacion.modulos.length === 2 && s3.pestana === 'configurador',
+  'COTIZAR arma la cotización y abre el configurador', r.message);
+r = await agente.dispatchAction({ type: 'COTIZAR', payload: { modulos: ['No existe'] } });
+ok(!r.success, 'COTIZAR rechaza módulos desconocidos', r.error);
+
 r = await agente.dispatchAction({ type: 'RESTAURAR_SUPUESTOS', payload: {} });
 s2 = agente.getSnapshot();
 ok(r.success && s2.oferta.suiteALaCarta === 2046, 'RESTAURAR_SUPUESTOS vuelve al estudio', s2.oferta.suiteALaCarta);
+ok(s2.preciosEditados === 0 && s2.cotizacion.modulos.length === 0, 'RESTAURAR_SUPUESTOS limpia precios y cotización');
+
+console.log('\nContenido del tablero');
+ok(s2.diagnostico.length === 8, '8 dimensiones de diagnóstico', s2.diagnostico.map((d) => d.nota).join(' '));
+ok(s2.oferta.preciosVerificados === '140/154', '140 de 154 precios verificados', s2.oferta.preciosVerificados);
 
 console.log('\nPersistencia y limpieza');
 await new Promise((res) => setTimeout(res, 1000));

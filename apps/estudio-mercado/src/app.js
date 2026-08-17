@@ -3,16 +3,18 @@
  *
  * Bundle ESM autocontenido: usa globalThis.React (nunca su propia copia) y
  * React.createElement (el host no compila JSX). Los datos del estudio viven en
- * src/data.json y `build.mjs` los inyecta donde dice DATOS_INLINE.
+ * src/data.json y el sistema visual en src/visual.json; `build.mjs` los inyecta
+ * donde dicen DATOS_INLINE y VISUAL_INLINE.
  *
  * Todo número visible se recalcula desde los supuestos editables: no hay
  * resultados congelados. Esa es la diferencia con la planilla original.
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 const DATA = /* DATOS_INLINE */ null;
+const VIS = /* VISUAL_INLINE */ null;
 
 /* ------------------------------------------------------------------ *
  * Supuestos por defecto (los mismos con los que se levantó el estudio)
@@ -41,18 +43,29 @@ DATA.demanda.mixPlan.forEach((m) => { MIX_BASE[m.plan.toLowerCase()] = m.peso; }
 // Reparto de la captación entre los tres años (misma forma que la planilla).
 const COHORTES = [0.109090909090909, 0.290909090909091, 0.6];
 
+// Paleta de series: los colores son datos, no decoración, así que están fijos.
+const PAL = ['#8b5cf6', '#22d3ee', '#e879f9', '#2dd4bf', '#fb923c', '#60a5fa',
+  '#f472b6', '#34d399', '#a855f7', '#06b6d4', '#fbbf24', '#f87171'];
+const C = {
+  violet: '#8b5cf6', cyan: '#22d3ee', fuchsia: '#e879f9', teal: '#2dd4bf',
+  orange: '#fb923c', blue: '#60a5fa', green: '#34d399', red: '#fb7185',
+  amber: '#fbbf24', calipso: '#06b6d4', purple: '#a855f7', pink: '#f472b6',
+};
+
 function estadoInicial() {
   return {
-    v: 1,
+    v: 2,
     tab: 'resumen',
+    tema: 'estudio',
     sup: Object.assign({}, SUP_BASE),
     desc: Object.assign({}, DESC_BASE),
     mix: Object.assign({}, MIX_BASE),
+    precios: {},                       // precios de competencia editados a mano
+    cfg: { mods: [], desc: 0.5 },      // configurador de suscripción
     alcance: { region: '', idioma: '', prioridad: '', pais: '' },
     filtro: { q: '', app: '', seg: '', conf: '' },
     orden: { mod: { key: 'sugerido', dir: -1 }, comp: { key: 'costo', dir: -1 } },
-    sel: null,
-    supAbierto: false,
+    modSel: null,
   };
 }
 
@@ -67,29 +80,34 @@ function mediana(xs) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+function precioLista(c, i, precios) {
+  const v = precios && precios[i];
+  return typeof v === 'number' && isFinite(v) && v >= 0 ? v : c.precio;
+}
+
 /**
  * Normaliza el precio de un competidor al cliente tipo: por usuario se
  * multiplica por la dotación, por canal por los canales conectados y la tarifa
  * plana se toma tal cual. Es la única forma de comparar manzanas con manzanas.
  */
-function costoTipo(c, sup) {
+function costoTipo(c, sup, i, precios) {
   const mult = c.unidad === 'Por usuario' ? sup.usuarios : c.unidad === 'Por canal' ? sup.canales : 1;
-  return c.precio * mult;
+  return precioLista(c, i, precios) * mult;
 }
 
-function calcularOferta(sup, desc) {
+function calcularOferta(sup, desc, precios) {
   const porApp = new Map();
-  DATA.competidores.forEach((c) => {
+  DATA.competidores.forEach((c, i) => {
     if (!porApp.has(c.app)) porApp.set(c.app, []);
-    porApp.get(c.app).push(c);
+    porApp.get(c.app).push({ c: c, i: i, costo: costoTipo(c, sup, i, precios) });
   });
 
   const modulos = DATA.modulos.map((m) => {
     const rows = porApp.get(m.app) || [];
     // Los planes Enterprise se excluyen de la mediana (son otro segmento) pero
     // sí marcan el techo del mercado.
-    const pyme = rows.filter((c) => c.seg !== 'Enterprise').map((c) => costoTipo(c, sup));
-    const todos = rows.map((c) => costoTipo(c, sup));
+    const pyme = rows.filter((r) => r.c.seg !== 'Enterprise').map((r) => r.costo);
+    const todos = rows.map((r) => r.costo);
     const med = mediana(pyme);
     const sugerido = Math.round(med * sup.factor);
     return Object.assign({}, m, {
@@ -100,10 +118,12 @@ function calcularOferta(sup, desc) {
       porUsuario: Math.round((sugerido / sup.usuarios) * 10) / 10,
       ahorro: med ? 1 - sugerido / med : 0,
       planes: rows.length,
+      verificados: rows.filter((r) => r.c.conf === 'Verificado').length,
     });
   });
 
   const byN = new Map(modulos.map((m) => [m.n, m]));
+  const byApp = new Map(modulos.map((m) => [m.app, m]));
   const armar = (p) => {
     const suma = p.mods.reduce((a, n) => a + byN.get(n).sugerido, 0);
     const d = desc[p.id] != null ? desc[p.id] : p.desc;
@@ -126,8 +146,8 @@ function calcularOferta(sup, desc) {
   const stack = DATA.stack.map((s) => {
     const c = DATA.competidores[s.comp];
     return {
-      necesidad: s.necesidad, herramienta: s.herramienta, plan: s.plan,
-      unidad: c.unidad, costo: costoTipo(c, sup),
+      necesidad: s.necesidad, herramienta: s.herramienta, plan: s.plan, app: c.app,
+      unidad: c.unidad, costo: costoTipo(c, sup, s.comp, precios),
     };
   });
   const stackTotal = stack.reduce((a, s) => a + s.costo, 0);
@@ -143,10 +163,7 @@ function calcularOferta(sup, desc) {
   });
 
   return {
-    modulos: modulos,
-    byN: byN,
-    planes: planes,
-    kits: kits,
+    modulos: modulos, byN: byN, byApp: byApp, planes: planes, kits: kits,
     aLaCarta: modulos.reduce((a, m) => a + m.sugerido, 0),
     medianaTotal: modulos.reduce((a, m) => a + m.med, 0),
     medianaCartera: medianaCartera,
@@ -155,6 +172,7 @@ function calcularOferta(sup, desc) {
     stackPorUsuario: stackTotal / sup.usuarios,
     ratioStack: stackTotal ? ent.mensual / stackTotal : 0,
     ahorroAnualStack: (stackTotal - ent.mensual) * 12,
+    verificados: DATA.competidores.filter((c) => c.conf === 'Verificado').length,
   };
 }
 
@@ -236,6 +254,7 @@ const pct = (n, d) => fmt(d == null ? 1 : d).format((n || 0) * 100) + '%';
 const x1 = (n) => fmt(1).format(n || 0);
 const x2 = (n) => fmt(2).format(n || 0);          // índice de precio y factor: 0,91 no es 0,9
 const num = (n) => fmt(0).format(Math.round(n || 0));
+const corto = (s) => String(s).split(' (')[0];
 
 /* ------------------------------------------------------------------ *
  * Componente
@@ -247,7 +266,6 @@ export default function mount(shell) {
 
   let estado = estadoInicial();
   const oyentes = new Set();
-  let guardar = null;
 
   function commit(patch) {
     estado = Object.assign({}, estado, patch);
@@ -269,6 +287,12 @@ export default function mount(shell) {
     if (!isFinite(n)) return;
     commit({ mix: Object.assign({}, estado.mix, { [k]: Math.min(1, Math.max(0, n)) }) });
   }
+  function setPrecio(i, v) {
+    const n = Number(v);
+    const p = Object.assign({}, estado.precios);
+    if (!isFinite(n) || n < 0 || v === '') delete p[i]; else p[i] = n;
+    commit({ precios: p });
+  }
   function setAlcance(k, v) {
     const a = Object.assign({}, estado.alcance, { [k]: v });
     // Elegir un país manda sobre los filtros de grupo: si no, se contradicen.
@@ -282,6 +306,20 @@ export default function mount(shell) {
     const dir = o.key === key ? -o.dir : -1;
     commit({ orden: Object.assign({}, estado.orden, { [tabla]: { key: key, dir: dir } }) });
   }
+  function toggleMod(app) {
+    const s = estado.cfg.mods.slice();
+    const i = s.indexOf(app);
+    if (i >= 0) s.splice(i, 1); else s.push(app);
+    commit({ cfg: Object.assign({}, estado.cfg, { mods: s }) });
+  }
+  function setPreset(id) {
+    if (id === '__todos') return commit({ cfg: { mods: DATA.modulos.map((m) => m.app), desc: 0.62 } });
+    if (id === '__ninguno') return commit({ cfg: { mods: [], desc: estado.cfg.desc } });
+    const p = DATA.planes.concat(DATA.kits).filter((x) => x.id === id)[0];
+    if (!p) return;
+    const byN = new Map(DATA.modulos.map((m) => [m.n, m.app]));
+    commit({ cfg: { mods: p.mods.map((n) => byN.get(n)), desc: estado.desc[p.id] != null ? estado.desc[p.id] : p.desc } });
+  }
 
   let timer = null;
   function programarGuardado() {
@@ -289,8 +327,8 @@ export default function mount(shell) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      const { v, tab, sup, desc, mix, alcance } = estado;
-      Promise.resolve(shell.saveData({ v, tab, sup, desc, mix, alcance })).catch(() => {});
+      const { v, tab, tema, sup, desc, mix, precios, cfg, alcance } = estado;
+      Promise.resolve(shell.saveData({ v, tab, tema, sup, desc, mix, precios, cfg, alcance })).catch(() => {});
     }, 800);
   }
 
@@ -301,9 +339,12 @@ export default function mount(shell) {
       if (!d || typeof d !== 'object') return;
       const patch = {};
       if (d.tab) patch.tab = d.tab;
+      if (d.tema) patch.tema = d.tema;
       if (d.sup) patch.sup = Object.assign({}, SUP_BASE, d.sup);
       if (d.desc) patch.desc = Object.assign({}, DESC_BASE, d.desc);
       if (d.mix) patch.mix = Object.assign({}, MIX_BASE, d.mix);
+      if (d.precios) patch.precios = d.precios;
+      if (d.cfg && Array.isArray(d.cfg.mods)) patch.cfg = d.cfg;
       if (d.alcance) patch.alcance = Object.assign({ region: '', idioma: '', prioridad: '', pais: '' }, d.alcance);
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
@@ -333,577 +374,786 @@ export default function mount(shell) {
 
   function exportar(oferta, demanda) {
     if (estado.tab === 'competencia') {
-      return descargar('kimos-competencia.csv', csv([
-        ['App KIMOS', 'Competidor', 'Plan', 'Precio USD/mes', 'Unidad', 'Costo cliente tipo', 'Segmento', 'Notas', 'Fuente', 'Confianza'],
-      ].concat(DATA.competidores.map((c) => [
-        c.app, c.comp, c.plan, c.precio, c.unidad, Math.round(costoTipo(c, estado.sup)), c.seg, c.nota, c.fuente, c.conf,
-      ]))));
+      const cab = ['App KIMOS', 'Competidor', 'Plan', 'Precio USD/mes', 'Unidad', 'Costo cliente tipo', 'Segmento', 'Notas', 'Fuente', 'Confianza'];
+      const filas = DATA.competidores.map((c, i) => [c.app, c.comp, c.plan, precioLista(c, i, estado.precios),
+        c.unidad, Math.round(costoTipo(c, estado.sup, i, estado.precios)), c.seg, c.nota, c.fuente, c.conf]);
+      return descargar('kimos-competencia.csv', csv([cab].concat(filas)));
     }
     if (estado.tab === 'mercados') {
-      return descargar('kimos-mercados.csv', csv([
-        ['País', 'Región', 'Idioma', 'Prioridad', 'Cobertura', 'Mercado SaaS USD MM', 'TAM USD MM', 'SAM USD MM', 'Índice precio', 'Starter', 'Business', 'Enterprise'],
-      ].concat(demanda.filas.map((f) => {
-        const p = (id) => Math.round((oferta.planes.filter((x) => x.id === id)[0] || {}).mensual * f.indice);
-        return [f.pais, f.region, f.idioma, f.prioridad, f.cobertura, Math.round(f.saas),
-          Math.round(f.tam), Math.round(f.sam), f.indice, p('starter'), p('business'), p('enterprise')];
-      }))));
+      const cab = ['País', 'Región', 'Idioma', 'Prioridad', 'Cobertura', 'Mercado SaaS USD MM', 'TAM USD MM', 'SAM USD MM', 'Índice precio', 'Starter', 'Business', 'Enterprise'];
+      const pl = (id, ix) => Math.round((oferta.planes.filter((x) => x.id === id)[0] || { mensual: 0 }).mensual * ix);
+      const filas = demanda.filas.map((f) => [f.pais, f.region, f.idioma, f.prioridad, f.cobertura,
+        Math.round(f.saas), Math.round(f.tam), Math.round(f.sam), f.indice,
+        pl('starter', f.indice), pl('business', f.indice), pl('enterprise', f.indice)]);
+      return descargar('kimos-mercados.csv', csv([cab].concat(filas)));
     }
-    return descargar('kimos-modulos.csv', csv([
-      ['#', 'App KIMOS', 'Categoría', 'Alternativas', 'Mín', 'Mediana', 'Máx', 'Precio sugerido', 'Por usuario', 'Ahorro vs mediana', 'Cuadrante', 'Estrategia'],
-    ].concat(oferta.modulos.map((m) => [
-      m.n, m.app, m.cat, m.alt, Math.round(m.min), Math.round(m.med), Math.round(m.max),
-      m.sugerido, m.porUsuario, pct(m.ahorro, 0), m.cuadrante, m.estrategia,
-    ]))));
+    const cab = ['#', 'App KIMOS', 'Categoría', 'Alternativas', 'Mín', 'Mediana', 'Máx', 'Precio sugerido', 'Por usuario', 'Ahorro vs mediana', 'Cuadrante', 'Estrategia'];
+    const filas = oferta.modulos.map((m) => [m.n, m.app, m.cat, m.alt, Math.round(m.min), Math.round(m.med),
+      Math.round(m.max), m.sugerido, m.porUsuario, pct(m.ahorro, 0), m.cuadrante, m.estrategia]);
+    return descargar('kimos-modulos.csv', csv([cab].concat(filas)));
   }
 
   /* ---------------------------- piezas de UI ---------------------------- */
 
-  const kpi = (label, valor, nota, tono) => h('div', { className: 'km-kpi' + (tono ? ' km-' + tono : ''), key: label },
-    h('div', { className: 'km-kpi-l' }, label),
-    h('div', { className: 'km-kpi-v' }, valor),
-    nota ? h('div', { className: 'km-kpi-n' }, nota) : null);
+  // Texto del estudio con <b> y marcadores {clave} que se rellenan en vivo.
+  function rt(texto, vals) {
+    const t = String(texto).replace(/\{(\w+)\}/g, (m, k) => (vals && vals[k] != null ? vals[k] : m));
+    return t.split(/(<b>[\s\S]*?<\/b>)/g).map((p, i) => (p.indexOf('<b>') === 0
+      ? h('b', { key: i }, p.slice(3, -4))
+      : p));
+  }
 
-  const seccion = (titulo, bajada, hijos, key) => h('section', { className: 'km-sec', key: key },
-    h('h3', null, titulo),
-    bajada ? h('p', { className: 'km-baja' }, bajada) : null,
-    hijos);
+  const card = (titulo, color, hint, cuerpo, extra) => h('section',
+    Object.assign({ className: 'km-card' }, extra || {}),
+    h('h2', null, h('span', { className: 'km-dot', style: { '--k-g': color } }), titulo),
+    hint ? h('p', { className: 'km-hint' }, hint) : null,
+    h('div', { className: 'km-card-body' }, cuerpo));
 
-  const th = (tabla, key, texto, className) => h('th', {
-    className: (className || '') + ' km-th-sort' + (estado.orden[tabla].key === key ? ' on' : ''),
-    onClick: () => setOrden(tabla, key),
-    title: 'Ordenar por ' + texto,
-  }, texto, estado.orden[tabla].key === key ? h('span', { className: 'km-caret' }, estado.orden[tabla].dir < 0 ? ' ▼' : ' ▲') : null);
+  const kpi = (k, v, n, color) => h('div', { className: 'km-kpi', key: k, style: { '--k-g': color } },
+    h('div', { className: 'km-kpi-k' }, k),
+    h('div', { className: 'km-kpi-v' }, v),
+    n ? h('div', { className: 'km-kpi-n' }, n) : null);
 
-  const barra = (valor, max, titulo) => h('div', { className: 'km-bar', title: titulo },
-    h('span', { style: { width: Math.max(2, Math.min(100, max ? (valor / max) * 100 : 0)) + '%' } }));
+  const nota = (n) => h('div', { className: 'km-note' }, h('b', null, n.titulo + ' '), n.texto);
 
-  const select = (valor, opciones, onChange, vacio) => h('select', {
-    className: 'km-in', value: valor, onChange: (e) => onChange(e.target.value),
-  }, [h('option', { value: '', key: '' }, vacio)].concat(
-    opciones.map((o) => h('option', { value: o, key: o }, o))));
+  const pill = (texto, clase) => h('span', { className: 'km-pill ' + clase }, texto);
+  const pillConf = (c) => pill(c, c === 'Verificado' ? 'km-p-ok' : 'km-p-est');
+  const CLASE_CUAD = {
+    'APOSTAR': 'km-p-g', 'MONETIZAR CON CUIDADO': 'km-p-o',
+    'DIFERENCIAR, NO FACTURAR': 'km-p-c', 'REPLANTEAR': 'km-p-r',
+  };
+  const CLASE_PRIO = {
+    'Prioritario': 'km-p-g', 'Expansión': 'km-p-c', 'Oportunista': 'km-p-o', 'No perseguir': 'km-p-v',
+  };
 
-  const numIn = (valor, onChange, step, min, max) => h('input', {
-    className: 'km-in km-num', type: 'number', value: valor, step: step || 1,
-    min: min == null ? 0 : min, max: max,
-    onChange: (e) => onChange(e.target.value),
-  });
+  const icono = (m, i) => h('div', {
+    className: 'km-ico',
+    style: { '--k-c1': PAL[i % PAL.length], '--k-c2': PAL[(i + 4) % PAL.length] },
+  }, h('svg', {
+    viewBox: '0 0 24 24',
+    dangerouslySetInnerHTML: { __html: VIS.paths[m.icono] || VIS.paths.box },
+  }));
 
-  const chipConf = (c) => h('span', {
-    className: 'km-chip ' + (c === 'Verificado' ? 'km-ok' : c === 'Estimado' ? 'km-warn' : 'km-neutro'),
-  }, c);
+  /** Tabla genérica: cols = [{ k, l, num, sort, cell }]. Evita anidar 8 niveles. */
+  function tabla(cols, filas, opts) {
+    const o = opts || {};
+    const th = cols.map((c) => h('th', {
+      key: c.k,
+      className: (c.num ? 'km-num ' : '') + (c.sort ? 'km-sort' : '') + (o.orden && o.orden.key === c.k ? ' on' : ''),
+      onClick: c.sort && o.onSort ? () => o.onSort(c.k) : undefined,
+    }, c.l, o.orden && o.orden.key === c.k ? (o.orden.dir < 0 ? ' ▼' : ' ▲') : ''));
+
+    const tr = filas.map((f, i) => h('tr', {
+      key: o.key ? o.key(f, i) : i,
+      className: o.clase ? o.clase(f) : undefined,
+      onClick: o.onClick ? () => o.onClick(f) : undefined,
+      title: o.title ? o.title(f) : undefined,
+    }, cols.map((c) => h('td', { key: c.k, className: c.num ? 'km-num' : undefined }, c.cell(f, i)))));
+
+    return h('div', { className: 'km-tbl-wrap' },
+      h('table', { className: 'km-tbl' },
+        h('thead', null, h('tr', null, th)),
+        h('tbody', null, tr.concat(o.pie || []))));
+  }
+
+  const filaTotal = (celdas) => h('tr', { className: 'km-tot', key: 'tot' },
+    celdas.map((c, i) => h('td', { key: i, className: c.num ? 'km-num' : undefined, colSpan: c.span }, c.v)));
+
+  /* -------------------------------- gráficos ------------------------------ */
+
+  /** Barras horizontales agrupadas: filas = [{ label, a, b }]. */
+  function barrasDobles(filas, colorA, colorB, etiquetaA, etiquetaB) {
+    const W = 720, LB = 168, PAD = 56, alto = 20;
+    const H = filas.length * alto + 16;
+    const max = Math.max.apply(null, filas.map((f) => Math.max(f.a, f.b)).concat([1]));
+    const esc = (v) => (v / max) * (W - LB - PAD);
+    const cuerpo = filas.map((f, i) => h('g', { key: f.label, transform: 'translate(0,' + (i * alto + 10) + ')' },
+      h('text', { x: LB - 8, y: 4, textAnchor: 'end', className: 'km-lbl' }, corto(f.label)),
+      h('rect', { x: LB, y: -5, width: Math.max(1, esc(f.a)), height: 6, rx: 3, fill: colorA, opacity: .85 }),
+      h('rect', { x: LB, y: 2, width: Math.max(1, esc(f.b)), height: 6, rx: 3, fill: colorB }),
+      h('title', null, corto(f.label) + ' — ' + etiquetaA + ' ' + usd(f.a) + ' · ' + etiquetaB + ' ' + usd(f.b)),
+      h('text', { x: LB + Math.max(esc(f.a), esc(f.b)) + 6, y: 4, className: 'km-val' }, usd(f.b))));
+
+    return h('div', null,
+      h('div', { className: 'km-leyenda' },
+        h('span', null, h('i', { style: { background: colorA } }), etiquetaA),
+        h('span', null, h('i', { style: { background: colorB } }), etiquetaB)),
+      h('div', { className: 'km-chart-wrap' },
+        h('svg', { className: 'km-chart', viewBox: '0 0 ' + W + ' ' + H, style: { minWidth: '600px' } },
+          h('line', { x1: LB, y1: 2, x2: LB, y2: H - 6, className: 'km-ax' }),
+          cuerpo)));
+  }
+
+  /** Dona con leyenda: partes = [{ label, valor }]. */
+  function dona(partes, total) {
+    const R = 54, GR = 26, CIRC = 2 * Math.PI * R;
+    let acum = 0;
+    const arcos = partes.map((p, i) => {
+      const frac = total ? p.valor / total : 0;
+      const el = h('circle', {
+        key: p.label, cx: 70, cy: 70, r: R, fill: 'none',
+        stroke: PAL[i % PAL.length], strokeWidth: GR,
+        strokeDasharray: (frac * CIRC) + ' ' + CIRC,
+        strokeDashoffset: -acum * CIRC,
+        transform: 'rotate(-90 70 70)',
+      }, h('title', null, p.label + ' — ' + usd(p.valor) + ' (' + pct(frac, 0) + ')'));
+      acum += frac;
+      return el;
+    });
+    const leyenda = partes.map((p, i) => h('span', { key: p.label },
+      h('i', { style: { background: PAL[i % PAL.length] } }),
+      p.label, h('b', null, usd(p.valor))));
+
+    return h('div', { className: 'km-dona-row' },
+      h('svg', { viewBox: '0 0 140 140', className: 'km-chart', style: { width: '150px', flex: 'none' } },
+        h('circle', { cx: 70, cy: 70, r: R, fill: 'none', stroke: 'rgba(255,255,255,.06)', strokeWidth: GR }),
+        arcos,
+        h('text', { x: 70, y: 68, textAnchor: 'middle', className: 'km-lbl', style: { fontSize: '15px', fontWeight: 700 } }, usd(total)),
+        h('text', { x: 70, y: 82, textAnchor: 'middle', style: { fontSize: '9px' } }, 'al mes')),
+      h('div', { className: 'km-dona-leg', style: { flex: 1, minWidth: '180px' } }, leyenda));
+  }
+
+  /** Barras verticales: filas = [{ label, valor, color }]. */
+  function barrasVert(filas, formato) {
+    const W = 520, H = 200, BASE = H - 26, TOP = 16;
+    const max = Math.max.apply(null, filas.map((f) => f.valor).concat([1]));
+    const ancho = W / filas.length;
+    const cuerpo = filas.map((f, i) => {
+      const alto = Math.max(2, ((f.valor / max) * (BASE - TOP)));
+      const x = i * ancho + ancho * 0.22;
+      const w = ancho * 0.56;
+      return h('g', { key: f.label },
+        h('rect', { x: x, y: BASE - alto, width: w, height: alto, rx: 5, fill: f.color, opacity: .9 },
+          h('title', null, f.label + ' — ' + formato(f.valor))),
+        h('text', { x: x + w / 2, y: BASE - alto - 5, textAnchor: 'middle', className: 'km-val' }, formato(f.valor)),
+        h('text', { x: x + w / 2, y: BASE + 15, textAnchor: 'middle', className: 'km-lbl' }, f.label));
+    });
+    return h('div', { className: 'km-chart-wrap' },
+      h('svg', { className: 'km-chart', viewBox: '0 0 ' + W + ' ' + H, style: { minWidth: '420px' } },
+        h('line', { x1: 0, y1: BASE, x2: W, y2: BASE, className: 'km-ax' }),
+        cuerpo));
+  }
+
+  /** Barras horizontales simples: filas = [{ label, valor, nota }]. */
+  function barrasSimples(filas, color, formato) {
+    const W = 700, LB = 150, PAD = 74, alto = 19;
+    const H = filas.length * alto + 10;
+    const max = Math.max.apply(null, filas.map((f) => f.valor).concat([1]));
+    const cuerpo = filas.map((f, i) => h('g', { key: f.label, transform: 'translate(0,' + (i * alto + 8) + ')' },
+      h('text', { x: LB - 8, y: 4, textAnchor: 'end', className: 'km-lbl' }, corto(f.label)),
+      h('rect', {
+        x: LB, y: -5, height: 10, rx: 5, fill: color, opacity: .85,
+        width: Math.max(1, (f.valor / max) * (W - LB - PAD)),
+      }, h('title', null, f.label + ' — ' + formato(f.valor) + (f.nota ? ' · ' + f.nota : ''))),
+      h('text', { x: LB + (f.valor / max) * (W - LB - PAD) + 6, y: 4, className: 'km-val' }, formato(f.valor))));
+    return h('div', { className: 'km-chart-wrap' },
+      h('svg', { className: 'km-chart', viewBox: '0 0 ' + W + ' ' + H, style: { minWidth: '560px' } },
+        h('line', { x1: LB, y1: 0, x2: LB, y2: H - 4, className: 'km-ax' }),
+        cuerpo));
+  }
 
   /* ------------------------------- pestañas ------------------------------ */
 
-  function vistaResumen(oferta, demanda) {
+  const TABS = [
+    ['resumen', 'Resumen', '◎'],
+    ['mapa', 'Mapa competitivo', '▤'],
+    ['competencia', 'Precios por app', '⑈'],
+    ['planes', 'Planes y kits', '▥'],
+    ['configurador', 'Configurador', '⚙'],
+    ['mercados', 'Mercados', '🌎'],
+    ['economia', 'Economía', '📈'],
+    ['clientes', 'Clientes', '👥'],
+    ['proscontras', 'Pros y contras', '⇆'],
+    ['diagnostico', 'Diagnóstico', '⚑'],
+  ];
+
+  function valsTexto(oferta) {
     const ent = oferta.planes[oferta.planes.length - 1];
-    const banda = oferta.ratioStack > 0.60 ? 'riesgo' : oferta.ratioStack < 0.25 ? 'aviso' : 'ok';
-    const bandaTxt = banda === 'ok' ? 'Dentro de la banda sana (25%-60%)'
-      : banda === 'riesgo' ? 'Sobre 60%: se cae el argumento de ahorro'
-      : 'Bajo 25%: se deja margen sobre la mesa';
-    const top = oferta.modulos.slice().sort((a, b) => b.sugerido - a.sugerido).slice(0, 6);
-    const maxTop = top[0] ? top[0].med : 1;
-    const altas = DATA.decisiones.filter((d) => d.impacto === 'alto').slice(0, 4);
-
-    return h('div', { className: 'km-grid' },
-      h('div', { className: 'km-kpis' },
-        kpi('Suite completa a la carta', usd(oferta.aLaCarta) + '/mes', oferta.modulos.length + ' módulos'),
-        kpi('KIMOS Enterprise', usd(ent.mensual) + '/mes', usd1(ent.porUsuario) + ' por usuario · ' + usd(ent.anual) + '/año'),
-        kpi('Stack que paga hoy el cliente', usd(oferta.stackTotal) + '/mes', DATA.stack.length + ' herramientas sueltas'),
-        kpi('KIMOS sobre ese gasto', pct(oferta.ratioStack, 0), bandaTxt, banda === 'ok' ? 'ok' : banda === 'riesgo' ? 'riesgo' : 'aviso'),
-        kpi('Ahorro anual para el cliente', usd(oferta.ahorroAnualStack), 'Enterprise contra el stack best-of-breed'),
-        kpi('SAM del alcance', mm(demanda.sam), demanda.filas.length + ' mercados · índice ' + x2(demanda.indice)),
-        kpi('ARR al año 3', usd(demanda.arr[2]), num(demanda.vivos[2]) + ' clientes vivos'),
-        kpi('Penetración necesaria', pct(demanda.penetracion, 2), demanda.penetracion > 0.02 ? 'Sobre 2%: el plan deja de ser realista' : 'Bajo el umbral de alerta (2%)',
-          demanda.penetracion > 0.02 ? 'riesgo' : 'ok')),
-
-      seccion('Dónde está el precio del mercado', 'Los seis módulos que más paga el mercado, con el precio sugerido de KIMOS encima. La barra es la mediana de la competencia para el cliente tipo.',
-        h('div', { className: 'km-top' }, top.map((m) => h('div', { className: 'km-top-row', key: m.n },
-          h('button', { className: 'km-link', onClick: () => commit({ tab: 'modulos', sel: m.n }) }, m.app),
-          barra(m.med, maxTop, 'Mediana del mercado'),
-          h('span', { className: 'km-top-num' }, usd(m.med)),
-          h('span', { className: 'km-top-kimos' }, 'KIMOS ' + usd(m.sugerido)))))),
-
-      seccion('Las decisiones de mayor impacto', 'Cruce del estudio de oferta con el de demanda. Si el dato cambia, la decisión se revisa.',
-        h('div', { className: 'km-cards' }, altas.map((d) => h('article', { className: 'km-card', key: d.n },
-          h('h4', null, d.decision),
-          h('p', null, h('b', null, 'Qué hacer: '), d.hacer))))),
-
-      h('p', { className: 'km-pie' },
-        'Precios de lista públicos al ' + DATA.meta.fecha + ', en ' + DATA.meta.moneda + ', sin impuestos. ',
-        DATA.competidores.length + ' planes de ' + oferta.modulos.length + ' categorías. ',
-        'Cliente tipo: ' + estado.sup.usuarios + ' usuarios y ' + estado.sup.canales + ' canales sociales.'));
+    const kits = oferta.kits.map((k) => k.mensual);
+    const top3 = oferta.modulos.slice().sort((a, b) => b.sugerido - a.sugerido).slice(0, 3)
+      .map((m) => corto(m.app)).join(', ');
+    return {
+      stack: usd(oferta.stackTotal), aLaCarta: usd(oferta.aLaCarta), enterprise: usd(ent.mensual),
+      ahorroAnual: usd(oferta.ahorroAnualStack), top3: top3,
+      kitMin: usd(Math.min.apply(null, kits)), kitMax: usd(Math.max.apply(null, kits)),
+      estimados: String(DATA.competidores.length - oferta.verificados),
+      totalPlanes: String(DATA.competidores.length),
+    };
   }
 
-  function vistaModulos(oferta) {
+  const tarjetaDiag = (t, vals) => h('div', { className: 'km-diag', key: t.titulo, style: { '--k-g': C[t.color] || C.violet } },
+    h('h4', null, t.titulo),
+    h('p', null, rt(t.texto, vals)));
+
+  function vistaResumen(oferta, demanda) {
+    const vals = valsTexto(oferta);
+    const ent = oferta.planes[oferta.planes.length - 1];
+
+    const filasMain = oferta.modulos.slice()
+      .sort((a, b) => b.med - a.med)
+      .map((m) => ({ label: m.app, a: m.med, b: m.sugerido }));
+
+    const porHerramienta = oferta.stack.slice().sort((a, b) => b.costo - a.costo);
+    const top = porHerramienta.slice(0, 9).map((s) => ({ label: s.herramienta, valor: s.costo }));
+    const resto = porHerramienta.slice(9).reduce((a, s) => a + s.costo, 0);
+    if (resto > 0) top.push({ label: 'Otras ' + (porHerramienta.length - 9) + ' herramientas', valor: resto });
+
+    const escalera = oferta.planes.map((p, i) => ({
+      label: p.nombre, valor: p.porUsuario, color: [C.violet, C.calipso, C.fuchsia, C.teal][i % 4],
+    })).concat([{ label: 'Stack actual', valor: oferta.stackPorUsuario, color: C.orange }]);
+
+    return h('div', { className: 'km-wrap km-fade' },
+      nota(VIS.notas.resumen),
+      h('div', { className: 'km-g2' },
+        card('Precio sugerido KIMOS vs. mediana del mercado', C.cyan,
+          'Por módulo, normalizado al cliente tipo. La barra violeta es el mercado; la cian, KIMOS.',
+          barrasDobles(filasMain, C.violet, C.cyan, 'Mediana del mercado', 'Precio sugerido KIMOS')),
+        h('div', { className: 'km-col' },
+          card('El gasto que KIMOS reemplaza', C.fuchsia,
+            'Stack best-of-breed que arma hoy una empresa del tamaño tipo, por herramienta.',
+            dona(top, oferta.stackTotal)),
+          card('Escalera de planes', C.orange,
+            'Precio mensual por usuario de cada plan frente al costo del stack actual.',
+            barrasVert(escalera, usd1)))),
+      card('Lo que dice el estudio, en cinco frases', C.green, null,
+        h('div', { className: 'km-g3' }, VIS.tldr.map((t) => tarjetaDiag(t, vals)))),
+      card('Y lo que dice el estudio de demanda', C.blue,
+        'El alcance comercial elegido manda sobre estos cuatro números.',
+        h('div', { className: 'km-kpis' },
+          kpi('SAM del alcance', mm(demanda.sam), demanda.filas.length + ' mercados · índice ' + x2(demanda.indice), C.blue),
+          kpi('ARPU anual', usd(demanda.arpuAnual), 'Con el mix de planes actual', C.teal),
+          kpi('ARR al año 3', usd(demanda.arr[2]), num(demanda.vivos[2]) + ' clientes vivos', C.green),
+          kpi('Penetración necesaria', pct(demanda.penetracion, 2),
+            demanda.penetracion > 0.02 ? 'Sobre 2%: el plan deja de ser realista' : 'Bajo el umbral de alerta',
+            demanda.penetracion > 0.02 ? C.red : C.cyan))),
+      h('p', { className: 'km-pie' }, 'Estudio del ' + DATA.meta.fecha + ' · precios de lista públicos en '
+        + DATA.meta.moneda + ', sin impuestos ni descuentos por volumen · cliente tipo de '
+        + estado.sup.usuarios + ' usuarios y ' + estado.sup.canales + ' canales · KIMOS Enterprise ' + usd(ent.mensual) + '/mes'));
+  }
+
+  function vistaMapa(oferta) {
     const o = estado.orden.mod;
     const val = (m) => ({
-      n: m.n, app: m.app, cat: m.cat, min: m.min, med: m.med, max: m.max,
+      app: m.app, cat: m.cat, min: m.min, med: m.med, max: m.max,
       sugerido: m.sugerido, ahorro: m.ahorro, ventaja: m.ventaja,
     })[o.key];
     const filas = oferta.modulos.slice().sort((a, b) => {
       const x = val(a), y = val(b);
-      const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
-      return c * o.dir;
+      return (typeof x === 'string' ? x.localeCompare(y) : x - y) * o.dir;
     });
-    const maxMed = Math.max.apply(null, oferta.modulos.map((m) => m.med));
-    const sel = estado.sel != null ? oferta.byN.get(estado.sel) : null;
 
-    return h('div', { className: 'km-grid' },
-      h('div', { className: 'km-kpis km-kpis-4' },
-        kpi('Mediana del mercado, suite entera', usd(oferta.medianaTotal) + '/mes'),
-        kpi('Precio sugerido a la carta', usd(oferta.aLaCarta) + '/mes', 'Factor ' + x2(estado.sup.factor) + ' sobre la mediana'),
-        kpi('Módulos que APOSTAR', String(oferta.modulos.filter((m) => m.cuadrante === 'APOSTAR').length), 'Pagan bien y KIMOS tiene ventaja'),
-        kpi('Módulos a REPLANTEAR', String(oferta.modulos.filter((m) => m.cuadrante === 'REPLANTEAR').length), 'Ni precio ni ventaja')),
+    const cols = [
+      { k: 'app', l: 'App KIMOS', sort: true, cell: (m) => [h('b', { key: 'b' }, m.app), h('div', { key: 'd', className: 'km-sub2' }, m.que)] },
+      { k: 'cat', l: 'Categoría de mercado', sort: true, cell: (m) => m.cat },
+      { k: 'alt', l: 'Alternativas', cell: (m) => h('span', { className: 'km-sub2' }, m.alt) },
+      { k: 'tgt', l: 'Target', cell: (m) => pill(m.target, 'km-p-v') },
+      { k: 'min', l: 'Mín', num: true, sort: true, cell: (m) => usd(m.min) },
+      { k: 'med', l: 'Mediana', num: true, sort: true, cell: (m) => h('span', { className: 'km-cel-med' }, usd(m.med)) },
+      { k: 'max', l: 'Máx', num: true, sort: true, cell: (m) => h('span', { className: 'km-mut' }, usd(m.max)) },
+      { k: 'sugerido', l: 'Sugerido', num: true, sort: true, cell: (m) => h('span', { className: 'km-cel-sug' }, usd(m.sugerido)) },
+      { k: 'pu', l: 'Por usuario', num: true, cell: (m) => usd1(m.porUsuario) },
+      { k: 'ahorro', l: 'Ahorro', num: true, sort: true, cell: (m) => h('span', { className: 'km-cel-ok' }, pct(m.ahorro, 0)) },
+      { k: 'cuad', l: 'Cuadrante', cell: (m) => pill(m.cuadrante, CLASE_CUAD[m.cuadrante]) },
+      { k: 'datos', l: 'Datos', cell: (m) => pill(m.verificados + '/' + m.planes, m.verificados >= m.planes * 0.7 ? 'km-p-ok' : 'km-p-est') },
+    ];
 
-      h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-        h('thead', null, h('tr', null,
-          th('mod', 'app', 'App KIMOS'),
-          th('mod', 'cat', 'Categoría de mercado'),
-          h('th', null, 'Alternativas'),
-          th('mod', 'min', 'Mín', 'km-r'),
-          th('mod', 'med', 'Mediana', 'km-r'),
-          th('mod', 'max', 'Máx', 'km-r'),
-          h('th', { className: 'km-w' }, 'Mercado'),
-          th('mod', 'sugerido', 'KIMOS', 'km-r'),
-          h('th', { className: 'km-r' }, 'Por usuario'),
-          th('mod', 'ahorro', 'Ahorro', 'km-r'),
-          h('th', null, 'Cuadrante'))),
-        h('tbody', null, filas.map((m) => h('tr', {
-          key: m.n,
-          className: estado.sel === m.n ? 'on' : '',
-          onClick: () => commit({ sel: estado.sel === m.n ? null : m.n }),
-        },
-          h('td', null, h('b', null, m.app)),
-          h('td', { className: 'km-mut' }, m.cat),
-          h('td', { className: 'km-mut km-alt' }, m.alt),
-          h('td', { className: 'km-r' }, usd(m.min)),
-          h('td', { className: 'km-r' }, usd(m.med)),
-          h('td', { className: 'km-r km-mut' }, usd(m.max)),
-          h('td', { className: 'km-w' }, barra(m.med, maxMed, 'Mediana ' + usd(m.med))),
-          h('td', { className: 'km-r km-fuerte' }, usd(m.sugerido)),
-          h('td', { className: 'km-r km-mut' }, usd1(m.porUsuario)),
-          h('td', { className: 'km-r' }, pct(m.ahorro, 0)),
-          h('td', null, h('span', { className: 'km-cuad km-q' + m.cuadrante.charAt(0) }, m.cuadrante))))))),
+    const t = tabla(cols, filas, {
+      orden: o, onSort: (k) => setOrden('mod', k), key: (m) => m.n,
+      clase: (m) => (estado.modSel === m.n ? 'on' : ''),
+      onClick: (m) => commit({ modSel: estado.modSel === m.n ? null : m.n }),
+    });
 
-      sel ? h('aside', { className: 'km-detalle' },
-        h('div', { className: 'km-detalle-h' },
-          h('h3', null, sel.app),
-          h('button', { className: 'km-x', onClick: () => commit({ sel: null }), title: 'Cerrar' }, '✕')),
-        h('p', { className: 'km-baja' }, sel.que, ' · ', sel.cat, ' · Objetivo: ', sel.target),
-        h('div', { className: 'km-kpis km-kpis-4' },
-          kpi('Mediana del mercado', usd(sel.med) + '/mes'),
-          kpi('Precio sugerido', usd(sel.sugerido) + '/mes', usd1(sel.porUsuario) + ' por usuario'),
-          kpi('Rango del mercado', usd(sel.min) + ' – ' + usd(sel.max)),
-          kpi('Precios verificados', sel.conf, sel.planes + ' planes levantados')),
-        h('div', { className: 'km-dos' },
-          h('div', { className: 'km-caja km-caja-ok' }, h('h4', null, 'A favor de KIMOS'), h('p', null, sel.pro)),
-          h('div', { className: 'km-caja km-caja-riesgo' }, h('h4', null, 'En contra'), h('p', null, sel.contra))),
-        h('p', { className: 'km-estrategia' }, h('b', null, 'Estrategia: '), sel.estrategia),
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla km-mini' },
-          h('thead', null, h('tr', null, h('th', null, 'Competidor'), h('th', null, 'Plan'),
-            h('th', { className: 'km-r' }, 'Precio'), h('th', null, 'Unidad'),
-            h('th', { className: 'km-r' }, 'Cliente tipo'), h('th', null, 'Notas'), h('th', null, 'Fuente'))),
-          h('tbody', null, DATA.competidores.filter((c) => c.app === sel.app).map((c, i) => h('tr', { key: i },
-            h('td', null, c.comp), h('td', { className: 'km-mut' }, c.plan),
-            h('td', { className: 'km-r' }, usd1(c.precio)),
-            h('td', { className: 'km-mut' }, c.unidad + (c.seg === 'Enterprise' ? ' · Enterprise' : '')),
-            h('td', { className: 'km-r km-fuerte' }, usd(costoTipo(c, estado.sup))),
-            h('td', { className: 'km-mut' }, c.nota),
-            h('td', { className: 'km-fuente' }, c.fuente)))))))
-        : h('p', { className: 'km-pie' }, 'Haz clic en una fila para ver los planes de la competencia, los argumentos a favor y en contra, y la estrategia sugerida.'));
+    const sel = estado.modSel != null ? oferta.byN.get(estado.modSel) : null;
+    return h('div', { className: 'km-wrap km-fade' },
+      card('Mapa competitivo por aplicación', C.violet,
+        'Cada app de KIMOS, contra quién compite, en qué rango se mueve el mercado y a qué precio conviene entrar. La mediana excluye planes Enterprise (Akeneo, Salsify, Cvent, Bizzabo, Kissflow, Nintex) porque son de otro segmento y distorsionan la referencia. Haz clic en una fila para ver el detalle.',
+        t),
+      sel ? detalleModulo(sel, oferta) : null);
   }
 
-  function vistaCompetencia() {
+  function detalleModulo(sel, oferta) {
+    const i = DATA.modulos.map((m) => m.n).indexOf(sel.n);
+    const cols = [
+      { k: 'comp', l: 'Competidor', cell: (r) => h('b', null, r.c.comp) },
+      { k: 'plan', l: 'Plan', cell: (r) => h('span', { className: 'km-mut' }, r.c.plan) },
+      { k: 'precio', l: 'Precio', num: true, cell: (r) => usd1(precioLista(r.c, r.i, estado.precios)) },
+      { k: 'unidad', l: 'Unidad', cell: (r) => h('span', { className: 'km-mut' }, r.c.unidad) },
+      { k: 'tipo', l: 'Cliente tipo', num: true, cell: (r) => h('span', { className: 'km-cel-sug' }, usd(r.costo)) },
+      { k: 'seg', l: 'Segmento', cell: (r) => (r.c.seg === 'Enterprise' ? pill('Enterprise', 'km-p-ent') : h('span', { className: 'km-mut' }, r.c.seg)) },
+      { k: 'nota', l: 'Notas', cell: (r) => h('span', { className: 'km-mut' }, r.c.nota) },
+      { k: 'fuente', l: 'Fuente', cell: (r) => h('span', { className: 'km-src' }, r.c.fuente) },
+    ];
+    const filas = DATA.competidores
+      .map((c, idx) => ({ c: c, i: idx, costo: costoTipo(c, estado.sup, idx, estado.precios) }))
+      .filter((r) => r.c.app === sel.app);
+
+    return h('aside', { className: 'km-detalle' },
+      h('div', { className: 'km-detalle-h' },
+        h('div', { style: { display: 'flex', gap: '11px', alignItems: 'center' } },
+          icono(sel, i),
+          h('div', null,
+            h('h2', { style: { fontSize: '16px' } }, sel.app),
+            h('div', { className: 'km-app-cat' }, sel.cat + ' · ' + sel.que))),
+        h('button', { className: 'km-x', onClick: () => commit({ modSel: null }), title: 'Cerrar' }, '✕')),
+      h('div', { className: 'km-kpis' },
+        kpi('Mediana del mercado', usd(sel.med) + '/mes', 'Rango ' + usd(sel.min) + ' – ' + usd(sel.max), C.fuchsia),
+        kpi('Precio sugerido', usd(sel.sugerido) + '/mes', usd1(sel.porUsuario) + ' por usuario', C.cyan),
+        kpi('Ahorro vs mercado', pct(sel.ahorro, 0), 'Factor ' + x2(estado.sup.factor), C.green),
+        kpi('Datos', sel.verificados + '/' + sel.planes, 'precios verificados en fuente', C.violet)),
+      h('div', { className: 'km-g2' },
+        h('div', { className: 'km-pc km-pro' }, h('b', null, 'A favor'), sel.pro),
+        h('div', { className: 'km-pc km-con' }, h('b', null, 'En contra'), sel.contra)),
+      h('div', { className: 'km-strat' }, h('b', null, 'Estrategia: '), sel.estrategia),
+      tabla(cols, filas, { key: (r) => r.i }));
+  }
+
+  function vistaCompetencia(oferta) {
     const f = estado.filtro;
     const q = f.q.trim().toLowerCase();
-    let filas = DATA.competidores.map((c, i) => Object.assign({ i: i, costo: costoTipo(c, estado.sup) }, c));
-    if (f.app) filas = filas.filter((c) => c.app === f.app);
-    if (f.seg) filas = filas.filter((c) => c.seg === f.seg);
-    if (f.conf) filas = filas.filter((c) => c.conf === f.conf);
-    if (q) filas = filas.filter((c) => (c.comp + ' ' + c.plan + ' ' + c.app + ' ' + c.nota).toLowerCase().indexOf(q) >= 0);
+    let filas = DATA.competidores.map((c, i) => ({
+      c: c, i: i, app: c.app, comp: c.comp, plan: c.plan, conf: c.conf,
+      precio: precioLista(c, i, estado.precios),
+      costo: costoTipo(c, estado.sup, i, estado.precios),
+    }));
+    if (f.app) filas = filas.filter((r) => r.app === f.app);
+    if (f.seg) filas = filas.filter((r) => r.c.seg === f.seg);
+    if (f.conf) filas = filas.filter((r) => r.conf === f.conf);
+    if (q) filas = filas.filter((r) => (r.comp + ' ' + r.plan + ' ' + r.app + ' ' + r.c.nota).toLowerCase().indexOf(q) >= 0);
+
     const o = estado.orden.comp;
     filas.sort((a, b) => {
       const x = a[o.key], y = b[o.key];
-      const c = typeof x === 'string' ? x.localeCompare(y) : (x || 0) - (y || 0);
-      return c * o.dir;
+      return (typeof x === 'string' ? x.localeCompare(y) : (x || 0) - (y || 0)) * o.dir;
     });
-    const verificados = filas.filter((c) => c.conf === 'Verificado').length;
 
-    return h('div', { className: 'km-grid' },
-      h('div', { className: 'km-filtros' },
-        h('input', { className: 'km-in km-q', placeholder: 'Buscar competidor, plan o nota…', value: f.q, onChange: (e) => setFiltro('q', e.target.value) }),
-        select(f.app, DATA.modulos.map((m) => m.app), (v) => setFiltro('app', v), 'Todas las apps'),
-        select(f.seg, ['PyME / Empresa', 'Enterprise'], (v) => setFiltro('seg', v), 'Todos los segmentos'),
-        select(f.conf, ['Verificado', 'Estimado'], (v) => setFiltro('conf', v), 'Toda confianza'),
-        h('span', { className: 'km-cuenta' }, filas.length + ' planes · ' + verificados + ' verificados'),
-        (f.q || f.app || f.seg || f.conf) ? h('button', { className: 'km-btn', onClick: () => commit({ filtro: { q: '', app: '', seg: '', conf: '' } }) }, 'Limpiar') : null),
+    const cols = [
+      { k: 'app', l: 'App KIMOS', sort: true, cell: (r) => h('span', { className: 'km-mut' }, r.app) },
+      { k: 'comp', l: 'Competidor', sort: true, cell: (r) => h('b', null, r.comp) },
+      { k: 'plan', l: 'Plan', sort: true, cell: (r) => h('span', { className: 'km-mut' }, r.plan) },
+      {
+        k: 'precio', l: 'Precio USD/mes', num: true, sort: true,
+        cell: (r) => h('input', {
+          className: 'km-edit' + (estado.precios[r.i] != null ? ' km-tocado' : ''),
+          type: 'number', step: '0.01', min: '0', value: r.precio,
+          title: 'Edita el precio y el modelo completo se recalcula',
+          onChange: (e) => setPrecio(r.i, e.target.value),
+        }),
+      },
+      { k: 'unidad', l: 'Unidad', cell: (r) => h('span', { className: 'km-mut' }, r.c.unidad) },
+      { k: 'costo', l: 'Cliente tipo', num: true, sort: true, cell: (r) => h('span', { className: 'km-cel-sug' }, usd(r.costo)) },
+      { k: 'seg', l: 'Segmento', cell: (r) => (r.c.seg === 'Enterprise' ? pill('Enterprise', 'km-p-ent') : h('span', { className: 'km-mut' }, r.c.seg)) },
+      { k: 'nota', l: 'Notas', cell: (r) => h('span', { className: 'km-mut' }, r.c.nota) },
+      { k: 'fuente', l: 'Fuente', cell: (r) => h('span', { className: 'km-src' }, r.c.fuente) },
+      { k: 'conf', l: 'Confianza', sort: true, cell: (r) => pillConf(r.conf) },
+    ];
 
-      h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-        h('thead', null, h('tr', null,
-          th('comp', 'app', 'App KIMOS'),
-          th('comp', 'comp', 'Competidor'),
-          th('comp', 'plan', 'Plan'),
-          th('comp', 'precio', 'Precio lista', 'km-r'),
-          h('th', null, 'Unidad'),
-          th('comp', 'costo', 'Cliente tipo', 'km-r'),
-          h('th', null, 'Notas'),
-          h('th', null, 'Fuente'),
-          th('comp', 'conf', 'Confianza'))),
-        h('tbody', null, filas.map((c) => h('tr', { key: c.i },
-          h('td', { className: 'km-mut' }, c.app),
-          h('td', null, h('b', null, c.comp)),
-          h('td', { className: 'km-mut' }, c.plan),
-          h('td', { className: 'km-r' }, usd1(c.precio)),
-          h('td', { className: 'km-mut' }, c.unidad + (c.seg === 'Enterprise' ? ' · Enterprise' : '')),
-          h('td', { className: 'km-r km-fuerte' }, usd(c.costo)),
-          h('td', { className: 'km-mut' }, c.nota),
-          h('td', { className: 'km-fuente' }, c.fuente),
-          h('td', null, chipConf(c.conf))))))),
+    const editados = Object.keys(estado.precios).length;
+    const ctrl = (label, k, min, max, step, formato) => h('div', { className: 'km-ctrl', key: k },
+      h('label', null, label),
+      h('div', { className: 'km-ctrl-row' },
+        h('input', {
+          className: 'km-range', type: 'range', min: min, max: max, step: step,
+          value: estado.sup[k], onChange: (e) => setSup(k, e.target.value),
+        }),
+        h('span', { className: 'km-val' }, formato(estado.sup[k]))));
 
-      h('p', { className: 'km-pie' }, 'El costo del cliente tipo normaliza cada plan a ' + estado.sup.usuarios
-        + ' usuarios y ' + estado.sup.canales + ' canales. Los planes Enterprise se excluyen de la mediana: son otro segmento y distorsionan la referencia.'));
+    return h('div', { className: 'km-wrap km-fade' },
+      h('div', { className: 'km-ctrls' },
+        ctrl('Usuarios del cliente tipo', 'usuarios', 1, 200, 1, num),
+        ctrl('Canales sociales', 'canales', 1, 30, 1, num),
+        ctrl('Factor de posicionamiento', 'factor', 0.2, 1.2, 0.05, x2),
+        ctrl('Descuento pago anual', 'descAnual', 0, 0.4, 0.01, (v) => pct(v, 0))),
+      nota(VIS.notas.factor),
+      card('Detalle de precios de la competencia', C.calipso,
+        'Los precios en cian son editables: escribe otro número y la mediana, el precio sugerido, los planes y el configurador se recalculan.',
+        h('div', null,
+          h('div', { className: 'km-filtros', style: { marginBottom: '12px' } },
+            h('input', {
+              className: 'km-in km-q', placeholder: 'Filtrar por app, competidor o nota…',
+              value: f.q, onChange: (e) => setFiltro('q', e.target.value),
+            }),
+            selector(f.app, DATA.modulos.map((m) => m.app), (v) => setFiltro('app', v), 'Todas las apps'),
+            selector(f.seg, ['PyME / Empresa', 'Enterprise'], (v) => setFiltro('seg', v), 'Todos los segmentos'),
+            selector(f.conf, ['Verificado', 'Estimado'], (v) => setFiltro('conf', v), 'Toda confianza'),
+            h('span', { className: 'km-cuenta' }, filas.length + ' de ' + DATA.competidores.length + ' planes · '
+              + oferta.verificados + ' verificados' + (editados ? ' · ' + editados + ' editados a mano' : '')),
+            editados ? h('button', { className: 'km-btn', onClick: () => commit({ precios: {} }) }, '↺ Precios originales') : null),
+          tabla(cols, filas, { orden: o, onSort: (k) => setOrden('comp', k), key: (r) => r.i }))));
   }
 
-  function vistaPrecios(oferta) {
-    const filaPlan = (p) => h('tr', { key: p.id },
-      h('td', null, h('b', null, p.nombre), h('div', { className: 'km-mut' }, p.para)),
-      h('td', { className: 'km-mut km-alt' }, p.incluye, h('div', { className: 'km-mods' }, p.nombres.join(' · '))),
-      h('td', { className: 'km-r km-mut' }, usd(p.suma)),
-      h('td', { className: 'km-r' }, h('div', { className: 'km-desc' },
-        numIn(Math.round(p.descuento * 100), (v) => setDesc(p.id, Number(v) / 100), 1, 0, 95), h('span', null, '%'))),
-      h('td', { className: 'km-r km-fuerte km-grande' }, usd(p.mensual)),
-      h('td', { className: 'km-r km-mut' }, usd1(p.porUsuario)),
-      h('td', { className: 'km-r' }, usd(p.anual)),
-      h('td', { className: 'km-r km-mut' }, usd(p.ahorroAnual)));
+  const selector = (valor, opciones, onChange, vacio) => h('select', {
+    className: 'km-in', value: valor, onChange: (e) => onChange(e.target.value),
+  }, [h('option', { value: '', key: '' }, vacio)].concat(
+    opciones.map((o) => h('option', { value: o, key: o }, o))));
 
-    const cab = h('thead', null, h('tr', null,
-      h('th', null, 'Plan'), h('th', null, 'Qué incluye'),
-      h('th', { className: 'km-r' }, 'Suma a la carta'), h('th', { className: 'km-r' }, 'Descuento'),
-      h('th', { className: 'km-r' }, 'Mensual'), h('th', { className: 'km-r' }, 'Por usuario'),
-      h('th', { className: 'km-r' }, 'Anual'), h('th', { className: 'km-r' }, 'Ahorro del cliente')));
+  function tarjetaPlan(p, destacado) {
+    return h('article', { className: 'km-plan' + (destacado ? ' hot' : ''), key: p.id },
+      destacado ? h('span', { className: 'km-plan-tag' }, 'MÁS VENDIBLE') : null,
+      h('h3', null, p.nombre),
+      h('div', { className: 'km-plan-who' }, p.para),
+      h('div', { className: 'km-plan-precio' }, usd(p.mensual)),
+      h('div', { className: 'km-plan-pu' }, 'al mes · ' + usd1(p.porUsuario) + ' por usuario · ' + usd(p.anual) + '/año'),
+      h('div', { className: 'km-plan-desc' },
+        h('span', null, 'Suma a la carta ' + usd(p.suma) + ' · descuento'),
+        h('input', {
+          className: 'km-edit', type: 'number', min: '0', max: '95', step: '1',
+          value: Math.round(p.descuento * 100), style: { width: '62px' },
+          onChange: (e) => setDesc(p.id, Number(e.target.value) / 100),
+        }),
+        h('span', null, '%')),
+      h('ul', { className: 'km-plan-mods' }, p.nombres.map((n) => h('li', { key: n }, corto(n)))));
+  }
 
+  function vistaPlanes(oferta) {
     const banda = oferta.ratioStack > 0.60 ? 'riesgo' : oferta.ratioStack < 0.25 ? 'aviso' : 'ok';
+    const colorBanda = banda === 'ok' ? C.green : banda === 'riesgo' ? C.red : C.amber;
+    const cols = [
+      { k: 'nec', l: 'Necesidad', cell: (s) => s.necesidad },
+      { k: 'her', l: 'Herramienta de hoy', cell: (s) => h('b', null, s.herramienta) },
+      { k: 'plan', l: 'Plan', cell: (s) => h('span', { className: 'km-mut' }, s.plan) },
+      { k: 'uni', l: 'Unidad', cell: (s) => h('span', { className: 'km-mut' }, s.unidad) },
+      { k: 'costo', l: 'Costo mensual', num: true, cell: (s) => usd(s.costo) },
+    ];
+    const pie = [filaTotal([
+      { v: 'TOTAL stack best-of-breed', span: 4 },
+      { v: usd(oferta.stackTotal), num: true },
+    ])];
 
-    return h('div', { className: 'km-grid' },
-      seccion('Planes por tamaño de empresa', 'El descuento es editable: al cambiarlo se recalculan el precio mensual, el anual y el ahorro del cliente.',
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' }, cab, h('tbody', null, oferta.planes.map(filaPlan))))),
+    return h('div', { className: 'km-wrap km-fade' },
+      card('Planes por tamaño de empresa', C.fuchsia,
+        'El descuento de bundle es editable en cada plan. Sin descuento, la suma de módulos da un precio que ningún cliente paga.',
+        h('div', { className: 'km-g3' }, oferta.planes.map((p) => tarjetaPlan(p, p.id === 'business')))),
+      card('Kits por necesidad del cliente', C.teal,
+        'Para clientes que no necesitan la suite completa sino resolver un frente concreto. Es la oferta de entrada por defecto: menos firmas en el comité, ciclo más corto.',
+        h('div', { className: 'km-g3' }, oferta.kits.map((p) => tarjetaPlan(p, false)))),
+      card('Chequeo de realidad', C.orange,
+        'Lo que gasta hoy el cliente tipo armando el stack por su cuenta. Es el número contra el que se negocia.',
+        h('div', { className: 'km-g2' },
+          tabla(cols, oferta.stack, { key: (s, i) => i, pie: pie }),
+          h('div', { className: 'km-col' },
+            h('div', { className: 'km-kpis', style: { gridTemplateColumns: '1fr 1fr' } },
+              kpi('Stack actual', usd(oferta.stackTotal), usd1(oferta.stackPorUsuario) + ' por usuario', C.orange),
+              kpi('KIMOS Enterprise', usd(oferta.planes[3].mensual), usd1(oferta.planes[3].porUsuario) + ' por usuario', C.cyan),
+              kpi('KIMOS sobre ese gasto', pct(oferta.ratioStack, 0),
+                banda === 'ok' ? 'Dentro de la banda sana' : banda === 'riesgo' ? 'Sobre 60%' : 'Bajo 25%', colorBanda),
+              kpi('Ahorro anual del cliente', usd(oferta.ahorroAnualStack), 'Enterprise vs stack', C.green)),
+            nota(VIS.notas.banda)))));
+  }
 
-      seccion('Kits por necesidad', 'La oferta de entrada por defecto: menos firmas en el comité, ciclo de venta más corto.',
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' }, cab, h('tbody', null, oferta.kits.map(filaPlan))))),
+  function vistaConfigurador(oferta) {
+    const sel = estado.cfg.mods.filter((a) => oferta.byApp.has(a));
+    const suma = sel.reduce((a, app) => a + oferta.byApp.get(app).sugerido, 0);
+    const precio = Math.round(suma * (1 - estado.cfg.desc));
+    const equivalente = oferta.stack.filter((s) => sel.indexOf(s.app) >= 0).reduce((a, s) => a + s.costo, 0);
+    const ratio = equivalente ? precio / equivalente : 0;
+    const veredicto = !sel.length ? 'Selecciona módulos para cotizar.'
+      : !equivalente ? 'Ninguno de los módulos elegidos tiene equivalente en el stack de referencia: la comparación de ahorro no aplica.'
+      : ratio > 0.6 ? '⚠ Estás sobre el 60% del gasto actual: el argumento de ahorro se debilita.'
+      : ratio < 0.25 ? '⚠ Bajo el 25% del gasto actual: estás dejando margen sobre la mesa.'
+      : '✓ La cotización cae dentro de la banda sana de 25%–60% del gasto actual del cliente.';
 
-      seccion('Chequeo de realidad: qué gasta hoy el cliente sin KIMOS',
-        'Stack best-of-breed equivalente, normalizado al mismo cliente tipo. La banda sana deja a KIMOS entre 25% y 60% de ese gasto.',
-        h('div', null,
-          h('div', { className: 'km-kpis km-kpis-4' },
-            kpi('Stack actual', usd(oferta.stackTotal) + '/mes', usd1(oferta.stackPorUsuario) + ' por usuario'),
-            kpi('KIMOS Enterprise', usd(oferta.planes[3].mensual) + '/mes', usd1(oferta.planes[3].porUsuario) + ' por usuario'),
-            kpi('KIMOS sobre el gasto actual', pct(oferta.ratioStack, 0), banda === 'ok' ? 'Banda sana' : banda === 'riesgo' ? 'Sobre 60%' : 'Bajo 25%', banda),
-            kpi('Ahorro anual', usd(oferta.ahorroAnualStack))),
-          h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-            h('thead', null, h('tr', null, h('th', null, 'Necesidad'), h('th', null, 'Herramienta que se usa hoy'),
-              h('th', null, 'Plan'), h('th', null, 'Unidad'), h('th', { className: 'km-r' }, 'Costo mensual'))),
-            h('tbody', null, oferta.stack.map((s, i) => h('tr', { key: i },
-              h('td', null, s.necesidad), h('td', null, h('b', null, s.herramienta)),
-              h('td', { className: 'km-mut' }, s.plan), h('td', { className: 'km-mut' }, s.unidad),
-              h('td', { className: 'km-r' }, usd(s.costo)))).concat([
-                h('tr', { key: 'tot', className: 'km-total' },
-                  h('td', { colSpan: 4 }, 'TOTAL stack best-of-breed'),
-                  h('td', { className: 'km-r' }, usd(oferta.stackTotal))),
-              ])))))),
+    const presets = [{ id: '__todos', nombre: 'Suite completa' }]
+      .concat(DATA.planes.map((p) => ({ id: p.id, nombre: p.nombre })))
+      .concat(DATA.kits.map((p) => ({ id: p.id, nombre: p.nombre })))
+      .concat([{ id: '__ninguno', nombre: 'Limpiar' }]);
 
-      seccion('Precio a la carta por módulo', 'Módulo suelto, para cotizaciones fuera de plan.',
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-          h('thead', null, h('tr', null, h('th', null, 'Módulo'), h('th', { className: 'km-r' }, 'Mediana del mercado'),
-            h('th', { className: 'km-r' }, 'Precio sugerido'), h('th', { className: 'km-r' }, 'Posición vs mercado'),
-            h('th', null, 'Estrategia'))),
-          h('tbody', null, oferta.modulos.map((m) => h('tr', { key: m.n },
-            h('td', null, m.app), h('td', { className: 'km-r km-mut' }, usd(m.med)),
-            h('td', { className: 'km-r km-fuerte' }, usd(m.sugerido)),
-            h('td', { className: 'km-r' }, m.med ? pct(m.sugerido / m.med - 1, 0) : '—'),
-            h('td', { className: 'km-mut km-alt' }, m.estrategia))).concat([
-              h('tr', { key: 'tot', className: 'km-total' },
-                h('td', null, 'TOTAL suite completa'),
-                h('td', { className: 'km-r' }, usd(oferta.medianaTotal)),
-                h('td', { className: 'km-r' }, usd(oferta.aLaCarta)),
-                h('td', { className: 'km-r' }, pct(oferta.aLaCarta / oferta.medianaTotal - 1, 0)),
-                h('td', null, '')),
-            ]))))));
+    const mods = oferta.modulos.map((m) => h('label', {
+      key: m.n, className: 'km-mod' + (sel.indexOf(m.app) >= 0 ? ' on' : ''),
+    },
+      h('input', { type: 'checkbox', checked: sel.indexOf(m.app) >= 0, onChange: () => toggleMod(m.app) }),
+      h('span', null, corto(m.app)),
+      h('span', { className: 'km-mod-pz' }, usd(m.sugerido))));
+
+    const linea = (l, v, color) => h('div', { className: 'km-qline', key: l },
+      h('span', null, l), h('b', { style: color ? { color: color } : null }, v));
+
+    const cotizacion = h('div', { className: 'km-quote' },
+      h('div', { className: 'km-quote-k' }, 'Cotización'),
+      h('div', { className: 'km-quote-big' }, usd(precio)),
+      h('div', { style: { color: 'var(--k-mut)', fontSize: '12px', marginBottom: '12px' } },
+        'al mes · ' + usd1(precio / estado.sup.usuarios) + ' por usuario · ' + sel.length + ' módulos'),
+      linea('Suma a la carta', usd(suma)),
+      h('div', { className: 'km-qline' },
+        h('span', null, 'Descuento bundle'),
+        h('span', null,
+          h('input', {
+            className: 'km-edit', type: 'number', min: '0', max: '95', step: '1',
+            value: Math.round(estado.cfg.desc * 100), style: { width: '62px' },
+            onChange: (e) => commit({ cfg: Object.assign({}, estado.cfg, { desc: Math.min(0.95, Math.max(0, Number(e.target.value) / 100)) }) }),
+          }), ' %')),
+      linea('Precio anual', usd(precio * 12 * (1 - estado.sup.descAnual))),
+      linea('Equivalente en el mercado', usd(equivalente), C.orange),
+      linea('Ahorro anual del cliente', usd(Math.max(0, (equivalente - precio) * 12)), C.green),
+      h('div', { className: 'km-veredicto' }, veredicto));
+
+    return h('div', { className: 'km-wrap km-fade' },
+      card('Configurador de suscripción', C.cyan,
+        'Marca los módulos que necesita el cliente y obtén la cotización al instante, comparada contra lo que gastaría comprando cada herramienta por separado.',
+        h('div', { className: 'km-cfg' },
+          h('div', null,
+            h('div', { className: 'km-filtros', style: { marginBottom: '13px' } },
+              presets.map((p) => h('button', {
+                key: p.id, className: 'km-btn', onClick: () => setPreset(p.id),
+              }, p.nombre))),
+            h('div', { className: 'km-modgrid' }, mods)),
+          cotizacion)));
   }
 
   function vistaMercados(oferta, demanda) {
     const a = estado.alcance;
     const uniq = (k) => Array.from(new Set(DATA.demanda.paises.map((p) => p[k]))).sort();
-    const maxSam = Math.max.apply(null, demanda.filas.map((f) => f.sam).concat([1]));
     const precio = (id, ix) => Math.round((oferta.planes.filter((x) => x.id === id)[0] || { mensual: 0 }).mensual * ix);
-    const recomendacion = (ix) => ix >= 0.95 ? 'Subir el factor a 0,85–0,90'
+    const reco = (ix) => (ix >= 0.95 ? 'Subir el factor a 0,85–0,90'
       : ix >= 0.75 ? 'Lista regional, factor 0,7'
-      : ix >= 0.55 ? 'Mantener factor 0,55' : 'Solo autoservicio';
+      : ix >= 0.55 ? 'Mantener factor 0,55' : 'Solo autoservicio');
     const filas = demanda.filas.slice().sort((x, y) => y.sam - x.sam);
 
-    return h('div', { className: 'km-grid' },
-      h('div', { className: 'km-filtros' },
-        select(a.region, uniq('region'), (v) => setAlcance('region', v), 'Todas las regiones'),
-        select(a.pais, DATA.demanda.paises.map((p) => p.pais), (v) => setAlcance('pais', v), 'Todos los países'),
-        select(a.idioma, uniq('idioma'), (v) => setAlcance('idioma', v), 'Todos los idiomas'),
-        select(a.prioridad, uniq('prioridad'), (v) => setAlcance('prioridad', v), 'Toda prioridad comercial'),
-        h('span', { className: 'km-cuenta' }, demanda.filas.length + ' de ' + DATA.demanda.paises.length + ' mercados'),
-        (a.region || a.pais || a.idioma || a.prioridad)
-          ? h('button', { className: 'km-btn', onClick: () => commit({ alcance: { region: '', idioma: '', prioridad: '', pais: '' } }) }, 'Alcance global') : null),
+    const cols = [
+      { k: 'pais', l: 'Mercado', cell: (f) => h('b', null, f.pais) },
+      { k: 'region', l: 'Región', cell: (f) => h('span', { className: 'km-mut' }, f.region) },
+      { k: 'idioma', l: 'Idioma', cell: (f) => h('span', { className: 'km-mut' }, f.idioma) },
+      { k: 'prio', l: 'Prioridad', cell: (f) => pill(f.prioridad, CLASE_PRIO[f.prioridad] || 'km-p-v') },
+      { k: 'cob', l: 'Cobertura', num: true, cell: (f) => pct(f.cobertura, 0) },
+      { k: 'saas', l: 'SaaS', num: true, cell: (f) => h('span', { className: 'km-mut' }, mm(f.saas)) },
+      { k: 'tam', l: 'TAM', num: true, cell: (f) => h('span', { className: 'km-mut' }, mm(f.tam)) },
+      { k: 'sam', l: 'SAM', num: true, cell: (f) => h('span', { className: 'km-cel-sug' }, mm(f.sam)) },
+      { k: 'ix', l: 'Índice', num: true, cell: (f) => x2(f.indice) },
+      { k: 'st', l: 'Starter', num: true, cell: (f) => usd(precio('starter', f.indice)) },
+      { k: 'bs', l: 'Business', num: true, cell: (f) => usd(precio('business', f.indice)) },
+      { k: 'ent', l: 'Enterprise', num: true, cell: (f) => usd(precio('enterprise', f.indice)) },
+      { k: 'reco', l: 'Recomendación', cell: (f) => h('span', { className: 'km-mut' }, reco(f.indice)) },
+    ];
 
+    return h('div', { className: 'km-wrap km-fade' },
+      h('div', { className: 'km-ctrls', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } },
+        h('div', { className: 'km-ctrl' }, h('label', null, 'Región'), selector(a.region, uniq('region'), (v) => setAlcance('region', v), 'Todas')),
+        h('div', { className: 'km-ctrl' }, h('label', null, 'País'), selector(a.pais, DATA.demanda.paises.map((p) => p.pais), (v) => setAlcance('pais', v), 'Todos')),
+        h('div', { className: 'km-ctrl' }, h('label', null, 'Idioma'), selector(a.idioma, uniq('idioma'), (v) => setAlcance('idioma', v), 'Todos')),
+        h('div', { className: 'km-ctrl' }, h('label', null, 'Prioridad comercial'), selector(a.prioridad, uniq('prioridad'), (v) => setAlcance('prioridad', v), 'Todas')),
+        h('div', { className: 'km-ctrl' },
+          h('label', null, 'Alcance'),
+          h('div', { className: 'km-ctrl-row' },
+            h('span', { className: 'km-cuenta' }, demanda.filas.length + ' de ' + DATA.demanda.paises.length + ' mercados'),
+            h('button', { className: 'km-btn', onClick: () => commit({ alcance: { region: '', idioma: '', prioridad: '', pais: '' } }) }, 'Global')))),
       h('div', { className: 'km-kpis' },
-        kpi('Mercado SaaS del alcance', mm(demanda.mercado)),
-        kpi('TAM', mm(demanda.tam), 'Suites de gestión en PyME y mid-market'),
-        kpi('SAM', mm(demanda.sam), 'Con la cobertura comercial de cada país'),
-        kpi('Índice de precio', x2(demanda.indice), 'Ponderado por SAM · 1,00 = lista EE.UU.'),
-        kpi('ARPU anual del alcance', usd(demanda.arpuAnual), 'Base ' + usd(demanda.arpuAnualBase) + ' × índice'),
+        kpi('Mercado SaaS del alcance', mm(demanda.mercado), 'Base del embudo', C.violet),
+        kpi('TAM', mm(demanda.tam), 'Suites de gestión en PyME y mid-market', C.blue),
+        kpi('SAM', mm(demanda.sam), 'Con la cobertura comercial de cada país', C.cyan),
+        kpi('Índice de precio', x2(demanda.indice), 'Ponderado por SAM · 1,00 = lista EE.UU.', C.fuchsia),
+        kpi('ARPU anual', usd(demanda.arpuAnual), 'Base ' + usd(demanda.arpuAnualBase) + ' × índice', C.teal),
         kpi('Penetración al año 3', pct(demanda.penetracion, 2),
-          demanda.penetracion > 0.02 ? 'Sobre 2%: alcance demasiado chico para el plan' : 'Bajo el umbral de alerta',
-          demanda.penetracion > 0.02 ? 'riesgo' : 'ok')),
-
-      h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-        h('thead', null, h('tr', null,
-          h('th', null, 'Mercado'), h('th', null, 'Región'), h('th', null, 'Idioma'),
-          h('th', null, 'Prioridad'), h('th', { className: 'km-r' }, 'Cobertura'),
-          h('th', { className: 'km-r' }, 'SaaS'), h('th', { className: 'km-r' }, 'TAM'),
-          h('th', { className: 'km-r' }, 'SAM'), h('th', { className: 'km-w' }, ''),
-          h('th', { className: 'km-r' }, 'Índice'), h('th', { className: 'km-r' }, 'Starter'),
-          h('th', { className: 'km-r' }, 'Business'), h('th', { className: 'km-r' }, 'Enterprise'),
-          h('th', null, 'Recomendación'))),
-        h('tbody', null, filas.map((f) => h('tr', { key: f.pais, title: f.contexto },
-          h('td', null, h('b', null, f.pais)),
-          h('td', { className: 'km-mut' }, f.region),
-          h('td', { className: 'km-mut' }, f.idioma),
-          h('td', null, h('span', { className: 'km-prio km-p' + f.prioridad.charAt(0) }, f.prioridad)),
-          h('td', { className: 'km-r km-mut' }, pct(f.cobertura, 0)),
-          h('td', { className: 'km-r km-mut' }, mm(f.saas)),
-          h('td', { className: 'km-r km-mut' }, mm(f.tam)),
-          h('td', { className: 'km-r km-fuerte' }, mm(f.sam)),
-          h('td', { className: 'km-w' }, barra(f.sam, maxSam, 'SAM ' + mm(f.sam))),
-          h('td', { className: 'km-r' }, x2(f.indice)),
-          h('td', { className: 'km-r' }, usd(precio('starter', f.indice))),
-          h('td', { className: 'km-r' }, usd(precio('business', f.indice))),
-          h('td', { className: 'km-r' }, usd(precio('enterprise', f.indice))),
-          h('td', { className: 'km-mut' }, recomendacion(f.indice))))))),
-
-      seccion('Regiones', 'Los totales por región difieren de la suma por país: la hoja por país usa la cobertura comercial de cada mercado, más fina que la cobertura regional.',
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-          h('thead', null, h('tr', null, h('th', null, 'Región'), h('th', { className: 'km-r' }, 'Mercado SaaS'),
-            h('th', { className: 'km-r' }, '% global'), h('th', { className: 'km-r' }, 'CAGR'),
-            h('th', { className: 'km-r' }, 'Cobertura'), h('th', { className: 'km-r' }, 'Índice'),
-            h('th', null, 'Lectura'), h('th', null, 'Confianza'))),
-          h('tbody', null, DATA.demanda.regiones.map((r) => h('tr', { key: r.region },
-            h('td', null, h('b', null, r.region)),
-            h('td', { className: 'km-r' }, mm(r.saas)),
-            h('td', { className: 'km-r km-mut' }, pct(r.share, 1)),
-            h('td', { className: 'km-r km-mut' }, pct(r.cagr, 1)),
-            h('td', { className: 'km-r km-mut' }, pct(r.cobertura, 0)),
-            h('td', { className: 'km-r' }, x2(r.indice)),
-            h('td', { className: 'km-mut km-alt' }, r.lectura),
-            h('td', null, chipConf(r.conf)))))))));
+          demanda.penetracion > 0.02 ? 'Sobre 2%: alcance demasiado chico' : 'Bajo el umbral de alerta',
+          demanda.penetracion > 0.02 ? C.red : C.green)),
+      h('div', { className: 'km-g2' },
+        card('Dónde está el mercado alcanzable', C.cyan,
+          'SAM por mercado, ya descontada la cobertura comercial realista de cada país.',
+          barrasSimples(filas.slice(0, 15).map((f) => ({ label: f.pais, valor: f.sam, nota: f.prioridad })), C.cyan, mm)),
+        card('Precio por país', C.fuchsia,
+          'El mismo plan Business ajustado por el índice de precio de cada mercado. Es la misma lista con varios precios, no varios productos.',
+          barrasSimples(filas.slice(0, 15).map((f) => ({ label: f.pais, valor: precio('business', f.indice) })), C.fuchsia, usd))),
+      card('Los mercados, uno por uno', C.violet,
+        'El SAM de esta tabla usa la cobertura por prioridad comercial de cada país, más fina que la cobertura por región.',
+        tabla(cols, filas, { key: (f) => f.pais, title: (f) => f.contexto })));
   }
 
   function vistaEconomia(oferta, demanda) {
     const s = estado.sup;
-    const maxArr = Math.max.apply(null, demanda.arr.concat([1]));
     const alerta = demanda.ratio < 2.5;
+    const cols = [
+      { k: 'coh', l: 'Cohorte', cell: (c) => 'Captados en el año ' + c.anio },
+      { k: 'nuevos', l: 'Clientes nuevos', num: true, cell: (c) => num(c.nuevos) },
+      { k: 'a1', l: 'Vivos al cierre año 1', num: true, cell: (c) => (c.vivos[0] ? num(c.vivos[0]) : '—') },
+      { k: 'a2', l: 'Año 2', num: true, cell: (c) => (c.vivos[1] ? num(c.vivos[1]) : '—') },
+      { k: 'a3', l: 'Año 3', num: true, cell: (c) => (c.vivos[2] ? num(c.vivos[2]) : '—') },
+    ];
+    const pie = [
+      filaTotal([{ v: 'Clientes vivos' }, { v: num(s.clientes3), num: true },
+        { v: num(demanda.vivos[0]), num: true }, { v: num(demanda.vivos[1]), num: true }, { v: num(demanda.vivos[2]), num: true }]),
+    ];
+    const ctrl = (label, k, min, max, step, formato) => h('div', { className: 'km-ctrl', key: k },
+      h('label', null, label),
+      h('div', { className: 'km-ctrl-row' },
+        h('input', {
+          className: 'km-range', type: 'range', min: min, max: max, step: step,
+          value: s[k], onChange: (e) => setSup(k, e.target.value),
+        }),
+        h('span', { className: 'km-val' }, formato(s[k]))));
 
-    return h('div', { className: 'km-grid' },
+    const mixSuma = ['starter', 'business', 'enterprise'].reduce((a, k) => a + (estado.mix[k] || 0), 0);
+
+    return h('div', { className: 'km-wrap km-fade' },
+      h('div', { className: 'km-ctrls' },
+        ctrl('Churn mensual', 'churn', 0.01, 0.12, 0.005, (v) => pct(v, 1)),
+        ctrl('Margen bruto', 'margen', 0.4, 0.95, 0.01, (v) => pct(v, 0)),
+        ctrl('CAC promedio', 'cac', 100, 4000, 50, usd),
+        ctrl('Clientes captados al año 3', 'clientes3', 50, 3000, 10, num)),
       h('div', { className: 'km-kpis' },
-        kpi('ARPU mensual base', usd(demanda.arpuMensual), 'Mix ' + pct(estado.mix.starter, 0) + ' Starter · '
-          + pct(estado.mix.business, 0) + ' Business · ' + pct(estado.mix.enterprise, 0) + ' Enterprise'),
-        kpi('ARPU anual del alcance', usd(demanda.arpuAnual), 'Índice ' + x2(demanda.indice)),
-        kpi('Vida media del cliente', x1(demanda.vidaMedia) + ' meses', 'Inversa del churn ' + pct(s.churn, 1)),
-        kpi('LTV', usd(demanda.ltv), 'ARPU × margen × vida media'),
-        kpi('LTV : CAC', x1(demanda.ratio) + ' : 1', alerta ? 'Bajo el benchmark PyME (2,5:1)' : 'Sobre el benchmark PyME (2,5:1)', alerta ? 'riesgo' : 'ok'),
+        kpi('ARPU mensual base', usd(demanda.arpuMensual), 'Mix ' + pct(estado.mix.starter, 0) + ' / '
+          + pct(estado.mix.business, 0) + ' / ' + pct(estado.mix.enterprise, 0), C.violet),
+        kpi('ARPU anual del alcance', usd(demanda.arpuAnual), 'Índice ' + x2(demanda.indice), C.teal),
+        kpi('Vida media', x1(demanda.vidaMedia) + ' meses', 'Inversa del churn ' + pct(s.churn, 1), C.blue),
+        kpi('LTV', usd(demanda.ltv), 'ARPU × margen × vida media', C.cyan),
+        kpi('LTV : CAC', x1(demanda.ratio) + ' : 1', alerta ? 'Bajo el benchmark PyME (2,5:1)' : 'Sobre el benchmark PyME', alerta ? C.red : C.green),
         kpi('CAC payback', x1(demanda.payback) + ' meses', demanda.payback > 12 ? 'Sobre los 12 meses objetivo' : 'Benchmark PyME: 6,2 meses',
-          demanda.payback > 12 ? 'riesgo' : 'ok')),
-
-      seccion('Proyección a 3 años', 'Cada cohorte se capta repartida en 12 meses y se le aplica supervivencia mes a mes. Sin ese descuento el churn no afectaría el ARR y la proyección sería falsa.',
-        h('div', null,
-          h('div', { className: 'km-anios' }, [0, 1, 2].map((i) => h('div', { className: 'km-anio', key: i },
-            h('div', { className: 'km-anio-l' }, 'Año ' + (i + 1)),
-            h('div', { className: 'km-anio-v' }, usd(demanda.arr[i])),
-            h('div', { className: 'km-anio-b' }, h('span', { style: { width: (demanda.arr[i] / maxArr) * 100 + '%' } })),
-            h('div', { className: 'km-anio-n' }, num(demanda.vivos[i]) + ' clientes vivos')))),
-          h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-            h('thead', null, h('tr', null, h('th', null, 'Cohorte'), h('th', { className: 'km-r' }, 'Clientes nuevos'),
-              h('th', { className: 'km-r' }, 'Vivos al cierre año 1'), h('th', { className: 'km-r' }, 'Año 2'), h('th', { className: 'km-r' }, 'Año 3'))),
-            h('tbody', null, demanda.cohortes.map((c) => h('tr', { key: c.anio },
-              h('td', null, 'Captados en el año ' + c.anio),
-              h('td', { className: 'km-r' }, num(c.nuevos)),
-              h('td', { className: 'km-r km-mut' }, c.vivos[0] ? num(c.vivos[0]) : '—'),
-              h('td', { className: 'km-r km-mut' }, c.vivos[1] ? num(c.vivos[1]) : '—'),
-              h('td', { className: 'km-r km-mut' }, c.vivos[2] ? num(c.vivos[2]) : '—'))).concat([
-                h('tr', { key: 'tot', className: 'km-total' },
-                  h('td', null, 'Clientes vivos'),
-                  h('td', { className: 'km-r' }, num(s.clientes3)),
-                  h('td', { className: 'km-r' }, num(demanda.vivos[0])),
-                  h('td', { className: 'km-r' }, num(demanda.vivos[1])),
-                  h('td', { className: 'km-r' }, num(demanda.vivos[2]))),
-                h('tr', { key: 'arr', className: 'km-total' },
-                  h('td', null, 'ARR'), h('td', { className: 'km-r' }, ''),
-                  h('td', { className: 'km-r' }, usd(demanda.arr[0])),
-                  h('td', { className: 'km-r' }, usd(demanda.arr[1])),
-                  h('td', { className: 'km-r' }, usd(demanda.arr[2]))),
-              ])))))),
-
-      seccion('Mix de planes', 'Cuánto pesa cada plan en la base de clientes. Mueve el mix y el ARPU, el LTV y el ARR se recalculan.',
-        h('div', { className: 'km-mixes' }, ['starter', 'business', 'enterprise'].map((k) => {
-          const p = oferta.planes.filter((x) => x.id === k)[0];
-          return h('label', { className: 'km-mix', key: k },
-            h('span', null, p.nombre, h('em', null, usd(p.mensual) + '/mes')),
-            numIn(Math.round((estado.mix[k] || 0) * 100), (v) => setMix(k, Number(v) / 100), 5, 0, 100),
-            h('span', { className: 'km-mut' }, '%'));
-        }).concat([
-          h('span', {
-            key: 'suma',
-            className: 'km-cuenta' + (Math.abs(['starter', 'business', 'enterprise']
-              .reduce((a, k) => a + (estado.mix[k] || 0), 0) - 1) > 0.001 ? ' km-riesgo-txt' : ''),
-          }, 'Suma del mix: ' + pct(['starter', 'business', 'enterprise'].reduce((a, k) => a + (estado.mix[k] || 0), 0), 0)),
-        ]))),
-
-      seccion('Retención', null, h('p', { className: 'km-baja' },
+          demanda.payback > 12 ? C.red : C.green)),
+      h('div', { className: 'km-g2' },
+        card('ARR a tres años', C.green,
+          'Cada cohorte se capta repartida en 12 meses y se le aplica supervivencia mes a mes. Sin ese descuento el churn no afectaría el ARR y la proyección sería falsa.',
+          barrasVert([0, 1, 2].map((i) => ({
+            label: 'Año ' + (i + 1), valor: demanda.arr[i], color: [C.violet, C.calipso, C.cyan][i],
+          })), usd)),
+        card('Mix de planes', C.fuchsia,
+          'Cuánto pesa cada plan en la base de clientes. Mueve el mix y el ARPU, el LTV y el ARR se recalculan.',
+          h('div', null,
+            ['starter', 'business', 'enterprise'].map((k) => {
+              const p = oferta.planes.filter((x) => x.id === k)[0];
+              return h('div', { className: 'km-ctrl', key: k, style: { marginBottom: '10px' } },
+                h('label', null, p.nombre + ' · ' + usd(p.mensual) + '/mes'),
+                h('div', { className: 'km-ctrl-row' },
+                  h('input', {
+                    className: 'km-range', type: 'range', min: 0, max: 1, step: 0.05,
+                    value: estado.mix[k] || 0, onChange: (e) => setMix(k, e.target.value),
+                  }),
+                  h('span', { className: 'km-val' }, pct(estado.mix[k], 0))));
+            }),
+            h('div', { className: 'km-cuenta', style: Math.abs(mixSuma - 1) > 0.001 ? { color: C.red } : null },
+              'Suma del mix: ' + pct(mixSuma, 0) + (Math.abs(mixSuma - 1) > 0.001 ? ' — debería sumar 100%' : ''))))),
+      card('Proyección por cohorte', C.cyan,
         'De los ' + num(s.clientes3) + ' clientes captados en tres años quedan vivos ' + num(demanda.vivos[2])
         + ' al cierre del año 3: una retención del ' + pct(demanda.retencion, 0)
-        + '. Entre el 40% y el 60% del churn ocurre antes del tercer mes, así que esta cifra se gana en el onboarding, no en la venta.')));
+        + '. Entre el 40% y el 60% del churn ocurre antes del tercer mes, así que esa cifra se gana en el onboarding, no en la venta.',
+        tabla(cols, demanda.cohortes, { key: (c) => c.anio, pie: pie })));
   }
 
   function vistaClientes() {
-    return h('div', { className: 'km-grid' },
-      seccion('Perfiles de cliente ideal', 'Seis perfiles con el dolor que los mueve, el gatillo de compra y la objeción que hay que responder.',
-        h('div', { className: 'km-cards km-cards-3' }, DATA.icp.map((p, i) => h('article', { className: 'km-card', key: i },
-          h('h4', null, p.perfil),
-          h('div', { className: 'km-tags' },
-            h('span', { className: 'km-tag' }, p.rol),
-            h('span', { className: 'km-tag' }, p.tamano),
-            h('span', { className: 'km-tag km-tag-on' }, p.producto)),
-          h('p', null, h('b', null, 'Dolor. '), p.dolor),
-          h('p', null, h('b', null, 'Gatillo. '), p.gatillo),
-          h('p', { className: 'km-obj' }, h('b', null, 'Objeción. '), p.objecion),
-          h('p', null, h('b', null, 'Cómo se le vende. '), p.venta))))),
-
-      seccion('Segmentación por tamaño', null,
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-          h('thead', null, h('tr', null, h('th', null, 'Segmento'), h('th', null, 'Empleados'),
-            h('th', null, 'Veredicto'), h('th', null, 'Plan sugerido'), h('th', null, 'Por qué'), h('th', null, 'Riesgo'))),
-          h('tbody', null, DATA.segmentos.map((s, i) => h('tr', { key: i },
-            h('td', null, h('b', null, s.segmento)), h('td', { className: 'km-mut' }, s.empleados),
-            h('td', null, h('span', { className: 'km-vered km-v' + s.veredicto.charAt(0) }, s.veredicto)),
-            h('td', { className: 'km-mut' }, s.plan),
-            h('td', { className: 'km-mut km-alt' }, s.porque),
-            h('td', { className: 'km-mut km-alt' }, s.riesgo))))))),
-
-      DATA.evidencia.map((g, i) => seccion(g.titulo, null,
-        h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla' },
-          h('thead', null, h('tr', null, g.cols.map((c, j) => h('th', { key: j, className: j === 2 && g.cols.length > 6 ? 'km-r' : '' }, c)))),
-          h('tbody', null, g.filas.map((f, j) => h('tr', { key: j },
-            f.map((c, k) => h('td', {
-              key: k,
-              className: (k === g.cols.length - 1 ? '' : 'km-mut') + (k >= 3 ? ' km-alt' : ''),
-            }, k === g.cols.length - 1 ? chipConf(c) : c))))))), 'ev' + i)));
-  }
-
-  function vistaDecisiones(oferta) {
-    // Matriz de cartera: lo que paga el mercado contra la ventaja de KIMOS.
-    const W = 720, H = 420, P = 46;
-    const maxMed = Math.max.apply(null, oferta.modulos.map((m) => m.med));
-    const xs = (v) => P + (v / 10) * (W - P * 2);
-    const ys = (v) => H - P - (Math.sqrt(v / maxMed)) * (H - P * 2);
-
-    return h('div', { className: 'km-grid' },
-      seccion('Ocho decisiones que solo aparecen al cruzar oferta y demanda', 'Cada una con el dato que la sostiene por ambos lados.',
-        h('div', { className: 'km-cards km-cards-2' }, DATA.decisiones.map((d) => h('article', {
-          className: 'km-card km-card-' + d.impacto, key: d.n,
-        },
-          h('div', { className: 'km-card-h' }, h('span', { className: 'km-n' }, d.n),
-            h('span', { className: 'km-imp km-i' + d.impacto }, 'impacto ' + d.impacto)),
-          h('h4', null, d.decision),
-          h('p', null, h('b', null, 'Oferta. '), d.oferta),
-          h('p', null, h('b', null, 'Demanda. '), d.demanda),
-          h('p', { className: 'km-hacer' }, h('b', null, 'Qué hacer. '), d.hacer))))),
-
-      seccion('Matriz de cartera', 'Eje horizontal: la ventaja de KIMOS (0 a 10). Eje vertical: lo que paga el mercado por la categoría, en escala de raíz. El corte vertical está en la ventaja 5,5 y el horizontal en la mediana de la cartera (' + usd(oferta.medianaCartera) + ').',
+    const perfiles = DATA.icp.map((p, i) => h('article', { className: 'km-appcard', key: i },
+      h('div', { className: 'km-app-top' },
         h('div', null,
-          h('div', { className: 'km-svg-wrap' }, h('svg', { viewBox: '0 0 ' + W + ' ' + H, className: 'km-svg', role: 'img' },
-            h('rect', { x: xs(5.5), y: P - 14, width: W - P - xs(5.5), height: ys(oferta.medianaCartera) - P + 14, className: 'km-q-apostar' }),
-            h('rect', { x: P, y: P - 14, width: xs(5.5) - P, height: ys(oferta.medianaCartera) - P + 14, className: 'km-q-cuidado' }),
-            h('rect', { x: xs(5.5), y: ys(oferta.medianaCartera), width: W - P - xs(5.5), height: H - P - ys(oferta.medianaCartera), className: 'km-q-difer' }),
-            h('text', { x: W - P - 8, y: P + 4, className: 'km-q-lab', textAnchor: 'end' }, 'APOSTAR'),
-            h('text', { x: P + 8, y: P + 4, className: 'km-q-lab' }, 'MONETIZAR CON CUIDADO'),
-            h('text', { x: W - P - 8, y: H - P - 8, className: 'km-q-lab', textAnchor: 'end' }, 'DIFERENCIAR, NO FACTURAR'),
-            h('text', { x: P + 8, y: H - P - 8, className: 'km-q-lab' }, 'REPLANTEAR'),
-            h('line', { x1: P, y1: H - P, x2: W - P, y2: H - P, className: 'km-eje' }),
-            h('line', { x1: P, y1: P - 14, x2: P, y2: H - P, className: 'km-eje' }),
-            oferta.modulos.map((m) => h('g', { key: m.n, className: 'km-pt' },
-              h('circle', { cx: xs(m.ventaja), cy: ys(m.med), r: Math.max(5, Math.sqrt(m.sugerido) * 0.9) }),
-              h('title', null, m.app + ' — mercado ' + usd(m.med) + '/mes · KIMOS ' + usd(m.sugerido) + '/mes · ventaja ' + m.ventaja + '/10 · ' + m.cuadrante),
-              h('text', { x: xs(m.ventaja), y: ys(m.med) - Math.max(9, Math.sqrt(m.sugerido) * 0.9 + 4), textAnchor: 'middle' }, m.app))),
-            h('text', { x: W / 2, y: H - 10, textAnchor: 'middle', className: 'km-eje-lab' }, 'Ventaja de KIMOS →'),
-            h('text', { x: 14, y: H / 2, textAnchor: 'middle', className: 'km-eje-lab', transform: 'rotate(-90 14 ' + H / 2 + ')' }, 'Lo que paga el mercado →'))),
-          h('div', { className: 'km-tabla-wrap' }, h('table', { className: 'km-tabla km-mini' },
-            h('thead', null, h('tr', null, h('th', null, 'Cuadrante'), h('th', null, 'Módulos'), h('th', { className: 'km-r' }, 'Precio sugerido'))),
-            h('tbody', null, ['APOSTAR', 'MONETIZAR CON CUIDADO', 'DIFERENCIAR, NO FACTURAR', 'REPLANTEAR'].map((q) => {
-              const ms = oferta.modulos.filter((m) => m.cuadrante === q);
-              return h('tr', { key: q },
-                h('td', null, h('span', { className: 'km-cuad km-q' + q.charAt(0) }, q)),
-                h('td', { className: 'km-mut' }, ms.map((m) => m.app).join(' · ') || '—'),
-                h('td', { className: 'km-r km-fuerte' }, usd(ms.reduce((a, m) => a + m.sugerido, 0)) + '/mes'));
-            })))))),
+          h('div', { className: 'km-app-nm' }, p.perfil),
+          h('div', { className: 'km-app-cat' }, p.rol + ' · ' + p.tamano))),
+      h('div', { className: 'km-prow' }, h('div', null, 'Producto ', h('b', null, p.producto))),
+      h('div', { className: 'km-pc km-con' }, h('b', null, 'Dolor'), p.dolor),
+      h('div', { className: 'km-pc km-pro' }, h('b', null, 'Gatillo de compra'), p.gatillo),
+      h('div', { className: 'km-strat', style: { fontStyle: 'italic' } }, '“' + p.objecion + '”'),
+      h('div', { className: 'km-strat' }, h('b', null, 'Cómo se le vende: '), p.venta)));
 
-      seccion('Advertencias metodológicas', 'Lo que este estudio no prueba. Leerlo antes de anclar un precio.',
-        h('ol', { className: 'km-notas' }, DATA.notas.map((n, i) => h('li', { key: i }, n.replace(/^\d+\.\s*/, ''))))));
+    const colsSeg = [
+      { k: 'seg', l: 'Segmento', cell: (s) => h('b', null, s.segmento) },
+      { k: 'emp', l: 'Empleados', cell: (s) => h('span', { className: 'km-mut' }, s.empleados) },
+      { k: 'ver', l: 'Veredicto', cell: (s) => pill(s.veredicto, s.veredicto.indexOf('Objetivo') === 0 ? 'km-p-g' : s.veredicto === 'No perseguir' ? 'km-p-r' : 'km-p-o') },
+      { k: 'plan', l: 'Plan sugerido', cell: (s) => h('span', { className: 'km-mut' }, s.plan) },
+      { k: 'por', l: 'Por qué', cell: (s) => h('span', { className: 'km-mut' }, s.porque) },
+      { k: 'rie', l: 'Riesgo', cell: (s) => h('span', { className: 'km-mut' }, s.riesgo) },
+    ];
+
+    const evidencia = DATA.evidencia.map((g) => {
+      const cols = g.cols.map((c, j) => ({
+        k: 'c' + j, l: c, num: j > 0 && j < g.cols.length - 1 && g.cols.length > 4,
+        cell: (f) => (j === g.cols.length - 1 ? pillConf(f[j]) : h('span', { className: j === 0 ? null : 'km-mut' }, f[j])),
+      }));
+      return card(g.titulo, C.blue, null, tabla(cols, g.filas, { key: (f, i) => i }), { key: g.titulo });
+    });
+
+    return h('div', { className: 'km-wrap km-fade' },
+      card('Perfiles de cliente ideal', C.violet,
+        'Seis perfiles con el dolor que los mueve, el gatillo que dispara la compra y la objeción que hay que responder.',
+        h('div', { className: 'km-g3' }, perfiles)),
+      card('Segmentación por tamaño', C.orange, null, tabla(colsSeg, DATA.segmentos, { key: (s, i) => i })),
+      evidencia);
   }
 
-  /* ------------------------------ supuestos ------------------------------ */
+  function vistaProsContras(oferta) {
+    const tarjetas = oferta.modulos.map((m, i) => h('article', { className: 'km-appcard', key: m.n },
+      h('div', { className: 'km-app-top' },
+        icono(m, i),
+        h('div', null,
+          h('div', { className: 'km-app-nm' }, m.app),
+          h('div', { className: 'km-app-cat' }, m.cat))),
+      h('div', { className: 'km-app-cat', style: { marginBottom: '4px' } }, 'Compite con: ' + m.alt),
+      h('div', { className: 'km-pc km-pro' }, h('b', null, 'A favor'), m.pro),
+      h('div', { className: 'km-pc km-con' }, h('b', null, 'En contra'), m.contra),
+      h('div', { className: 'km-prow' },
+        h('div', null, 'Mercado ', h('b', null, usd(m.min) + '–' + usd(m.max))),
+        h('div', null, 'Sugerido ', h('b', null, usd(m.sugerido))),
+        h('div', null, 'Cuadrante ', h('b', null, m.cuadrante))),
+      h('div', { className: 'km-strat' }, h('b', null, 'Estrategia: '), m.estrategia)));
 
-  function panelSupuestos() {
-    const s = estado.sup;
-    const campo = (k, label, nota, step, max) => h('label', { className: 'km-campo', key: k },
-      h('span', null, label, nota ? h('em', null, nota) : null),
-      numIn(s[k], (v) => setSup(k, v), step, 0, max));
-    const pctCampo = (k, label, nota, step) => h('label', { className: 'km-campo', key: k },
-      h('span', null, label, nota ? h('em', null, nota) : null),
-      h('span', { className: 'km-desc' },
-        numIn(Math.round(s[k] * 1000) / 10, (v) => setSup(k, Number(v) / 100), step || 1, 0, 100), h('span', null, '%')));
-
-    return h('div', { className: 'km-sup' },
-      h('div', { className: 'km-sup-col' },
-        h('h4', null, 'Cliente tipo y posicionamiento'),
-        campo('usuarios', 'Usuarios', 'normaliza precios por asiento', 1),
-        campo('canales', 'Canales sociales', 'normaliza precios por canal', 1),
-        h('label', { className: 'km-campo' },
-          h('span', null, 'Factor de posicionamiento', h('em', null, '0,55 = challenger')),
-          numIn(s.factor, (v) => setSup('factor', v), 0.05, 0, 2)),
-        pctCampo('descAnual', 'Descuento por pago anual')),
-      h('div', { className: 'km-sup-col' },
-        h('h4', null, 'Embudo de mercado'),
-        pctCampo('gastoSuites', 'Gasto en suites de gestión', '% del SaaS'),
-        pctCampo('pymeShare', 'Participación PyME y mid-market'),
-        pctCampo('segmento', 'Segmento 10-250 empleados')),
-      h('div', { className: 'km-sup-col' },
-        h('h4', null, 'Economía por cliente'),
-        pctCampo('churn', 'Churn mensual', 'benchmark PyME: 3% a 7%', 0.1),
-        pctCampo('margen', 'Margen bruto', 'castigado por el costo de IA'),
-        campo('cac', 'CAC promedio', 'USD', 50),
-        campo('clientes3', 'Clientes captados al año 3', 'capacidad comercial', 10)),
-      h('div', { className: 'km-sup-pie' },
-        h('button', { className: 'km-btn', onClick: () => commit({ sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE), mix: Object.assign({}, MIX_BASE) }) },
-          'Restaurar los supuestos del estudio'),
-        h('span', { className: 'km-mut' }, 'Levantamiento: ' + DATA.meta.fecha + ' · ' + DATA.meta.moneda + ' · ' + DATA.competidores.length + ' precios de lista')));
+    return h('div', { className: 'km-wrap km-fade' },
+      nota(VIS.notas.proscontras),
+      h('div', { className: 'km-g3' }, tarjetas));
   }
 
-  /* ------------------------------- render ------------------------------- */
+  function vistaDiagnostico(oferta) {
+    const vals = valsTexto(oferta);
+    const scores = VIS.scores.map((s) => h('div', { key: s.dim },
+      h('div', { className: 'km-score' },
+        h('span', { className: 'km-score-lb' }, s.dim),
+        h('span', { className: 'km-bar' }, h('i', { style: { width: (s.nota * 10) + '%' } })),
+        h('span', { className: 'km-score-sc' }, s.nota + '/10')),
+      h('div', { className: 'km-score-tx' }, s.texto)));
 
-  const TABS = [
-    ['resumen', 'Resumen'],
-    ['modulos', 'Módulos'],
-    ['competencia', 'Competencia'],
-    ['precios', 'Precios y planes'],
-    ['mercados', 'Mercados'],
-    ['economia', 'Economía'],
-    ['clientes', 'Clientes'],
-    ['decisiones', 'Decisiones'],
-  ];
+    // Matriz de cartera: lo que paga el mercado contra la ventaja de KIMOS.
+    const W = 720, H = 400, P = 46;
+    const maxMed = Math.max.apply(null, oferta.modulos.map((m) => m.med).concat([1]));
+    const xs = (v) => P + (v / 10) * (W - P * 2);
+    const ys = (v) => H - P - Math.sqrt(v / maxMed) * (H - P * 2);
+    const puntos = oferta.modulos.map((m) => {
+      const r = Math.max(5, Math.sqrt(m.sugerido) * 0.85);
+      return h('g', { key: m.n, className: 'km-pt' },
+        h('circle', {
+          cx: xs(m.ventaja), cy: ys(m.med), r: r,
+          fill: m.cuadrante === 'APOSTAR' ? C.green : m.cuadrante === 'REPLANTEAR' ? C.red
+            : m.cuadrante === 'MONETIZAR CON CUIDADO' ? C.orange : C.cyan,
+        }, h('title', null, m.app + ' — mercado ' + usd(m.med) + '/mes · KIMOS ' + usd(m.sugerido)
+          + '/mes · ventaja ' + m.ventaja + '/10 · ' + m.cuadrante)),
+        h('text', { x: xs(m.ventaja), y: ys(m.med) - r - 4, textAnchor: 'middle' }, corto(m.app)));
+    });
+    const matriz = h('div', { className: 'km-chart-wrap' },
+      h('svg', { className: 'km-chart', viewBox: '0 0 ' + W + ' ' + H, style: { minWidth: '620px' } },
+        h('rect', { x: xs(5.5), y: 12, width: W - P - xs(5.5), height: ys(oferta.medianaCartera) - 12, fill: C.green, opacity: .07 }),
+        h('rect', { x: P, y: 12, width: xs(5.5) - P, height: ys(oferta.medianaCartera) - 12, fill: C.orange, opacity: .07 }),
+        h('rect', { x: xs(5.5), y: ys(oferta.medianaCartera), width: W - P - xs(5.5), height: H - P - ys(oferta.medianaCartera), fill: C.cyan, opacity: .07 }),
+        h('text', { x: W - P - 6, y: 26, textAnchor: 'end' }, 'APOSTAR'),
+        h('text', { x: P + 6, y: 26 }, 'MONETIZAR CON CUIDADO'),
+        h('text', { x: W - P - 6, y: H - P - 8, textAnchor: 'end' }, 'DIFERENCIAR, NO FACTURAR'),
+        h('text', { x: P + 6, y: H - P - 8 }, 'REPLANTEAR'),
+        h('line', { x1: P, y1: H - P, x2: W - P, y2: H - P, className: 'km-ax' }),
+        h('line', { x1: P, y1: 12, x2: P, y2: H - P, className: 'km-ax' }),
+        puntos,
+        h('text', { x: W / 2, y: H - 12, textAnchor: 'middle' }, 'Ventaja de KIMOS →'),
+        h('text', { x: 14, y: H / 2, textAnchor: 'middle', transform: 'rotate(-90 14 ' + H / 2 + ')' }, 'Lo que paga el mercado →')));
+
+    const decisiones = DATA.decisiones.map((d) => h('div', {
+      className: 'km-diag', key: d.n, style: { '--k-g': d.impacto === 'alto' ? C.fuchsia : C.blue },
+    },
+      h('h4', null, d.n + '. ' + d.decision),
+      h('p', null, h('b', null, 'Oferta. '), d.oferta),
+      h('p', null, h('b', null, 'Demanda. '), d.demanda),
+      h('p', { style: { color: 'var(--k-tx)' } }, h('b', null, 'Qué hacer. '), d.hacer)));
+
+    return h('div', { className: 'km-wrap km-fade' },
+      h('div', { className: 'km-g2' },
+        card('Dónde está parado KIMOS', C.green,
+          'Evaluación por dimensión, de 0 a 10, según la posición competitiva que muestra este estudio.',
+          h('div', null, scores)),
+        card('Qué hacer con esto', C.fuchsia,
+          'Ocho movimientos concretos que salen de cruzar los precios de la competencia con la demanda.',
+          h('div', { className: 'km-col' }, VIS.sugerencias.map((s) => tarjetaDiag(s, vals))))),
+      card('Las ocho decisiones del estudio', C.violet,
+        'Cada una con el dato de oferta y el de demanda que la sostienen. Si un dato cambia, la decisión se revisa.',
+        h('div', { className: 'km-g2' }, decisiones)),
+      card('Matriz de cartera', C.cyan,
+        'Horizontal: la ventaja de KIMOS (0 a 10). Vertical: lo que paga el mercado, en escala de raíz. El corte vertical está en 5,5 y el horizontal en la mediana de la cartera (' + usd(oferta.medianaCartera) + ').',
+        matriz),
+      card('Conclusión', C.orange, null,
+        h('div', { className: 'km-col' }, VIS.conclusiones.map((c) => tarjetaDiag(c, vals)))),
+      card('Advertencias metodológicas', C.amber,
+        'Lo que este estudio no prueba. Leerlo antes de anclar un precio.',
+        h('ol', { className: 'km-hint', style: { paddingLeft: '18px', lineHeight: 1.9 } },
+          DATA.notas.map((n, i) => h('li', { key: i }, n.replace(/^\d+\.\s*/, ''))))));
+  }
+
+  /* -------------------------------- render ------------------------------- */
 
   function Component() {
     const [st, setSt] = React.useState(estado);
@@ -912,48 +1162,73 @@ export default function mount(shell) {
       return () => { oyentes.delete(setSt); };
     }, []);
 
-    const oferta = React.useMemo(() => calcularOferta(st.sup, st.desc), [st.sup, st.desc]);
+    const oferta = React.useMemo(() => calcularOferta(st.sup, st.desc, st.precios), [st.sup, st.desc, st.precios]);
     const demanda = React.useMemo(() => calcularDemanda(st.sup, st.alcance, oferta, st.mix), [st.sup, st.alcance, st.mix, oferta]);
 
-    const alcanceTxt = st.alcance.pais || st.alcance.region || st.alcance.idioma || st.alcance.prioridad || 'Global';
+    const ent = oferta.planes[oferta.planes.length - 1];
+    const banda = oferta.ratioStack > 0.60 ? C.red : oferta.ratioStack < 0.25 ? C.amber : C.green;
+    const alcanceTxt = st.alcance.pais || st.alcance.region || st.alcance.idioma || st.alcance.prioridad || 'Alcance global';
 
-    const cuerpo = st.tab === 'modulos' ? vistaModulos(oferta)
-      : st.tab === 'competencia' ? vistaCompetencia()
-      : st.tab === 'precios' ? vistaPrecios(oferta)
+    const cuerpo = st.tab === 'mapa' ? vistaMapa(oferta)
+      : st.tab === 'competencia' ? vistaCompetencia(oferta)
+      : st.tab === 'planes' ? vistaPlanes(oferta)
+      : st.tab === 'configurador' ? vistaConfigurador(oferta)
       : st.tab === 'mercados' ? vistaMercados(oferta, demanda)
       : st.tab === 'economia' ? vistaEconomia(oferta, demanda)
       : st.tab === 'clientes' ? vistaClientes()
-      : st.tab === 'decisiones' ? vistaDecisiones(oferta)
+      : st.tab === 'proscontras' ? vistaProsContras(oferta)
+      : st.tab === 'diagnostico' ? vistaDiagnostico(oferta)
       : vistaResumen(oferta, demanda);
 
-    return h('div', { className: 'kimos-mercado' },
+    return h('div', { className: 'kimos-mercado' + (st.tema === 'host' ? ' km-host' : '') },
       h('header', { className: 'km-head' },
-        h('div', { className: 'km-titulo' },
-          h('span', { className: 'km-icono' }, '🎯'),
-          h('b', null, 'Estudio de Mercado'),
-          h('span', { className: 'km-ver', title: 'Estudio de Mercado v' + APP_VERSION }, 'v' + APP_VERSION)),
-        h('nav', { className: 'km-tabs' }, TABS.map(([id, label]) => h('button', {
-          key: id, className: 'km-tab' + (st.tab === id ? ' on' : ''),
-          onClick: () => commit({ tab: id }),
-        }, label))),
-        h('div', { className: 'km-acciones' },
-          h('span', { className: 'km-alcance', title: 'Alcance del análisis de demanda' }, alcanceTxt),
-          h('button', { className: 'km-btn' + (st.supAbierto ? ' on' : ''), onClick: () => commit({ supAbierto: !st.supAbierto }) }, '⚙️ Supuestos'),
-          h('button', { className: 'km-btn', onClick: () => exportar(oferta, demanda), title: 'Exportar la pestaña actual a CSV' }, '⬇️ CSV'))),
-      st.supAbierto ? panelSupuestos() : null,
-      h('main', { className: 'km-body' }, cuerpo));
+        h('div', { className: 'km-brand' },
+          h('div', { className: 'km-logo' }, h('span', null, 'K')),
+          h('div', null,
+            h('div', { className: 'km-tit' }, 'Estudio de Mercado y Modelo de Precios',
+              h('span', { className: 'km-ver', title: 'Estudio de Mercado v' + APP_VERSION }, 'v' + APP_VERSION)),
+            h('div', { className: 'km-sub' }, DATA.modulos.length + ' aplicaciones · ' + DATA.competidores.length
+              + ' planes de competencia analizados · precios de lista ' + DATA.meta.moneda + ' · agosto 2026'))),
+        h('span', { className: 'km-chip-alc' }, alcanceTxt),
+        h('div', { className: 'km-tools' },
+          h('button', {
+            className: 'km-btn', title: 'Vuelve a los supuestos, precios y descuentos del estudio',
+            onClick: () => commit({
+              sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE),
+              mix: Object.assign({}, MIX_BASE), precios: {}, cfg: { mods: [], desc: 0.5 },
+            }),
+          }, '↺ Restablecer'),
+          h('button', { className: 'km-btn', onClick: () => exportar(oferta, demanda), title: 'Exporta a CSV la pestaña actual' }, '⭳ Exportar datos'),
+          h('button', {
+            className: 'km-btn' + (st.tema === 'host' ? ' on' : ''),
+            title: 'Alterna entre el tema del estudio y el tema del escritorio de KIMOS',
+            onClick: () => commit({ tema: st.tema === 'host' ? 'estudio' : 'host' }),
+          }, st.tema === 'host' ? '◐ Tema KIMOS' : '◑ Tema estudio'))),
+      h('nav', { className: 'km-tabs' }, TABS.map(([id, label, ico]) => h('button', {
+        key: id, className: 'km-tab' + (st.tab === id ? ' on' : ''),
+        onClick: () => commit({ tab: id }),
+      }, h('span', { className: 'km-tab-i' }, ico), label))),
+      h('div', { className: 'km-body' },
+        h('div', { className: 'km-wrap', style: { marginBottom: '16px' } },
+          h('div', { className: 'km-kpis' },
+            kpi('Gasto actual del cliente', usd(oferta.stackTotal), usd1(oferta.stackPorUsuario) + ' por usuario/mes', C.orange),
+            kpi('KIMOS Enterprise', usd(ent.mensual), usd1(ent.porUsuario) + ' por usuario/mes', C.cyan),
+            kpi('KIMOS vs. gasto actual', pct(oferta.ratioStack, 0),
+              oferta.ratioStack > 0.6 ? 'Sobre la banda sana' : oferta.ratioStack < 0.25 ? 'Bajo la banda sana' : 'Dentro de la banda sana', banda),
+            kpi('Ahorro anual del cliente', usd(oferta.ahorroAnualStack), 'Argumento central de venta', C.green),
+            kpi('Precios verificados', oferta.verificados + '/' + DATA.competidores.length, 'El resto requiere validación', C.violet))),
+        cuerpo));
   }
 
   /* -------------------------------- agente -------------------------------- */
 
   let desregistrar = null;
-
   const CLAVES_SUP = Object.keys(SUP_BASE);
 
   if (shell && shell.agent && typeof shell.agent.register === 'function') {
     desregistrar = shell.agent.register({
       label: 'Estudio de Mercado',
-      description: 'Estudio competitivo y de precios de KIMOS: precio sugerido por módulo contra la competencia, planes y kits, mercado por país y economía por cliente. El agente puede mover los supuestos y el alcance, y leer todo lo que se recalcula.',
+      description: 'Estudio competitivo y de precios de KIMOS: precio sugerido por módulo contra la competencia, planes y kits, configurador de suscripción, mercado por país y economía por cliente. El agente puede mover los supuestos, editar precios de la competencia, armar una cotización y leer todo lo que se recalcula.',
       tools: [
         {
           name: 'SET_SUPUESTO',
@@ -969,11 +1244,31 @@ export default function mount(shell) {
           description: 'Cambia el descuento de un plan o kit sobre la suma a la carta (0,6 = 60%).',
           inputSchema: {
             type: 'object',
+            properties: { plan: { type: 'string', enum: Object.keys(DESC_BASE) }, descuento: { type: 'number' } },
+            required: ['plan', 'descuento'],
+          },
+        },
+        {
+          name: 'SET_PRECIO_COMPETIDOR',
+          description: 'Corrige el precio de lista de un plan de la competencia (USD/mes) y recalcula mediana, precio sugerido, planes y cotización.',
+          inputSchema: {
+            type: 'object',
             properties: {
-              plan: { type: 'string', enum: Object.keys(DESC_BASE) },
+              competidor: { type: 'string' }, plan: { type: 'string' }, precio: { type: 'number' },
+            },
+            required: ['competidor', 'plan', 'precio'],
+          },
+        },
+        {
+          name: 'COTIZAR',
+          description: 'Arma una cotización en el configurador con los módulos indicados (nombres exactos de las apps de KIMOS) y un descuento opcional.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              modulos: { type: 'array', items: { type: 'string' } },
               descuento: { type: 'number' },
             },
-            required: ['plan', 'descuento'],
+            required: ['modulos'],
           },
         },
         {
@@ -1007,15 +1302,17 @@ export default function mount(shell) {
         },
         {
           name: 'RESTAURAR_SUPUESTOS',
-          description: 'Vuelve a los supuestos, descuentos y mix con los que se levantó el estudio.',
+          description: 'Vuelve a los supuestos, descuentos, precios y cotización con los que se levantó el estudio.',
           inputSchema: { type: 'object', properties: {} },
         },
       ],
       getSnapshot: () => {
         // Se recalcula al vuelo desde el estado actual: si dependiera del
         // último render, el agente leería cifras viejas tras cambiar supuestos.
-        const of = calcularOferta(estado.sup, estado.desc);
+        const of = calcularOferta(estado.sup, estado.desc, estado.precios);
         const dem = calcularDemanda(estado.sup, estado.alcance, of, estado.mix);
+        const selCfg = estado.cfg.mods.filter((a) => of.byApp.has(a));
+        const sumaCfg = selCfg.reduce((a, app) => a + of.byApp.get(app).sugerido, 0);
         return {
           version: APP_VERSION,
           levantamiento: DATA.meta.fecha,
@@ -1023,12 +1320,18 @@ export default function mount(shell) {
           supuestos: estado.sup,
           alcance: estado.alcance,
           mixPlanes: estado.mix,
+          preciosEditados: Object.keys(estado.precios).length,
+          cotizacion: {
+            modulos: selCfg, descuento: estado.cfg.desc,
+            sumaALaCarta: sumaCfg, mensual: Math.round(sumaCfg * (1 - estado.cfg.desc)),
+          },
           oferta: {
             suiteALaCarta: of.aLaCarta,
             medianaMercado: Math.round(of.medianaTotal),
             stackActualCliente: Math.round(of.stackTotal),
             kimosSobreStack: Math.round(of.ratioStack * 100) / 100,
             ahorroAnualCliente: Math.round(of.ahorroAnualStack),
+            preciosVerificados: of.verificados + '/' + DATA.competidores.length,
             planes: of.planes.map((p) => ({ id: p.id, nombre: p.nombre, mensual: p.mensual, anual: p.anual, descuento: p.descuento })),
             kits: of.kits.map((p) => ({ id: p.id, nombre: p.nombre, mensual: p.mensual, anual: p.anual })),
             modulos: of.modulos.map((m) => ({
@@ -1052,6 +1355,7 @@ export default function mount(shell) {
             topMercados: dem.filas.slice().sort((a, b) => b.sam - a.sam).slice(0, 5)
               .map((f) => ({ pais: f.pais, samMM: Math.round(f.sam), indice: f.indice, prioridad: f.prioridad })),
           },
+          diagnostico: VIS.scores.map((s) => ({ dimension: s.dim, nota: s.nota })),
           decisiones: DATA.decisiones.map((d) => ({ n: d.n, decision: d.decision, hacer: d.hacer, impacto: d.impacto })),
         };
       },
@@ -1073,6 +1377,24 @@ export default function mount(shell) {
             setDesc(p.plan, v);
             return { success: true, message: p.plan + ' con ' + Math.round(v * 100) + '% de descuento' };
           }
+          if (t === 'SET_PRECIO_COMPETIDOR') {
+            const v = Number(p.precio);
+            if (!isFinite(v) || v < 0) return { success: false, error: 'Precio inválido' };
+            const i = DATA.competidores.findIndex((c) => c.comp === p.competidor && c.plan === p.plan);
+            if (i < 0) return { success: false, error: 'No existe el plan ' + p.plan + ' de ' + p.competidor };
+            setPrecio(i, v);
+            return { success: true, message: p.competidor + ' ' + p.plan + ' = ' + usd1(v) + '/mes' };
+          }
+          if (t === 'COTIZAR') {
+            const validos = (Array.isArray(p.modulos) ? p.modulos : []).filter((a) => DATA.modulos.some((m) => m.app === a));
+            if (!validos.length) return { success: false, error: 'Ningún módulo válido. Usa los nombres exactos de las apps.' };
+            const d = Number(p.descuento);
+            const cfg = { mods: validos, desc: isFinite(d) && d >= 0 && d <= 0.95 ? d : estado.cfg.desc };
+            commit({ tab: 'configurador', cfg: cfg });
+            const of = calcularOferta(estado.sup, estado.desc, estado.precios);
+            const suma = validos.reduce((a, app) => a + of.byApp.get(app).sugerido, 0);
+            return { success: true, message: validos.length + ' módulos · ' + usd(Math.round(suma * (1 - cfg.desc))) + '/mes' };
+          }
           if (t === 'SET_ALCANCE') {
             const a = { region: '', idioma: '', prioridad: '', pais: '' };
             ['region', 'idioma', 'prioridad', 'pais'].forEach((k) => {
@@ -1082,9 +1404,9 @@ export default function mount(shell) {
               return { success: false, error: 'País desconocido: ' + a.pais };
             }
             if (a.pais) { a.region = ''; a.idioma = ''; a.prioridad = ''; }
-            commit({ alcance: a });
             const n = paisesEnAlcance(a).length;
             if (!n) return { success: false, error: 'Ese alcance no deja ningún mercado dentro' };
+            commit({ alcance: a });
             return { success: true, message: n + ' mercados en el alcance' };
           }
           if (t === 'VER_PESTANA') {
@@ -1095,11 +1417,14 @@ export default function mount(shell) {
           if (t === 'VER_MODULO') {
             const m = DATA.modulos.filter((x) => x.app === p.app)[0];
             if (!m) return { success: false, error: 'Módulo desconocido: ' + p.app };
-            commit({ tab: 'modulos', sel: m.n });
+            commit({ tab: 'mapa', modSel: m.n });
             return { success: true, message: 'Detalle de ' + m.app };
           }
           if (t === 'RESTAURAR_SUPUESTOS') {
-            commit({ sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE), mix: Object.assign({}, MIX_BASE) });
+            commit({
+              sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE),
+              mix: Object.assign({}, MIX_BASE), precios: {}, cfg: { mods: [], desc: 0.5 },
+            });
             return { success: true, message: 'Supuestos del estudio restaurados' };
           }
           return { success: false, error: 'Acción no soportada: ' + t };

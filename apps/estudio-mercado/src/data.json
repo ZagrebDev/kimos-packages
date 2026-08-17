@@ -22,7 +22,8 @@
 "contra": "Compite contra OpenAI y Microsoft, que subsidian el precio. La calidad depende de modelos de terceros: si sube el costo del token, sube tu costo variable y no lo controlas.",
 "estrategia": "Ancla de la suite: incluir en todos los planes, nunca vender suelto",
 "conf": "4/5",
-"ventaja": 8.0
+"ventaja": 8.0,
+"icono": "monitor"
 },
 {
 "n": 2,
@@ -35,7 +36,8 @@
 "contra": "Categoría con el ciclo de innovación más rápido del mercado y jugadores con capital ilimitado. El costo por crédito es difícil de proyectar y erosiona margen si se subestima.",
 "estrategia": "Base fija baja + cobro por créditos de consumo",
 "conf": "6/6",
-"ventaja": 6.0
+"ventaja": 6.0,
+"icono": "bot"
 },
 {
 "n": 3,
@@ -48,7 +50,8 @@
 "contra": "Intercom domina el segmento medio-alto con una marca enorme y Tidio el bajo con precio agresivo. Sin volumen de conversaciones, el modelo por resolución de Intercom sale más barato.",
 "estrategia": "Módulo premium: alto valor percibido y ROI demostrable",
 "conf": "9/9",
-"ventaja": 7.0
+"ventaja": 7.0,
+"icono": "message"
 },
 {
 "n": 4,
@@ -61,7 +64,8 @@
 "contra": "Es la categoría más comoditizada que existe y compite contra almacenamiento a escala de Google. Nadie cambia de proveedor de archivos por si solo: solo migra si migra todo.",
 "estrategia": "Commodity: incluir en el core, jamás vender suelto",
 "conf": "7/7",
-"ventaja": 2.0
+"ventaja": 2.0,
+"icono": "folder"
 },
 {
 "n": 5,
@@ -74,7 +78,8 @@
 "contra": "Notion y Confluence tienen ecosistemas de plantillas y comunidades que tomaron una década construir. Migrar documentación es doloroso y frena la venta.",
 "estrategia": "Incluir en el core; diferenciar con búsqueda IA nativa",
 "conf": "5/5",
-"ventaja": 4.0
+"ventaja": 4.0,
+"icono": "book"
 },
 {
 "n": 6,
@@ -87,7 +92,8 @@
 "contra": "Es la categoría más difícil de desplazar del mercado: el chat tiene efecto de red y Teams viene gratis con Microsoft 365. Recomendación honesta: no pelear aquí, integrarse.",
 "estrategia": "Commodity: incluir en el core",
 "conf": "5/5",
-"ventaja": 1.0
+"ventaja": 1.0,
+"icono": "users"
 },
 {
 "n": 7,
@@ -100,7 +106,8 @@
 "contra": "Mercado saturado con Trello a USD 5 y ClickUp a USD 7. Cero disposición a pagar más que el líder, y el costo de cambio para el cliente es bajísimo.",
 "estrategia": "Módulo de entrada con precio agresivo: sirve para adquirir, no para monetizar",
 "conf": "9/9",
-"ventaja": 3.0
+"ventaja": 3.0,
+"icono": "columns"
 },
 {
 "n": 8,
@@ -113,7 +120,8 @@
 "contra": "MS Project es el estándar de facto en organizaciones grandes por inercia. Gantt suelto es un producto de nicho: casi nadie lo compra aislado.",
 "estrategia": "Vender empaquetado con Kanban como módulo único de gestión de proyectos",
 "conf": "8/8",
-"ventaja": 4.0
+"ventaja": 4.0,
+"icono": "calendar"
 },
 {
 "n": 9,
@@ -126,7 +134,8 @@
 "contra": "Notion define la categoría y tiene una comunidad gigantesca de plantillas. Competir de frente en features de documento es una batalla pérdida.",
 "estrategia": "Incluir en el core",
 "conf": "5/5",
-"ventaja": 3.0
+"ventaja": 3.0,
+"icono": "note"
 },
 {
 "n": 10,
@@ -139,7 +148,8 @@
 "contra": "Power BI a USD 14 con el peso de Microsoft detras es difícil de superar en percepción. Requiere perfiles técnicos para armar los paneles y eso encarece el onboarding.",
 "estrategia": "Diferenciador técnico: módulo premium con servicios de implementación",
 "conf": "7/7",
-"ventaja": 6.0
+"ventaja": 6.0,
+"icono": "chart"
 },
 {
 "n": 11,
@@ -152,7 +162,8 @@
 "contra": "Es el módulo más difícil de construir bien: motor de reglas, versionado, auditoría y cumplimiento. Vender BPM exige consultoría y ciclos de venta largos.",
 "estrategia": "Módulo premium: es donde el ticket sube sin resistencia",
 "conf": "5/6",
-"ventaja": 7.0
+"ventaja": 7.0,
+"icono": "flow"
 },
 {
 "n": 12,
@@ -165,7 +176,8 @@
 "contra": "Se solapa fuerte con el módulo Agentes: dos productos que el cliente percibe como uno. Además compite contra open source gratuito y autohospedable, que es un techo de precio duro.",
 "estrategia": "Cobro por consumo; evaluar fusionarlo con Agentes",
 "conf": "5/6",
-"ventaja": 4.0
+"ventaja": 4.0,
+"icono": "cpu"
 },
 {
 "n": 13,
@@ -178,7 +190,8 @@
 "contra": "Tally regala respuestas ilimitadas en su plan free: el piso de precio de la categoría tiende a cero. No es un módulo del que se pueda vivir.",
 "estrategia": "Gancho de entrada freemium con límite de respuestas",
 "conf": "8/8",
-"ventaja": 3.0
+"ventaja": 3.0,
+"icono": "form"
 },
 {
 "n": 14,
@@ -191,7 +204,8 @@
 "contra": "Categoría con costo de cambio altísimo: nadie migra su CRM a la ligera. Salesforce y HubSpot tienen ecosistemas de partners que KIMOS no puede igualar en el corto plazo.",
 "estrategia": "El módulo con mayor disposición a pagar de toda la suite",
 "conf": "12/12",
-"ventaja": 7.0
+"ventaja": 7.0,
+"icono": "target"
 },
 {
 "n": 15,
@@ -204,7 +218,8 @@
 "contra": "Depende de APIs de terceros (Meta, TikTok, LinkedIn) que cambian sin aviso y obligan a mantenimiento constante. Metricool a USD 18 fija un techo bajo.",
 "estrategia": "Cobrar por canal conectado, nunca por usuario",
 "conf": "7/7",
-"ventaja": 4.0
+"ventaja": 4.0,
+"icono": "share"
 },
 {
 "n": 16,
@@ -217,7 +232,8 @@
 "contra": "Canva tiene 200+ millones de usuarios, una biblioteca de plantillas imposible de replicar y cobra USD 10. Competir en features de diseño puro no es realista.",
 "estrategia": "Vender junto a Social Planner como paquete de marketing",
 "conf": "3/4",
-"ventaja": 3.0
+"ventaja": 3.0,
+"icono": "palette"
 },
 {
 "n": 17,
@@ -230,7 +246,8 @@
 "contra": "Uso episódico: la gente lo usa para una campaña y lo abandona, lo que produce churn alto si se cobra mensual. Kahoot domina el reconocimiento de marca en lo educativo.",
 "estrategia": "Add-on por campaña o por evento, no suscripción mensual fija",
 "conf": "4/6",
-"ventaja": 5.0
+"ventaja": 5.0,
+"icono": "game"
 },
 {
 "n": 18,
@@ -243,7 +260,8 @@
 "contra": "Nicho estrecho: solo lo compran empresas con equipo de producto formal. En Latinoamérica ese perfil es escaso y alarga el ciclo de venta.",
 "estrategia": "Nicho de ticket alto: pocos asientos, precio elevado por asiento",
 "conf": "7/7",
-"ventaja": 5.0
+"ventaja": 5.0,
+"icono": "flask"
 },
 {
 "n": 19,
@@ -256,7 +274,8 @@
 "contra": "PIM es intensivo en calidad de datos y migración: el proyecto se juega en la implementación, no en el software. Exige un equipo de soporte técnico sólido.",
 "estrategia": "Tarifa plana por volumen de SKU con asientos ilimitados",
 "conf": "4/5",
-"ventaja": 8.0
+"ventaja": 8.0,
+"icono": "box"
 },
 {
 "n": 20,
@@ -269,7 +288,8 @@
 "contra": "Shopify es un monopolio blando con un app store de miles de integraciones. Sin ese ecosistema, la tienda de KIMOS será funcionalmente más pobre por varios años. Recomendación honesta: integrarse con Shopify antes que competirle.",
 "estrategia": "Tarifa plana; evaluar comisión sobre GMV solo en tiers bajos",
 "conf": "7/7",
-"ventaja": 2.0
+"ventaja": 2.0,
+"icono": "cart"
 },
 {
 "n": 21,
@@ -282,7 +302,8 @@
 "contra": "Es una feature, no un producto: nadie contrata una suite por su vitrina. Vendida suelta compite con Linktree a USD 9.",
 "estrategia": "Add-on económico sobre Productos o Tienda",
 "conf": "1/5",
-"ventaja": 5.0
+"ventaja": 5.0,
+"icono": "store"
 },
 {
 "n": 22,
@@ -295,7 +316,8 @@
 "contra": "Exige integración con bancos y ERPs locales para ser útil de verdad, y eso es trabajo país por país. Sin conciliación automática queda en una planilla bonita.",
 "estrategia": "Tarifa plana por empresa, nunca por usuario",
 "conf": "5/6",
-"ventaja": 6.0
+"ventaja": 6.0,
+"icono": "coins"
 },
 {
 "n": 23,
@@ -308,7 +330,8 @@
 "contra": "Uso estacional con churn natural. Luma es gratis y muy bueno para eventos chicos, lo que aplasta el precio en el segmento de entrada.",
 "estrategia": "Cobrar por evento o campaña, no como suscripción mensual",
 "conf": "3/5",
-"ventaja": 4.0
+"ventaja": 4.0,
+"icono": "ticket"
 },
 {
 "n": 24,
@@ -321,7 +344,8 @@
 "contra": "Make cobra USD 9 por 10.000 operaciones y n8n es gratis autohospedado. El techo de precio es muy bajo y el valor solo aparece hacia afuera de la suite.",
 "estrategia": "Incluir en el core y cobrar por volumen de ejecuciones",
 "conf": "4/4",
-"ventaja": 3.0
+"ventaja": 3.0,
+"icono": "plug"
 }
 ],
 "competidores": [

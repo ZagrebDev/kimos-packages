@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const DIR = dirname(fileURLToPath(import.meta.url));
 const app = readFileSync(join(DIR, 'src/app.js'), 'utf8');
 const datos = JSON.parse(readFileSync(join(DIR, 'src/data.json'), 'utf8'));
+const visual = JSON.parse(readFileSync(join(DIR, 'src/visual.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(join(DIR, 'manifest.json'), 'utf8'));
 
 const declarada = (app.match(/APP_VERSION\s*=\s*'([^']+)'/) || [])[1];
@@ -23,19 +24,26 @@ if (declarada !== manifest.version) {
   process.exit(1);
 }
 
-const marca = 'const DATA = /* DATOS_INLINE */ null;';
-if (!app.includes(marca)) {
-  console.error('No se encontró la marca DATOS_INLINE en src/app.js');
-  process.exit(1);
-}
-
 // JSON.stringify produce un literal válido; se escapa `</` por si el bundle
 // termina embebido en un documento HTML.
-const inline = JSON.stringify(datos).replace(/<\//g, '<\\/');
-const salida = app.replace(marca, `const DATA = ${inline};`);
+const inline = (o) => JSON.stringify(o).replace(/<\//g, '<\\/');
+
+const marcas = [
+  ['const DATA = /* DATOS_INLINE */ null;', `const DATA = ${inline(datos)};`],
+  ['const VIS = /* VISUAL_INLINE */ null;', `const VIS = ${inline(visual)};`],
+];
+let salida = app;
+for (const [marca, valor] of marcas) {
+  if (!salida.includes(marca)) {
+    console.error(`No se encontró la marca ${marca.split('/* ')[1].split(' */')[0]} en src/app.js`);
+    process.exit(1);
+  }
+  salida = salida.replace(marca, valor);
+}
 writeFileSync(join(DIR, 'dist/index.js'), salida);
 
 console.log(
   `dist/index.js escrito · v${manifest.version} · ${(salida.length / 1024).toFixed(0)} KB · ` +
-  `${datos.modulos.length} módulos, ${datos.competidores.length} planes, ${datos.demanda.paises.length} mercados`
+  `${datos.modulos.length} módulos, ${datos.competidores.length} planes, ${datos.demanda.paises.length} mercados, ` +
+  `${visual.scores.length} dimensiones de diagnóstico`
 );
