@@ -54,6 +54,7 @@ Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
 | id              | descripción breve |
 |-----------------|-------------------|
 | `productlab` 🧪 | **Laboratorio de productos personalizables**: componentes/costos, pasos con dependencias y cantidades, previsualizador, builder de descripción, visualizador 3D/AR y publicación del configurador (Jumpseller). Ver [`apps/productlab/`](apps/productlab/). |
+| `estudio-mercado` 🎯 | **Estudio del mercado competitivo**: los 24 módulos de KIMOS contra 154 planes de precio de la competencia, precio sugerido, planes y kits, mercado por país, unit economics y decisiones cruzadas. Todos los supuestos son editables y se recalcula en vivo. Ver [`apps/estudio-mercado/`](apps/estudio-mercado/). |
 | `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla

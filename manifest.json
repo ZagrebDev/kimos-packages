@@ -449,6 +449,22 @@
         "mostrarSegundos": true,
         "mostrarFotos": true
       }
+    },
+    {
+      "id": "estudio-mercado",
+      "name": "Estudio de Mercado",
+      "description": "Estudio del mercado competitivo de KIMOS: 24 módulos frente a 154 planes de precio de la competencia, con precio sugerido por módulo, planes y kits, comparación contra el stack que paga hoy el cliente, mercado por región y por país con filtros de idioma y prioridad comercial, economía por cliente (LTV, CAC, payback, proyección a 3 años) y las decisiones que cruzan oferta y demanda. Todos los supuestos son editables y todo se recalcula en vivo; control por agente IA.",
+      "icon": "🎯",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
     }
   ]
 }

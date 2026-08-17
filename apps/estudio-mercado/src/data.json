@@ -1,0 +1,3517 @@
+{
+"meta": {
+"fecha": "2026-08-16",
+"moneda": "USD",
+"fuente": "KIMOS - Estudio de mercado y modelo de precios (planilla + dashboard, ago-2026)"
+},
+"supuestos": {
+"usuarios": 10,
+"canales": 5,
+"factor": 0.55,
+"descAnual": 0.2
+},
+"modulos": [
+{
+"n": 1,
+"app": "Escritorio Kimos",
+"que": "Control del escritorio, apertura de aplicaciones y chat entre agentes",
+"cat": "AI Workspace / agente de escritorio",
+"alt": "ChatGPT Business, Claude Team, M365 Copilot, Manus",
+"target": "Toda la base instalada",
+"pro": "Es el único módulo que ningún competidor replica dentro de una suite: los demás venden el asistente aparte de las apps. Orquestar agentes sobre datos propios elimina el copy-paste entre herramientas.",
+"contra": "Compite contra OpenAI y Microsoft, que subsidian el precio. La calidad depende de modelos de terceros: si sube el costo del token, sube tu costo variable y no lo controlas.",
+"estrategia": "Ancla de la suite: incluir en todos los planes, nunca vender suelto",
+"conf": "4/5",
+"ventaja": 8.0
+},
+{
+"n": 2,
+"app": "Agentes",
+"que": "Agentes IA internos que ejecutan tareas del negocio",
+"cat": "Constructor de agentes IA",
+"alt": "Zapier, Lindy, Relevance AI, Notion Agents",
+"target": "Equipos de operaciones",
+"pro": "Los agentes ya viven donde están los datos (CRM, archivos, productos). Zapier y Lindy tienen que conectarse por API a todo y pagan ese costo en latencia y fragilidad.",
+"contra": "Categoría con el ciclo de innovación más rápido del mercado y jugadores con capital ilimitado. El costo por crédito es difícil de proyectar y erosiona margen si se subestima.",
+"estrategia": "Base fija baja + cobro por créditos de consumo",
+"conf": "6/6",
+"ventaja": 6.0
+},
+{
+"n": 3,
+"app": "Agentes Web",
+"que": "Chatbots y vendedores web (ej. vendedor_figit.ai)",
+"cat": "Chatbot / agente conversacional web",
+"alt": "Tidio, Intercom Fin, Chatbase, Crisp, ManyChat",
+"target": "E-commerce y equipos de soporte",
+"pro": "El bot conoce el catálogo real (módulo Productos) y el pipeline (Prospección), no un PDF cargado a mano. Ese contexto es exactamente lo que Chatbase no puede dar.",
+"contra": "Intercom domina el segmento medio-alto con una marca enorme y Tidio el bajo con precio agresivo. Sin volumen de conversaciones, el modelo por resolución de Intercom sale más barato.",
+"estrategia": "Módulo premium: alto valor percibido y ROI demostrable",
+"conf": "9/9",
+"ventaja": 7.0
+},
+{
+"n": 4,
+"app": "Archivos",
+"que": "Gestor documental de la organización",
+"cat": "Almacenamiento y gestión documental",
+"alt": "Google Workspace, Dropbox Business, Box, Egnyte",
+"target": "Toda la base instalada",
+"pro": "Los archivos quedan junto a las tareas, productos y clientes que los originan, sin una capa de integración de por medio.",
+"contra": "Es la categoría más comoditizada que existe y compite contra almacenamiento a escala de Google. Nadie cambia de proveedor de archivos por si solo: solo migra si migra todo.",
+"estrategia": "Commodity: incluir en el core, jamás vender suelto",
+"conf": "7/7",
+"ventaja": 2.0
+},
+{
+"n": 5,
+"app": "Conocimiento",
+"que": "Base de conocimiento corporativa",
+"cat": "Knowledge base / wiki con IA",
+"alt": "Confluence, Guru, Slite, Notion, Document360",
+"target": "Equipos de 10+ personas",
+"pro": "La búsqueda alimenta directamente a los agentes: el conocimiento no es un repositorio muerto sino el contexto que consume el resto de la suite.",
+"contra": "Notion y Confluence tienen ecosistemas de plantillas y comunidades que tomaron una década construir. Migrar documentación es doloroso y frena la venta.",
+"estrategia": "Incluir en el core; diferenciar con búsqueda IA nativa",
+"conf": "5/5",
+"ventaja": 4.0
+},
+{
+"n": 6,
+"app": "Equipos",
+"que": "Colaboración y comunicación por equipo",
+"cat": "Colaboración / chat de equipo",
+"alt": "Slack, Microsoft Teams, Google Chat",
+"target": "Toda la base instalada",
+"pro": "Conversación pegada al trabajo, sin saltar entre Slack y el gestor de tareas.",
+"contra": "Es la categoría más difícil de desplazar del mercado: el chat tiene efecto de red y Teams viene gratis con Microsoft 365. Recomendación honesta: no pelear aquí, integrarse.",
+"estrategia": "Commodity: incluir en el core",
+"conf": "5/5",
+"ventaja": 1.0
+},
+{
+"n": 7,
+"app": "Kanban",
+"que": "Tableros de tareas y flujos de trabajo",
+"cat": "Gestión de tareas Kanban",
+"alt": "Trello, ClickUp, Monday.com, Asana, Jira",
+"target": "Todos los equipos",
+"pro": "Funcionalidad de paridad razonable y es el módulo más fácil de adoptar sin capacitación. Buen caballo de Troya para entrar a la cuenta.",
+"contra": "Mercado saturado con Trello a USD 5 y ClickUp a USD 7. Cero disposición a pagar más que el líder, y el costo de cambio para el cliente es bajísimo.",
+"estrategia": "Módulo de entrada con precio agresivo: sirve para adquirir, no para monetizar",
+"conf": "9/9",
+"ventaja": 3.0
+},
+{
+"n": 8,
+"app": "Planificación (Gantt)",
+"que": "Planificación de proyectos en diagrama de Gantt",
+"cat": "Planificación de proyectos / Gantt",
+"alt": "Smartsheet, Wrike, MS Project, TeamGantt, Instagantt",
+"target": "PMOs y consultoras",
+"pro": "Vendido junto a Kanban da una propuesta que Trello no tiene y Smartsheet cobra a USD 19.",
+"contra": "MS Project es el estándar de facto en organizaciones grandes por inercia. Gantt suelto es un producto de nicho: casi nadie lo compra aislado.",
+"estrategia": "Vender empaquetado con Kanban como módulo único de gestión de proyectos",
+"conf": "8/8",
+"ventaja": 4.0
+},
+{
+"n": 9,
+"app": "Notas de Equipo",
+"que": "Notas colaborativas y seguimiento de modificaciones",
+"cat": "Notas colaborativas / docs",
+"alt": "Notion, Coda, Evernote Teams, Slite",
+"target": "Toda la base instalada",
+"pro": "Las notas se vinculan a tareas y clientes reales en vez de vivir en un documento aislado.",
+"contra": "Notion define la categoría y tiene una comunidad gigantesca de plantillas. Competir de frente en features de documento es una batalla pérdida.",
+"estrategia": "Incluir en el core",
+"conf": "5/5",
+"ventaja": 3.0
+},
+{
+"n": 10,
+"app": "HTML Panel / Dashboards",
+"que": "Paneles HTML personalizados (BSC, análisis estratégico)",
+"cat": "Dashboards y paneles embebidos",
+"alt": "Retool, Power BI, Tableau, Geckoboard",
+"target": "Gerencia y dirección",
+"pro": "Los datos ya están dentro de la suite: no hay ETL ni conectores que mantener. Power BI necesita una capa de integración completa para llegar a lo mismo.",
+"contra": "Power BI a USD 14 con el peso de Microsoft detras es difícil de superar en percepción. Requiere perfiles técnicos para armar los paneles y eso encarece el onboarding.",
+"estrategia": "Diferenciador técnico: módulo premium con servicios de implementación",
+"conf": "7/7",
+"ventaja": 6.0
+},
+{
+"n": 11,
+"app": "FossFLOW (BPM)",
+"que": "Gestión y automatización de procesos de negocio, con supervisión por etapa",
+"cat": "BPM / automatización de procesos",
+"alt": "Pipefy, Kissflow, Nintex, Process Street, monday.com",
+"target": "Empresas con procesos regulados",
+"pro": "Categoría con precios altos y competidores caros o pesados: Kissflow parte en USD 2.500/mes de plataforma y Nintex en USD 1.405. Hay mucho espacio para entrar por debajo con algo usable.",
+"contra": "Es el módulo más difícil de construir bien: motor de reglas, versionado, auditoría y cumplimiento. Vender BPM exige consultoría y ciclos de venta largos.",
+"estrategia": "Módulo premium: es donde el ticket sube sin resistencia",
+"conf": "5/6",
+"ventaja": 7.0
+},
+{
+"n": 12,
+"app": "Digitai (automatización IA)",
+"que": "Gestión y automatización de tareas de IA y procesamiento de datos",
+"cat": "Automatización IA / orquestación de datos",
+"alt": "Dify, Flowise, n8n, Relevance AI",
+"target": "Equipos técnicos",
+"pro": "Complementa a los Agentes con el pipeline de datos que los alimenta. Precios de referencia razonables (Dify USD 59, n8n USD 24) dejan margen.",
+"contra": "Se solapa fuerte con el módulo Agentes: dos productos que el cliente percibe como uno. Además compite contra open source gratuito y autohospedable, que es un techo de precio duro.",
+"estrategia": "Cobro por consumo; evaluar fusionarlo con Agentes",
+"conf": "5/6",
+"ventaja": 4.0
+},
+{
+"n": 13,
+"app": "Formularios de Contacto",
+"que": "Administración de formularios de contacto",
+"cat": "Formularios y captura de leads",
+"alt": "Typeform, Jotform, Tally, Fillout",
+"target": "Marketing y ventas",
+"pro": "El lead entra directo al CRM sin Zapier de por medio. Typeform cobra USD 29 solo por 100 respuestas al mes.",
+"contra": "Tally regala respuestas ilimitadas en su plan free: el piso de precio de la categoría tiende a cero. No es un módulo del que se pueda vivir.",
+"estrategia": "Gancho de entrada freemium con límite de respuestas",
+"conf": "8/8",
+"ventaja": 3.0
+},
+{
+"n": 14,
+"app": "Prospección Comercial",
+"que": "Gestión y seguimiento de prospección de clientes",
+"cat": "CRM / prospección de ventas",
+"alt": "Pipedrive, HubSpot, Apollo.io, Salesforce",
+"target": "Equipos comerciales",
+"pro": "Es donde el cliente ya acepta pagar USD 39-100 por asiento. Integrado con Agentes Web y Formularios cierra el ciclo completo de lead a venta, algo que Pipedrive solo hace comprando add-ons.",
+"contra": "Categoría con costo de cambio altísimo: nadie migra su CRM a la ligera. Salesforce y HubSpot tienen ecosistemas de partners que KIMOS no puede igualar en el corto plazo.",
+"estrategia": "El módulo con mayor disposición a pagar de toda la suite",
+"conf": "12/12",
+"ventaja": 7.0
+},
+{
+"n": 15,
+"app": "Social Planner",
+"que": "Planificación de contenido en redes sociales",
+"cat": "Gestión y programación de redes",
+"alt": "Buffer, Hootsuite, Metricool, Later, Sprout Social",
+"target": "Marketing y agencias",
+"pro": "Junto a Kreative Studio cubre crear y publicar en un solo lugar; Buffer y Hootsuite solo publican.",
+"contra": "Depende de APIs de terceros (Meta, TikTok, LinkedIn) que cambian sin aviso y obligan a mantenimiento constante. Metricool a USD 18 fija un techo bajo.",
+"estrategia": "Cobrar por canal conectado, nunca por usuario",
+"conf": "7/7",
+"ventaja": 4.0
+},
+{
+"n": 16,
+"app": "Kreative Studio",
+"que": "Creación de contenido visual: posts, banners, logos y material gráfico",
+"cat": "Diseño gráfico / contenido visual",
+"alt": "Canva, Adobe Express, Figma, VistaCreate",
+"target": "Marketing y disenadores",
+"pro": "El diseño conectado al catálogo de productos y al calendario de publicación es un flujo que Canva no tiene cerrado.",
+"contra": "Canva tiene 200+ millones de usuarios, una biblioteca de plantillas imposible de replicar y cobra USD 10. Competir en features de diseño puro no es realista.",
+"estrategia": "Vender junto a Social Planner como paquete de marketing",
+"conf": "3/4",
+"ventaja": 3.0
+},
+{
+"n": 17,
+"app": "Kimos FunPlai (gamificación)",
+"que": "Gamificación y experiencias interactivas: juegos, concursos y actividades lúdicas",
+"cat": "Gamificación y engagement",
+"alt": "Kahoot!, Spinify, Mentimeter, TalentLMS, Gametize",
+"target": "RRHH, marketing y eventos",
+"pro": "Categoría fragmentada y sin líder claro en el mundo hispano. Conectado a Equipos y Eventos permite gamificar procesos internos reales, no solo trivias sueltas.",
+"contra": "Uso episódico: la gente lo usa para una campaña y lo abandona, lo que produce churn alto si se cobra mensual. Kahoot domina el reconocimiento de marca en lo educativo.",
+"estrategia": "Add-on por campaña o por evento, no suscripción mensual fija",
+"conf": "4/6",
+"ventaja": 5.0
+},
+{
+"n": 18,
+"app": "ProductLab",
+"que": "Gestión de producto, investigación y desarrollo",
+"cat": "Product management / roadmap",
+"alt": "Productboard, Aha!, Airfocus, Jira Product Discovery",
+"target": "Empresas con equipo de producto",
+"pro": "Precios de referencia altos (Productboard Pro USD 80, Aha! USD 59) y competidores percibidos como caros y complejos.",
+"contra": "Nicho estrecho: solo lo compran empresas con equipo de producto formal. En Latinoamérica ese perfil es escaso y alarga el ciclo de venta.",
+"estrategia": "Nicho de ticket alto: pocos asientos, precio elevado por asiento",
+"conf": "7/7",
+"ventaja": 5.0
+},
+{
+"n": 19,
+"app": "Productos (PIM)",
+"que": "Gestión de catálogos de productos",
+"cat": "PIM / catálogo de productos",
+"alt": "Plytix, Akeneo, Salsify, Sales Layer",
+"target": "Retail, distribución y manufactura",
+"pro": "La brecha de precio es enorme: Plytix cobra USD 499 y Akeneo parte en USD 45.000 al año. Integrado con Tienda y Vitrina, KIMOS cubre el ciclo entero que Plytix vende como add-ons de USD 300 cada uno.",
+"contra": "PIM es intensivo en calidad de datos y migración: el proyecto se juega en la implementación, no en el software. Exige un equipo de soporte técnico sólido.",
+"estrategia": "Tarifa plana por volumen de SKU con asientos ilimitados",
+"conf": "4/5",
+"ventaja": 8.0
+},
+{
+"n": 20,
+"app": "Tienda (e-commerce)",
+"que": "Tienda en línea",
+"cat": "E-commerce / storefront",
+"alt": "Shopify, BigCommerce, Wix, WooCommerce",
+"target": "Retail y PyMEs con venta online",
+"pro": "Con PIM y Vitrina integrados, la tienda se alimenta sola desde el catálogo maestro.",
+"contra": "Shopify es un monopolio blando con un app store de miles de integraciones. Sin ese ecosistema, la tienda de KIMOS será funcionalmente más pobre por varios años. Recomendación honesta: integrarse con Shopify antes que competirle.",
+"estrategia": "Tarifa plana; evaluar comisión sobre GMV solo en tiers bajos",
+"conf": "7/7",
+"ventaja": 2.0
+},
+{
+"n": 21,
+"app": "Vitrina (catálogo digital)",
+"que": "Vitrina pública de productos y marca",
+"cat": "Catálogo digital / brand portal",
+"alt": "Linktree, Flipsnack, Plytix Brand Portals",
+"target": "Retail y marcas",
+"pro": "Plytix cobra USD 300 por el mismo add-on. Como complemento del PIM es margen casi puro.",
+"contra": "Es una feature, no un producto: nadie contrata una suite por su vitrina. Vendida suelta compite con Linktree a USD 9.",
+"estrategia": "Add-on económico sobre Productos o Tienda",
+"conf": "1/5",
+"ventaja": 5.0
+},
+{
+"n": 22,
+"app": "KIMOS Cashflow",
+"que": "Gestión del flujo de caja",
+"cat": "Gestión y proyección de flujo de caja",
+"alt": "Float, Fathom, Agicap, Dryrun",
+"target": "Gerencia financiera y PyMEs",
+"pro": "Categoría con precios sanos (Float USD 49-199, Fathom hasta USD 260) y competidores extranjeros con poca adaptación tributaria local.",
+"contra": "Exige integración con bancos y ERPs locales para ser útil de verdad, y eso es trabajo país por país. Sin conciliación automática queda en una planilla bonita.",
+"estrategia": "Tarifa plana por empresa, nunca por usuario",
+"conf": "5/6",
+"ventaja": 6.0
+},
+{
+"n": 23,
+"app": "Gestión de Eventos",
+"que": "Gestión de eventos corporativos (Desayuno Ciberseguridad 2026)",
+"cat": "Gestión de eventos",
+"alt": "Luma, Eventbrite, Bizzabo, Cvent",
+"target": "Marketing corporativo",
+"pro": "El evento se conecta al CRM y a los formularios: los asistentes se vuelven leads automáticamente. Bizzabo cobra USD 499 por usuario para hacer eso mismo.",
+"contra": "Uso estacional con churn natural. Luma es gratis y muy bueno para eventos chicos, lo que aplasta el precio en el segmento de entrada.",
+"estrategia": "Cobrar por evento o campaña, no como suscripción mensual",
+"conf": "3/5",
+"ventaja": 4.0
+},
+{
+"n": 24,
+"app": "Integraciones",
+"que": "Conexión con sistemas externos",
+"cat": "iPaaS / automatización",
+"alt": "Zapier, Make, n8n",
+"target": "Toda la base instalada",
+"pro": "Al vivir dentro de la suite evita el costo de conectar cada app entre si, que es justamente el problema que Zapier existe para resolver.",
+"contra": "Make cobra USD 9 por 10.000 operaciones y n8n es gratis autohospedado. El techo de precio es muy bajo y el valor solo aparece hacia afuera de la suite.",
+"estrategia": "Incluir en el core y cobrar por volumen de ejecuciones",
+"conf": "4/4",
+"ventaja": 3.0
+}
+],
+"competidores": [
+{
+"row": 0,
+"app": "Escritorio Kimos",
+"comp": "ChatGPT Business",
+"plan": "Business",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Enterprise ~USD 60/asiento",
+"fuente": "coworker.ai/blog/chatgpt-enterprise-pricing",
+"conf": "Verificado"
+},
+{
+"row": 1,
+"app": "Escritorio Kimos",
+"comp": "ChatGPT Team",
+"plan": "Team",
+"precio": 25.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "coworker.ai/blog/chatgpt-enterprise-pricing",
+"conf": "Verificado"
+},
+{
+"row": 2,
+"app": "Escritorio Kimos",
+"comp": "Claude Team",
+"plan": "Team",
+"precio": 25.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Mínimo 5 asientos",
+"fuente": "fusioncomputing.ca/copilot-vs-chatgpt-vs-claude",
+"conf": "Verificado"
+},
+{
+"row": 3,
+"app": "Escritorio Kimos",
+"comp": "Microsoft 365 Copilot",
+"plan": "Business",
+"precio": 21.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "USD 18 promocional hasta sep-2026; exige licencia M365",
+"fuente": "geotoolbox.ai/blog/copilot-pricing",
+"conf": "Verificado"
+},
+{
+"row": 4,
+"app": "Escritorio Kimos",
+"comp": "Manus",
+"plan": "Starter",
+"precio": 19.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Agente autónomo por créditos",
+"fuente": "manus.im/pricing",
+"conf": "Estimado"
+},
+{
+"row": 5,
+"app": "Agentes",
+"comp": "Zapier",
+"plan": "Professional",
+"precio": 19.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Free con 100 tareas/mes",
+"fuente": "lindy.ai/blog/zapier-pricing",
+"conf": "Verificado"
+},
+{
+"row": 6,
+"app": "Agentes",
+"comp": "Zapier",
+"plan": "Team",
+"precio": 69.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Usuarios ilimitados",
+"fuente": "lindy.ai/blog/zapier-pricing",
+"conf": "Verificado"
+},
+{
+"row": 7,
+"app": "Agentes",
+"comp": "Lindy",
+"plan": "Plus",
+"precio": 49.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Cobro por créditos, sobreconsumo al doble",
+"fuente": "coworker.ai/blog/lindy-ai-pricing",
+"conf": "Verificado"
+},
+{
+"row": 8,
+"app": "Agentes",
+"comp": "Lindy",
+"plan": "Pro",
+"precio": 99.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "coworker.ai/blog/lindy-ai-pricing",
+"conf": "Verificado"
+},
+{
+"row": 9,
+"app": "Agentes",
+"comp": "Lindy",
+"plan": "Max",
+"precio": 199.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "coworker.ai/blog/lindy-ai-pricing",
+"conf": "Verificado"
+},
+{
+"row": 10,
+"app": "Agentes",
+"comp": "Notion",
+"plan": "Business (Agents)",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Agentes custom: USD 10 / 1.000 créditos",
+"fuente": "notion.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 11,
+"app": "Agentes Web",
+"comp": "Tidio",
+"plan": "Starter",
+"precio": 24.17,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "tidio.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 12,
+"app": "Agentes Web",
+"comp": "Tidio",
+"plan": "Growth",
+"precio": 49.17,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "tidio.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 13,
+"app": "Agentes Web",
+"comp": "Tidio",
+"plan": "Plus",
+"precio": 300.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "tidio.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 14,
+"app": "Agentes Web",
+"comp": "Intercom",
+"plan": "Essential",
+"precio": 29.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Fin AI: USD 0,99 por resolución",
+"fuente": "flowgent.ai/blog/intercom-chatbot-pricing-guide-and-comparison",
+"conf": "Verificado"
+},
+{
+"row": 15,
+"app": "Agentes Web",
+"comp": "Intercom",
+"plan": "Advanced",
+"precio": 85.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Incluye 20 asientos Lite",
+"fuente": "flowgent.ai/blog/intercom-chatbot-pricing-guide-and-comparison",
+"conf": "Verificado"
+},
+{
+"row": 16,
+"app": "Agentes Web",
+"comp": "Intercom",
+"plan": "Expert",
+"precio": 132.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "flowgent.ai/blog/intercom-chatbot-pricing-guide-and-comparison",
+"conf": "Verificado"
+},
+{
+"row": 17,
+"app": "Agentes Web",
+"comp": "Chatbase",
+"plan": "Standard",
+"precio": 120.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "4.000 créditos; sobrecosto USD 40/1.000",
+"fuente": "blog.fastbots.ai/ai-chatbot-pricing-comparison",
+"conf": "Verificado"
+},
+{
+"row": 18,
+"app": "Agentes Web",
+"comp": "Crisp",
+"plan": "Essentials",
+"precio": 103.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "EUR 95 convertidos",
+"fuente": "featurebase.app/blog/crisp-vs-intercom",
+"conf": "Verificado"
+},
+{
+"row": 19,
+"app": "Agentes Web",
+"comp": "ManyChat",
+"plan": "Pro",
+"precio": 14.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "250 contactos activos; USD 139 con 25.000",
+"fuente": "elfsight.com/blog/how-much-does-a-chatbot-cost",
+"conf": "Verificado"
+},
+{
+"row": 20,
+"app": "Archivos",
+"comp": "Google Workspace",
+"plan": "Business Starter",
+"precio": 7.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "30 GB por usuario",
+"fuente": "workspace.google.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 21,
+"app": "Archivos",
+"comp": "Google Workspace",
+"plan": "Business Standard",
+"precio": 14.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "2 TB por usuario",
+"fuente": "workspace.google.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 22,
+"app": "Archivos",
+"comp": "Google Workspace",
+"plan": "Business Plus",
+"precio": 22.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "5 TB por usuario",
+"fuente": "workspace.google.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 23,
+"app": "Archivos",
+"comp": "Dropbox Business",
+"plan": "Standard",
+"precio": 15.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "5 TB compartidos",
+"fuente": "costbench.com/software/document-management/dropbox-business",
+"conf": "Verificado"
+},
+{
+"row": 24,
+"app": "Archivos",
+"comp": "Dropbox Business",
+"plan": "Advanced",
+"precio": 24.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Almacenamiento ilimitado",
+"fuente": "costbench.com/software/document-management/dropbox-business",
+"conf": "Verificado"
+},
+{
+"row": 25,
+"app": "Archivos",
+"comp": "Egnyte",
+"plan": "Business",
+"precio": 22.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "egnyte.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 26,
+"app": "Archivos",
+"comp": "Box",
+"plan": "Business",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "USD 25 con pago mensual",
+"fuente": "bestcloudstorageguide.com/blog/box-pricing",
+"conf": "Verificado"
+},
+{
+"row": 27,
+"app": "Conocimiento",
+"comp": "Confluence",
+"plan": "Standard",
+"precio": 5.42,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "docsie.io/blog/articles/confluence-vs-document360-pricing-comparison-2026",
+"conf": "Verificado"
+},
+{
+"row": 28,
+"app": "Conocimiento",
+"comp": "Guru",
+"plan": "All-in-one",
+"precio": 25.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Mínimo 10 asientos",
+"fuente": "usecarly.com/blog/guru-alternatives",
+"conf": "Verificado"
+},
+{
+"row": 29,
+"app": "Conocimiento",
+"comp": "Slite",
+"plan": "Standard",
+"precio": 8.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "slite.com/learn/knowledge-base-softwares",
+"conf": "Verificado"
+},
+{
+"row": 30,
+"app": "Conocimiento",
+"comp": "Notion",
+"plan": "Business",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Incluye Enterprise Search",
+"fuente": "notion.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 31,
+"app": "Conocimiento",
+"comp": "Document360",
+"plan": "Professional",
+"precio": 199.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Rango 199-499 según uso de IA",
+"fuente": "docsie.io/blog/articles/confluence-vs-document360-pricing-comparison-2026",
+"conf": "Verificado"
+},
+{
+"row": 32,
+"app": "Equipos",
+"comp": "Slack",
+"plan": "Pro",
+"precio": 7.25,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "costbench.com/software/communication/slack",
+"conf": "Verificado"
+},
+{
+"row": 33,
+"app": "Equipos",
+"comp": "Slack",
+"plan": "Business+",
+"precio": 12.5,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "costbench.com/software/communication/slack",
+"conf": "Verificado"
+},
+{
+"row": 34,
+"app": "Equipos",
+"comp": "Microsoft Teams",
+"plan": "Essentials",
+"precio": 4.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Sube a USD 4,50 en jul-2026",
+"fuente": "getpricepulse.com/companies/slack-vs-microsoft-teams-pricing",
+"conf": "Verificado"
+},
+{
+"row": 35,
+"app": "Equipos",
+"comp": "Microsoft 365",
+"plan": "Business Basic",
+"precio": 6.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Teams + Office web",
+"fuente": "getpricepulse.com/companies/slack-vs-microsoft-teams-pricing",
+"conf": "Verificado"
+},
+{
+"row": 36,
+"app": "Equipos",
+"comp": "Microsoft 365",
+"plan": "Business Standard",
+"precio": 12.5,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Incluye Office escritorio",
+"fuente": "getpricepulse.com/companies/slack-vs-microsoft-teams-pricing",
+"conf": "Verificado"
+},
+{
+"row": 37,
+"app": "Kanban",
+"comp": "Trello",
+"plan": "Standard",
+"precio": 5.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "costbench.com/software/project-management/trello",
+"conf": "Verificado"
+},
+{
+"row": 38,
+"app": "Kanban",
+"comp": "Trello",
+"plan": "Premium",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "costbench.com/software/project-management/trello",
+"conf": "Verificado"
+},
+{
+"row": 39,
+"app": "Kanban",
+"comp": "Trello",
+"plan": "Enterprise",
+"precio": 17.5,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Mínimo 50 asientos",
+"fuente": "costbench.com/software/project-management/trello",
+"conf": "Verificado"
+},
+{
+"row": 40,
+"app": "Kanban",
+"comp": "ClickUp",
+"plan": "Unlimited",
+"precio": 7.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "layer3labs.io/guides/clickup-pricing",
+"conf": "Verificado"
+},
+{
+"row": 41,
+"app": "Kanban",
+"comp": "ClickUp",
+"plan": "Business",
+"precio": 12.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "layer3labs.io/guides/clickup-pricing",
+"conf": "Verificado"
+},
+{
+"row": 42,
+"app": "Kanban",
+"comp": "ClickUp",
+"plan": "Business Plus",
+"precio": 19.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "layer3labs.io/guides/clickup-pricing",
+"conf": "Verificado"
+},
+{
+"row": 43,
+"app": "Kanban",
+"comp": "Monday.com",
+"plan": "Basic",
+"precio": 9.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Mínimo 3 asientos",
+"fuente": "softwarefinder.com/resources/trello-vs-asana-vs-monday-vs-clickup",
+"conf": "Verificado"
+},
+{
+"row": 44,
+"app": "Kanban",
+"comp": "Asana",
+"plan": "Starter",
+"precio": 13.49,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "softwarefinder.com/resources/trello-vs-asana-vs-monday-vs-clickup",
+"conf": "Verificado"
+},
+{
+"row": 45,
+"app": "Kanban",
+"comp": "Asana",
+"plan": "Advanced",
+"precio": 24.99,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Se factura en bloques de 5",
+"fuente": "plutio.com/compare/asana-vs-wrike",
+"conf": "Verificado"
+},
+{
+"row": 46,
+"app": "Planificación (Gantt)",
+"comp": "Smartsheet",
+"plan": "Pro",
+"precio": 9.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "tech.co/project-management-software/smartsheet-pricing",
+"conf": "Verificado"
+},
+{
+"row": 47,
+"app": "Planificación (Gantt)",
+"comp": "Smartsheet",
+"plan": "Business",
+"precio": 19.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "tech.co/project-management-software/smartsheet-pricing",
+"conf": "Verificado"
+},
+{
+"row": 48,
+"app": "Planificación (Gantt)",
+"comp": "Wrike",
+"plan": "Team",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "2 a 15 usuarios",
+"fuente": "costbench.com/software/project-management/wrike",
+"conf": "Verificado"
+},
+{
+"row": 49,
+"app": "Planificación (Gantt)",
+"comp": "Wrike",
+"plan": "Business",
+"precio": 25.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Mínimo 5 asientos",
+"fuente": "costbench.com/software/project-management/wrike",
+"conf": "Verificado"
+},
+{
+"row": 50,
+"app": "Planificación (Gantt)",
+"comp": "Microsoft Project",
+"plan": "Plan 1",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "techrepublic.com/article/microsoft-project-vs-smartsheet",
+"conf": "Verificado"
+},
+{
+"row": 51,
+"app": "Planificación (Gantt)",
+"comp": "Microsoft Project",
+"plan": "Plan 3",
+"precio": 30.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Tier real para gestión de recursos",
+"fuente": "techrepublic.com/article/microsoft-project-vs-smartsheet",
+"conf": "Verificado"
+},
+{
+"row": 52,
+"app": "Planificación (Gantt)",
+"comp": "Instagantt",
+"plan": "Team",
+"precio": 20.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "USD 240/ano, 3 colaboradores incluidos",
+"fuente": "wrike.com/blog/best-gantt-chart-software-online",
+"conf": "Verificado"
+},
+{
+"row": 53,
+"app": "Planificación (Gantt)",
+"comp": "TeamGantt",
+"plan": "Lite",
+"precio": 19.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "spotsaas.com/compare/teamgantt-vs-wrike",
+"conf": "Verificado"
+},
+{
+"row": 54,
+"app": "Notas de Equipo",
+"comp": "Notion",
+"plan": "Plus",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "notion.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 55,
+"app": "Notas de Equipo",
+"comp": "Notion",
+"plan": "Business",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "notion.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 56,
+"app": "Notas de Equipo",
+"comp": "Coda",
+"plan": "Pro",
+"precio": 12.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Solo Doc Makers pagan",
+"fuente": "vendr.com/marketplace/coda",
+"conf": "Verificado"
+},
+{
+"row": 57,
+"app": "Notas de Equipo",
+"comp": "Coda",
+"plan": "Team",
+"precio": 36.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "vendr.com/marketplace/coda",
+"conf": "Verificado"
+},
+{
+"row": 58,
+"app": "Notas de Equipo",
+"comp": "Slite",
+"plan": "Standard",
+"precio": 8.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "slite.com/learn/knowledge-base-softwares",
+"conf": "Verificado"
+},
+{
+"row": 59,
+"app": "HTML Panel / Dashboards",
+"comp": "Retool",
+"plan": "Team",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Más USD 5 por usuario interno",
+"fuente": "jetadmin.io/blog/retool-pricing-explained-2026",
+"conf": "Verificado"
+},
+{
+"row": 60,
+"app": "HTML Panel / Dashboards",
+"comp": "Retool",
+"plan": "Business",
+"precio": 50.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Más USD 15 por usuario interno",
+"fuente": "jetadmin.io/blog/retool-pricing-explained-2026",
+"conf": "Verificado"
+},
+{
+"row": 61,
+"app": "HTML Panel / Dashboards",
+"comp": "Power BI",
+"plan": "Pro",
+"precio": 14.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "toucantoco.com/en/blog/power-bi-pricing",
+"conf": "Verificado"
+},
+{
+"row": 62,
+"app": "HTML Panel / Dashboards",
+"comp": "Power BI",
+"plan": "Premium por usuario",
+"precio": 24.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "toucantoco.com/en/blog/power-bi-pricing",
+"conf": "Verificado"
+},
+{
+"row": 63,
+"app": "HTML Panel / Dashboards",
+"comp": "Tableau",
+"plan": "Viewer",
+"precio": 15.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "costbench.com/software/business-intelligence/tableau",
+"conf": "Verificado"
+},
+{
+"row": 64,
+"app": "HTML Panel / Dashboards",
+"comp": "Tableau",
+"plan": "Creator",
+"precio": 75.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "costbench.com/software/business-intelligence/tableau",
+"conf": "Verificado"
+},
+{
+"row": 65,
+"app": "HTML Panel / Dashboards",
+"comp": "Geckoboard",
+"plan": "Essential",
+"precio": 29.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "itqlick.com/geckoboard/pricing",
+"conf": "Verificado"
+},
+{
+"row": 66,
+"app": "FossFLOW (BPM)",
+"comp": "Pipefy",
+"plan": "Business",
+"precio": 18.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Free hasta 10 usuarios y 5 procesos",
+"fuente": "aiproductivity.ai/blog/cflow-vs-kissflow-vs-pipefy",
+"conf": "Verificado"
+},
+{
+"row": 67,
+"app": "FossFLOW (BPM)",
+"comp": "Kissflow",
+"plan": "Por usuario",
+"precio": 9.9,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "checkthat.ai/brands/kissflow/pricing",
+"conf": "Verificado"
+},
+{
+"row": 68,
+"app": "FossFLOW (BPM)",
+"comp": "Process Street",
+"plan": "Startup",
+"precio": 100.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "process.st/pricing",
+"conf": "Estimado"
+},
+{
+"row": 69,
+"app": "FossFLOW (BPM)",
+"comp": "monday.com",
+"plan": "Basic",
+"precio": 9.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Usado como plataforma de workflow",
+"fuente": "moxo.com/blog/best-business-process-management-software",
+"conf": "Verificado"
+},
+{
+"row": 70,
+"app": "FossFLOW (BPM)",
+"comp": "Kissflow",
+"plan": "Basic (plataforma)",
+"precio": 2500.0,
+"unidad": "Plano",
+"seg": "Enterprise",
+"nota": "Subió desde USD 1.500 en 2025",
+"fuente": "checkthat.ai/brands/kissflow/pricing",
+"conf": "Verificado"
+},
+{
+"row": 71,
+"app": "FossFLOW (BPM)",
+"comp": "Nintex",
+"plan": "Standard",
+"precio": 1405.0,
+"unidad": "Plano",
+"seg": "Enterprise",
+"nota": "",
+"fuente": "spotsaas.com/compare/kissflow-vs-nintex",
+"conf": "Verificado"
+},
+{
+"row": 72,
+"app": "Digitai (automatización IA)",
+"comp": "Dify",
+"plan": "Professional",
+"precio": 59.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "5.000 créditos de mensajes",
+"fuente": "checkthat.ai/brands/dify/pricing",
+"conf": "Verificado"
+},
+{
+"row": 73,
+"app": "Digitai (automatización IA)",
+"comp": "Dify",
+"plan": "Team",
+"precio": 159.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "10.000 créditos",
+"fuente": "checkthat.ai/brands/dify/pricing",
+"conf": "Verificado"
+},
+{
+"row": 74,
+"app": "Digitai (automatización IA)",
+"comp": "Flowise",
+"plan": "Starter",
+"precio": 35.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Open source, self-host gratis",
+"fuente": "opentools.ai/tools/flowiseai",
+"conf": "Verificado"
+},
+{
+"row": 75,
+"app": "Digitai (automatización IA)",
+"comp": "Flowise",
+"plan": "Enterprise",
+"precio": 65.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "opentools.ai/tools/flowiseai",
+"conf": "Verificado"
+},
+{
+"row": 76,
+"app": "Digitai (automatización IA)",
+"comp": "n8n",
+"plan": "Starter",
+"precio": 24.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Self-host gratis",
+"fuente": "lindy.ai/blog/n8n-pricing",
+"conf": "Verificado"
+},
+{
+"row": 77,
+"app": "Digitai (automatización IA)",
+"comp": "Relevance AI",
+"plan": "Team",
+"precio": 199.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "relevanceai.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 78,
+"app": "Formularios de Contacto",
+"comp": "Typeform",
+"plan": "Basic",
+"precio": 29.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "100 respuestas/mes",
+"fuente": "stackcoast.com/typeform-vs-jotform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 79,
+"app": "Formularios de Contacto",
+"comp": "Typeform",
+"plan": "Plus",
+"precio": 59.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "1.000 respuestas/mes",
+"fuente": "stackcoast.com/typeform-vs-jotform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 80,
+"app": "Formularios de Contacto",
+"comp": "Typeform",
+"plan": "Business",
+"precio": 99.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "10.000 respuestas/mes",
+"fuente": "stackcoast.com/typeform-vs-jotform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 81,
+"app": "Formularios de Contacto",
+"comp": "Jotform",
+"plan": "Bronze",
+"precio": 24.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "1.000 respuestas/mes",
+"fuente": "stackcoast.com/typeform-vs-jotform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 82,
+"app": "Formularios de Contacto",
+"comp": "Jotform",
+"plan": "Gold",
+"precio": 129.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "10.000 respuestas/mes",
+"fuente": "stackcoast.com/typeform-vs-jotform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 83,
+"app": "Formularios de Contacto",
+"comp": "Tally",
+"plan": "Pro",
+"precio": 24.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual; free con respuestas ilimitadas",
+"fuente": "formmate.app/blog/typeform-vs-tally",
+"conf": "Verificado"
+},
+{
+"row": 84,
+"app": "Formularios de Contacto",
+"comp": "Fillout",
+"plan": "Pro",
+"precio": 40.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "customjs.space/blog/best-form-builders-automation-2026",
+"conf": "Verificado"
+},
+{
+"row": 85,
+"app": "Formularios de Contacto",
+"comp": "Fillout",
+"plan": "Business",
+"precio": 75.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Respuestas ilimitadas",
+"fuente": "customjs.space/blog/best-form-builders-automation-2026",
+"conf": "Verificado"
+},
+{
+"row": 86,
+"app": "Prospección Comercial",
+"comp": "Pipedrive",
+"plan": "Lite",
+"precio": 14.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "pipedrive.com/en/pricing",
+"conf": "Verificado"
+},
+{
+"row": 87,
+"app": "Prospección Comercial",
+"comp": "Pipedrive",
+"plan": "Growth",
+"precio": 39.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "pipedrive.com/en/pricing",
+"conf": "Verificado"
+},
+{
+"row": 88,
+"app": "Prospección Comercial",
+"comp": "Pipedrive",
+"plan": "Premium",
+"precio": 59.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "pipedrive.com/en/pricing",
+"conf": "Verificado"
+},
+{
+"row": 89,
+"app": "Prospección Comercial",
+"comp": "Pipedrive",
+"plan": "Ultimate",
+"precio": 79.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "pipedrive.com/en/pricing",
+"conf": "Verificado"
+},
+{
+"row": 90,
+"app": "Prospección Comercial",
+"comp": "HubSpot Sales Hub",
+"plan": "Starter",
+"precio": 15.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "USD 20 con pago mensual",
+"fuente": "docket.io/resources/research/hubspot-sales-hub-pricing",
+"conf": "Verificado"
+},
+{
+"row": 91,
+"app": "Prospección Comercial",
+"comp": "HubSpot Sales Hub",
+"plan": "Professional",
+"precio": 90.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Más USD 1.500 de onboarding",
+"fuente": "docket.io/resources/research/hubspot-sales-hub-pricing",
+"conf": "Verificado"
+},
+{
+"row": 92,
+"app": "Prospección Comercial",
+"comp": "Apollo.io",
+"plan": "Basic",
+"precio": 49.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "salesmotion.io/blog/apollo-pricing",
+"conf": "Verificado"
+},
+{
+"row": 93,
+"app": "Prospección Comercial",
+"comp": "Apollo.io",
+"plan": "Organization",
+"precio": 119.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "salesmotion.io/blog/apollo-pricing",
+"conf": "Verificado"
+},
+{
+"row": 94,
+"app": "Prospección Comercial",
+"comp": "Lusha",
+"plan": "Starter",
+"precio": 37.45,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "cognism.com/blog/apollo-io-pricing",
+"conf": "Verificado"
+},
+{
+"row": 95,
+"app": "Prospección Comercial",
+"comp": "Salesforce",
+"plan": "Starter Suite",
+"precio": 25.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "salesforce.com/sales/pricing",
+"conf": "Verificado"
+},
+{
+"row": 96,
+"app": "Prospección Comercial",
+"comp": "Salesforce",
+"plan": "Pro Suite",
+"precio": 100.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "salesforce.com/sales/pricing",
+"conf": "Verificado"
+},
+{
+"row": 97,
+"app": "Prospección Comercial",
+"comp": "Salesforce",
+"plan": "Enterprise",
+"precio": 175.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Subió 6% en ago-2025",
+"fuente": "salesforce.com/sales/pricing",
+"conf": "Verificado"
+},
+{
+"row": 98,
+"app": "Social Planner",
+"comp": "Buffer",
+"plan": "Essentials",
+"precio": 5.0,
+"unidad": "Por canal",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "buffer.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 99,
+"app": "Social Planner",
+"comp": "Buffer",
+"plan": "Team",
+"precio": 10.0,
+"unidad": "Por canal",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "buffer.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 100,
+"app": "Social Planner",
+"comp": "Hootsuite",
+"plan": "Standard",
+"precio": 99.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "superdirector.app/compare/sprout-social-vs-hootsuite-vs-later",
+"conf": "Verificado"
+},
+{
+"row": 101,
+"app": "Social Planner",
+"comp": "Hootsuite",
+"plan": "Advanced",
+"precio": 249.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Rango 199-399",
+"fuente": "superdirector.app/compare/sprout-social-vs-hootsuite-vs-later",
+"conf": "Verificado"
+},
+{
+"row": 102,
+"app": "Social Planner",
+"comp": "Metricool",
+"plan": "Starter",
+"precio": 18.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual; USD 22 mensual",
+"fuente": "checkthat.ai/brands/metricool/pricing",
+"conf": "Verificado"
+},
+{
+"row": 103,
+"app": "Social Planner",
+"comp": "Later",
+"plan": "Starter",
+"precio": 18.75,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "later.com/blog/social-media-scheduling-tools",
+"conf": "Verificado"
+},
+{
+"row": 104,
+"app": "Social Planner",
+"comp": "Sprout Social",
+"plan": "Advanced",
+"precio": 249.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "planifyapps.com/compare/metricool-vs-sprout-social",
+"conf": "Verificado"
+},
+{
+"row": 105,
+"app": "Kreative Studio",
+"comp": "Canva",
+"plan": "Teams",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Pago anual, mínimo 3 asientos; USD 20 mensual",
+"fuente": "canvapricing.com",
+"conf": "Verificado"
+},
+{
+"row": 106,
+"app": "Kreative Studio",
+"comp": "Adobe Express",
+"plan": "Teams",
+"precio": 7.99,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "USD 4,99 el primer año",
+"fuente": "insidepro360.com/en/saas-tools/canva-vs-adobe-express-vs-figma",
+"conf": "Verificado"
+},
+{
+"row": 107,
+"app": "Kreative Studio",
+"comp": "Figma",
+"plan": "Professional",
+"precio": 12.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Rango 12-60 según tipo de asiento",
+"fuente": "match-vs.com/en/blog/best-design-tools",
+"conf": "Verificado"
+},
+{
+"row": 108,
+"app": "Kreative Studio",
+"comp": "VistaCreate",
+"plan": "Pro",
+"precio": 13.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "create.vista.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 109,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "Kahoot!",
+"plan": "Paid",
+"precio": 29.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Desde USD 10; free hasta 25 asistentes",
+"fuente": "saasworthy.com/product/kahoot/pricing",
+"conf": "Verificado"
+},
+{
+"row": 110,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "Spinify",
+"plan": "Essentials",
+"precio": 9.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "capterra.com/p/155500/Spinify",
+"conf": "Verificado"
+},
+{
+"row": 111,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "Spinify",
+"plan": "Plus",
+"precio": 40.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "capterra.com/p/155500/Spinify",
+"conf": "Verificado"
+},
+{
+"row": 112,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "TalentLMS",
+"plan": "Core",
+"precio": 119.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Insignias, puntos y rankings",
+"fuente": "coursebox.ai/blog/gamified-learning-platforms",
+"conf": "Verificado"
+},
+{
+"row": 113,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "Mentimeter",
+"plan": "Pro",
+"precio": 24.99,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "mentimeter.com/plans",
+"conf": "Estimado"
+},
+{
+"row": 114,
+"app": "Kimos FunPlai (gamificación)",
+"comp": "Gametize",
+"plan": "Business",
+"precio": 50.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "capterra.com/p/186453/Gametize",
+"conf": "Estimado"
+},
+{
+"row": 115,
+"app": "ProductLab",
+"comp": "Productboard",
+"plan": "Essentials",
+"precio": 20.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Por maker",
+"fuente": "blog.buildbetter.ai/best-ai-product-roadmap-tools",
+"conf": "Verificado"
+},
+{
+"row": 116,
+"app": "ProductLab",
+"comp": "Productboard",
+"plan": "Pro",
+"precio": 80.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Por maker",
+"fuente": "blog.buildbetter.ai/best-ai-product-roadmap-tools",
+"conf": "Verificado"
+},
+{
+"row": 117,
+"app": "ProductLab",
+"comp": "Aha!",
+"plan": "Discovery",
+"precio": 39.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "productlift.dev/blog/aha-pricing",
+"conf": "Verificado"
+},
+{
+"row": 118,
+"app": "ProductLab",
+"comp": "Aha!",
+"plan": "Roadmaps",
+"precio": 59.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "productlift.dev/blog/aha-pricing",
+"conf": "Verificado"
+},
+{
+"row": 119,
+"app": "ProductLab",
+"comp": "Airfocus",
+"plan": "Essential",
+"precio": 19.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "ideaplan.io/alternatives/airfocus",
+"conf": "Verificado"
+},
+{
+"row": 120,
+"app": "ProductLab",
+"comp": "Airfocus",
+"plan": "Advanced",
+"precio": 69.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "ideaplan.io/alternatives/airfocus",
+"conf": "Verificado"
+},
+{
+"row": 121,
+"app": "ProductLab",
+"comp": "Jira Product Discovery",
+"plan": "Standard",
+"precio": 10.0,
+"unidad": "Por usuario",
+"seg": "PyME / Empresa",
+"nota": "Solo creadores facturan",
+"fuente": "featurebase.app/blog/jira-product-discovery-pricing",
+"conf": "Verificado"
+},
+{
+"row": 122,
+"app": "Productos (PIM)",
+"comp": "Plytix",
+"plan": "Pro",
+"precio": 499.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "50.000 SKU, asientos ilimitados",
+"fuente": "plytix.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 123,
+"app": "Productos (PIM)",
+"comp": "Plytix",
+"plan": "Brand Portals add-on",
+"precio": 300.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "plytix.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 124,
+"app": "Productos (PIM)",
+"comp": "Sales Layer",
+"plan": "Business",
+"precio": 1000.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "saleslayer.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 125,
+"app": "Productos (PIM)",
+"comp": "Akeneo",
+"plan": "Growth SaaS",
+"precio": 3750.0,
+"unidad": "Plano",
+"seg": "Enterprise",
+"nota": "USD 45.000/ano",
+"fuente": "piminto.com/blog/akeneo-pricing",
+"conf": "Verificado"
+},
+{
+"row": 126,
+"app": "Productos (PIM)",
+"comp": "Salsify",
+"plan": "Enterprise",
+"precio": 6250.0,
+"unidad": "Plano",
+"seg": "Enterprise",
+"nota": "USD 75.000/ano piso",
+"fuente": "pimworks.io/blog/salsify-vs-akeneo",
+"conf": "Verificado"
+},
+{
+"row": 127,
+"app": "Tienda (e-commerce)",
+"comp": "Shopify",
+"plan": "Basic",
+"precio": 39.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Más comisiones de pago",
+"fuente": "shopify.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 128,
+"app": "Tienda (e-commerce)",
+"comp": "Shopify",
+"plan": "Grow",
+"precio": 105.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "shopify.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 129,
+"app": "Tienda (e-commerce)",
+"comp": "Shopify",
+"plan": "Advanced",
+"precio": 399.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "shopify.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 130,
+"app": "Tienda (e-commerce)",
+"comp": "BigCommerce",
+"plan": "Standard",
+"precio": 39.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Tope por volumen de ventas anual",
+"fuente": "getathenic.com/blog/best-ecommerce-platform-comparison-2026",
+"conf": "Verificado"
+},
+{
+"row": 131,
+"app": "Tienda (e-commerce)",
+"comp": "BigCommerce",
+"plan": "Plus",
+"precio": 105.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "getathenic.com/blog/best-ecommerce-platform-comparison-2026",
+"conf": "Verificado"
+},
+{
+"row": 132,
+"app": "Tienda (e-commerce)",
+"comp": "Wix",
+"plan": "Core",
+"precio": 17.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Pago anual",
+"fuente": "websitebuilderexpert.com/ecommerce-website-builders/comparisons/wix-vs-shopify",
+"conf": "Verificado"
+},
+{
+"row": 133,
+"app": "Tienda (e-commerce)",
+"comp": "Wix",
+"plan": "Business Elite",
+"precio": 159.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "websitebuilderexpert.com/ecommerce-website-builders/comparisons/wix-vs-shopify",
+"conf": "Verificado"
+},
+{
+"row": 134,
+"app": "Vitrina (catálogo digital)",
+"comp": "Linktree",
+"plan": "Pro",
+"precio": 9.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "linktr.ee/pricing",
+"conf": "Estimado"
+},
+{
+"row": 135,
+"app": "Vitrina (catálogo digital)",
+"comp": "Linktree",
+"plan": "Premium",
+"precio": 24.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "linktr.ee/pricing",
+"conf": "Estimado"
+},
+{
+"row": 136,
+"app": "Vitrina (catálogo digital)",
+"comp": "Flipsnack",
+"plan": "Starter",
+"precio": 14.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "flipsnack.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 137,
+"app": "Vitrina (catálogo digital)",
+"comp": "Flipsnack",
+"plan": "Professional",
+"precio": 35.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "flipsnack.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 138,
+"app": "Vitrina (catálogo digital)",
+"comp": "Plytix",
+"plan": "Brand Portals",
+"precio": 300.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Add-on sobre plan PIM",
+"fuente": "plytix.com/pricing",
+"conf": "Verificado"
+},
+{
+"row": 139,
+"app": "KIMOS Cashflow",
+"comp": "Float",
+"plan": "Essential",
+"precio": 49.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "spotsaas.com/compare/agicap-vs-moneto-vs-floatapp",
+"conf": "Verificado"
+},
+{
+"row": 140,
+"app": "KIMOS Cashflow",
+"comp": "Float",
+"plan": "Standard",
+"precio": 99.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "spotsaas.com/compare/agicap-vs-moneto-vs-floatapp",
+"conf": "Verificado"
+},
+{
+"row": 141,
+"app": "KIMOS Cashflow",
+"comp": "Float",
+"plan": "Premium",
+"precio": 199.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "spotsaas.com/compare/agicap-vs-moneto-vs-floatapp",
+"conf": "Verificado"
+},
+{
+"row": 142,
+"app": "KIMOS Cashflow",
+"comp": "Fathom",
+"plan": "Starter",
+"precio": 50.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Por módulo",
+"fuente": "capterra.com/p/136476/Fathom",
+"conf": "Verificado"
+},
+{
+"row": 143,
+"app": "KIMOS Cashflow",
+"comp": "Fathom",
+"plan": "Silver",
+"precio": 260.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "capterra.com/p/136476/Fathom",
+"conf": "Verificado"
+},
+{
+"row": 144,
+"app": "KIMOS Cashflow",
+"comp": "Agicap",
+"plan": "Business",
+"precio": 180.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Precio bajo cotización, no publicado",
+"fuente": "g2.com/products/agicap/pricing",
+"conf": "Estimado"
+},
+{
+"row": 145,
+"app": "Gestión de Eventos",
+"comp": "Luma",
+"plan": "Plus",
+"precio": 59.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "0% comisión; free con 5%",
+"fuente": "spotsaas.com/compare/luma-vs-eventbrite",
+"conf": "Verificado"
+},
+{
+"row": 146,
+"app": "Gestión de Eventos",
+"comp": "Eventbrite",
+"plan": "Pro",
+"precio": 15.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "Más 3,7% + USD 1,79 por ticket",
+"fuente": "stackscored.com/pricing/event-management",
+"conf": "Verificado"
+},
+{
+"row": 147,
+"app": "Gestión de Eventos",
+"comp": "Dryfta",
+"plan": "Basic",
+"precio": 99.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "dryfta.com/pricing",
+"conf": "Estimado"
+},
+{
+"row": 148,
+"app": "Gestión de Eventos",
+"comp": "Bizzabo",
+"plan": "Event Experience OS",
+"precio": 499.0,
+"unidad": "Por usuario",
+"seg": "Enterprise",
+"nota": "Mínimo 3 usuarios = USD 17.999/ano",
+"fuente": "stackscored.com/pricing/event-management",
+"conf": "Verificado"
+},
+{
+"row": 149,
+"app": "Gestión de Eventos",
+"comp": "Cvent",
+"plan": "Enterprise",
+"precio": 4167.0,
+"unidad": "Plano",
+"seg": "Enterprise",
+"nota": "USD 50.000/ano piso estimado",
+"fuente": "stackscored.com/pricing/event-management",
+"conf": "Estimado"
+},
+{
+"row": 150,
+"app": "Integraciones",
+"comp": "Zapier",
+"plan": "Professional",
+"precio": 19.99,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "lindy.ai/blog/zapier-pricing",
+"conf": "Verificado"
+},
+{
+"row": 151,
+"app": "Integraciones",
+"comp": "Zapier",
+"plan": "Team",
+"precio": 69.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "lindy.ai/blog/zapier-pricing",
+"conf": "Verificado"
+},
+{
+"row": 152,
+"app": "Integraciones",
+"comp": "Make",
+"plan": "Core",
+"precio": 9.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "10.000 operaciones",
+"fuente": "automationatlas.io/guides/zapier-vs-make-n8n-comparison",
+"conf": "Verificado"
+},
+{
+"row": 153,
+"app": "Integraciones",
+"comp": "n8n",
+"plan": "Starter",
+"precio": 24.0,
+"unidad": "Plano",
+"seg": "PyME / Empresa",
+"nota": "",
+"fuente": "lindy.ai/blog/n8n-pricing",
+"conf": "Verificado"
+}
+],
+"planes": [
+{
+"id": "core",
+"nombre": "Core",
+"para": "Empresas que entran a probar la suite",
+"incluye": "Plataforma base: escritorio con agentes, archivos, notas, equipos, conocimiento e integraciones",
+"mods": [
+1,
+4,
+9,
+6,
+5,
+24
+],
+"desc": 0.55
+},
+{
+"id": "starter",
+"nombre": "Starter",
+"para": "PyMEs de 5 a 20 personas sin procesos formales",
+"incluye": "Core + gestión de tareas + captura de leads",
+"mods": [
+1,
+4,
+9,
+6,
+5,
+24,
+7,
+13
+],
+"desc": 0.55
+},
+{
+"id": "business",
+"nombre": "Business",
+"para": "Empresas de 20 a 100 personas con equipo comercial",
+"incluye": "Core + proyectos + CRM + marketing + dashboards + agentes IA",
+"mods": [
+1,
+4,
+9,
+6,
+5,
+24,
+7,
+13,
+8,
+14,
+15,
+16,
+10,
+2
+],
+"desc": 0.6
+},
+{
+"id": "enterprise",
+"nombre": "Enterprise",
+"para": "Empresas de 100+ personas o con procesos regulados",
+"incluye": "Todos los módulos, incluidos BPM, PIM, Tienda, Cashflow, ProductLab, Eventos y Agentes Web",
+"mods": [
+1,
+2,
+3,
+4,
+5,
+6,
+7,
+8,
+9,
+10,
+11,
+12,
+13,
+14,
+15,
+16,
+17,
+18,
+19,
+20,
+21,
+22,
+23,
+24
+],
+"desc": 0.62
+}
+],
+"kits": [
+{
+"id": "comercial",
+"nombre": "Kit Comercial",
+"para": "Equipos de ventas y marketing",
+"incluye": "Captar, atender y cerrar: CRM + formularios + chatbot + redes + diseño",
+"mods": [
+14,
+13,
+3,
+15,
+16
+],
+"desc": 0.45
+},
+{
+"id": "operaciones",
+"nombre": "Kit Operaciones",
+"para": "PMOs, operaciones y consultoras",
+"incluye": "Ejecutar y controlar: tareas + Gantt + procesos + paneles",
+"mods": [
+7,
+8,
+11,
+10,
+9
+],
+"desc": 0.45
+},
+{
+"id": "retail",
+"nombre": "Kit Retail",
+"para": "Retail, distribución y marcas",
+"incluye": "Vender en línea: catálogo maestro + tienda + vitrina + bot + diseño",
+"mods": [
+19,
+20,
+21,
+3,
+16
+],
+"desc": 0.45
+},
+{
+"id": "ia",
+"nombre": "Kit IA",
+"para": "Equipos técnicos y de innovación",
+"incluye": "Automatizar con IA: escritorio + agentes + pipelines de datos + bot + base de conocimiento",
+"mods": [
+1,
+2,
+12,
+3,
+5
+],
+"desc": 0.45
+},
+{
+"id": "finanzas",
+"nombre": "Kit Finanzas y Gestión",
+"para": "Gerencia financiera",
+"incluye": "Controlar la plata: flujo de caja + paneles + planificación + documentos",
+"mods": [
+22,
+10,
+8,
+4
+],
+"desc": 0.45
+}
+],
+"stack": [
+{
+"necesidad": "Archivos, correo y videollamadas",
+"herramienta": "Google Workspace",
+"plan": "Business Standard",
+"comp": 21
+},
+{
+"necesidad": "Chat de equipo",
+"herramienta": "Slack",
+"plan": "Pro",
+"comp": 32
+},
+{
+"necesidad": "Tareas y proyectos",
+"herramienta": "ClickUp",
+"plan": "Business",
+"comp": 41
+},
+{
+"necesidad": "Planificación Gantt",
+"herramienta": "Smartsheet",
+"plan": "Pro",
+"comp": 46
+},
+{
+"necesidad": "Base de conocimiento",
+"herramienta": "Confluence",
+"plan": "Standard",
+"comp": 27
+},
+{
+"necesidad": "Notas colaborativas",
+"herramienta": "Notion",
+"plan": "Plus",
+"comp": 54
+},
+{
+"necesidad": "CRM y prospección",
+"herramienta": "Pipedrive",
+"plan": "Growth",
+"comp": 87
+},
+{
+"necesidad": "Redes sociales",
+"herramienta": "Buffer",
+"plan": "Team",
+"comp": 99
+},
+{
+"necesidad": "Formularios",
+"herramienta": "Typeform",
+"plan": "Basic",
+"comp": 78
+},
+{
+"necesidad": "Diseño gráfico",
+"herramienta": "Canva",
+"plan": "Teams",
+"comp": 105
+},
+{
+"necesidad": "Chatbot web",
+"herramienta": "Tidio",
+"plan": "Growth",
+"comp": 12
+},
+{
+"necesidad": "Flujo de caja",
+"herramienta": "Float",
+"plan": "Standard",
+"comp": 140
+},
+{
+"necesidad": "Dashboards",
+"herramienta": "Power BI",
+"plan": "Pro",
+"comp": 61
+},
+{
+"necesidad": "Automatización de procesos",
+"herramienta": "Pipefy",
+"plan": "Business",
+"comp": 66
+},
+{
+"necesidad": "Automatización IA",
+"herramienta": "Dify",
+"plan": "Professional",
+"comp": 72
+},
+{
+"necesidad": "Gamificación",
+"herramienta": "Kahoot!",
+"plan": "Paid",
+"comp": 109
+},
+{
+"necesidad": "Gestión de producto",
+"herramienta": "Jira Product Discovery",
+"plan": "Standard",
+"comp": 121
+},
+{
+"necesidad": "PIM / catálogo",
+"herramienta": "Plytix",
+"plan": "Pro",
+"comp": 122
+},
+{
+"necesidad": "Tienda online",
+"herramienta": "Shopify",
+"plan": "Grow",
+"comp": 128
+},
+{
+"necesidad": "Vitrina de marca",
+"herramienta": "Linktree",
+"plan": "Premium",
+"comp": 135
+},
+{
+"necesidad": "Asistente IA",
+"herramienta": "ChatGPT Business",
+"plan": "Business",
+"comp": 0
+},
+{
+"necesidad": "Agentes / automatización",
+"herramienta": "Zapier",
+"plan": "Team",
+"comp": 6
+},
+{
+"necesidad": "Integraciones",
+"herramienta": "Make",
+"plan": "Core",
+"comp": 152
+},
+{
+"necesidad": "Eventos",
+"herramienta": "Luma",
+"plan": "Plus",
+"comp": 145
+}
+],
+"demanda": {
+"params": {
+"saasGlobal": {
+"label": "Mercado SaaS global 2026",
+"valor": 375570.0,
+"unidad": "USD MM",
+"nota": "Suma de las cinco regiones"
+},
+"gastoSuites": {
+"label": "Gasto en suites de gestión",
+"valor": 0.22,
+"unidad": "% del SaaS",
+"nota": "Supuesto: participación de suites de gestión y productividad"
+},
+"pymeShare": {
+"label": "Participación PyME y mid-market",
+"valor": 0.45,
+"unidad": "% de la categoría",
+"nota": "Supuesto"
+},
+"segmento": {
+"label": "Segmento 10-250 empleados",
+"valor": 0.55,
+"unidad": "% del segmento",
+"nota": "Supuesto: rango que KIMOS puede atender"
+},
+"churn": {
+"label": "Churn mensual",
+"valor": 0.04,
+"unidad": "%",
+"nota": "Benchmark PyME: 3% a 7%, mediana 3,5%"
+},
+"margen": {
+"label": "Margen bruto",
+"valor": 0.75,
+"unidad": "%",
+"nota": "Castigado por el costo variable de IA"
+},
+"cac": {
+"label": "CAC promedio",
+"valor": 1200.0,
+"unidad": "USD",
+"nota": "Benchmark PyME autoservicio: USD 200 a 700"
+},
+"clientes3": {
+"label": "Clientes captados al año 3",
+"valor": 550.0,
+"unidad": "clientes",
+"nota": "Bruto acumulado, antes de churn"
+}
+},
+"regiones": [
+{
+"region": "Norteamérica",
+"saas": 172680.0,
+"share": 0.46,
+"cagr": 0.13,
+"cobertura": 0.15,
+"indice": 1.0,
+"lectura": "EE.UU. y Canadá. Mayor concentración de proveedores e infraestructura cloud madura. También donde están todos los competidores con capital ilimitado.",
+"fuente": "fortunebusinessinsights.com/software-as-a-service-saas-market-102222",
+"conf": "Verificado"
+},
+{
+"region": "Asia-Pacífico",
+"saas": 86060.0,
+"share": 0.229,
+"cagr": 0.22,
+"cobertura": 0.1,
+"indice": 0.7,
+"lectura": "Región de mayor crecimiento del mundo. Mayor varianza interna de precio: 40 puntos entre Japon/Australia y el sudeste asiático emergente.",
+"fuente": "precedenceresearch.com/software-as-a-service-market",
+"conf": "Verificado"
+},
+{
+"region": "Europa",
+"saas": 70810.0,
+"share": 0.189,
+"cagr": 0.12,
+"cobertura": 0.2,
+"indice": 0.95,
+"lectura": "Mercado maduro con alta exigencia de cumplimiento (GDPR, residencia de datos). Los nórdicos pagan 8-18% de premium sobre el baseline de EE.UU.",
+"fuente": "fortunebusinessinsights.com/software-as-a-service-saas-market-102222",
+"conf": "Verificado"
+},
+{
+"region": "América Latina",
+"saas": 21000.0,
+"share": 0.056,
+"cagr": 0.148,
+"cobertura": 0.6,
+"indice": 0.6,
+"lectura": "USD 21.000 MM en 2025, proyectado a USD 45.000 MM en 2030. Brasil concentra el 60% de las ~17.000 empresas SaaS de la región.",
+"fuente": "informesdeexpertos.com/informes/mercado-latinoamericano-de-software-como-servicio-saas",
+"conf": "Verificado"
+},
+{
+"region": "Medio Oriente y África",
+"saas": 25020.0,
+"share": 0.066,
+"cagr": 0.16,
+"cobertura": 0.05,
+"indice": 0.55,
+"lectura": "Residual del total global. Mercado incipiente, alta dependencia de proveedores globales.",
+"fuente": "Calculo residual sobre el total global de USD 375.570 MM",
+"conf": "Estimado"
+}
+],
+"paises": [
+{
+"pais": "Estados Unidos",
+"region": "Norteamérica",
+"idioma": "Inglés",
+"prioridad": "Expansión",
+"cobertura": 0.2,
+"peso": 0.7935,
+"publicado": 141060.0,
+"indice": 1.0,
+"empresas": 36200000.0,
+"contexto": "USD 141.060 MM en 2026, el 37,5% del mercado mundial. 36,2 millones de pequeñas empresas, el 99,9% del total.",
+"conf": "Verificado"
+},
+{
+"pais": "Canadá",
+"region": "Norteamérica",
+"idioma": "Inglés",
+"prioridad": "Expansión",
+"cobertura": 0.2,
+"peso": 0.2065,
+"publicado": 36700.0,
+"indice": 0.95,
+"empresas": null,
+"contexto": "USD 36.700 MM: el 16% del gasto SaaS norteamericano. Crece al 12,6% anual hasta 2030.",
+"conf": "Verificado"
+},
+{
+"pais": "Alemania",
+"region": "Europa",
+"idioma": "Alemán",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.2092,
+"publicado": 14810.0,
+"indice": 0.98,
+"empresas": 3200000.0,
+"contexto": "El mayor mercado SaaS de Europa. 3,2 millones de empresas activas.",
+"conf": "Verificado"
+},
+{
+"pais": "Francia",
+"region": "Europa",
+"idioma": "Francés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.1863,
+"publicado": 13190.0,
+"indice": 0.95,
+"empresas": 5300000.0,
+"contexto": "5,3 millones de empresas activas, la mayor población empresarial de la UE.",
+"conf": "Verificado"
+},
+{
+"pais": "Reino Unido",
+"region": "Europa",
+"idioma": "Inglés",
+"prioridad": "Expansión",
+"cobertura": 0.2,
+"peso": 0.1826,
+"publicado": 12930.0,
+"indice": 0.98,
+"empresas": null,
+"contexto": "Puerta de entrada natural a Europa por idioma y práctica comercial.",
+"conf": "Verificado"
+},
+{
+"pais": "Italia",
+"region": "Europa",
+"idioma": "Italiano",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.0833,
+"publicado": null,
+"indice": 0.85,
+"empresas": 4600000.0,
+"contexto": "4,6 millones de empresas activas. Mercado cloud de USD 14.300 MM en 2025 creciendo al 16,4%.",
+"conf": "Estimado"
+},
+{
+"pais": "España",
+"region": "Europa",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0621,
+"publicado": null,
+"indice": 0.82,
+"empresas": 3500000.0,
+"contexto": "3,5 millones de empresas activas. Mismo idioma: es el puente entre LATAM y Europa.",
+"conf": "Estimado"
+},
+{
+"pais": "Nórdicos",
+"region": "Europa",
+"idioma": "Inglés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.065,
+"publicado": null,
+"indice": 1.05,
+"empresas": null,
+"contexto": "Suecia, Dinamarca, Noruega y Finlandia. Pagan entre 8% y 18% de premium sobre la lista de EE.UU.",
+"conf": "Estimado"
+},
+{
+"pais": "Países Bajos",
+"region": "Europa",
+"idioma": "Neerlandés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.0466,
+"publicado": null,
+"indice": 0.98,
+"empresas": null,
+"contexto": "Alta digitalización y operación comercial en inglés.",
+"conf": "Estimado"
+},
+{
+"pais": "Polonia",
+"region": "Europa",
+"idioma": "Polaco",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.0311,
+"publicado": null,
+"indice": 0.62,
+"empresas": null,
+"contexto": "Crece rápido pero con menor poder adquisitivo y competencia local fuerte.",
+"conf": "Estimado"
+},
+{
+"pais": "Resto de Europa",
+"region": "Europa",
+"idioma": "Varios",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.1338,
+"publicado": null,
+"indice": 0.75,
+"empresas": null,
+"contexto": "Agregado del resto del continente. Total de PyMEs en la UE: 34 millones.",
+"conf": "Derivado"
+},
+{
+"pais": "China",
+"region": "Asia-Pacífico",
+"idioma": "Chino",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.2259,
+"publicado": 19440.0,
+"indice": 0.55,
+"empresas": null,
+"contexto": "El mayor mercado de la región. Ecosistema cerrado y competencia local dominante.",
+"conf": "Verificado"
+},
+{
+"pais": "India",
+"region": "Asia-Pacífico",
+"idioma": "Inglés",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.2004,
+"publicado": 17250.0,
+"indice": 0.35,
+"empresas": null,
+"contexto": "Proyectado a USD 58.400 MM en 2033 creciendo al 16,9% anual: el de mayor crecimiento del mundo, y también el más sensible al precio.",
+"conf": "Verificado"
+},
+{
+"pais": "Japón",
+"region": "Asia-Pacífico",
+"idioma": "Japonés",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.1981,
+"publicado": 17050.0,
+"indice": 0.85,
+"empresas": 3500000.0,
+"contexto": "3,5 millones de MiPymes, el 99,7% de las empresas. Exige localización profunda y ciclos largos.",
+"conf": "Verificado"
+},
+{
+"pais": "Australia",
+"region": "Asia-Pacífico",
+"idioma": "Inglés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.1604,
+"publicado": 13800.0,
+"indice": 0.98,
+"empresas": null,
+"contexto": "USD 13.800 MM estimados para 2026. El 2,6% del mercado mundial y el mercado más accesible de la región por idioma.",
+"conf": "Verificado"
+},
+{
+"pais": "Corea del Sur",
+"region": "Asia-Pacífico",
+"idioma": "Coreano",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.0755,
+"publicado": null,
+"indice": 0.8,
+"empresas": null,
+"contexto": "Crece al 9,4% anual. Alta digitalización pero fuerte preferencia por proveedores locales.",
+"conf": "Estimado"
+},
+{
+"pais": "Singapur",
+"region": "Asia-Pacífico",
+"idioma": "Inglés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.0349,
+"publicado": null,
+"indice": 0.95,
+"empresas": null,
+"contexto": "Pequeño pero de alto ticket y en inglés. Buena cabecera de playa regional.",
+"conf": "Estimado"
+},
+{
+"pais": "Resto de Asia-Pacífico",
+"region": "Asia-Pacífico",
+"idioma": "Varios",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.1048,
+"publicado": null,
+"indice": 0.5,
+"empresas": null,
+"contexto": "Sudeste asiático emergente. Hasta 40 puntos de precio por debajo de Japón y Australia.",
+"conf": "Derivado"
+},
+{
+"pais": "Brasil",
+"region": "América Latina",
+"idioma": "Portugués",
+"prioridad": "Expansión",
+"cobertura": 0.2,
+"peso": 0.5513,
+"publicado": 11578.0,
+"indice": 0.55,
+"empresas": null,
+"contexto": "USD 9.216 MM en 2024 creciendo al 12,1% anual. Concentra el 60% de las ~17.000 empresas SaaS de la región.",
+"conf": "Verificado"
+},
+{
+"pais": "México",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.17,
+"publicado": 3570.0,
+"indice": 0.6,
+"empresas": 6000000.0,
+"contexto": "El 17% del mercado SaaS latinoamericano. 6 millones de unidades económicas; las pymes dan 7 de cada 10 empleos.",
+"conf": "Verificado"
+},
+{
+"pais": "Argentina",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0619,
+"publicado": null,
+"indice": 0.45,
+"empresas": null,
+"contexto": "Las pymes son el 99,4% de las empresas y emplean al 64% de los asalariados. El 41,6% ya usa alguna herramienta de IA.",
+"conf": "Estimado"
+},
+{
+"pais": "Colombia",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0548,
+"publicado": null,
+"indice": 0.5,
+"empresas": null,
+"contexto": "Uno de los países más emprendedores de la región junto con México y Perú.",
+"conf": "Estimado"
+},
+{
+"pais": "Chile",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0548,
+"publicado": null,
+"indice": 0.62,
+"empresas": 1194430.0,
+"contexto": "Mercado base de KIMOS. 1,19 millones de MiPymes formales y el mayor poder adquisitivo de la región.",
+"conf": "Estimado"
+},
+{
+"pais": "Perú",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0286,
+"publicado": null,
+"indice": 0.5,
+"empresas": 2100000.0,
+"contexto": "Más de 2,1 millones de MiPymes formales.",
+"conf": "Estimado"
+},
+{
+"pais": "Resto de América Latina",
+"region": "América Latina",
+"idioma": "Español",
+"prioridad": "Prioritario",
+"cobertura": 0.6,
+"peso": 0.0786,
+"publicado": null,
+"indice": 0.5,
+"empresas": null,
+"contexto": "Centroamérica, Caribe hispano, Ecuador, Uruguay, Bolivia y Paraguay.",
+"conf": "Derivado"
+},
+{
+"pais": "Arabia Saudita",
+"region": "Medio Oriente y África",
+"idioma": "Árabe",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.18,
+"publicado": null,
+"indice": 0.85,
+"empresas": null,
+"contexto": "Fuerte inversión estatal en digitalización.",
+"conf": "Estimado"
+},
+{
+"pais": "Emiratos Árabes Unidos",
+"region": "Medio Oriente y África",
+"idioma": "Inglés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.16,
+"publicado": null,
+"indice": 0.9,
+"empresas": null,
+"contexto": "Hub regional, alto poder adquisitivo y operación en inglés.",
+"conf": "Estimado"
+},
+{
+"pais": "Israel",
+"region": "Medio Oriente y África",
+"idioma": "Inglés",
+"prioridad": "Oportunista",
+"cobertura": 0.08,
+"peso": 0.12,
+"publicado": null,
+"indice": 0.95,
+"empresas": null,
+"contexto": "Alta densidad tecnológica y también altísima competencia local.",
+"conf": "Estimado"
+},
+{
+"pais": "Sudáfrica",
+"region": "Medio Oriente y África",
+"idioma": "Inglés",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.1,
+"publicado": null,
+"indice": 0.5,
+"empresas": null,
+"contexto": "Principal mercado del África subsahariana.",
+"conf": "Estimado"
+},
+{
+"pais": "Resto de Medio Oriente y África",
+"region": "Medio Oriente y África",
+"idioma": "Varios",
+"prioridad": "No perseguir",
+"cobertura": 0.01,
+"peso": 0.44,
+"publicado": null,
+"indice": 0.4,
+"empresas": null,
+"contexto": "Agregado del resto de la región.",
+"conf": "Derivado"
+}
+],
+"mixPlan": [
+{
+"plan": "Starter",
+"peso": 0.6
+},
+{
+"plan": "Business",
+"peso": 0.3
+},
+{
+"plan": "Enterprise",
+"peso": 0.1
+}
+],
+"mixRegion": [
+{
+"region": "América Latina",
+"peso": 0.55
+},
+{
+"region": "Europa",
+"peso": 0.18
+},
+{
+"region": "Norteamérica",
+"peso": 0.15
+},
+{
+"region": "Asia-Pacífico",
+"peso": 0.1
+},
+{
+"region": "Medio Oriente y África",
+"peso": 0.02
+}
+]
+},
+"evidencia": [
+{
+"titulo": "Universo de empresas",
+"cols": [
+"Ámbito",
+"Métrica",
+"Valor",
+"Unidad",
+"Contexto",
+"Fuente",
+"Confianza"
+],
+"filas": [
+[
+"Global",
+"Pequeñas empresas en el mundo",
+"400.000.000",
+"empresas",
+"El 90% de las empresas operativas del mundo son PyMEs y emplean a más del 50% de la fuerza laboral global",
+"hostinger.com/tutorials/small-business-statistics",
+"Verificado"
+],
+[
+"Estados Unidos",
+"Pequeñas empresas",
+"36.200.000",
+"empresas",
+"Representan el 99,9% de todas las compañías del país",
+"demandsage.com/small-business-statistics",
+"Verificado"
+],
+[
+"Union Europea",
+"PyMEs",
+"24.000.000",
+"empresas",
+"Representan el 99,8% del tejido empresarial europeo. Cifra exacta tras muro de pago; orden de magnitud confirmado",
+"europarl.europa.eu/factsheets/en/sheet/63/small-and-medium-sized-enterprises",
+"Estimado"
+],
+[
+"Norteamérica",
+"Adopción de software PyME",
+"40",
+"% del global",
+"Lidera la adopción mundial de software PyME por madurez de infraestructura",
+"businessresearchinsights.com/market-reports/small-and-medium-business-smb-software-market-108773",
+"Verificado"
+],
+[
+"Chile",
+"MiPymes formales",
+"1.194.430",
+"empresas",
+"66% micro, 29% pequeñas, 5% medianas. Emplean a 6,4 millones de personas (~50% del empleo)",
+"sii.cl/estadisticas/empresas_tamano_ventas.htm",
+"Verificado"
+],
+[
+"México",
+"Unidades económicas",
+"6.000.000",
+"empresas",
+"Las pymes generan 7 de cada 10 puestos de trabajo del país",
+"konfio.mx/blog/panorama-pyme/datos-clave-del-crecimiento-empresarial-en-mexico",
+"Verificado"
+],
+[
+"Perú",
+"MiPymes formales",
+"2.100.000",
+"empresas",
+"Dato 2021, último consolidado disponible",
+"ogeiee.produce.gob.pe/index.php/en/shortcode/estadistica-oee/estadisticas-mipyme",
+"Verificado"
+],
+[
+"Argentina",
+"PyMEs sobre el total",
+"99.4",
+"% de empresas",
+"Emplean al 64% de los asalariados registrados",
+"infopymes.com.ar/pymes-como-esta-la-argentina-en-comparacion-con-latam",
+"Verificado"
+]
+]
+},
+{
+"titulo": "Consumo de SaaS",
+"cols": [
+"Métrica",
+"Valor",
+"Unidad",
+"Por que importa",
+"Fuente",
+"Confianza"
+],
+"filas": [
+[
+"Apps SaaS por empresa (promedio)",
+"106",
+"apps",
+"Bajo un 18% desde el pico de 130 en 2022. La consolidación ya empezó.",
+"zylo.com/blog/saas-statistics",
+"Verificado"
+],
+[
+"Apps SaaS en empresa pequeña",
+"87",
+"apps",
+"Es el número que KIMOS promete reducir",
+"zylo.com/blog/saas-statistics",
+"Verificado"
+],
+[
+"Apps SaaS en mid-market",
+"187",
+"apps",
+"Segmento con mayor dolor de fragmentación",
+"zylo.com/blog/saas-statistics",
+"Verificado"
+],
+[
+"Apps SaaS en gran empresa",
+"371",
+"apps",
+"5.000+ empleados",
+"zylo.com/blog/saas-statistics",
+"Verificado"
+],
+[
+"Gasto SaaS por empleado/ano",
+"10.800",
+"USD",
+"Proyección 2026. En empresas pequeñas el rango va de USD 8.000 a 15.000.",
+"vendorbenchmark.com/blog/saas-spend-per-employee-benchmark-data",
+"Verificado"
+],
+[
+"Crecimiento del gasto SaaS",
+"8",
+"% interanual",
+"El portafolio de apps se mantiene estable pero el gasto sube por precios e IA embebida",
+"zylo.com/blog/saas-statistics",
+"Verificado"
+],
+[
+"Líderes tech que planean consolidar",
+"68",
+"%",
+"La mayoría apunta a reducir un 20% el número de proveedores durante 2026. Es exactamente la tesis de KIMOS.",
+"vantagepoint.io/blog/sf/insights/platform-consolidation-2026-saas-stack-reduction-ai",
+"Verificado"
+]
+]
+},
+{
+"titulo": "Comportamiento de compra",
+"cols": [
+"Que mide",
+"Dato",
+"Que significa para KIMOS",
+"Fuente",
+"Confianza"
+],
+"filas": [
+[
+"Tamaño del comité de compra PyME",
+"3 a 5 personas",
+"1-2 campeones, 1-2 decisores, 2-5 influenciadores y 1-3 bloqueadores. En 2014 eran 5,4 en promedio; hoy el promedio general supera los 11.",
+"growthspreeofficial.com/blogs/b2b-saas-buying-committee-size-benchmarks-2026",
+"Verificado"
+],
+[
+"Ciclo de venta bajo USD 15K",
+"14 a 30 días",
+"Entre USD 15K y 50K sube a 30-60 días. Cada participante adicional en el comité suma 8-22 días.",
+"growthspreeofficial.com/blogs/b2b-saas-buying-committee-size-benchmarks-2026",
+"Verificado"
+],
+[
+"Proceso completado sin hablar con ventas",
+"69%",
+"El comprador investiga, compara y decide solo. Si KIMOS no pública precios, queda fuera antes de la primera reunión.",
+"martal.ca/b2b-buying-process-lb",
+"Verificado"
+],
+[
+"Compradores que llegan con requisitos definidos",
+"83%",
+"No vienen a que les expliquen la categoría: vienen a validar si cumples una lista.",
+"martal.ca/b2b-buying-process-lb",
+"Verificado"
+],
+[
+"Procurement como decisor",
+"53% de los ciclos",
+"Participa desde el inicio, no al final. En deals PyME esto suele ser el dueño o el gerente de administración.",
+"growthspreeofficial.com/blogs/b2b-saas-buying-committee-size-benchmarks-2026",
+"Verificado"
+],
+[
+"Probabilidad de estancamiento por stakeholder",
+"12 a 22% adicional",
+"Argumento fuerte para vender kits departamentales en vez de la suite completa: menos firmas, menos riesgo de que el deal muera.",
+"growthspreeofficial.com/blogs/b2b-saas-buying-committee-size-benchmarks-2026",
+"Verificado"
+]
+]
+},
+{
+"titulo": "Benchmarks de retención y adquisición",
+"cols": [
+"Métrica",
+"Benchmark",
+"Lectura",
+"Fuente",
+"Confianza"
+],
+"filas": [
+[
+"Churn mensual PyME",
+"3% a 7%",
+"Mediana de 3,5% sobre 500+ empresas. El cuartil superior baja de 3%.",
+"artisangrowthstrategies.com/blog/saas-churn-rate-benchmarks-2026-500-companies",
+"Verificado"
+],
+[
+"Churn en los primeros 90 días",
+"40% a 60%",
+"Del churn total. El negocio se gana en el onboarding, no en la venta.",
+"saasfractionalcpo.com/blog/reduce-churn-in-saas-a-complete-guide",
+"Verificado"
+],
+[
+"Efecto de un onboarding estructurado",
+"+25% de retención",
+"En el primer año. Es la palanca de retención más barata que existe.",
+"saasfractionalcpo.com/blog/reduce-churn-in-saas-a-complete-guide",
+"Verificado"
+],
+[
+"LTV:CAC en PyME",
+"2,5:1",
+"Funciona porque el costo de adquisición es bajo en términos absolutos, no porque el churn sea bueno.",
+"optif.ai/learn/questions/b2b-saas-ltv-benchmark",
+"Verificado"
+],
+[
+"CAC en PyME",
+"USD 200 a 700",
+"Para venta autoservicio o inside sales ligera.",
+"unbuiltlab.com/learn/benchmarks/saas-cac-benchmarks",
+"Verificado"
+],
+[
+"LTV en PyME",
+"USD 15.000 a 40.000",
+"Rango amplio según expansión de cuenta.",
+"optif.ai/learn/questions/b2b-saas-ltv-benchmark",
+"Verificado"
+],
+[
+"Conversión free a pago",
+"2% a 5%",
+"Define cuanto tráfico hace falta para sostener el plan comercial.",
+"foundrycro.com/blog/saas-marketing-benchmarks-2026",
+"Verificado"
+],
+[
+"CAC payback en PyME",
+"6,2 meses",
+"Herramientas PyME y prosumer. El objetivo general del sector es bajar de 12 meses.",
+"foundrycro.com/blog/saas-marketing-benchmarks-2026",
+"Verificado"
+]
+]
+},
+{
+"titulo": "Índice de precio por región",
+"cols": [
+"Región",
+"Índice sobre EE.UU.",
+"Nota",
+"Fuente",
+"Confianza"
+],
+"filas": [
+[
+"Norteamérica",
+"1",
+"Línea base. KIMOS con factor 0,55 está dejando margen sobre la mesa en este mercado.",
+"saasceo.com/localized-pricing",
+"Verificado"
+],
+[
+"Europa",
+"0.95",
+"Los nórdicos pagan 8-18% de premium sobre lista pero negocian 20-38% de descuento; el neto queda cerca del baseline.",
+"vendorbenchmark.com/blog/software-pricing-regional-benchmark-global",
+"Verificado"
+],
+[
+"Asia-Pacífico",
+"0.7",
+"Promedio regional. Japón y Australia cerca del baseline; sudeste asiático hasta 40 puntos por debajo.",
+"vendorbenchmark.com/blog/software-pricing-regional-benchmark-global",
+"Verificado"
+],
+[
+"América Latina",
+"0.6",
+"Los benchmarks locales están 40-60% bajo EE.UU. El 67% de los compradores prefiere igual el precio en USD.",
+"saasceo.com/localized-pricing",
+"Verificado"
+],
+[
+"Medio Oriente y África",
+"0.55",
+"Menor poder adquisitivo y mayor fricción de pago.",
+"geotargetly.com/blog/pricing-localization-saas",
+"Estimado"
+]
+]
+}
+],
+"icp": [
+{
+"perfil": "El dueño que perdió el control del gasto",
+"rol": "Gerente General o socio fundador",
+"tamano": "10 a 50 empleados",
+"producto": "Starter o Business",
+"dolor": "Tiene entre 8 y 12 suscripciones sueltas y nadie sabe cuánto suman. La información vive en cuatro herramientas que no se hablan.",
+"gatillo": "Le llega la renovación anual de una suscripción cara, o un error de coordinación le costó un cliente.",
+"objecion": "\"Ya pague por estas herramientas y mi equipo las sabe usar. Cambiar me va a costar más de lo que ahorro.\"",
+"venta": "Con la cuenta del stack actual sobre la mesa. No se vende funcionalidad: se vende la factura consolidada y las horas que se pierden saltando entre pestañas."
+},
+{
+"perfil": "El comercial sin pipeline visible",
+"rol": "Gerente Comercial o de Ventas",
+"tamano": "20 a 100 empleados",
+"producto": "Kit Comercial",
+"dolor": "Los leads del formulario web se pierden antes de llegar al vendedor. No hay forma de saber qué pasó con cada oportunidad.",
+"gatillo": "Cierre de trimestre bajo meta, o la contratación de vendedores nuevos que necesitan un proceso.",
+"objecion": "\"Mi CRM actual funciona y migrar el historial de clientes me da pánico.\"",
+"venta": "Mostrando el ciclo cerrado: formulario, chatbot, CRM y campaña en el mismo lugar. El argumento es la fuga de leads, no el precio del CRM."
+},
+{
+"perfil": "El jefe de operaciones que vive en planillas",
+"rol": "Jefe de Operaciones o PMO",
+"tamano": "30 a 150 empleados",
+"producto": "Kit Operaciones o BPM",
+"dolor": "Los procesos críticos están en Excel sin trazabilidad ni control de versiones. Cada auditoría es una crisis.",
+"gatillo": "Una certificación, una auditoría fallida, o un crecimiento que rompió la planilla.",
+"objecion": "\"Esto lo tiene que aprobar TI y ellos ya tienen su propio roadmap.\"",
+"venta": "Con trazabilidad y cumplimiento. Aquí el competidor es Kissflow a USD 2.500/mes de plataforma: la brecha de precio hace la venta sola."
+},
+{
+"perfil": "El de e-commerce con el catálogo roto",
+"rol": "Gerente de E-commerce o Retail",
+"tamano": "500+ SKU, 20 a 200 empleados",
+"producto": "Kit Retail",
+"dolor": "El catálogo vive en tres lugares distintos y publicar en un canal nuevo toma semanas de trabajo manual.",
+"gatillo": "Apertura de un marketplace nuevo, rebranding, o una temporada alta que expuso el desorden.",
+"objecion": "\"Ya tengo Shopify y no pienso migrar mi tienda.\"",
+"venta": "No pidiéndole que migre. KIMOS es el catálogo maestro que alimenta a Shopify: integración, no reemplazo."
+},
+{
+"perfil": "El financiero que proyecta a ciegas",
+"rol": "Gerente de Administración y Finanzas",
+"tamano": "20 a 100 empleados",
+"producto": "Kit Finanzas y Gestión",
+"dolor": "Proyecta la caja en una planilla que solo él entiende y se entera de los problemas cuando ya ocurrieron.",
+"gatillo": "Un apretón de caja, la solicitud de una línea de crédito o la entrada de un inversionista.",
+"objecion": "\"Mi contador ya me entrega reportes y esto suena a duplicar trabajo.\"",
+"venta": "Con la diferencia entre mirar hacia atrás y proyectar hacia adelante. Requiere integración bancaria local: sin eso, no compra."
+},
+{
+"perfil": "El de TI con mandato de IA y sin equipo",
+"rol": "CTO, Jefe de TI o de Innovación",
+"tamano": "50 a 250 empleados",
+"producto": "Kit IA o Enterprise",
+"dolor": "Mantiene 15 integraciones frágiles y tiene presión del directorio por \"hacer algo con IA\" sin presupuesto para contratar.",
+"gatillo": "Mandato del directorio sobre IA, o una integración que se cayó y paro la operación.",
+"objecion": "\"Puedo armar esto con n8n autohospedado y me sale gratis.\"",
+"venta": "Con costo total de propiedad: el software open source es gratis, mantenerlo no. Es el perfil más escéptico y el que más valida antes de comprar."
+}
+],
+"segmentos": [
+{
+"segmento": "Micro",
+"empleados": "1 a 9",
+"veredicto": "No perseguir",
+"plan": "-",
+"porque": "No sostienen un ticket de suscripción integral y su tasa de mortalidad empresarial es alta.",
+"riesgo": "Churn destructivo: cancelan cuando su propio ingreso se contrae. Consumen soporte y no dejan margen."
+},
+{
+"segmento": "Pequeña",
+"empleados": "10 a 49",
+"veredicto": "Objetivo primario",
+"plan": "Starter y Kits",
+"porque": "Ya sienten el dolor de la fragmentación pero deciden rápido: comité de 3 personas y ciclo de 14 a 30 días.",
+"riesgo": "Sensibles al precio y con bajo costo de cambio. Se retienen con onboarding, no con contrato."
+},
+{
+"segmento": "Mediana",
+"empleados": "50 a 249",
+"veredicto": "Objetivo de mayor valor",
+"plan": "Business y Enterprise",
+"porque": "Es donde vive el dolor de las 187 apps y donde el presupuesto de consolidación es real.",
+"riesgo": "Ciclo más largo, exige integraciones y suele tener TI con opinión propia."
+},
+{
+"segmento": "Grande",
+"empleados": "250+",
+"veredicto": "Nicho selectivo",
+"plan": "Enterprise + implementación",
+"porque": "Ticket alto y contratos plurianuales, pero exige SSO, auditoría, SLA y cumplimiento.",
+"riesgo": "Puede consumir todo el roadmap atendiendo a un solo cliente. Aceptar solo con implementación pagada."
+}
+],
+"decisiones": [
+{
+"n": 1,
+"decision": "La tesis de consolidación tiene viento a favor, y es medible",
+"oferta": "La suite completa cuesta 28% de lo que gasta hoy el cliente en herramientas sueltas: USD 777 contra USD 2.767 al mes.",
+"demanda": "El 68% de los líderes tecnológicos planea reducir proveedores en 2026 y el promedio de apps por empresa ya cayó de 130 a 106.",
+"hacer": "Poner el ahorro consolidado al centro del discurso comercial, con la calculadora del stack actual como primera pantalla del sitio.",
+"impacto": "alto"
+},
+{
+"n": 2,
+"decision": "Una lista de precios única está regalando margen",
+"oferta": "El factor de posicionamiento 0,55 deja a KIMOS 45% bajo la mediana del mercado, que se calculó sobre precios de lista estadounidenses.",
+"demanda": "La disposición a pagar en LATAM está 40-60% bajo EE.UU., pero en Norteamérica y Europa el índice es 1,00 y 0,95.",
+"hacer": "Mantener 0,55 en LATAM y subir a 0,85-0,90 en Norteamérica y Europa. Es la misma lista con tres precios, no tres productos.",
+"impacto": "alto"
+},
+{
+"n": 3,
+"decision": "Los kits no son una simplificación comercial: son una decisión de conversión",
+"oferta": "El Enterprise sale USD 777 al mes; los kits, entre USD 204 y 263.",
+"demanda": "Cada participante adicional en el comité suma entre 12% y 22% de probabilidad de que el deal se estanque, y los deals bajo USD 15K cierran en 14-30 días.",
+"hacer": "Hacer del kit la oferta de entrada por defecto y dejar el Enterprise para expansión, no para adquisición.",
+"impacto": "alto"
+},
+{
+"n": 4,
+"decision": "El riesgo no está en el precio: está en los primeros 90 días",
+"oferta": "24 módulos significan una superficie de producto enorme y un tiempo hasta el primer valor mucho más largo que el de una herramienta única.",
+"demanda": "Entre el 40% y el 60% del churn ocurre antes del tercer mes, y un onboarding estructurado sube la retención del primer año un 25%.",
+"hacer": "Onboarding pagado y obligatorio en PIM, BPM y Cashflow, y activación guiada a un solo módulo en los planes de entrada.",
+"impacto": "alto"
+},
+{
+"n": 5,
+"decision": "Publicar precios no es transparencia: es un requisito de entrada",
+"oferta": "Pipedrive, Shopify, Notion y Plytix publican todo. Los que no publican juegan en enterprise con equipo de ventas propio.",
+"demanda": "El 69% del proceso de compra ocurre sin contacto comercial y el 83% de los compradores llega con requisitos ya definidos.",
+"hacer": "Publicar lista completa por región y una comparativa propia contra el stack típico. Sin eso KIMOS no entra a la lista corta.",
+"impacto": "alto"
+},
+{
+"n": 6,
+"decision": "Vender IA como promesa produce cancelaciones",
+"oferta": "El Escritorio y los Agentes son el diferenciador más fuerte de la suite y el único que ningún competidor replica dentro de un mismo login.",
+"demanda": "El 42% de las PyMEs ya empezó a implementar IA, pero solo el 23% captura valor económico medible y 6 de cada 10 no capturan nada.",
+"hacer": "Instrumentar y mostrar el ahorro de horas por agente dentro del producto. La IA se cobra por resultado medido, no por acceso.",
+"impacto": "alto"
+},
+{
+"n": 7,
+"decision": "Hay módulos que sostienen la suite y módulos que solo la engordan",
+"oferta": "PIM, CRM, BPM y Dashboards concentran el precio sugerido; Vitrina, Integraciones y Formularios aportan casi nada al ticket.",
+"demanda": "El dolor de fragmentación es mayor en mid-market, que corre 187 apps, que en la pequeña empresa, que corre 87.",
+"hacer": "Concentrar roadmap y soporte en los cuatro primeros y mover el resto a mantención. Ver la matriz de cartera de esta misma pestaña.",
+"impacto": "medio"
+},
+{
+"n": 8,
+"decision": "El mercado grande y el mercado alcanzable no son el mismo",
+"oferta": "El producto compite de igual a igual con proveedores locales, pero contra Microsoft, Google y Shopify no.",
+"demanda": "Norteamérica es el 46% del mercado SaaS mundial, pero la cobertura comercial realista de KIMOS allí es baja; LATAM es solo el 5,6% y es donde tiene ventaja de idioma, cercanía y soporte.",
+"hacer": "Financiar la expansión global con la caja del mercado hispano, no al revés. Entrar a Norteamérica por producto, no por fuerza de ventas.",
+"impacto": "medio"
+}
+],
+"notas": [
+"1. 140 de 154 precios fueron verificados en fuente. Los 14 restantes dicen 'Estimado' en la columna J.",
+"2. Precios de lista públicos al 16-ago-2026, sin descuentos por volumen ni negociación.",
+"3. La normalización compara costo total, no paridad funcional. Revisar features antes de anclar precio.",
+"4. Agicap, Cvent y Salsify no publican precio: sus cifras son estimaciones de mercado.",
+"5. La mediana excluye planes Enterprise (Akeneo, Salsify, Cvent, Bizzabo, Kissflow, Nintex): son otro segmento y distorsionan la referencia.",
+"6. Digitai y Agentes se solapan como categoría. Evaluar fusionarlos en un solo módulo."
+]
+}
