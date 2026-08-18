@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.4.0**
+**Versión actual: 2.5.0**
 
 ---
 
@@ -158,3 +158,21 @@ sitio de cada organización (Nexo Abogados, NextTime, CustomerTrigger, Lineage).
 **Pie.** El logo de Kimos pasa a ser el **logo completo** (isotipo + wordmark),
 con las proporciones del logo oficial en fondo azul pero a menor escala, en
 blanco, **sin el sufijo «.dev» y sin sombra**.
+
+---
+
+## Cambios de la versión 2.5.0
+
+- **Modal de sesión más compacto.** Los expositores de una misma sesión van en
+  un único contenedor: cada uno con su QR de perfil y un solo QR compartido por
+  empresa (la sesión de Lineage pasa de 4 a 3 QR). La reseña de Bernardo Donoso
+  se acortó para que el modal no quede tan alto.
+- **QR del diagnóstico.** El modal de «Panel de Preguntas, Networking y Cierre»
+  ya no muestra el QR de la agenda .ics; en su lugar lleva el QR del
+  **formulario de diagnóstico** (Microsoft Forms) para responderlo en el móvil.
+  El mismo QR se agrega en la **portada del diagnóstico** («Continúalo en tu
+  móvil»).
+- **Resultado sin scroll.** La pantalla de resultado del diagnóstico muestra
+  solo el contenedor del resultado (puntaje, nivel y barra) y un botón **«Ver
+  N brechas en detalle»** que abre el desglose de brechas y la normativa a
+  priorizar en un **modal**, en lugar de desplegarlos hacia abajo.

@@ -1079,7 +1079,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 1.2em;
+  margin: 1.4em 0 1em;
 }
 
 /* En el totem los tres botones se apilan a ancho completo: blancos de toque
@@ -1280,6 +1280,43 @@
   letter-spacing: -.03em;
   color: var(--nt-cyan);
   min-width: 4.4em;
+}
+
+
+/* Portada del diagnóstico: botón para hacerlo aquí + QR para el móvil. */
+.kimos-evento-ciberseguridad .ec-diag-empezar {
+  margin-top: 0;
+}
+
+.kimos-evento-ciberseguridad .ec-diag-inicio {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) * .9);
+  margin-top: 1.4em;
+}
+
+.kimos-evento-ciberseguridad .ec-diag-inicio .ec-btn {
+  flex: 1 1 260px;
+  justify-content: center;
+}
+
+.kimos-evento-ciberseguridad .ec-diag-qr {
+  flex-shrink: 0;
+}
+
+/* Ficha de sesión agrupada: separador entre expositores. */
+.kimos-evento-ciberseguridad .ec-grupo-p.sep {
+  margin-top: 1em;
+  padding-top: 1em;
+  border-top: 1px solid var(--nt-linea);
+}
+
+/* Normativa a priorizar dentro del modal de brechas. */
+.kimos-evento-ciberseguridad .ec-diag-normativa {
+  margin-top: 1.2em;
+  padding-top: 1em;
+  border-top: 1px solid var(--nt-linea);
 }
 
 /* ═══════════════ Modal de detalle ═══════════════ */

@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -113,12 +113,10 @@ const SPEAKERS = [
     org: 'lineage',
     qr: 'bernardo-donoso',
     url: 'https://www.linkedin.com/in/bernardo-donoso-bri%C3%B3n-73108b239/',
-    bio: 'Ejecutivo con experiencia como Director de Tecnologías de la Información y '
-      + 'Comunicaciones para Latinoamérica y Asesor TI para la región de Asia en una '
-      + 'multinacional de la industria de manufactura, y como Customer Success Manager en '
-      + 'una consultora de soluciones de software Microsoft. Diplomado en Administración de '
-      + 'Empresas de la Universidad Católica. Logros comprobados en la creación, dirección y '
-      + 'desarrollo de equipos en proyectos TI, potenciando el crecimiento de sus colaboradores.',
+    bio: 'Ex Director de TIC para Latinoamérica y Asesor TI para Asia en una multinacional de '
+      + 'manufactura, y Customer Success Manager en consultoría de software Microsoft. Diplomado en '
+      + 'Administración de Empresas (Universidad Católica), con foco en dirección de equipos y '
+      + 'proyectos TI.',
     fuente: 'Perfil profesional público',
     foto: FOTO_BERNARDO,
   },
@@ -342,6 +340,9 @@ const DIAGNOSTICO = {
 
 const PUNTAJE_MAXIMO = DIAGNOSTICO.preguntas.length * DIAGNOSTICO.puntosPregunta;
 
+/* Formulario del diagnóstico para continuarlo en el móvil (Microsoft Forms). */
+const DIAG_FORM_URL = 'https://forms.cloud.microsoft/pages/responsepage.aspx?id=R1mP2j4yJ0CVmtXGTqrHAhB7Pg_7zc1JoeYpK8cupBpUNE1KTzFTSUw0WFlPOEFITkw4VE1DRjhDVi4u&route=shorturl';
+
 /* Tramos del resultado, de menor a mayor puntaje. */
 const NIVELES = [
   {
@@ -404,6 +405,7 @@ const QR = {
   'customertrigger': { n: 29, b: '/kcb/BH/UG6pSrt1psXbr5+uwVAlB/qqr+AcVwC+WMPgiLn8d6n6oRI6N6nhtBYI4P/FjCEtkZRQEvpo0Wble/1iv+BpW1ojKWc2+4Bw/H/5AWuQXlMSuuCvrdRbCy6j9P0Ebvqv6JFqAA==' },
   'lineage': { n: 29, b: '/jzz/BRfkG6Zprt0/jXbqycuwRYdB/qqr+AA2QCqW1iUJNpyb88a7iKS0CmnDOWYtscn3k85ZwTfWncDRlqkWHNuvwHmyALjq6qO+ABuzF/4z2twRN0aupsvldEYjS6qFXMETjov6imxgA==' },
   'nexoabogados': { n: 33, b: '/mC5P8Ewx1BuvsnLt1Qpdduru9rsFyBxB/qqqv4BAU8AvgZCvkC2fZtk5esy3SmT6eS/rDXFbsvJPjj3MczSyhrMAqFT2IoqDPt2nNqexq+zo/z9xS3WK+3JJhzhizUpMSzerxBi/IBKfsV/nXDq0FGCsfuu1K/d1ErqXut/N9EEIH5U/p9T0QA=' },
+  'diagnostico-form': { n: 49, b: '/tjB1gS/wUvlidvQbpGLJLVrt1ScNuul26DAvxxC7BEMsdCRB/qqqqqq/gHKLETfALc9R/xBJZRhuGOEt6WxMvIudhoZUswx9PIoKJoxqU0rtf3OerR+znLDHI2TqkAf+NFnQLZwop2mwdtMMOd8+abgPzF9Ltu8r2q38TCR5WFXTByE/KPmP1Qv66Pg0UjEYTcd6p1eohqu7HFvEitES/+6/8H/wQoD31gQPap9P3hOoayZGq9uF/y6XFdb17LENjBuOkM/z9o2aphvWsdOYEbfj97k0A8l0Ck9ZvTkx3oR278LZNKG8vUafzZuK3Th3GWWITPiNuPnhvsAWEkSHMR/rl+ua6twXklHh3G7pj7/lB+l1A2rcq/e6wIh58z/BIKLAPGs/rMxYUxlgA==' },
 };
 
 /* ── Logotipo de Kimos (vectorizado desde kimos-enterprice: frontend/public/logos/KIMOS.png) ── */
@@ -1149,20 +1151,27 @@ export default function mount(shell) {
 
   /* Ficha de un expositor dentro del modal: foto, datos, bio y los dos QR
      (perfil de contacto + sitio web de su empresa/institución). */
-  function FichaExpositor(props) {
-    const s = props.speaker;
-    const org = ORGS[s.org] || {};
+  /* Ficha de expositores de una sesión: todos en un solo contenedor.
+     Cada persona lleva su QR de perfil y se comparte un único QR por empresa
+     (así una sesión con dos ponentes de la misma organización usa 3 QR, no 4). */
+  function FichaSesion(props) {
+    const speakers = props.speakers;
+    const orgsUnicas = [];
+    speakers.forEach((sp) => { if (orgsUnicas.indexOf(sp.org) === -1) orgsUnicas.push(sp.org); });
+    const orgs = orgsUnicas.map((id) => ORGS[id]).filter((o) => o && o.qr);
+    const varios = speakers.length > 1;
     return h('div', { className: 'ec-ficha' },
-      h('div', { className: 'ec-ficha-hd' },
-        h('div', { className: 'ec-ficha-av' }, h(Avatar, { speaker: s, mostrarFotos: props.mostrarFotos })),
-        h('div', { className: 'ec-ficha-info' },
-          h('h3', { className: 'ec-ficha-nombre' }, s.nombreLargo || s.nombre),
-          h('p', { className: 'ec-ficha-rol' }, s.rol),
-          org.nombre ? h('span', { className: 'ec-ficha-org' }, org.nombre) : null)),
-      s.bio ? h('p', { className: 'ec-ficha-bio' }, s.bio) : null,
+      speakers.map((sp, i) => h('div', { className: 'ec-grupo-p' + (i ? ' sep' : ''), key: sp.id },
+        h('div', { className: 'ec-ficha-hd' },
+          h('div', { className: 'ec-ficha-av' }, h(Avatar, { speaker: sp, mostrarFotos: props.mostrarFotos })),
+          h('div', { className: 'ec-ficha-info' },
+            h('h3', { className: 'ec-ficha-nombre' }, sp.nombreLargo || sp.nombre),
+            h('p', { className: 'ec-ficha-rol' }, sp.rol),
+            (ORGS[sp.org] || {}).nombre ? h('span', { className: 'ec-ficha-org' }, ORGS[sp.org].nombre) : null)),
+        sp.bio ? h('p', { className: 'ec-ficha-bio' }, sp.bio) : null)),
       h('div', { className: 'ec-ficha-qrs' },
-        h(Qr, { clave: s.qr, titulo: 'Perfil / contacto', alt: s.url }),
-        org.qr ? h(Qr, { clave: org.qr, titulo: org.nombre, alt: org.url }) : null));
+        speakers.map((sp) => h(Qr, { key: 'p' + sp.id, clave: sp.qr, titulo: varios ? sp.nombre : 'Perfil / contacto', alt: sp.url })),
+        orgs.map((o) => h(Qr, { key: 'o' + o.qr, clave: o.qr, titulo: o.nombre, alt: o.url }))));
   }
 
   /* Modal de detalle para una sesión de la agenda o para una ley. */
@@ -1182,7 +1191,7 @@ export default function mount(shell) {
         h('h2', { className: 'ec-modal-titulo' }, b.tema),
         b.resumen ? h('p', { className: 'ec-p' }, b.resumen) : null,
         speakers.length
-          ? h('div', { className: 'ec-fichas' }, speakers.map((sp) => h(FichaExpositor, { key: sp.id, speaker: sp, mostrarFotos: props.mostrarFotos })))
+          ? h(FichaSesion, { speakers: speakers, mostrarFotos: props.mostrarFotos })
           : (b.id === 'bienvenida'
             ? h('div', { className: 'ec-ficha' },
               h('div', { className: 'ec-ficha-hd' },
@@ -1202,7 +1211,7 @@ export default function mount(shell) {
                   h('p', { className: 'ec-ficha-rol' }, 'Todos los expositores y asistentes'))),
               h('p', { className: 'ec-ficha-bio' }, 'Momento para profundizar consultas, intercambiar experiencias de cumplimiento y coordinar sesiones de trabajo directas con los especialistas.'),
               h('div', { className: 'ec-ficha-qrs' },
-                h(Qr, { clave: 'agenda', titulo: 'Agenda .ics', alt: 'Calendario del evento' })))));
+                h(Qr, { clave: 'diagnostico-form', titulo: 'Diagnóstico en tu móvil', alt: DIAG_FORM_URL })))));
     } else if (a.tipo === 'ley') {
       const l = buscarLey(a.id);
       if (!l) return null;
@@ -1219,6 +1228,35 @@ export default function mount(shell) {
         sesion ? h('div', { className: 'ec-ley-sesion-ref' },
           h('span', { className: 'ec-tag ley' }, sesion.ini + ' – ' + sesion.fin + ' hrs'),
           h('span', { className: 'ec-ley-sesion-txt' }, 'Tratado en sesión: ', h('strong', null, sesion.tema))) : null);
+    } else if (a.tipo === 'brechas') {
+      const ev = evaluar((props.diag && props.diag.respuestas) || {});
+      const total = DIAGNOSTICO.preguntas.length;
+      const leyes = leyesDeBrechas(ev.brechas);
+      cuerpo = h('div', null,
+        h('div', { className: 'ec-modal-tags' },
+          h('span', { className: 'ec-tag ley' }, ev.puntaje + ' / ' + PUNTAJE_MAXIMO + ' puntos'),
+          h('span', { className: 'ec-tag ley' }, ev.nivel.titulo)),
+        h('h2', { className: 'ec-modal-titulo' }, ev.brechas.length
+          ? 'Brechas detectadas (' + ev.brechas.length + ' de ' + total + ')'
+          : 'Sin brechas'),
+        ev.brechas.length
+          ? h('div', null,
+            h('p', { className: 'ec-p tenue' }, 'Controles que no obtuvieron el puntaje completo:'),
+            ev.brechas.map((b) => h('div', { className: 'ec-diag-brecha', key: b.pregunta.id },
+              h('div', { className: 'ec-diag-brecha-hd' },
+                h('span', { className: 'ec-diag-pts' }, b.puntos + '/' + DIAGNOSTICO.puntosPregunta),
+                b.pregunta.leyes.map((id) => h('span', { className: 'ec-tag ley', key: id }, buscarLey(id).numero))),
+              h('p', { className: 'ec-diag-brecha-q' }, b.pregunta.texto),
+              b.opcion ? h('p', { className: 'ec-p tenue' }, 'Tu respuesta: ' + b.opcion.label) : null)))
+          : h('p', { className: 'ec-p' }, 'Los diez controles obtuvieron el puntaje completo. Mantén la evidencia al día y revisa la cadena de proveedores.'),
+        leyes.length ? h('div', { className: 'ec-diag-normativa' },
+          h('h3', { className: 'ec-h3' }, 'Normativa a priorizar'),
+          leyes.map((id) => {
+            const l = buscarLey(id);
+            return h('p', { className: 'ec-p', key: id }, h('strong', null, l.numero + ' — ' + l.nombre));
+          }),
+          h('p', { className: 'ec-p tenue' }, 'Revisa el detalle en Marco Legal o conversa con los expositores durante la jornada.')) : null,
+        h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría legal ni una auditoría formal. ' + DIAGNOSTICO.aviso));
     }
 
     return h('div', {
@@ -1251,10 +1289,13 @@ export default function mount(shell) {
             h('span', { className: 'ec-tag ley' }, PUNTAJE_MAXIMO + ' puntos'),
             h('span', { className: 'ec-tag ley' }, 'Leyes 21.663 y 21.719')),
           h('p', { className: 'ec-p tenue ec-diag-aviso' }, DIAGNOSTICO.aviso),
-          h('button', {
-            type: 'button', className: 'ec-btn ec-btn-cta ec-diag-empezar',
-            onClick: iniciarDiagnostico,
-          }, 'Comenzar el diagnóstico →')),
+          h('div', { className: 'ec-diag-inicio' },
+            h('button', {
+              type: 'button', className: 'ec-btn ec-btn-cta ec-diag-empezar',
+              onClick: iniciarDiagnostico,
+            }, 'Comenzar aquí en el totem →'),
+            h('div', { className: 'ec-diag-qr' },
+              h(Qr, { clave: 'diagnostico-form', titulo: 'Continúalo en tu móvil', alt: DIAG_FORM_URL })))),
 
         sala.total ? h('div', { className: 'ec-card' },
           h('p', { className: 'ec-h3' }, 'Resultados de la sala'),
@@ -1264,10 +1305,10 @@ export default function mount(shell) {
             + Math.round(sala.suma / sala.total) + ' de ' + PUNTAJE_MAXIMO + ' puntos.')) : null);
     }
 
-    /* ── Resultado ────────────────────────────────────────────────────── */
+    /* ── Resultado: solo el contenedor del resultado; el detalle de brechas
+       vive en un modal para que la pantalla no genere scroll. ── */
     if (d.fase === 'resultado') {
       const pct = Math.round((ev.puntaje / PUNTAJE_MAXIMO) * 100);
-      const leyes = leyesDeBrechas(ev.brechas);
       return h('div', { className: 'ec-wrap' },
         h('div', { className: 'ec-card ec-hero-card' },
           h('p', { className: 'ec-h3' }, 'Resultado del diagnóstico'),
@@ -1279,47 +1320,15 @@ export default function mount(shell) {
               h('span', { className: 'ec-diag-badge', style: { background: ev.nivel.color } }, ev.nivel.titulo),
               h('p', { className: 'ec-p' }, ev.nivel.resumen))),
           h('div', { className: 'ec-diag-barra' },
-            h('div', {
-              className: 'ec-diag-barra-f',
-              style: { width: pct + '%', background: ev.nivel.color },
-            }))),
-
-        ev.brechas.length ? h('div', { className: 'ec-card' },
-          h('p', { className: 'ec-h3' },
-            'Brechas detectadas (' + ev.brechas.length + ' de ' + total + ')'),
-          h('p', { className: 'ec-p tenue' }, 'Controles que no obtuvieron el puntaje completo:'),
-          ev.brechas.map((b) => h('div', { className: 'ec-diag-brecha', key: b.pregunta.id },
-            h('div', { className: 'ec-diag-brecha-hd' },
-              h('span', { className: 'ec-diag-pts' }, b.puntos + '/' + DIAGNOSTICO.puntosPregunta),
-              b.pregunta.leyes.map((id) => h('span', {
-                className: 'ec-tag ley', key: id,
-              }, buscarLey(id).numero))),
-            h('p', { className: 'ec-diag-brecha-q' }, b.pregunta.texto),
-            b.opcion ? h('p', { className: 'ec-p tenue' }, 'Tu respuesta: ' + b.opcion.label) : null)))
-          : h('div', { className: 'ec-card' },
-            h('p', { className: 'ec-h3' }, 'Sin brechas'),
-            h('p', { className: 'ec-p' }, 'Los diez controles obtuvieron el puntaje completo. '
-              + 'Mantén la evidencia al día y revisa la cadena de proveedores.')),
-
-        leyes.length ? h('div', { className: 'ec-card' },
-          h('p', { className: 'ec-h3' }, 'Normativa a priorizar'),
-          leyes.map((id) => {
-            const l = buscarLey(id);
-            return h('p', { className: 'ec-p', key: id }, h('strong', null, l.numero + ' — ' + l.nombre));
-          }),
-          h('p', { className: 'ec-p tenue' }, 'Revisa el detalle en Marco Legal o conversa con los '
-            + 'expositores durante la jornada.')) : null,
-
-        h('div', { className: 'ec-card' },
+            h('div', { className: 'ec-diag-barra-f', style: { width: pct + '%', background: ev.nivel.color } })),
           h('div', { className: 'ec-diag-acciones' },
+            h('button', { type: 'button', className: 'ec-btn ec-btn-cta', onClick: () => abrirModal('brechas', null) },
+              ev.brechas.length ? 'Ver ' + ev.brechas.length + ' brecha' + (ev.brechas.length === 1 ? '' : 's') + ' en detalle →' : 'Ver detalle →'),
             h('button', { type: 'button', className: 'ec-btn ghost', onClick: reiniciarDiagnostico },
-              'Hacer el diagnóstico de nuevo'),
-            h('button', { type: 'button', className: 'ec-btn', onClick: () => irA('leyes') },
-              'Ver Marco Legal'),
-            h('button', { type: 'button', className: 'ec-btn', onClick: () => irA('agenda') },
-              'Ver Agenda')),
-          h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría '
-            + 'legal ni una auditoría formal. ' + DIAGNOSTICO.aviso)));
+              'Hacer de nuevo'),
+            h('button', { type: 'button', className: 'ec-btn ghost', onClick: () => irA('leyes') },
+              'Marco Legal')),
+          h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría legal ni una auditoría formal.')));
     }
 
     /* ── Preguntas, una por pantalla ──────────────────────────────────── */
@@ -1462,7 +1471,7 @@ export default function mount(shell) {
     h(Pie, null),
 
     /* Modal de detalle (sesión o ley), por encima de todo */
-    h(Modal, { abierta: v.abierta, mostrarFotos: cfg.mostrarFotos !== false }));
+    h(Modal, { abierta: v.abierta, mostrarFotos: cfg.mostrarFotos !== false, diag: v.diag }));
   }
 
   return {
