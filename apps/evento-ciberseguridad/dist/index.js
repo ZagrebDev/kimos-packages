@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -221,7 +221,7 @@ const LEYES = [
   {
     id: '21459',
     numero: 'Ley 21.459',
-    nombre: 'Ley de Delitos Informáticos (Convenio de Budapest)',
+    nombre: 'Ley de Delitos Informáticos',
     resumen: 'Tipifica los delitos informáticos modernos, adapta las normas procesales y adhiere '
       + 'a los estándares internacionales del Convenio de Budapest.',
     datos: [
@@ -1159,7 +1159,12 @@ export default function mount(shell) {
       const a = instante(b.ini); const z = instante(b.fin);
       pct = Math.max(0, Math.min(100, Math.round(((props.ahora - a) / (z - a)) * 100)));
     }
-    return h('div', { className: 'ec-card ec-sesion-card' + (estado === 'ahora' ? ' ec-viva' : '') },
+    return h('div', {
+      className: 'ec-card ec-sesion-card ec-clickable' + (estado === 'ahora' ? ' ec-viva' : ''),
+      role: 'button', tabIndex: 0,
+      onClick: () => abrirModal('sesion', b.id),
+      onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirModal('sesion', b.id); } },
+    },
       h('div', { className: 'ec-sesion-hd' },
         h('div', { className: 'ec-sesion-tag' },
           estado === 'ahora' ? h('span', { className: 'ec-punto-live' }) : null,
@@ -1171,7 +1176,8 @@ export default function mount(shell) {
           h('h2', { className: 'ec-h2' }, b.tema),
           h('p', { className: 'ec-p tenue' }, expositoresDe(b)))),
       estado === 'ahora' ? h('div', { className: 'ec-barra' },
-        h('div', { className: 'ec-barra-f', style: { width: pct + '%' } })) : null);
+        h('div', { className: 'ec-barra-f', style: { width: pct + '%' } })) : null,
+      h('span', { className: 'ec-sesion-ver' }, 'Ver detalle ', h('span', { 'aria-hidden': 'true' }, '›')));
   }
 
   /* 1. Ahora — cuenta sin conteo: qué sucede ahora y qué viene, en tiempo real. */
