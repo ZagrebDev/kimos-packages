@@ -44,6 +44,9 @@
   --f-num: 44px;
   --tap: 56px;
   --pad: 22px;
+  /* Alto reservado abajo para el dock de voz de la vitrina (mic + ondas +
+     ayuda). En 9:16 el widget flota a ~200px del borde inferior. */
+  --ec-dock-safe: 0px;
 
   height: 100%;
   display: flex;
@@ -80,6 +83,7 @@
   --f-num: 92px;
   --tap: 84px;
   --pad: 38px;
+  --ec-dock-safe: 350px;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
@@ -313,7 +317,7 @@
 /* En vitrina vertical el dock de voz flota sobre la app: reservamos ese alto
    para que el final del contenido nunca quede tapado por el micrófono. */
 .modo-totem.kimos-evento-ciberseguridad .ec-body {
-  padding-bottom: 280px;
+  padding-bottom: var(--ec-dock-safe);
 }
 
 .kimos-evento-ciberseguridad .ec-wrap {
@@ -1328,6 +1332,7 @@
   align-items: flex-start;
   justify-content: center;
   padding: calc(var(--pad) * 1.2) var(--pad);
+  padding-bottom: calc(var(--pad) * 1.2 + var(--ec-dock-safe));
   background: rgb(4 3 20 / .72);
   backdrop-filter: blur(6px);
   overflow-y: auto;
@@ -1341,7 +1346,12 @@
   position: relative;
   width: 100%;
   max-width: 720px;
-  margin: auto;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Nunca más alto que el viewport menos la zona del dock. */
+  max-height: calc(100% - var(--pad) * 2.4 - var(--ec-dock-safe));
   background: linear-gradient(168deg, #0b0740 0%, #120a52 100%);
   border: 1.5px solid rgb(0 228 208 / .35);
   border-radius: var(--nt-radius-lg);
@@ -1378,6 +1388,8 @@
 
 .kimos-evento-ciberseguridad .ec-modal-body {
   padding: calc(var(--pad) * 1.1);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .kimos-evento-ciberseguridad .ec-modal-tags {

@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -231,8 +231,6 @@ const LEYES = [
 
 const DIAGNOSTICO = {
   titulo: 'Diagnóstico Rápido de Cumplimiento en Ciberseguridad y Protección de Datos',
-  aviso: 'Cuando envíe este formulario, no recopilará automáticamente sus detalles, '
-    + 'como el nombre y la dirección de correo electrónico, a menos que lo proporcione usted mismo.',
   puntosPregunta: 10,
   preguntas: [
     {
@@ -568,7 +566,24 @@ export default function mount(shell) {
   const React = globalThis.React;
   const h = React.createElement;
 
-  let doc = normalizar(null);
+  /* Persistencia local del agregado de la sala. El shell de la vitrina es
+     efímero (saveData no toca el backend y se pierde al remontar la app en cada
+     reset de inactividad); guardamos también en localStorage del tótem para que
+     el conteo de la sala sobreviva resets de sesión y recargas de la página. */
+  const ALMACEN = 'kimos.evento-ciberseguridad.agregado.v1';
+  const leerLocal = () => {
+    try {
+      const raw = (typeof localStorage !== 'undefined') && localStorage.getItem(ALMACEN);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  };
+  const escribirLocal = (d) => {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(ALMACEN, JSON.stringify({ agregado: d.agregado }));
+    } catch (e) { /* almacenamiento no disponible */ }
+  };
+
+  let doc = normalizar(leerLocal());
   /* `diag` es efímero: se borra al volver al inicio, así el siguiente
      asistente parte con el formulario limpio. */
   const DIAG_VACIO = { fase: 'intro', paso: 0, respuestas: {} };
@@ -579,6 +594,7 @@ export default function mount(shell) {
 
   let guardarT = null;
   const programarGuardado = () => {
+    escribirLocal(doc);
     clearTimeout(guardarT);
     guardarT = setTimeout(() => { Promise.resolve(shell.saveData(doc)).catch(() => {}); }, 600);
   };
@@ -673,7 +689,12 @@ export default function mount(shell) {
   };
 
   Promise.resolve(shell.loadData ? shell.loadData() : null)
-    .then((data) => { if (data) { doc = normalizar(data); emitir(); } })
+    .then((data) => {
+      if (!data) return;
+      const host = normalizar(data);
+      /* Nos quedamos con el agregado de mayor conteo (local vs host). */
+      if ((host.agregado.total || 0) > (doc.agregado.total || 0)) { doc = host; escribirLocal(doc); emitir(); }
+    })
     .catch(() => {});
 
   const aplicarConfig = (v) => { config = Object.assign({}, DEFAULT_CONFIG, v || {}); emitir(); marcarActividad(); };
@@ -741,6 +762,34 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {} },
         },
         {
+          name: 'ABRIR_LEY',
+          description: 'Abre el modal con el detalle de una ley (Ley 21.663 o Ley 21.719). '
+            + 'Úsalo cuando pregunten por una ley o marco normativo.',
+          inputSchema: { type: 'object', properties: { leyId: { type: 'string', enum: LEYES.map((l) => l.id) } }, required: ['leyId'] },
+        },
+        {
+          name: 'ABRIR_SESION',
+          description: 'Abre el modal con el detalle de una sesión/bloque de la agenda '
+            + '(tema, resumen y expositores). Úsalo cuando pregunten por una charla, horario o tema de la agenda.',
+          inputSchema: { type: 'object', properties: { sesionId: { type: 'string', enum: AGENDA.map((b) => b.id) } }, required: ['sesionId'] },
+        },
+        {
+          name: 'ABRIR_EXPOSITOR',
+          description: 'Abre el modal con la ficha de un expositor (foto, cargo, biografía y QR de contacto). '
+            + 'Úsalo cuando pregunten por una persona o speaker específico.',
+          inputSchema: { type: 'object', properties: { expositorId: { type: 'string', enum: SPEAKERS.map((sp) => sp.id) } }, required: ['expositorId'] },
+        },
+        {
+          name: 'VER_BRECHAS',
+          description: 'Con un diagnóstico ya completado, abre el modal con el detalle de las brechas y la normativa a priorizar.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'CERRAR_MODAL',
+          description: 'Cierra cualquier ventana de detalle (modal) que esté abierta.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'VOLVER_AL_INICIO',
           description: 'Regresa el totem a la pantalla inicial.',
           inputSchema: { type: 'object', properties: {} },
@@ -786,6 +835,7 @@ export default function mount(shell) {
           },
           publico: {
             seccionVisible: vista.seccion,
+            modalAbierto: vista.abierta ? { tipo: vista.abierta.tipo, id: vista.abierta.id } : null,
             diagnosticoEnCurso: (() => {
               const e = evaluar(vista.diag.respuestas);
               return {
@@ -880,6 +930,31 @@ export default function mount(shell) {
               },
             };
           }
+          if (tipo === 'ABRIR_LEY') {
+            const l = buscarLey(p.leyId);
+            if (!l) return { success: false, error: 'Ley desconocida: ' + p.leyId };
+            irA('leyes'); abrirModal('ley', l.id);
+            return { success: true, message: 'Mostrando el detalle de ' + l.numero + '.' };
+          }
+          if (tipo === 'ABRIR_SESION') {
+            const b = buscarBloque(p.sesionId);
+            if (!b) return { success: false, error: 'Sesión desconocida: ' + p.sesionId };
+            irA('agenda'); abrirModal('sesion', b.id);
+            return { success: true, message: 'Mostrando la sesión "' + b.tema + '".' };
+          }
+          if (tipo === 'ABRIR_EXPOSITOR') {
+            const sp = buscarSpeaker(p.expositorId);
+            if (!sp) return { success: false, error: 'Expositor desconocido: ' + p.expositorId };
+            irA('agenda'); abrirModal('expositor', sp.id);
+            return { success: true, message: 'Mostrando la ficha de ' + sp.nombre + '.' };
+          }
+          if (tipo === 'VER_BRECHAS') {
+            const e = evaluar(vista.diag.respuestas);
+            if (!e.completo) return { success: false, error: 'Aún no hay un diagnóstico completado.' };
+            irA('consulta'); abrirModal('brechas', null);
+            return { success: true, message: 'Mostrando las brechas del diagnóstico.' };
+          }
+          if (tipo === 'CERRAR_MODAL') { cerrarModal(); return { success: true, message: 'Ventana cerrada.' }; }
           if (tipo === 'VOLVER_AL_INICIO') { volverAlInicio(); return { success: true, message: 'Totem en el inicio.' }; }
           return { success: false, error: 'Acción desconocida: ' + tipo };
         } catch (e) {
@@ -1228,6 +1303,17 @@ export default function mount(shell) {
         sesion ? h('div', { className: 'ec-ley-sesion-ref' },
           h('span', { className: 'ec-tag ley' }, sesion.ini + ' – ' + sesion.fin + ' hrs'),
           h('span', { className: 'ec-ley-sesion-txt' }, 'Tratado en sesión: ', h('strong', null, sesion.tema))) : null);
+    } else if (a.tipo === 'expositor') {
+      const sp = buscarSpeaker(a.id);
+      if (!sp) return null;
+      const bloque = AGENDA.find((b) => b.speakers.indexOf(sp.id) !== -1) || null;
+      cuerpo = h('div', null,
+        bloque ? h('div', { className: 'ec-modal-tags' },
+          h('span', { className: 'ec-tag ley' }, bloque.ini + ' – ' + bloque.fin + ' hrs'),
+          bloque.leyes.map((lid) => h('span', { className: 'ec-tag ley', key: lid }, buscarLey(lid).numero))) : null,
+        h('h2', { className: 'ec-modal-titulo' }, sp.nombreLargo || sp.nombre),
+        bloque ? h('p', { className: 'ec-p tenue' }, 'Expone en: ' + bloque.tema) : null,
+        h(FichaSesion, { speakers: [sp], mostrarFotos: props.mostrarFotos }));
     } else if (a.tipo === 'brechas') {
       const ev = evaluar((props.diag && props.diag.respuestas) || {});
       const total = DIAGNOSTICO.preguntas.length;
@@ -1256,7 +1342,7 @@ export default function mount(shell) {
             return h('p', { className: 'ec-p', key: id }, h('strong', null, l.numero + ' — ' + l.nombre));
           }),
           h('p', { className: 'ec-p tenue' }, 'Revisa el detalle en Marco Legal o conversa con los expositores durante la jornada.')) : null,
-        h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría legal ni una auditoría formal. ' + DIAGNOSTICO.aviso));
+        h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría legal ni una auditoría formal.'));
     }
 
     return h('div', {
@@ -1288,7 +1374,7 @@ export default function mount(shell) {
             h('span', { className: 'ec-tag ley' }, total + ' preguntas'),
             h('span', { className: 'ec-tag ley' }, PUNTAJE_MAXIMO + ' puntos'),
             h('span', { className: 'ec-tag ley' }, 'Leyes 21.663 y 21.719')),
-          h('p', { className: 'ec-p tenue ec-diag-aviso' }, DIAGNOSTICO.aviso),
+          h('p', { className: 'ec-p tenue ec-diag-desc' }, 'Autoevalúa el nivel de cumplimiento de tu organización en ciberseguridad y protección de datos frente a las Leyes 21.663 y 21.719.'),
           h('div', { className: 'ec-diag-inicio' },
             h('button', {
               type: 'button', className: 'ec-btn ec-btn-cta ec-diag-empezar',
@@ -1371,10 +1457,7 @@ export default function mount(shell) {
             type: 'button', className: 'ec-btn ghost',
             disabled: !elegida || idx === total - 1,
             onClick: () => irAPaso(idx + 1),
-          }, 'Siguiente →'))),
-
-      h('div', { className: 'ec-card' },
-        h('p', { className: 'ec-p tenue ec-diag-aviso' }, DIAGNOSTICO.aviso)));
+          }, 'Siguiente →'))));
   }
 
   /* ── Componente Raíz ───────────────────────────────────────────────── */

@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.5.0**
+**Versión actual: 2.6.0**
 
 ---
 
@@ -176,3 +176,25 @@ blanco, **sin el sufijo «.dev» y sin sombra**.
   solo el contenedor del resultado (puntaje, nivel y barra) y un botón **«Ver
   N brechas en detalle»** que abre el desglose de brechas y la normativa a
   priorizar en un **modal**, en lugar de desplegarlos hacia abajo.
+
+---
+
+## Cambios de la versión 2.6.0
+
+- **Nada queda tapado por el widget de voz (9:16).** En modo totem/vitrina se
+  reserva la franja inferior donde flota el dock de voz (micrófono, ondas y
+  ayuda). Los modales se acotan a esa zona segura y su contenido hace *scroll
+  interno* con la «×» siempre visible, así el detalle de leyes, sesiones y
+  expositores (y sus QR) nunca queda oculto tras el micrófono.
+- **El agente abre el detalle mientras responde.** Nuevas acciones para el
+  asistente de la vitrina: `ABRIR_LEY`, `ABRIR_SESION`, `ABRIR_EXPOSITOR`,
+  `VER_BRECHAS` y `CERRAR_MODAL`. Al preguntar por una ley, una charla de la
+  agenda o un expositor, la app abre el modal correspondiente junto con la
+  respuesta hablada. El snapshot expone `modalAbierto` para que el agente sepa
+  qué hay en pantalla.
+- **El diagnóstico ya no se pierde con la sesión.** El agregado anónimo de la
+  sala (cuántos diagnósticos se completaron y el promedio) se guarda en el
+  almacenamiento local del tótem, así sobrevive a los reinicios por inactividad
+  y a las recargas de la página.
+- **Se quita el aviso del formulario** sobre la «recopilación automática de
+  detalles», que no aplica a esta autoevaluación en el tótem.
