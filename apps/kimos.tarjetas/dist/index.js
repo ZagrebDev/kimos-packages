@@ -7,10 +7,13 @@
  * (/api/identity/actors vía shell.authFetch): foto de perfil, correo, cargo,
  * teléfono y ubicación. Logo de marca a nivel de colección aplicado a las
  * tarjetas generadas.
+ * v1.2.0: controles de visualización de foto (mostrar/ocultar, forma, tamaño,
+ * zoom y encuadre del recorte, anillo) y de logo (mostrar/ocultar, tamaño,
+ * opacidad y placa de fondo).
  */
 
 // ── Sincronizado con manifest.json ───────────────────────────────────────────
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const APP_ID = 'kimos.tarjetas';
 
 // ── Motor QR en JS puro (Byte Mode UTF-8 / Reed-Solomon) ──────────────────────
@@ -541,6 +544,148 @@ function drawImageContain(ctx, img, x, y, w, h) {
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
+// ── Estilos de visualización de foto y logo (v1.2.0) ────────────────────────
+const DEFAULT_PHOTO_STYLE = {
+  visible: true,
+  shape: 'circle',   // 'circle' | 'rounded' | 'square'
+  size: 1,           // 0.7 – 1.25 (multiplicador del tamaño base del layout)
+  zoom: 1,           // 1 – 3 (recorte: acerca la foto dentro del marco)
+  offsetX: 0,        // -1 – 1 (encuadre horizontal del recorte)
+  offsetY: 0,        // -1 – 1 (encuadre vertical del recorte)
+  ring: true         // anillo con el color de acento
+};
+
+const DEFAULT_LOGO_STYLE = {
+  visible: true,
+  size: 1,           // 0.6 – 1.5 (multiplicador de la caja base del layout)
+  opacity: 1,        // 0.2 – 1
+  plate: 'none'      // 'none' | 'white' | 'accent' (placa de fondo)
+};
+
+const clampNum = (v, min, max, fallback) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
+
+/** Estilo de foto normalizado (tolera tarjetas guardadas por versiones previas). */
+function getPhotoStyle(card) {
+  const st = { ...DEFAULT_PHOTO_STYLE, ...((card && card.photoStyle) || {}) };
+  st.visible = st.visible !== false;
+  st.shape = ['circle', 'rounded', 'square'].includes(st.shape) ? st.shape : 'circle';
+  st.size = clampNum(st.size, 0.7, 1.25, 1);
+  st.zoom = clampNum(st.zoom, 1, 3, 1);
+  st.offsetX = clampNum(st.offsetX, -1, 1, 0);
+  st.offsetY = clampNum(st.offsetY, -1, 1, 0);
+  st.ring = st.ring !== false;
+  return st;
+}
+
+/** Estilo de logo normalizado. */
+function getLogoStyle(card) {
+  const st = { ...DEFAULT_LOGO_STYLE, ...((card && card.logoStyle) || {}) };
+  st.visible = st.visible !== false;
+  st.size = clampNum(st.size, 0.6, 1.5, 1);
+  st.opacity = clampNum(st.opacity, 0.2, 1, 1);
+  st.plate = ['none', 'white', 'accent'].includes(st.plate) ? st.plate : 'none';
+  return st;
+}
+
+/** Traza el contorno de la forma elegida para la foto (círculo/redondeado/cuadrado). */
+function pathPhotoShape(ctx, shape, x, y, w, h) {
+  ctx.beginPath();
+  if (shape === 'square') {
+    ctx.rect(x, y, w, h);
+  } else if (shape === 'rounded') {
+    const r = Math.min(w, h) * 0.18;
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  } else {
+    ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+    ctx.closePath();
+  }
+}
+
+/** Cover con zoom y encuadre: acerca la foto y desplaza la ventana de recorte. */
+function drawImageCoverZoom(ctx, img, x, y, w, h, zoom, offsetX, offsetY) {
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const scale = Math.max(w / iw, h / ih) * (zoom || 1);
+  const sw = w / scale, sh = h / scale;
+  const maxX = iw - sw, maxY = ih - sh;
+  const sx = Math.min(maxX, Math.max(0, maxX / 2 + (offsetX || 0) * (maxX / 2)));
+  const sy = Math.min(maxY, Math.max(0, maxY / 2 + (offsetY || 0) * (maxY / 2)));
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+/**
+ * Dibuja la foto de la persona centrada en (cx, cy) con el estilo de la tarjeta:
+ * forma, tamaño, zoom/encuadre del recorte y anillo. Sin foto, dibuja las
+ * iniciales sobre el color de acento. Con `visible: false` no dibuja nada.
+ */
+function drawPersonPhoto(ctx, card, photoImg, cx, cy, baseRadius, pal) {
+  const st = getPhotoStyle(card);
+  if (!st.visible) return;
+  const r = baseRadius * st.size;
+  const x = cx - r, y = cy - r, size = r * 2;
+
+  if (photoImg) {
+    ctx.save();
+    pathPhotoShape(ctx, st.shape, x, y, size, size);
+    ctx.clip();
+    drawImageCoverZoom(ctx, photoImg, x, y, size, size, st.zoom, st.offsetX, st.offsetY);
+    ctx.restore();
+    if (st.ring) {
+      pathPhotoShape(ctx, st.shape, x, y, size, size);
+      ctx.strokeStyle = pal.accent;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+  } else {
+    pathPhotoShape(ctx, st.shape, x, y, size, size);
+    ctx.fillStyle = pal.accent;
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold ${Math.round(r * 0.56)}px Inter, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const initials = (card.name || 'K').split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+    ctx.fillText(initials || 'K', cx, cy);
+    ctx.textBaseline = 'alphabetic';
+  }
+}
+
+/**
+ * Dibuja el logo dentro de la caja base del layout aplicando el estilo de la
+ * tarjeta (tamaño, opacidad, placa de fondo). Devuelve true si dibujó el logo;
+ * false si no hay logo o está oculto (el caller decide el texto de respaldo).
+ */
+function drawBrandLogo(ctx, card, logoImg, x, y, w, h, pal) {
+  const st = getLogoStyle(card);
+  if (!logoImg || !st.visible) return false;
+  const cx = x + w / 2, cy = y + h / 2;
+  const bw = w * st.size, bh = h * st.size;
+  const bx = cx - bw / 2, by = cy - bh / 2;
+
+  if (st.plate !== 'none') {
+    const pad = Math.min(bw, bh) * 0.14;
+    ctx.save();
+    pathPhotoShape(ctx, 'rounded', bx - pad, by - pad, bw + pad * 2, bh + pad * 2);
+    ctx.fillStyle = st.plate === 'accent' ? pal.accent : '#FFFFFF';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.globalAlpha = st.opacity;
+  drawImageContain(ctx, logoImg, bx, by, bw, bh);
+  ctx.restore();
+  return true;
+}
+
 // ── Renderizador en Canvas 2D de Alta Fidelidad ─────────────────────────────
 async function renderCardToCanvas(card, scale = 2, targetCanvas = null) {
   const isVert = card.format === 'vertical';
@@ -591,45 +736,13 @@ async function renderCardToCanvas(card, scale = 2, targetCanvas = null) {
       ctx.fillStyle = pal.accent;
       ctx.fillRect(336, 0, 4, height);
 
-      // Foto en la banda izquierda
+      // Foto en la banda izquierda (forma, tamaño, zoom y encuadre según estilo)
       const photoCenterX = 170;
       const photoCenterY = 150;
-      const radius = 64;
+      drawPersonPhoto(ctx, card, photoImg, photoCenterX, photoCenterY, 64, pal);
 
-      if (photoImg) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(photoCenterX, photoCenterY, radius, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        drawImageCover(ctx, photoImg, photoCenterX - radius, photoCenterY - radius, radius * 2, radius * 2);
-        ctx.restore();
-        // Anillo de foto
-        ctx.beginPath();
-        ctx.arc(photoCenterX, photoCenterY, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = pal.accent;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-      } else {
-        // Iniciales
-        ctx.beginPath();
-        ctx.arc(photoCenterX, photoCenterY, radius, 0, Math.PI * 2);
-        ctx.fillStyle = pal.accent;
-        ctx.fill();
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = 'bold 36px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const initials = (card.name || 'K').split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-        ctx.fillText(initials || 'K', photoCenterX, photoCenterY);
-      }
-
-      // Logo en la barra izquierda si existe
-      if (logoImg) {
-        const logoW = 140;
-        const logoH = 60;
-        drawImageContain(ctx, logoImg, photoCenterX - (logoW / 2), 250, logoW, logoH);
-      } else if (card.company) {
+      // Logo en la barra izquierda si existe y está visible
+      if (!drawBrandLogo(ctx, card, logoImg, photoCenterX - 70, 250, 140, 60, pal) && card.company) {
         ctx.fillStyle = pal.text;
         ctx.font = 'bold 18px Inter, sans-serif';
         ctx.textAlign = 'center';
@@ -705,26 +818,10 @@ async function renderCardToCanvas(card, scale = 2, targetCanvas = null) {
       let leftX = 70;
       let headerY = 70;
 
-      if (logoImg) {
-        drawImageContain(ctx, logoImg, leftX, headerY, 180, 70);
-      }
+      drawBrandLogo(ctx, card, logoImg, leftX, headerY, 180, 70, pal);
 
-      if (photoImg) {
-        const pSize = 100;
-        const pX = width - 180;
-        const pY = 70;
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(pX + pSize / 2, pY + pSize / 2, pSize / 2, 0, Math.PI * 2);
-        ctx.clip();
-        drawImageCover(ctx, photoImg, pX, pY, pSize, pSize);
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(pX + pSize / 2, pY + pSize / 2, pSize / 2, 0, Math.PI * 2);
-        ctx.strokeStyle = pal.accent;
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
+      // Foto en la esquina superior derecha (con estilo configurable)
+      drawPersonPhoto(ctx, card, photoImg, width - 130, 120, 50, pal);
 
       let curY = 200;
       ctx.fillStyle = pal.text;
@@ -776,44 +873,16 @@ async function renderCardToCanvas(card, scale = 2, targetCanvas = null) {
     ctx.fillStyle = pal.accent;
     ctx.fillRect(0, 316, width, 4);
 
-    // Logo arriba
-    if (logoImg) {
-      const lW = 160, lH = 60;
-      drawImageContain(ctx, logoImg, (width - lW) / 2, 40, lW, lH);
-    } else if (card.company) {
+    // Logo arriba (según estilo; sin logo visible, nombre de la empresa)
+    if (!drawBrandLogo(ctx, card, logoImg, (width - 160) / 2, 40, 160, 60, pal) && card.company) {
       ctx.fillStyle = pal.textMuted;
       ctx.font = 'bold 18px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(card.company.toUpperCase(), width / 2, 60);
     }
 
-    // Avatar centrado en la cabecera
-    const pCenterY = 200;
-    const pRadius = 75;
-    if (photoImg) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(width / 2, pCenterY, pRadius, 0, Math.PI * 2);
-      ctx.clip();
-      drawImageCover(ctx, photoImg, width / 2 - pRadius, pCenterY - pRadius, pRadius * 2, pRadius * 2);
-      ctx.restore();
-      ctx.beginPath();
-      ctx.arc(width / 2, pCenterY, pRadius, 0, Math.PI * 2);
-      ctx.strokeStyle = pal.accent;
-      ctx.lineWidth = 4;
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(width / 2, pCenterY, pRadius, 0, Math.PI * 2);
-      ctx.fillStyle = pal.accent;
-      ctx.fill();
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 44px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const inits = (card.name || 'K').split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-      ctx.fillText(inits || 'K', width / 2, pCenterY);
-    }
+    // Avatar centrado en la cabecera (forma, tamaño, zoom y encuadre según estilo)
+    drawPersonPhoto(ctx, card, photoImg, width / 2, 200, 75, pal);
 
     // Nombre y Cargo centrados
     let curY = 370;
@@ -933,6 +1002,8 @@ function createDefaultCard(name = '', title = '', company = '') {
     photoUrl: '',
     logoUrl: '',
     memberId: '',
+    photoStyle: { ...DEFAULT_PHOTO_STYLE },
+    logoStyle: { ...DEFAULT_LOGO_STYLE },
     format: 'horizontal',
     theme: 'kimos',
     customColors: {
@@ -1214,7 +1285,7 @@ export default function mount(shell) {
         },
         {
           name: 'UPDATE_CARD',
-          description: 'Actualiza los campos de una tarjeta virtual existente.',
+          description: 'Actualiza los campos de una tarjeta virtual existente, incluida la visualización de la foto (photoStyle) y del logo (logoStyle).',
           inputSchema: {
             type: 'object',
             properties: {
@@ -1225,7 +1296,30 @@ export default function mount(shell) {
               email: { type: 'string' },
               phoneMobile: { type: 'string' },
               website: { type: 'string' },
-              theme: { type: 'string' }
+              theme: { type: 'string' },
+              photoStyle: {
+                type: 'object',
+                description: 'Visualización de la foto: visible (bool), shape (circle|rounded|square), size (0.7–1.25), zoom (1–3), offsetX/offsetY (-1–1, encuadre del recorte), ring (bool, anillo de acento).',
+                properties: {
+                  visible: { type: 'boolean' },
+                  shape: { type: 'string', enum: ['circle', 'rounded', 'square'] },
+                  size: { type: 'number' },
+                  zoom: { type: 'number' },
+                  offsetX: { type: 'number' },
+                  offsetY: { type: 'number' },
+                  ring: { type: 'boolean' }
+                }
+              },
+              logoStyle: {
+                type: 'object',
+                description: 'Visualización del logo: visible (bool), size (0.6–1.5), opacity (0.2–1), plate (none|white|accent, placa de fondo).',
+                properties: {
+                  visible: { type: 'boolean' },
+                  size: { type: 'number' },
+                  opacity: { type: 'number' },
+                  plate: { type: 'string', enum: ['none', 'white', 'accent'] }
+                }
+              }
             },
             required: ['id']
           }
@@ -1310,9 +1404,18 @@ export default function mount(shell) {
         if (type === 'UPDATE_CARD') {
           const cardIndex = model.cards.findIndex((c) => c.id === payload.id);
           if (cardIndex === -1) return { success: false, error: 'Tarjeta no encontrada' };
+          const prev = model.cards[cardIndex];
           const updated = {
-            ...model.cards[cardIndex],
+            ...prev,
             ...payload,
+            // Los estilos se fusionan campo a campo y se normalizan (clamp de
+            // rangos): el agente puede mandar valores fuera de rango.
+            photoStyle: payload.photoStyle
+              ? getPhotoStyle({ photoStyle: { ...(prev.photoStyle || {}), ...payload.photoStyle } })
+              : prev.photoStyle,
+            logoStyle: payload.logoStyle
+              ? getLogoStyle({ logoStyle: { ...(prev.logoStyle || {}), ...payload.logoStyle } })
+              : prev.logoStyle,
             updatedAt: new Date().toISOString()
           };
           const cards = [...model.cards];
@@ -1370,6 +1473,16 @@ export default function mount(shell) {
         [key]: value
       };
       handleUpdateCardField('customColors', customColors);
+    };
+
+    const handleUpdatePhotoStyle = (patch) => {
+      if (!currentCard) return;
+      handleUpdateCardField('photoStyle', { ...getPhotoStyle(currentCard), ...patch });
+    };
+
+    const handleUpdateLogoStyle = (patch) => {
+      if (!currentCard) return;
+      handleUpdateCardField('logoStyle', { ...getLogoStyle(currentCard), ...patch });
     };
 
     const handleCreateNewCard = () => {
@@ -1922,6 +2035,8 @@ export default function mount(shell) {
     // ── Render Pestaña 3: Diseño y Colores ──
     const renderDesignTab = () => {
       if (!currentCard) return h('div', { className: 'kt-empty' }, 'No hay tarjeta seleccionada.');
+      const photoSt = getPhotoStyle(currentCard);
+      const logoSt = getLogoStyle(currentCard);
 
       return h('div', { className: 'kt-split-view' },
         h('div', { className: 'kt-panel-left' },
@@ -1954,6 +2069,91 @@ export default function mount(shell) {
                 )
               )
             ),
+
+            // Visualización de la foto: mostrar/ocultar, forma, tamaño, zoom y encuadre
+            h('div', { className: 'kt-style-controls' },
+              h('label', { className: 'kt-check-row' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: photoSt.visible,
+                  onChange: (e) => handleUpdatePhotoStyle({ visible: e.target.checked })
+                }),
+                'Mostrar la foto en la tarjeta'
+              ),
+              photoSt.visible && h('div', { className: 'kt-form-grid' },
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, 'Forma de la foto'),
+                  h('select', {
+                    className: 'kt-select',
+                    value: photoSt.shape,
+                    onChange: (e) => handleUpdatePhotoStyle({ shape: e.target.value })
+                  },
+                    h('option', { value: 'circle' }, 'Círculo'),
+                    h('option', { value: 'rounded' }, 'Cuadrado redondeado'),
+                    h('option', { value: 'square' }, 'Cuadrado')
+                  )
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, `Tamaño · ${Math.round(photoSt.size * 100)}%`),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: 70, max: 125, step: 5,
+                    value: Math.round(photoSt.size * 100),
+                    onChange: (e) => handleUpdatePhotoStyle({ size: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, `Zoom del recorte · ${Math.round(photoSt.zoom * 100)}%`),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: 100, max: 300, step: 5,
+                    value: Math.round(photoSt.zoom * 100),
+                    disabled: !currentCard.photoUrl,
+                    onChange: (e) => handleUpdatePhotoStyle({ zoom: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, 'Encuadre horizontal ⟷'),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: -100, max: 100, step: 5,
+                    value: Math.round(photoSt.offsetX * 100),
+                    disabled: !currentCard.photoUrl,
+                    onChange: (e) => handleUpdatePhotoStyle({ offsetX: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, 'Encuadre vertical ↕'),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: -100, max: 100, step: 5,
+                    value: Math.round(photoSt.offsetY * 100),
+                    disabled: !currentCard.photoUrl,
+                    onChange: (e) => handleUpdatePhotoStyle({ offsetY: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-check-row' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: photoSt.ring,
+                      onChange: (e) => handleUpdatePhotoStyle({ ring: e.target.checked })
+                    }),
+                    'Anillo con el color de acento'
+                  ),
+                  h('button', {
+                    className: 'kt-btn kt-btn-sm',
+                    style: { marginTop: '6px' },
+                    disabled: photoSt.zoom === 1 && photoSt.offsetX === 0 && photoSt.offsetY === 0,
+                    onClick: () => handleUpdatePhotoStyle({ zoom: 1, offsetX: 0, offsetY: 0 })
+                  }, '↺ Restablecer recorte')
+                )
+              )
+            ),
             h('div', { className: 'kt-form-group', style: { marginTop: '12px' } },
               h('label', { className: 'kt-label' }, 'Logo de la Empresa / Marca'),
               h('div', { className: 'kt-upload-box' },
@@ -1975,6 +2175,52 @@ export default function mount(shell) {
                     className: 'kt-btn kt-btn-sm kt-btn-danger',
                     onClick: () => handleUpdateCardField('logoUrl', '')
                   }, 'Quitar')
+                )
+              )
+            ),
+
+            // Visualización del logo: mostrar/ocultar, tamaño, opacidad y placa de fondo
+            currentCard.logoUrl && h('div', { className: 'kt-style-controls' },
+              h('label', { className: 'kt-check-row' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: logoSt.visible,
+                  onChange: (e) => handleUpdateLogoStyle({ visible: e.target.checked })
+                }),
+                'Mostrar el logo en la tarjeta'
+              ),
+              logoSt.visible && h('div', { className: 'kt-form-grid' },
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, `Tamaño · ${Math.round(logoSt.size * 100)}%`),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: 60, max: 150, step: 5,
+                    value: Math.round(logoSt.size * 100),
+                    onChange: (e) => handleUpdateLogoStyle({ size: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group' },
+                  h('label', { className: 'kt-label' }, `Opacidad · ${Math.round(logoSt.opacity * 100)}%`),
+                  h('input', {
+                    type: 'range',
+                    className: 'kt-range',
+                    min: 20, max: 100, step: 5,
+                    value: Math.round(logoSt.opacity * 100),
+                    onChange: (e) => handleUpdateLogoStyle({ opacity: Number(e.target.value) / 100 })
+                  })
+                ),
+                h('div', { className: 'kt-form-group col-full' },
+                  h('label', { className: 'kt-label' }, 'Fondo del logo'),
+                  h('select', {
+                    className: 'kt-select',
+                    value: logoSt.plate,
+                    onChange: (e) => handleUpdateLogoStyle({ plate: e.target.value })
+                  },
+                    h('option', { value: 'none' }, 'Sin fondo (transparente)'),
+                    h('option', { value: 'white' }, 'Placa blanca redondeada (para fondos oscuros)'),
+                    h('option', { value: 'accent' }, 'Placa del color de acento')
+                  )
                 )
               )
             )

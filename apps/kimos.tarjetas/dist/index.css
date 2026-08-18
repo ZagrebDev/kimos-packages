@@ -728,3 +728,45 @@
     flex-wrap: wrap;
   }
 }
+
+/* ── v1.2.0 · Controles de visualización de foto y logo ───────────────────── */
+.kimos-tarjetas .kt-style-controls {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--kt-border);
+  border-radius: var(--kt-radius);
+  background: var(--kt-surface);
+}
+
+.kimos-tarjetas .kt-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--kt-fg);
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 8px;
+}
+
+.kimos-tarjetas .kt-check-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--kt-accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+.kimos-tarjetas .kt-range {
+  width: 100%;
+  height: 22px;
+  accent-color: var(--kt-accent);
+  cursor: pointer;
+  background: transparent;
+}
+
+.kimos-tarjetas .kt-range:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
