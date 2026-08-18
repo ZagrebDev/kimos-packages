@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.7.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -147,7 +147,7 @@ const AGENDA = [
     id: 'contexto-legal', ini: '09:00', fin: '09:30',
     tema: 'Contexto actual de las leyes de Ciberseguridad, Delitos Informáticos y Protección de Datos',
     resumen: 'Análisis detallado de la Ley Marco 21.663, Ley 21.719 y Ley 21.459: exigencias, plazos, sanciones y responsabilidades de los directores.',
-    porTexto: '', speakers: ['lilian-jimenez'], orgs: ['nexoabogados'], leyes: ['21663', '21719'],
+    porTexto: '', speakers: ['lilian-jimenez'], orgs: ['nexoabogados'], leyes: ['21663', '21719', '21459'],
   },
   {
     id: 'microsoft-21663', ini: '09:30', fin: '10:00',
@@ -217,6 +217,30 @@ const LEYES = [
       'Período de adecuación técnica, legal y contractual antes de su plena exigibilidad en diciembre de 2026.',
     ],
     sesion: 'lineage',
+  },
+  {
+    id: '21459',
+    numero: 'Ley 21.459',
+    nombre: 'Ley de Delitos Informáticos (Convenio de Budapest)',
+    resumen: 'Tipifica los delitos informáticos modernos, adapta las normas procesales y adhiere '
+      + 'a los estándares internacionales del Convenio de Budapest.',
+    datos: [
+      { k: 'Promulgada', v: '20 de junio de 2022' },
+      { k: 'Publicada', v: '20 de junio de 2022' },
+      { k: 'Se vincula con', v: 'Leyes 20.393 y 21.595 (Delitos Económicos)' },
+    ],
+    puntos: [
+      'Ataque a la integridad de sistemas (Art. 1): sabotaje, bloqueo, daño o inutilización de redes o servidores.',
+      'Acceso ilícito (Art. 2): intrusión o vulneración de medidas de seguridad para acceder sin autorización (hacking).',
+      'Interceptación ilícita (Art. 3): captura indebida de transmisiones de datos o emisiones electromagnéticas.',
+      'Ataque a la integridad de los datos (Art. 4): alteración, daño o borrado no autorizado de información digital.',
+      'Falsificación informática (Art. 5): creación o adulteración maliciosa de datos para hacerlos pasar por auténticos.',
+      'Receptación de datos (Art. 6): comercialización, almacenamiento o posesión ilegítima de datos, credenciales o accesos ilícitos.',
+      'Fraude informático (Art. 7): manipulación de datos o sistemas para obtener un provecho económico ilícito.',
+      'Abuso de dispositivos (Art. 8): producción, importación o difusión de malware, exploits o credenciales para delinquir.',
+      'Responsabilidad penal de las empresas: modifica la Ley 20.393; la persona jurídica responde si el delito se comete en su beneficio por falta de modelos de prevención y compliance.',
+    ],
+    sesion: 'contexto-legal',
   },
 ];
 

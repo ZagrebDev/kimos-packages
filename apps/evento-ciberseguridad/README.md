@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.6.0**
+**Versión actual: 2.7.0**
 
 ---
 
@@ -198,3 +198,18 @@ blanco, **sin el sufijo «.dev» y sin sombra**.
   y a las recargas de la página.
 - **Se quita el aviso del formulario** sobre la «recopilación automática de
   detalles», que no aplica a esta autoevaluación en el tótem.
+
+---
+
+## Cambios de la versión 2.7.0
+
+- **Modales más grandes y equilibrados.** Ahora ocupan más ancho (hasta 940 px)
+  y se centran verticalmente en el espacio disponible sobre el dock de voz, en
+  vez de quedar pegados arriba desperdiciando el resto de la pantalla.
+- **Sin scroll interno.** El contenido aprovecha todo el alto hasta el widget;
+  en el modal, la lista de aspectos clave se dispone en dos columnas para que
+  incluso la ley más extensa entre completa sin desplazamiento.
+- **Tercera ley en Marco Legal: Ley 21.459** (Delitos Informáticos · Convenio de
+  Budapest), con sus ocho delitos tipificados y la responsabilidad penal de las
+  personas jurídicas. La sesión de contexto legal ahora etiqueta las tres leyes,
+  y el agente puede abrir su detalle con `ABRIR_LEY`.
