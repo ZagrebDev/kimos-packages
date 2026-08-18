@@ -414,7 +414,7 @@
       "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
       "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: pantalla \"Ahora\" con la sesión en curso y la siguiente en tiempo real, agenda compacta con fichas de expositores en modal (QR de contacto y de sitio web), marco legal en tarjetas con detalle en modal, Diagnóstico Rápido de Cumplimiento y pie con el logo de Kimos.",
       "icon": "🛡️",
-      "version": "2.8.0",
+      "version": "2.9.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

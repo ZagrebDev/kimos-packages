@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.9.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -681,29 +681,38 @@ export default function mount(shell) {
     marcarActividad();
   };
 
-  /* Registra una respuesta y avanza. En la última pregunta cierra el
-     diagnóstico y guarda el resultado en el agregado. */
+  /* La alternativa "correcta" es la de puntaje completo (10). */
+  const opcionCorrecta = (q) => q.opciones.reduce((mejor, o) => (!mejor || o.puntos > mejor.puntos ? o : mejor), null);
+
+  /* Registra la respuesta y REVELA el resultado (correcto/incorrecto); NO avanza.
+     Queda bloqueada una vez respondida para no cambiarla tras ver la solución. */
   const responderDiagnostico = (preguntaId, opcionId) => {
     const q = buscarPregunta(preguntaId);
     if (!q || !q.opciones.some((o) => o.id === opcionId)) return false;
+    if (vista.diag.respuestas[preguntaId]) return true; /* ya respondida */
     const respuestas = Object.assign({}, vista.diag.respuestas);
     respuestas[preguntaId] = opcionId;
-    const idx = DIAGNOSTICO.preguntas.indexOf(q);
-    const evaluacion = evaluar(respuestas);
-    if (evaluacion.completo) {
-      setDiag({ fase: 'resultado', paso: idx, respuestas: respuestas });
-      registrarAgregado(respuestas, evaluacion.puntaje);
-    } else {
-      /* Salta a la primera pregunta que siga sin responder. */
-      let siguiente = idx + 1;
-      while (siguiente < DIAGNOSTICO.preguntas.length && respuestas[DIAGNOSTICO.preguntas[siguiente].id]) siguiente++;
-      if (siguiente >= DIAGNOSTICO.preguntas.length) {
-        siguiente = DIAGNOSTICO.preguntas.findIndex((x) => !respuestas[x.id]);
-      }
-      setDiag({ fase: 'preguntas', paso: siguiente, respuestas: respuestas });
-    }
+    setDiag({ fase: 'preguntas', respuestas: respuestas });
     marcarActividad();
     return true;
+  };
+
+  /* Avanza a la siguiente pregunta sin responder; si ya se respondieron todas,
+     muestra el resultado y guarda el agregado. */
+  const avanzarDiagnostico = () => {
+    const total = DIAGNOSTICO.preguntas.length;
+    const respuestas = vista.diag.respuestas;
+    const ev = evaluar(respuestas);
+    if (ev.completo) {
+      setDiag({ fase: 'resultado' });
+      registrarAgregado(respuestas, ev.puntaje);
+    } else {
+      let n = (vista.diag.paso || 0) + 1;
+      while (n < total && respuestas[DIAGNOSTICO.preguntas[n].id]) n++;
+      if (n >= total) n = DIAGNOSTICO.preguntas.findIndex((x) => !respuestas[x.id]);
+      setDiag({ fase: 'preguntas', paso: Math.max(0, n) });
+    }
+    marcarActividad();
   };
 
   const irAPaso = (n) => {
@@ -896,19 +905,25 @@ export default function mount(shell) {
           if (tipo === 'RESPONDER_DIAGNOSTICO') {
             const q = buscarPregunta(p.preguntaId);
             if (!q) return { success: false, error: 'Pregunta desconocida: ' + p.preguntaId };
-            if (!responderDiagnostico(p.preguntaId, p.opcionId)) {
+            if (!q.opciones.some((o) => o.id === p.opcionId)) {
               return {
                 success: false,
                 error: 'Alternativa desconocida: ' + p.opcionId
                   + '. Válidas: ' + q.opciones.map((o) => o.id).join(', ') + '.',
               };
             }
+            const yaResp = !!vista.diag.respuestas[p.preguntaId];
+            responderDiagnostico(p.preguntaId, p.opcionId);
+            const correcta = opcionCorrecta(q);
+            const acerto = p.opcionId === correcta.id;
+            avanzarDiagnostico();
             const e = evaluar(vista.diag.respuestas);
+            const veredicto = yaResp ? '' : (acerto ? 'Correcto. ' : 'Incorrecto; la respuesta recomendada era "' + correcta.label + '". ');
             return {
               success: true,
-              message: e.completo
+              message: veredicto + (e.completo
                 ? 'Diagnóstico completo: ' + e.puntaje + ' de ' + PUNTAJE_MAXIMO + ' puntos (' + e.nivel.titulo + ').'
-                : 'Respuesta registrada (' + e.respondidas + ' de ' + DIAGNOSTICO.preguntas.length + ').',
+                : 'Vas ' + e.respondidas + ' de ' + DIAGNOSTICO.preguntas.length + '.'),
             };
           }
           if (tipo === 'IR_A_PREGUNTA') {
@@ -1447,10 +1462,14 @@ export default function mount(shell) {
           h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría legal ni una auditoría formal.')));
     }
 
-    /* ── Preguntas, una por pantalla ──────────────────────────────────── */
+    /* ── Preguntas, una por pantalla, con revelación correcto/incorrecto ── */
     const idx = Math.max(0, Math.min(total - 1, d.paso));
     const q = DIAGNOSTICO.preguntas[idx];
     const elegida = d.respuestas[q.id];
+    const revelada = !!elegida;              /* respondida → mostrar solución */
+    const correcta = opcionCorrecta(q);      /* alternativa de puntaje completo */
+    const acerto = elegida === correcta.id;
+    const respondidas = DIAGNOSTICO.preguntas.filter((x) => d.respuestas[x.id]).length;
 
     return h('div', { className: 'ec-wrap' },
       h('div', { className: 'ec-card ec-hero-card' },
@@ -1459,19 +1478,38 @@ export default function mount(shell) {
           h('span', { className: 'ec-diag-pts' }, DIAGNOSTICO.puntosPregunta + ' puntos')),
 
         h('div', { className: 'ec-diag-barra' },
-          h('div', { className: 'ec-diag-barra-f', style: { width: Math.round((idx / total) * 100) + '%' } })),
+          h('div', { className: 'ec-diag-barra-f', style: { width: Math.round((respondidas / total) * 100) + '%' } })),
 
         h('p', { className: 'ec-diag-q' }, q.texto),
 
-        h('div', { className: 'ec-ops' }, q.opciones.map((o) => h('button', {
-          key: o.id,
-          type: 'button',
-          className: 'ec-op' + (elegida === o.id ? ' on' : ''),
-          'aria-pressed': elegida === o.id ? 'true' : 'false',
-          onClick: () => responderDiagnostico(q.id, o.id),
-        },
-        h('span', { className: 'ec-op-bullet' }),
-        h('span', null, o.label)))),
+        h('div', { className: 'ec-ops' }, q.opciones.map((o) => {
+          let estado = '';
+          if (revelada) {
+            if (o.id === correcta.id) estado = ' ok';
+            else if (o.id === elegida) estado = ' mal';
+            else estado = ' apagada';
+          }
+          const esElegida = elegida === o.id;
+          return h('button', {
+            key: o.id,
+            type: 'button',
+            disabled: revelada,
+            className: 'ec-op' + (esElegida ? ' on' : '') + estado,
+            'aria-pressed': esElegida ? 'true' : 'false',
+            onClick: () => responderDiagnostico(q.id, o.id),
+          },
+          revelada
+            ? h('span', { className: 'ec-op-marca' }, o.id === correcta.id ? '✓' : (o.id === elegida ? '✕' : ''))
+            : h('span', { className: 'ec-op-bullet' }),
+          h('span', null, o.label));
+        })),
+
+        /* Veredicto tras responder */
+        revelada ? h('div', { className: 'ec-diag-fb ' + (acerto ? 'ok' : 'mal') },
+          h('span', { className: 'ec-diag-fb-ico' }, acerto ? '✓' : '✕'),
+          h('span', null, acerto
+            ? '¡Correcto!'
+            : 'Incorrecto. La respuesta correcta es: ' + correcta.label)) : null,
 
         h('div', { className: 'ec-diag-nav' },
           h('button', {
@@ -1484,10 +1522,10 @@ export default function mount(shell) {
             className: 'ec-paso' + (d.respuestas[x.id] ? ' on' : '') + (i === idx ? ' aqui' : ''),
           }))),
           h('button', {
-            type: 'button', className: 'ec-btn ghost',
-            disabled: !elegida || idx === total - 1,
-            onClick: () => irAPaso(idx + 1),
-          }, 'Siguiente →'))));
+            type: 'button', className: 'ec-btn' + (revelada ? '' : ' ghost'),
+            disabled: !revelada,
+            onClick: avanzarDiagnostico,
+          }, respondidas === total ? 'Ver resultado →' : 'Continuar →'))));
   }
 
   /* ── Componente Raíz ───────────────────────────────────────────────── */
