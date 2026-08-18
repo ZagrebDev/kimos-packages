@@ -1186,6 +1186,37 @@
   height: 6.4em;
 }
 
+
+/* Tarjetas de sesión de "Ahora" clicables (abren el modal de la sesión). */
+.kimos-evento-ciberseguridad .ec-clickable {
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-card.ec-clickable:hover {
+  border-color: var(--nt-cyan);
+  transform: translateY(-2px);
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-card.ec-clickable:active {
+  transform: translateY(0);
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-ver {
+  display: block;
+  margin-top: .8em;
+  text-align: right;
+  font-size: var(--f-sm);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--nt-cyan);
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-ver span {
+  font-size: 1.3em;
+  vertical-align: -.08em;
+}
+
 /* ═══════════════ Listas compactas (agenda / leyes) ═══════════════ */
 .kimos-evento-ciberseguridad .ec-wrap-lista {
   display: flex;

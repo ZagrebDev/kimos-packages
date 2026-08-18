@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.7.0**
+**Versión actual: 2.8.0**
 
 ---
 
@@ -213,3 +213,13 @@ blanco, **sin el sufijo «.dev» y sin sombra**.
   Budapest), con sus ocho delitos tipificados y la responsabilidad penal de las
   personas jurídicas. La sesión de contexto legal ahora etiqueta las tres leyes,
   y el agente puede abrir su detalle con `ABRIR_LEY`.
+
+---
+
+## Cambios de la versión 2.8.0
+
+- **Sesiones de «Ahora» clicables.** Las tarjetas de la sesión en curso y la
+  siguiente (bajo el contenedor del título) ahora abren el mismo modal de
+  detalle que la Agenda, con un enlace «Ver detalle ›».
+- Se quita «(Convenio de Budapest)» del nombre de la Ley 21.459, que pasa a
+  llamarse simplemente **Ley de Delitos Informáticos**.
