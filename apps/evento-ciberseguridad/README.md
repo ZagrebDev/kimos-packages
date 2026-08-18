@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.8.0**
+**Versión actual: 2.9.0**
 
 ---
 
@@ -223,3 +223,15 @@ blanco, **sin el sufijo «.dev» y sin sombra**.
   detalle que la Agenda, con un enlace «Ver detalle ›».
 - Se quita «(Convenio de Budapest)» del nombre de la Ley 21.459, que pasa a
   llamarse simplemente **Ley de Delitos Informáticos**.
+
+---
+
+## Cambios de la versión 2.9.0
+
+- **Retroalimentación por pregunta en el diagnóstico.** Al responder, la
+  alternativa elegida se marca en **verde (✓) si es correcta** o **rojo (✕) si
+  es incorrecta**; en ese caso se resalta también la correcta y se muestra un
+  aviso con la respuesta correcta. Recién entonces aparece **«Continuar →»**
+  para pasar a la siguiente, de modo que la persona va viendo cómo le va.
+  «Correcta» = la alternativa de puntaje completo. El asistente de voz también
+  informa correcto/incorrecto al responder.
