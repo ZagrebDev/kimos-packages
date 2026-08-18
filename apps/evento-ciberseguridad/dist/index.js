@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -59,6 +59,9 @@ const ORGS = {
 
 /* ── Expositores ────────────────────────────────────────────────────── */
 
+/* Foto de Bernardo Donoso embebida (no tiene URL pública de la organización). */
+const FOTO_BERNARDO = 'data:image/jpeg;base64,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';
+
 const SPEAKERS = [
   {
     id: 'lilian-jimenez',
@@ -106,13 +109,18 @@ const SPEAKERS = [
     id: 'bernardo-donoso',
     nombre: 'Bernardo Donoso',
     nombreLargo: 'Bernardo Donoso Brión',
-    rol: 'Expositor · Especialista Lineage',
+    rol: 'Especialista en TI y Protección de Datos',
     org: 'lineage',
     qr: 'bernardo-donoso',
     url: 'https://www.linkedin.com/in/bernardo-donoso-bri%C3%B3n-73108b239/',
-    bio: 'Especialista en protección de datos y cumplimiento de la Ley 21.719 en la plataforma Lineage.',
+    bio: 'Ejecutivo con experiencia como Director de Tecnologías de la Información y '
+      + 'Comunicaciones para Latinoamérica y Asesor TI para la región de Asia en una '
+      + 'multinacional de la industria de manufactura, y como Customer Success Manager en '
+      + 'una consultora de soluciones de software Microsoft. Diplomado en Administración de '
+      + 'Empresas de la Universidad Católica. Logros comprobados en la creación, dirección y '
+      + 'desarrollo de equipos en proyectos TI, potenciando el crecimiento de sus colaboradores.',
     fuente: 'Perfil profesional público',
-    foto: '',
+    foto: FOTO_BERNARDO,
   },
   {
     id: 'leonardo-jadue',
@@ -386,7 +394,7 @@ const SECCIONES = [
 
 const QR = {
   'landing': { n: 37, b: '/lHAC/wTJV2QbrfBTrt1eofl26in2q7BTCINB/qqqq/gFY3HAL5NhOPm4tt0aY2z9DcuKDJ8YJP7PS5vqGRchIO4DorvbT9jMrCv5z7HtWh8Ckmm1JL9xjlhDE4X7oYnbjDKfoYg3DcwX2qUzNPz4vmE3r2tu1FKIuZlvi9p2j00GKMdD/8AblyUa/lGiarwXHElG7qvPt+l1nwFt66+gokDBP1OHR/pBCZPgA==' },
-  'nexttime': { n: 29, b: '/sdD/BFKUG6pHrt0k8Xbox4uwWNVB/qqr+AJhwCjZbEow4b4w6Om+wHHEozh4SCogw2O6aT2NreHkGrVmgplBtnx76QySzd6D/5g/QBHJHf6ZSowQocSulW/xdBG566rJycEW3mP626kgA==' },
+  'nexttime': { n: 29, b: '/ncb/BO/UG6jSLt1xoXbqJuuwUwFB/qqr+ASUwC+SOvlIrvcTsPwIeoqW6gqtJYwGN/GeaGbkYlTAoYAwWUqe/1pwfLpAQozKKe1+4BE9H/5gGuQU1MSupivrdWbwy65cf0ERvCv6dESAA==' },
   'agenda': { n: 53, b: '/tEb8rIj/Bbcza/DkG6gtDbvxLt08fz9n9XbrY9vvOIuwR9xxo0xB/qqqqqqr+AJytF42wCf99L8jIy9hQruE9/blrGDUUt0+OmtTY+i/pK9J7Gq2i0aECtFLXbVHoPge/5Fsp5WvoqNTCLAyK38YY2PaSYS5bSuraZPPzF6y1J3Yo3NYbfvmmervmpHTbe5//qPze+ij0ACtsmIW8NL/91D/oKf0MROnFofRWq46Opd8rPxcq8bxNHT/u2PqIP8Sl7CGbyTcqlYTGYmKSmgAhqofOcCHisoebUgaPXJp7vOGM3VW/8hcDC8u/1O87wqW/uLy3Nq6sGDSxD2vBcaRtoId5mI/+yOH1t2lPuoKUAqgnWbMVc3gVh9N5LCwnNJ6LVVQTOlL+aN+oBFycf/nHv66e6j9WqQXmYxhpsYuuMh+kzvhdZFzdr7ga6f/rg1kbUEq0y2ZF5f7knLOJGgAA==' },
   'lilian-jimenez': { n: 33, b: '/ni5P8Es9lButtHLt1EtdduvulLsFaA1B/qqqv4BUU8AvlZDvh66fZtb++O62qKT4e9+Kr3CqesJPoonMYwZ4hj8C0tT2OK4Dvt6gsuOxKm36/VyYy3VSD2NJh+pi1VQHS7Xuyxz+ABgfMV/inDq0F8OsfutuK/d1Rvqbur3N9EESlwc/qFD0QA=' },
   'jose-gaete': { n: 33, b: '/hS9P8EDsFBuvw+Lt15fZdus05LsFj9hB/qqqv4BZjwAvl9SviQZeJtsvHC6whZT7edyAz3LKR/ZPlzpK5SrCQj8vg5S2IL1PvtBs1OWxovcr+/v6aXXY7vJJjqmISVwAgztpp9i+QBAXMV/k+jq0Frh8fuu4i/F1U7qXupxP9kELRwc/uJT0QA=' },
@@ -405,11 +413,16 @@ const KIMOS_LOGO = {
   d: 'M0 0 L46 39 L46 67 L48 67 L51 63 L53 63 L57 58 L59 58 L63 53 L65 53 L69 48 L71 48 L75 43 L77 43 L81 38 L83 38 L87 33 L89 33 L93 28 L95 28 L99 23 L101 23 L105 18 L107 18 L111 13 L113 13 L113 12 L70 12 L70 29 L66 31 L62 36 L59 37 L59 0 L141 0 L133 9 L131 9 L122 19 L120 19 L101 38 L99 38 L94 44 L92 44 L86 51 L84 51 L79 57 L77 57 L71 64 L69 64 L63 71 L61 71 L56 77 L54 77 L48 84 L46 84 L37 93 L36 93 L36 44 L34 44 L29 38 L27 38 L22 32 L20 32 L16 27 L14 27 L11 24 L11 121 L13 121 L20 114 L22 114 L26 109 L28 109 L32 104 L34 104 L38 99 L40 99 L50 89 L52 89 L55 85 L57 85 L61 80 L66 79 L72 86 L74 86 L80 93 L82 93 L88 100 L90 100 L97 108 L99 108 L105 115 L107 115 L113 122 L115 122 L122 130 L124 130 L138 144 L59 144 L59 110 L61 110 L66 116 L70 118 L70 133 L71 134 L111 134 L105 127 L103 127 L99 122 L97 122 L92 116 L90 116 L86 111 L84 111 L79 105 L77 105 L66 94 L62 94 L59 98 L57 98 L54 102 L52 102 L49 106 L47 106 L44 110 L42 110 L39 114 L37 114 L34 118 L32 118 L29 122 L27 122 L24 126 L22 126 L19 130 L17 130 L14 134 L12 134 L9 138 L7 138 L4 142 L0 144ZM167 0 L185 0 L185 144 L167 144ZM209 0 L233 0 L235 4 L240 8 L240 10 L245 14 L245 16 L250 20 L250 22 L255 26 L255 28 L260 32 L260 34 L265 38 L265 40 L270 44 L270 46 L275 50 L275 52 L280 56 L280 58 L286 63 L286 65 L290 69 L292 69 L292 67 L299 61 L299 59 L306 53 L306 51 L312 46 L312 44 L319 38 L319 36 L326 30 L326 28 L333 22 L333 20 L340 14 L340 12 L347 6 L347 4 L351 0 L375 0 L375 144 L357 144 L357 22 L354 23 L354 25 L347 31 L347 33 L341 38 L341 40 L334 46 L334 48 L328 53 L328 55 L321 61 L321 63 L315 68 L315 70 L308 76 L308 78 L302 83 L302 85 L295 91 L295 93 L291 97 L282 88 L282 86 L276 81 L276 79 L271 75 L271 73 L265 68 L265 66 L259 61 L259 59 L254 55 L254 53 L248 48 L248 46 L242 41 L242 39 L237 35 L237 33 L231 28 L231 26 L226 22 L226 144 L209 144ZM409 0 L526 0 L526 1 L530 1 L534 3 L538 7 L540 14 L541 14 L541 131 L540 131 L539 136 L534 141 L530 143 L526 143 L526 144 L409 144 L409 143 L404 142 L397 135 L396 129 L395 129 L395 15 L396 15 L396 12 L399 6 L402 3 L409 1ZM581 0 L692 0 L692 1 L699 2 L700 4 L703 5 L705 12 L706 12 L706 30 L689 30 L687 21 L680 17 L583 17 L578 21 L578 25 L577 25 L577 60 L582 65 L586 65 L586 66 L693 66 L693 67 L696 67 L704 76 L705 83 L706 83 L706 130 L705 130 L705 134 L703 138 L699 142 L695 144 L576 144 L576 143 L571 142 L565 137 L562 131 L562 116 L577 116 L580 126 L585 129 L681 129 L681 128 L685 128 L689 121 L689 85 L684 81 L681 81 L681 80 L580 80 L580 79 L575 79 L569 76 L564 71 L563 66 L562 66 L562 16 L563 16 L565 9 L570 4 L576 1 L581 1ZM426 18 L418 21 L413 31 L413 116 L414 116 L415 122 L419 126 L426 128 L426 129 L508 129 L508 128 L514 128 L514 127 L519 126 L522 123 L523 118 L524 118 L524 29 L523 29 L522 24 L518 20 L511 19 L511 18Z',
 };
 
+/* Isotipo (icosaedro) de Kimos, vectorizado desde el logo oficial en fondo azul. */
+const KIMOS_ICONO = {
+  viewBox: '0 0 298 341',
+  d: 'M145 0 L151 0 L151 1 L155 2 L156 5 L158 5 L159 7 L165 9 L166 11 L172 13 L173 15 L179 17 L180 19 L186 21 L187 23 L193 25 L194 27 L200 29 L201 31 L207 33 L208 35 L214 37 L215 39 L221 41 L222 43 L228 45 L229 47 L235 49 L236 51 L238 51 L238 52 L242 53 L243 55 L249 57 L250 59 L256 61 L257 63 L259 63 L262 66 L268 68 L269 70 L275 72 L276 74 L282 76 L283 78 L291 81 L296 86 L296 88 L298 90 L298 250 L297 250 L296 255 L288 263 L286 263 L285 265 L279 267 L278 269 L274 270 L273 272 L271 272 L271 273 L267 274 L266 276 L260 278 L259 280 L255 281 L254 283 L248 285 L247 287 L245 287 L242 290 L236 292 L235 294 L231 295 L230 297 L224 299 L223 301 L219 302 L218 304 L212 306 L211 308 L207 309 L206 311 L200 313 L199 315 L195 316 L194 318 L188 320 L187 322 L183 323 L182 325 L180 325 L180 326 L176 327 L175 329 L169 331 L168 333 L164 334 L163 336 L161 336 L161 337 L159 337 L155 340 L151 340 L151 341 L141 340 L141 339 L137 338 L136 336 L130 334 L129 332 L127 332 L127 331 L123 330 L122 328 L116 326 L115 324 L111 323 L110 321 L104 319 L103 317 L101 317 L101 316 L97 315 L96 313 L90 311 L89 309 L83 307 L82 305 L78 304 L77 302 L75 302 L75 301 L71 300 L70 298 L64 296 L63 294 L57 292 L56 290 L52 289 L51 287 L45 285 L44 283 L42 283 L42 282 L38 281 L37 279 L31 277 L30 275 L24 273 L23 271 L19 270 L18 268 L12 266 L11 264 L9 264 L5 261 L5 259 L3 258 L3 256 L1 254 L1 251 L0 251 L0 91 L1 91 L1 87 L9 79 L15 77 L16 75 L22 73 L23 71 L29 69 L30 67 L36 65 L37 63 L43 61 L44 59 L50 57 L51 55 L57 53 L58 51 L64 49 L65 47 L71 45 L72 43 L78 41 L79 39 L85 37 L86 35 L92 33 L93 31 L99 29 L100 27 L106 25 L107 23 L113 21 L114 19 L116 19 L116 18 L120 17 L121 15 L127 13 L128 11 L134 9 L135 7 L139 6ZM152 11 L148 14 L147 21 L146 21 L146 24 L145 24 L145 27 L144 27 L144 30 L143 30 L143 33 L142 33 L142 37 L141 37 L141 40 L140 40 L140 43 L139 43 L139 46 L138 46 L138 49 L137 49 L137 53 L136 53 L136 56 L141 60 L142 63 L157 65 L157 66 L163 66 L163 67 L176 68 L176 69 L182 69 L182 70 L188 70 L188 71 L207 73 L207 74 L213 74 L213 75 L220 75 L220 76 L226 76 L226 77 L232 77 L232 78 L238 78 L238 79 L245 79 L245 80 L251 80 L251 81 L257 81 L257 82 L263 82 L263 83 L269 83 L269 84 L283 85 L279 81 L271 78 L270 76 L264 74 L263 72 L257 70 L256 68 L250 66 L249 64 L241 61 L240 59 L234 57 L233 55 L227 53 L226 51 L220 49 L219 47 L211 44 L210 42 L204 40 L203 38 L197 36 L196 34 L190 32 L189 30 L181 27 L180 25 L174 23 L173 21 L167 19 L166 17 L160 15 L159 13 L157 13 L155 11ZM140 12 L138 14 L132 16 L131 18 L125 20 L124 22 L120 23 L119 25 L113 27 L112 29 L106 31 L105 33 L99 35 L98 37 L92 39 L91 41 L85 43 L84 45 L78 47 L77 49 L73 50 L72 52 L66 54 L65 56 L59 58 L58 60 L52 62 L51 64 L45 66 L44 68 L38 70 L37 72 L31 74 L30 76 L24 78 L23 80 L18 82 L18 85 L27 84 L27 83 L31 83 L31 82 L36 82 L36 81 L40 81 L40 80 L45 80 L45 79 L49 79 L49 78 L54 78 L54 77 L58 77 L58 76 L63 76 L63 75 L67 75 L67 74 L72 74 L72 73 L76 73 L76 72 L80 72 L80 71 L85 71 L85 70 L89 70 L89 69 L94 69 L94 68 L98 68 L98 67 L103 67 L103 66 L119 63 L124 57 L126 57 L127 55 L129 55 L131 53 L131 50 L132 50 L132 47 L133 47 L133 44 L134 44 L134 41 L135 41 L135 38 L136 38 L136 35 L137 35 L137 32 L138 32 L138 29 L139 29 L139 26 L140 26 L140 23 L141 23 L141 19 L142 19 L142 16 L143 16 L143 12ZM118 69 L108 71 L108 72 L98 73 L98 74 L94 74 L94 75 L89 75 L89 76 L85 76 L85 77 L75 78 L75 79 L71 79 L71 80 L61 81 L61 82 L57 82 L57 83 L52 83 L52 84 L48 84 L48 85 L43 85 L43 86 L38 86 L38 87 L34 87 L34 88 L20 90 L20 91 L18 91 L16 96 L14 98 L12 98 L14 106 L16 108 L16 111 L18 113 L18 116 L20 118 L20 121 L22 123 L22 126 L23 126 L24 131 L26 133 L27 139 L29 141 L29 144 L31 146 L31 149 L33 151 L33 154 L35 156 L35 159 L37 161 L37 164 L38 164 L39 169 L40 169 L41 172 L45 172 L48 169 L48 167 L51 165 L51 163 L54 161 L54 159 L57 157 L59 152 L62 150 L62 148 L65 146 L65 144 L68 142 L68 140 L71 138 L71 136 L74 134 L74 132 L77 130 L77 128 L80 126 L80 124 L83 122 L83 120 L86 118 L86 116 L89 114 L89 112 L95 106 L97 101 L100 99 L100 97 L103 95 L103 93 L106 91 L106 89 L109 87 L109 85 L112 83 L112 81 L115 79 L115 77 L121 71 L121 69ZM145 70 L144 70 L144 72 L154 81 L154 83 L166 94 L166 96 L178 107 L178 109 L191 121 L191 123 L203 134 L203 136 L216 148 L216 150 L228 162 L231 161 L231 160 L236 161 L238 159 L238 157 L241 155 L243 150 L246 148 L246 146 L249 144 L249 142 L252 140 L254 135 L257 133 L257 131 L260 129 L260 127 L263 125 L265 120 L268 118 L268 116 L271 114 L271 112 L274 110 L276 105 L279 103 L279 101 L283 97 L283 94 L282 94 L281 90 L274 90 L274 89 L268 89 L268 88 L261 88 L261 87 L255 87 L255 86 L248 86 L248 85 L242 85 L242 84 L228 83 L228 82 L222 82 L222 81 L215 81 L215 80 L209 80 L209 79 L202 79 L202 78 L196 78 L196 77 L189 77 L189 76 L182 76 L182 75 L176 75 L176 74 L169 74 L169 73ZM126 74 L122 77 L122 79 L119 81 L119 83 L116 85 L116 87 L113 89 L113 91 L110 93 L110 95 L107 97 L107 99 L104 101 L104 103 L101 105 L101 107 L98 109 L98 111 L95 113 L95 115 L92 117 L92 119 L89 121 L89 123 L86 125 L86 127 L83 129 L83 131 L80 133 L80 135 L77 137 L77 139 L74 141 L74 143 L71 145 L71 147 L68 149 L68 151 L65 153 L65 155 L62 157 L62 159 L59 161 L59 163 L56 165 L56 167 L50 173 L50 175 L51 175 L51 186 L50 187 L57 194 L59 194 L65 201 L67 201 L73 208 L75 208 L81 215 L83 215 L88 221 L90 221 L96 228 L98 228 L104 235 L106 235 L112 242 L114 242 L120 249 L122 249 L128 256 L130 256 L136 263 L138 263 L141 267 L152 267 L156 263 L156 261 L160 258 L160 256 L164 253 L164 251 L168 248 L168 246 L177 237 L177 235 L181 232 L181 230 L185 227 L185 225 L189 222 L189 220 L193 217 L193 215 L197 212 L197 210 L202 206 L202 204 L210 196 L210 194 L214 191 L214 189 L218 186 L218 184 L222 181 L222 179 L224 178 L223 177 L223 168 L224 168 L224 166 L213 156 L213 154 L202 144 L202 142 L191 132 L191 130 L180 120 L180 118 L169 108 L169 106 L158 96 L158 94 L147 84 L147 82 L139 74ZM291 97 L286 100 L286 102 L283 104 L281 109 L275 115 L273 120 L270 122 L270 124 L267 126 L265 131 L262 133 L260 138 L257 140 L257 142 L254 144 L252 149 L249 151 L249 153 L246 155 L246 157 L244 158 L244 160 L240 164 L240 167 L241 167 L240 179 L243 181 L243 183 L246 185 L246 187 L249 189 L249 191 L252 193 L252 195 L255 197 L255 199 L258 201 L258 203 L261 205 L261 207 L264 209 L264 211 L267 213 L267 215 L270 217 L270 219 L273 221 L273 223 L276 225 L276 227 L279 229 L279 231 L282 233 L282 235 L286 238 L286 240 L288 242 L291 242ZM8 102 L7 102 L7 243 L10 242 L10 240 L11 240 L11 238 L12 238 L12 236 L13 236 L13 234 L14 234 L14 232 L15 232 L15 230 L16 230 L16 228 L17 228 L17 226 L18 226 L18 224 L19 224 L19 222 L20 222 L20 220 L21 220 L21 218 L22 218 L22 216 L23 216 L23 214 L24 214 L24 212 L25 212 L25 210 L26 210 L26 208 L27 208 L27 206 L28 206 L28 204 L29 204 L29 202 L30 202 L30 200 L31 200 L31 198 L32 198 L32 196 L35 192 L34 179 L35 179 L35 175 L36 175 L35 171 L33 169 L32 163 L30 161 L30 158 L28 156 L28 153 L26 151 L26 148 L24 146 L21 135 L19 133 L19 130 L17 128 L17 125 L15 123 L15 120 L13 118 L12 112 L11 112 L10 107 L8 105ZM228 182 L223 187 L223 189 L219 192 L219 194 L215 197 L215 199 L211 202 L211 204 L206 208 L206 210 L202 213 L202 215 L198 218 L198 220 L194 223 L194 225 L190 228 L190 230 L186 233 L186 235 L182 238 L182 240 L173 249 L173 251 L169 254 L169 256 L165 259 L165 261 L161 264 L161 266 L157 269 L157 273 L170 271 L170 270 L176 270 L176 269 L182 269 L182 268 L188 268 L188 267 L194 267 L194 266 L200 266 L200 265 L206 265 L206 264 L212 264 L212 263 L218 263 L218 262 L224 262 L224 261 L230 261 L230 260 L236 260 L236 259 L242 259 L242 258 L248 258 L248 257 L254 257 L254 256 L259 256 L259 255 L282 252 L283 245 L280 243 L278 238 L275 236 L273 231 L270 229 L268 224 L265 222 L265 220 L263 219 L261 214 L258 212 L258 210 L253 205 L253 203 L248 198 L248 196 L243 191 L243 189 L238 184 L238 182ZM47 191 L44 192 L44 193 L39 193 L39 195 L38 195 L38 197 L37 197 L37 199 L36 199 L36 201 L35 201 L35 203 L34 203 L34 205 L33 205 L33 207 L32 207 L32 209 L31 209 L31 211 L30 211 L30 213 L29 213 L29 215 L28 215 L28 217 L27 217 L27 219 L26 219 L26 221 L25 221 L25 223 L24 223 L24 225 L23 225 L23 227 L22 227 L22 229 L21 229 L21 231 L20 231 L20 233 L19 233 L19 235 L18 235 L18 237 L17 237 L17 239 L16 239 L16 241 L15 241 L15 243 L12 247 L14 252 L26 253 L26 254 L32 254 L32 255 L39 255 L39 256 L45 256 L45 257 L52 257 L52 258 L58 258 L58 259 L65 259 L65 260 L71 260 L71 261 L78 261 L78 262 L85 262 L85 263 L91 263 L91 264 L98 264 L98 265 L104 265 L104 266 L111 266 L111 267 L117 267 L117 268 L124 268 L124 269 L130 269 L130 270 L136 270 L136 268 L131 263 L129 263 L124 257 L122 257 L117 251 L115 251 L110 245 L108 245 L103 239 L101 239 L96 233 L94 233 L89 227 L87 227 L82 221 L80 221 L75 215 L73 215 L68 209 L66 209 L61 203 L59 203ZM280 257 L279 258 L273 258 L273 259 L267 259 L267 260 L260 260 L260 261 L254 261 L254 262 L248 262 L248 263 L242 263 L242 264 L235 264 L235 265 L229 265 L229 266 L216 267 L216 268 L210 268 L210 269 L197 270 L197 271 L191 271 L191 272 L178 273 L178 274 L172 274 L172 275 L157 277 L155 279 L155 281 L150 285 L150 328 L158 331 L159 329 L165 327 L166 325 L172 323 L173 321 L175 321 L175 320 L179 319 L180 317 L186 315 L187 313 L193 311 L194 309 L198 308 L199 306 L205 304 L206 302 L212 300 L213 298 L219 296 L220 294 L226 292 L227 290 L233 288 L234 286 L236 286 L236 285 L240 284 L241 282 L247 280 L248 278 L254 276 L255 274 L259 273 L260 271 L262 271 L262 270 L266 269 L267 267 L273 265 L274 263 L280 261 L281 259 L283 259 L282 257ZM14 259 L13 260 L15 260 L16 262 L22 264 L23 266 L29 268 L30 270 L36 272 L37 274 L43 276 L44 278 L52 281 L53 283 L59 285 L60 287 L66 289 L67 291 L75 294 L76 296 L82 298 L83 300 L91 303 L92 305 L98 307 L99 309 L107 312 L108 314 L116 317 L117 319 L127 323 L128 325 L130 325 L130 326 L132 326 L132 327 L134 327 L134 328 L136 328 L140 331 L145 329 L145 285 L142 282 L140 282 L140 280 L137 277 L128 276 L128 275 L121 275 L121 274 L115 274 L115 273 L108 273 L108 272 L101 272 L101 271 L95 271 L95 270 L81 269 L81 268 L75 268 L75 267 L68 267 L68 266 L62 266 L62 265 L48 264 L48 263 L42 263 L42 262 L28 261 L28 260 L22 260 L22 259Z',
+};
+
 /* Crédito de plataforma que se muestra en el pie, junto al del organizador. */
 const PIE = {
   copyright: '© 2026 NextTime Software',
   plataforma: 'Powered by',
-  dominio: '.dev',
 };
 
 const DEFAULT_CONFIG = { acento: '#00E4D0', modo: 'auto', segundosInactividad: 90, mostrarFotos: true };
@@ -598,6 +611,10 @@ export default function mount(shell) {
     marcarActividad();
     return true;
   };
+
+  /* Modal de detalle: `abierta = { tipo:'sesion'|'ley', id }`. */
+  const abrirModal = (tipo, id) => { setVista({ abierta: { tipo: tipo, id: id } }); marcarActividad(); };
+  const cerrarModal = () => { setVista({ abierta: null }); marcarActividad(); };
 
   const setDiag = (parcial) => setVista({ diag: Object.assign({}, vista.diag, parcial) });
 
@@ -955,14 +972,20 @@ export default function mount(shell) {
       h('span', { className: 'ec-ft-sep', 'aria-hidden': 'true' }),
       h('div', { className: 'ec-ft-k' },
         h('span', { className: 'ec-ft-k-lbl' }, PIE.plataforma),
+        /* Logo completo de Kimos: isotipo (icosaedro) + wordmark, blanco, como
+           el logo oficial en fondo azul pero a escala de pie. */
+        h('svg', {
+          className: 'ec-ft-k-ico',
+          viewBox: KIMOS_ICONO.viewBox,
+          role: 'img', 'aria-label': 'Kimos',
+        },
+        h('path', { d: KIMOS_ICONO.d, fill: 'currentColor', fillRule: 'evenodd' })),
         h('svg', {
           className: 'ec-ft-k-logo',
           viewBox: KIMOS_LOGO.viewBox,
-          role: 'img',
-          'aria-label': 'Kimos',
+          'aria-hidden': 'true',
         },
-        h('path', { d: KIMOS_LOGO.d, fill: 'currentColor', fillRule: 'evenodd' })),
-        h('span', { className: 'ec-ft-k-dev' }, PIE.dominio)));
+        h('path', { d: KIMOS_LOGO.d, fill: 'currentColor', fillRule: 'evenodd' }))));
   }
 
   function Qr(props) {
@@ -991,10 +1014,70 @@ export default function mount(shell) {
 
   /* ── Secciones ─────────────────────────────────────────────────────── */
 
-  /* 1. Ahora */
+  /* Isotipo de NextTime (solo el símbolo), para las sesiones sin expositor. */
+  function NtIso(props) {
+    const z = props.size || 44;
+    return h('svg', {
+      className: 'ec-nt-iso', width: z, height: z, viewBox: '0 0 100 100',
+      role: 'img', 'aria-label': 'NextTime Software',
+    },
+    h('rect', { width: 100, height: 100, rx: 16, fill: 'var(--nt-cyan)' }),
+    h('path', {
+      d: 'M38.2 20.4 V56 A16.6 16.6 0 0 0 71.4 56',
+      fill: 'none', stroke: '#FFFFFF', strokeWidth: 11, strokeLinecap: 'round',
+    }),
+    h('rect', { x: 26, y: 33.4, width: 29, height: 9.2, rx: 2, fill: '#FFFFFF' }),
+    h('rect', { x: 60, y: 33.4, width: 12, height: 9.2, rx: 2, fill: '#FFFFFF' }));
+  }
+
+  /* Imagen de "lo que viene": fotos de los expositores del bloque, o el
+     isotipo de NextTime en las sesiones de la organización (bienvenida/cierre).
+     `size` = 'lg' (pantalla Ahora) | 'mini' (filas de la agenda). */
+  function SesionVisual(props) {
+    const b = props.block;
+    const size = props.size || 'mini';
+    const speakers = b.speakers.map(buscarSpeaker).filter(Boolean);
+    const cls = 'ec-viz ec-viz-' + size;
+    if (speakers.length) {
+      return h('div', { className: cls + (speakers.length > 1 ? ' multi' : '') },
+        speakers.map((sp) => h('div', { className: 'ec-viz-av', key: sp.id },
+          h(Avatar, { speaker: sp, mostrarFotos: props.mostrarFotos }))));
+    }
+    return h('div', { className: cls },
+      h('div', { className: 'ec-viz-av ec-viz-org' }, h(NtIso, { size: size === 'lg' ? 62 : 40 })));
+  }
+
+  /* Tarjeta de sesión (actual o siguiente) en la pantalla Ahora. */
+  function SesionCard(props) {
+    const b = props.block;
+    const estado = props.estado; /* 'ahora' | 'apertura' | 'siguiente' */
+    const etiqueta = estado === 'ahora' ? 'Sesión en curso'
+      : estado === 'apertura' ? 'Apertura de la jornada' : 'A continuación';
+    let pct = 0;
+    if (estado === 'ahora') {
+      const a = instante(b.ini); const z = instante(b.fin);
+      pct = Math.max(0, Math.min(100, Math.round(((props.ahora - a) / (z - a)) * 100)));
+    }
+    return h('div', { className: 'ec-card ec-sesion-card' + (estado === 'ahora' ? ' ec-viva' : '') },
+      h('div', { className: 'ec-sesion-hd' },
+        h('div', { className: 'ec-sesion-tag' },
+          estado === 'ahora' ? h('span', { className: 'ec-punto-live' }) : null,
+          h('span', { className: 'ec-h3', style: { margin: 0 } }, etiqueta)),
+        h('span', { className: 'ec-hora' }, b.ini, ' – ', b.fin, ' hrs')),
+      h('div', { className: 'ec-sesion-body' },
+        h(SesionVisual, { block: b, mostrarFotos: props.mostrarFotos, size: 'lg' }),
+        h('div', { className: 'ec-sesion-txt' },
+          h('h2', { className: 'ec-h2' }, b.tema),
+          h('p', { className: 'ec-p tenue' }, expositoresDe(b)))),
+      estado === 'ahora' ? h('div', { className: 'ec-barra' },
+        h('div', { className: 'ec-barra-f', style: { width: pct + '%' } })) : null);
+  }
+
+  /* 1. Ahora — cuenta sin conteo: qué sucede ahora y qué viene, en tiempo real. */
   function Ahora(props) {
     const est = props.est;
     const ahora = props.ahora;
+    const mostrarFotos = props.mostrarFotos !== false;
 
     return h('div', { className: 'ec-wrap' },
       h('div', { className: 'ec-card ec-hero-card' },
@@ -1003,164 +1086,149 @@ export default function mount(shell) {
           h('span', { className: 'ec-badge-org' }, MARCA.nombre)),
         h('h1', { className: 'ec-h1' }, EVENTO.titulo),
         h('p', { className: 'ec-hero-sub' }, EVENTO.tituloLargo),
-
-        est.fase === 'antes' ? h('div', { className: 'ec-countdown-box' },
-          h('hr', { className: 'ec-hr' }),
-          h('p', { className: 'ec-h3', style: { textAlign: 'center', marginBottom: '.5em' } }, 'Comienza en'),
-          h(Cuenta, { falta: est.falta })) : null,
-
+        h('div', { className: 'ec-hero-meta' },
+          h('span', { className: 'ec-tag ley' }, EVENTO.fechaTexto),
+          h('span', { className: 'ec-tag ley' }, EVENTO.horarioTexto),
+          h('span', { className: 'ec-tag ley' }, EVENTO.sede)),
         est.fase === 'despues' ? h('div', { className: 'ec-closing-box' },
           h('hr', { className: 'ec-hr' }),
           h('p', { className: 'ec-h2' }, 'Gracias por acompañarnos'),
           h('p', { className: 'ec-p tenue' }, 'El desayuno ejecutivo ha concluido. Puedes seguir explorando la agenda, los expositores y el marco legal.')) : null),
 
-      est.actual ? h('div', { className: 'ec-card ec-viva' },
-        h('div', { className: 'ec-viva-h' },
-          h('div', { className: 'ec-viva-tag' },
-            h('span', { className: 'ec-punto-live' }),
-            h('span', { className: 'ec-h3', style: { margin: 0 } }, 'Sesión en curso')),
-          h('span', { className: 'ec-hora' }, est.actual.ini, ' – ', est.actual.fin, ' hrs')),
-        h('h2', { className: 'ec-h2' }, est.actual.tema),
-        h('p', { className: 'ec-p tenue' }, expositoresDe(est.actual)),
-        h('div', { className: 'ec-barra' },
-          h('div', {
-            className: 'ec-barra-f',
-            style: {
-              width: Math.round(((ahora - instante(est.actual.ini))
-                / (instante(est.actual.fin) - instante(est.actual.ini))) * 100) + '%',
-            },
-          }))) : null,
-
-      est.siguiente ? h('div', { className: 'ec-card ec-next-card' },
-        h('p', { className: 'ec-h3' }, est.fase === 'antes' ? 'Apertura de la jornada' : 'A continuación'),
-        h('h3', { className: 'ec-h2' }, est.siguiente.tema),
-        h('p', { className: 'ec-p tenue' }, est.siguiente.ini, ' – ', est.siguiente.fin, ' hrs · ', expositoresDe(est.siguiente))) : null,
-
-      h('div', { className: 'ec-quick-actions' },
-        h('button', {
-          type: 'button', className: 'ec-btn ec-btn-cta',
-          onClick: () => irA('agenda'),
-        }, 'Ver Agenda y Expositores Completos →'),
-        h('button', {
-          type: 'button', className: 'ec-btn ghost',
-          onClick: () => irA('leyes'),
-        }, 'Revisar Marco Legal (Leyes 21.663 y 21.719)')));
+      est.actual ? h(SesionCard, { block: est.actual, estado: 'ahora', ahora: ahora, mostrarFotos: mostrarFotos }) : null,
+      est.siguiente ? h(SesionCard, {
+        block: est.siguiente,
+        estado: est.fase === 'antes' ? 'apertura' : 'siguiente',
+        mostrarFotos: mostrarFotos,
+      }) : null);
   }
 
-  function Cuenta(props) {
-    const f = props.falta;
-    const us = [
-      { n: f.dias, s: f.dias === 1 ? 'día' : 'días' },
-      { n: pad2(f.horas), s: 'horas' },
-      { n: pad2(f.minutos), s: 'min' },
-      { n: pad2(f.segundos), s: 'seg' },
-    ];
-    const hijos = [];
-    us.forEach((u, i) => {
-      if (i) hijos.push(h('span', { className: 'ec-count-sep', key: 's' + i }, ':'));
-      hijos.push(h('span', { className: 'ec-count-u', key: 'u' + i },
-        h('span', { className: 'ec-count-n' }, String(u.n)),
-        h('span', { className: 'ec-count-s' }, u.s)));
-    });
-    return h('div', { className: 'ec-count', role: 'timer' }, hijos);
-  }
-
-  /* 2. Agenda y Expositores FUSIONADOS */
+  /* 2. Agenda y Expositores — cronograma compacto; cada fila abre su detalle. */
   function Agenda(props) {
     const ahora = props.ahora;
     const mostrarFotos = props.mostrarFotos !== false;
 
-    return h('div', { className: 'ec-wrap' },
-      h('div', { className: 'ec-card ec-hero-card' },
-        h('p', { className: 'ec-h3' }, 'Programa Oficial del Evento'),
-        h('h1', { className: 'ec-h1' }, 'Agenda y Expositores'),
-        h('p', { className: 'ec-p tenue' }, 'Cronograma completo de las conferencias y especialistas del Desayuno Ejecutivo.')),
-
+    return h('div', { className: 'ec-wrap ec-wrap-lista' },
       AGENDA.map((b) => {
         const est = estadoBloque(b, ahora);
-        const sesionSpeakers = b.speakers.map(buscarSpeaker).filter(Boolean);
-
-        return h('div', {
+        return h('button', {
           key: b.id,
-          className: 'ec-bloque-card' + (est === 'ahora' ? ' ahora' : '') + (est === 'pasado' ? ' pasado' : ''),
+          type: 'button',
+          className: 'ec-row' + (est === 'ahora' ? ' ahora' : '') + (est === 'pasado' ? ' pasado' : ''),
+          onClick: () => abrirModal('sesion', b.id),
         },
-        h('div', { className: 'ec-bloque-top' },
-          h('div', { className: 'ec-bloque-hora-badge' },
-            h('span', { className: 'ec-bloque-hora-txt' }, b.ini + ' – ' + b.fin + ' hrs'),
-            est === 'ahora' ? h('span', { className: 'ec-pill vivo sm' }, 'En curso') : null),
-          (b.leyes.length > 0) ? h('div', { className: 'ec-bloque-tags' },
-            b.leyes.map((lid) => h('span', { className: 'ec-tag ley', key: lid }, buscarLey(lid).numero))) : null),
-
-        h('h2', { className: 'ec-bloque-titulo' }, b.tema),
-        b.resumen ? h('p', { className: 'ec-bloque-resumen' }, b.resumen) : null,
-
-        /* Expositores integrados en el bloque */
-        sesionSpeakers.length > 0 ? h('div', { className: 'ec-speakers-grid' },
-          sesionSpeakers.map((s) => {
-            const org = ORGS[s.org] || {};
-            return h('div', { className: 'ec-speaker-box', key: s.id },
-              h('div', { className: 'ec-speaker-header' },
-                h(Avatar, { speaker: s, mostrarFotos: mostrarFotos }),
-                h('div', { className: 'ec-speaker-info' },
-                  h('h3', { className: 'ec-speaker-nombre' }, s.nombreLargo || s.nombre),
-                  h('p', { className: 'ec-speaker-rol' }, s.rol),
-                  h('span', { className: 'ec-speaker-org' }, org.nombre))),
-              s.bio ? h('p', { className: 'ec-speaker-bio' }, s.bio) : null,
-              h('div', { className: 'ec-speaker-footer' },
-                s.fuente ? h('span', { className: 'ec-speaker-fuente' }, 'Fuente: ' + s.fuente) : h('span', null),
-                h(Qr, { clave: s.qr, titulo: 'Perfil', alt: s.url })));
-          }))
-          : (b.id === 'bienvenida'
-            ? h('div', { className: 'ec-speaker-box ec-box-org' },
-              h('div', { className: 'ec-speaker-header' },
-                h(Logo, { hgt: 44 }),
-                h('div', { className: 'ec-speaker-info' },
-                  h('h3', { className: 'ec-speaker-nombre' }, MARCA.nombre),
-                  h('p', { className: 'ec-speaker-rol' }, 'Anfitrión y Organización'))),
-              h('p', { className: 'ec-speaker-bio' }, MARCA.descripcion),
-              h('div', { className: 'ec-speaker-footer' },
-                h('span', { className: 'ec-speaker-fuente' }, MARCA.direccion),
-                h(Qr, { clave: 'landing', titulo: 'Landing', alt: EVENTO.landing })))
-            : h('div', { className: 'ec-speaker-box ec-box-cierre' },
-              h('div', { className: 'ec-speaker-header' },
-                h('div', { className: 'ec-sp-ini' }, '🤝'),
-                h('div', { className: 'ec-speaker-info' },
-                  h('h3', { className: 'ec-speaker-nombre' }, 'Networking y Preguntas Abiertas'),
-                  h('p', { className: 'ec-speaker-rol' }, 'Todos los expositores y asistentes'))),
-              h('p', { className: 'ec-speaker-bio' }, 'Momento para profundizar consultas, intercambiar experiencias de cumplimiento y coordinar sesiones de trabajo directas con los especialistas.'),
-              h('div', { className: 'ec-speaker-footer' },
-                h('span', { className: 'ec-speaker-fuente' }, 'Desayuno Ejecutivo 2026'),
-                h(Qr, { clave: 'agenda', titulo: 'Agenda .ics', alt: 'Calendario' })))));
+        h('div', { className: 'ec-row-viz' }, h(SesionVisual, { block: b, mostrarFotos: mostrarFotos, size: 'mini' })),
+        h('div', { className: 'ec-row-main' },
+          h('div', { className: 'ec-row-top' },
+            h('span', { className: 'ec-row-hora' }, b.ini, ' – ', b.fin),
+            est === 'ahora' ? h('span', { className: 'ec-pill vivo sm' }, 'En curso') : null,
+            b.leyes.map((lid) => h('span', { className: 'ec-tag ley', key: lid }, buscarLey(lid).numero))),
+          h('h3', { className: 'ec-row-titulo' }, b.tema),
+          h('p', { className: 'ec-row-sub' }, expositoresDe(b))),
+        h('span', { className: 'ec-row-chevron', 'aria-hidden': 'true' }, '›'));
       }));
   }
 
-  /* 3. Marco Legal */
+  /* 3. Marco Legal — leyes como tarjetas seleccionables que abren su detalle. */
   function Leyes() {
-    return h('div', { className: 'ec-wrap' },
-      h('div', { className: 'ec-card ec-hero-card' },
-        h('p', { className: 'ec-h3' }, 'Marco Normativo'),
-        h('h1', { className: 'ec-h1' }, 'Leyes 21.663 y 21.719'),
-        h('p', { className: 'ec-p tenue' }, 'Las dos transformaciones regulatorias más relevantes en ciberseguridad y protección de datos en Chile.')),
+    return h('div', { className: 'ec-wrap ec-wrap-lista' },
+      LEYES.map((l) => h('button', {
+        key: l.id,
+        type: 'button',
+        className: 'ec-row ec-row-ley',
+        onClick: () => abrirModal('ley', l.id),
+      },
+      h('div', { className: 'ec-row-ley-n' }, l.numero),
+      h('div', { className: 'ec-row-main' },
+        h('h3', { className: 'ec-row-titulo' }, l.nombre),
+        h('p', { className: 'ec-row-sub' }, l.resumen)),
+      h('span', { className: 'ec-row-chevron', 'aria-hidden': 'true' }, '›'))),
 
-      LEYES.map((l) => {
-        const sesion = buscarBloque(l.sesion);
-        return h('div', { className: 'ec-card ec-ley-card', key: l.id },
-          h('div', { className: 'ec-ley-header' },
-            h('span', { className: 'ec-ley-n' }, l.numero),
-            h('h2', { className: 'ec-h2' }, l.nombre)),
-          h('p', { className: 'ec-p' }, l.resumen),
-          h('div', { className: 'ec-datos' }, l.datos.map((d) => h('div', { className: 'ec-dato', key: d.k },
-            h('p', { className: 'ec-dato-k' }, d.k),
-            h('p', { className: 'ec-dato-v' }, d.v)))),
-          h('h3', { className: 'ec-h3', style: { marginTop: '1.2em' } }, 'Aspectos Clave a Cumplir:'),
-          h('ul', { className: 'ec-lista' }, l.puntos.map((p, i) => h('li', { key: i }, p))),
-          sesion ? h('div', { className: 'ec-ley-sesion-ref' },
-            h('span', { className: 'ec-tag ley' }, sesion.ini + ' – ' + sesion.fin + ' hrs'),
-            h('span', { className: 'ec-ley-sesion-txt' }, 'Tratado en sesión: ', h('strong', null, sesion.tema))) : null);
-      }),
+      h('p', { className: 'ec-aviso ec-aviso-suelto' }, 'Este resumen es estrictamente informativo y no constituye asesoría legal directa. Para planes de adecuación específicos, contacta al equipo consultor o a los expositores durante la jornada.'));
+  }
 
-      h('div', { className: 'ec-card' },
-        h('p', { className: 'ec-aviso' }, 'Este resumen es estrictamente informativo y no constituye asesoría legal directa. Para planes de adecuación específicos, contacta al equipo consultor o a los expositores durante la jornada.')));
+  /* Ficha de un expositor dentro del modal: foto, datos, bio y los dos QR
+     (perfil de contacto + sitio web de su empresa/institución). */
+  function FichaExpositor(props) {
+    const s = props.speaker;
+    const org = ORGS[s.org] || {};
+    return h('div', { className: 'ec-ficha' },
+      h('div', { className: 'ec-ficha-hd' },
+        h('div', { className: 'ec-ficha-av' }, h(Avatar, { speaker: s, mostrarFotos: props.mostrarFotos })),
+        h('div', { className: 'ec-ficha-info' },
+          h('h3', { className: 'ec-ficha-nombre' }, s.nombreLargo || s.nombre),
+          h('p', { className: 'ec-ficha-rol' }, s.rol),
+          org.nombre ? h('span', { className: 'ec-ficha-org' }, org.nombre) : null)),
+      s.bio ? h('p', { className: 'ec-ficha-bio' }, s.bio) : null,
+      h('div', { className: 'ec-ficha-qrs' },
+        h(Qr, { clave: s.qr, titulo: 'Perfil / contacto', alt: s.url }),
+        org.qr ? h(Qr, { clave: org.qr, titulo: org.nombre, alt: org.url }) : null));
+  }
+
+  /* Modal de detalle para una sesión de la agenda o para una ley. */
+  function Modal(props) {
+    const a = props.abierta;
+    if (!a) return null;
+    let cuerpo = null;
+
+    if (a.tipo === 'sesion') {
+      const b = buscarBloque(a.id);
+      if (!b) return null;
+      const speakers = b.speakers.map(buscarSpeaker).filter(Boolean);
+      cuerpo = h('div', null,
+        h('div', { className: 'ec-modal-tags' },
+          h('span', { className: 'ec-tag ley' }, b.ini + ' – ' + b.fin + ' hrs'),
+          b.leyes.map((lid) => h('span', { className: 'ec-tag ley', key: lid }, buscarLey(lid).numero))),
+        h('h2', { className: 'ec-modal-titulo' }, b.tema),
+        b.resumen ? h('p', { className: 'ec-p' }, b.resumen) : null,
+        speakers.length
+          ? h('div', { className: 'ec-fichas' }, speakers.map((sp) => h(FichaExpositor, { key: sp.id, speaker: sp, mostrarFotos: props.mostrarFotos })))
+          : (b.id === 'bienvenida'
+            ? h('div', { className: 'ec-ficha' },
+              h('div', { className: 'ec-ficha-hd' },
+                h('div', { className: 'ec-ficha-av' }, h(NtIso, { size: 66 })),
+                h('div', { className: 'ec-ficha-info' },
+                  h('h3', { className: 'ec-ficha-nombre' }, MARCA.nombre),
+                  h('p', { className: 'ec-ficha-rol' }, 'Anfitrión y Organización'))),
+              h('p', { className: 'ec-ficha-bio' }, MARCA.descripcion),
+              h('div', { className: 'ec-ficha-qrs' },
+                h(Qr, { clave: 'landing', titulo: 'Landing del evento', alt: EVENTO.landing }),
+                h(Qr, { clave: 'nexttime', titulo: MARCA.nombre, alt: MARCA.sitio })))
+            : h('div', { className: 'ec-ficha' },
+              h('div', { className: 'ec-ficha-hd' },
+                h('div', { className: 'ec-ficha-av ec-ficha-emoji' }, '🤝'),
+                h('div', { className: 'ec-ficha-info' },
+                  h('h3', { className: 'ec-ficha-nombre' }, 'Networking y Preguntas Abiertas'),
+                  h('p', { className: 'ec-ficha-rol' }, 'Todos los expositores y asistentes'))),
+              h('p', { className: 'ec-ficha-bio' }, 'Momento para profundizar consultas, intercambiar experiencias de cumplimiento y coordinar sesiones de trabajo directas con los especialistas.'),
+              h('div', { className: 'ec-ficha-qrs' },
+                h(Qr, { clave: 'agenda', titulo: 'Agenda .ics', alt: 'Calendario del evento' })))));
+    } else if (a.tipo === 'ley') {
+      const l = buscarLey(a.id);
+      if (!l) return null;
+      const sesion = buscarBloque(l.sesion);
+      cuerpo = h('div', null,
+        h('div', { className: 'ec-modal-tags' }, h('span', { className: 'ec-ley-n' }, l.numero)),
+        h('h2', { className: 'ec-modal-titulo' }, l.nombre),
+        h('p', { className: 'ec-p' }, l.resumen),
+        h('div', { className: 'ec-datos' }, l.datos.map((d) => h('div', { className: 'ec-dato', key: d.k },
+          h('p', { className: 'ec-dato-k' }, d.k),
+          h('p', { className: 'ec-dato-v' }, d.v)))),
+        h('h3', { className: 'ec-h3', style: { marginTop: '1.2em' } }, 'Aspectos Clave a Cumplir:'),
+        h('ul', { className: 'ec-lista' }, l.puntos.map((pt, i) => h('li', { key: i }, pt))),
+        sesion ? h('div', { className: 'ec-ley-sesion-ref' },
+          h('span', { className: 'ec-tag ley' }, sesion.ini + ' – ' + sesion.fin + ' hrs'),
+          h('span', { className: 'ec-ley-sesion-txt' }, 'Tratado en sesión: ', h('strong', null, sesion.tema))) : null);
+    }
+
+    return h('div', {
+      className: 'ec-modal-overlay',
+      role: 'dialog', 'aria-modal': 'true',
+      onClick: (e) => { if (e.target === e.currentTarget) cerrarModal(); },
+    },
+    h('div', { className: 'ec-modal' },
+      h('button', { type: 'button', className: 'ec-modal-x', 'aria-label': 'Cerrar', onClick: cerrarModal }, '×'),
+      h('div', { className: 'ec-modal-body' }, cuerpo)));
   }
 
   /* 4. Diagnóstico Rápido de Cumplimiento.
@@ -1342,7 +1410,7 @@ export default function mount(shell) {
     const est = estadoEvento(ahora);
 
     const vistas = {
-      ahora: () => h(Ahora, { est: est, ahora: ahora }),
+      ahora: () => h(Ahora, { est: est, ahora: ahora, mostrarFotos: cfg.mostrarFotos !== false }),
       agenda: () => h(Agenda, { ahora: ahora, mostrarFotos: cfg.mostrarFotos !== false }),
       leyes: () => h(Leyes, null),
       consulta: () => h(Diagnostico, { vista: v, doc: d }),
@@ -1391,7 +1459,10 @@ export default function mount(shell) {
     h('main', { className: 'ec-body' }, (vistas[v.seccion] || vistas.ahora)()),
 
     /* Pie corporativo */
-    h(Pie, null));
+    h(Pie, null),
+
+    /* Modal de detalle (sesión o ley), por encima de todo */
+    h(Modal, { abierta: v.abierta, mostrarFotos: cfg.mostrarFotos !== false }));
   }
 
   return {

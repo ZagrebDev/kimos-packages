@@ -1093,6 +1093,354 @@
   justify-content: center;
 }
 
+/* ═══════════════ Ahora · sesión actual y siguiente (visual) ═══════════════ */
+.kimos-evento-ciberseguridad .ec-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin-top: 1em;
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-card {
+  overflow: hidden;
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: .9em;
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-body {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) * .9);
+}
+
+.kimos-evento-ciberseguridad .ec-sesion-txt {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Imagen de la sesión: fotos de los expositores o isotipo de NextTime. */
+.kimos-evento-ciberseguridad .ec-viz {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.kimos-evento-ciberseguridad .ec-viz-av {
+  border-radius: 50%;
+  background: var(--nt-navy-3);
+}
+
+/* En Ahora (lg) las fotos son grandes; si son varias, se solapan un poco. */
+.kimos-evento-ciberseguridad .ec-viz-lg .ec-sp-foto,
+.kimos-evento-ciberseguridad .ec-viz-lg .ec-sp-ini,
+.kimos-evento-ciberseguridad .ec-viz-lg .ec-nt-iso {
+  width: 5.4em;
+  height: 5.4em;
+  border-radius: 50%;
+}
+
+.kimos-evento-ciberseguridad .ec-viz-lg.multi .ec-viz-av + .ec-viz-av {
+  margin-left: -1.4em;
+}
+
+/* En la agenda (mini) son miniaturas. */
+.kimos-evento-ciberseguridad .ec-viz-mini .ec-sp-foto,
+.kimos-evento-ciberseguridad .ec-viz-mini .ec-sp-ini,
+.kimos-evento-ciberseguridad .ec-viz-mini .ec-nt-iso {
+  width: 3em;
+  height: 3em;
+  border-radius: 50%;
+  border-width: 2px;
+}
+
+.kimos-evento-ciberseguridad .ec-viz-mini.multi .ec-viz-av + .ec-viz-av {
+  margin-left: -.9em;
+}
+
+.kimos-evento-ciberseguridad .ec-nt-iso {
+  display: block;
+  border-radius: 50%;
+  border: 2.5px solid var(--nt-cyan);
+  box-shadow: 0 4px 12px rgb(0 0 0 / .3);
+}
+
+.modo-totem.kimos-evento-ciberseguridad .ec-viz-lg .ec-sp-foto,
+.modo-totem.kimos-evento-ciberseguridad .ec-viz-lg .ec-sp-ini,
+.modo-totem.kimos-evento-ciberseguridad .ec-viz-lg .ec-nt-iso {
+  width: 6.4em;
+  height: 6.4em;
+}
+
+/* ═══════════════ Listas compactas (agenda / leyes) ═══════════════ */
+.kimos-evento-ciberseguridad .ec-wrap-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kimos-evento-ciberseguridad .ec-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) * .7);
+  width: 100%;
+  text-align: left;
+  padding: calc(var(--pad) * .7) calc(var(--pad) * .8);
+  background: var(--nt-panel-alto);
+  border: 1px solid var(--nt-linea);
+  border-left: 5px solid var(--nt-linea-fuerte);
+  border-radius: var(--nt-radius);
+  color: var(--nt-soft);
+  cursor: pointer;
+  transition: all .15s ease;
+  box-shadow: 0 2px 8px rgb(0 0 0 / .25);
+}
+
+.kimos-evento-ciberseguridad .ec-row:hover {
+  border-color: var(--nt-cyan);
+  border-left-color: var(--nt-cyan);
+  transform: translateX(2px);
+}
+
+.kimos-evento-ciberseguridad .ec-row.ahora {
+  border-left-color: var(--nt-cyan);
+  border-color: rgb(0 228 208 / .5);
+  background: linear-gradient(135deg, rgb(0 228 208 / .1) 0%, rgb(70 0 248 / .1) 100%), var(--nt-panel-alto);
+  box-shadow: 0 0 18px rgb(0 228 208 / .2);
+}
+
+.kimos-evento-ciberseguridad .ec-row.pasado {
+  opacity: .5;
+}
+
+.kimos-evento-ciberseguridad .ec-row-viz {
+  flex-shrink: 0;
+}
+
+.kimos-evento-ciberseguridad .ec-row-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.kimos-evento-ciberseguridad .ec-row-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin-bottom: .3em;
+}
+
+.kimos-evento-ciberseguridad .ec-row-hora {
+  font-size: var(--f-sm);
+  font-weight: 800;
+  letter-spacing: .05em;
+  color: var(--nt-cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+.kimos-evento-ciberseguridad .ec-row-titulo {
+  font-size: var(--f-lg);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--nt-blanco);
+  margin: 0;
+}
+
+.kimos-evento-ciberseguridad .ec-row-sub {
+  font-size: var(--f-sm);
+  color: var(--nt-tenue);
+  margin: .25em 0 0;
+  line-height: 1.4;
+}
+
+.kimos-evento-ciberseguridad .ec-row-chevron {
+  flex-shrink: 0;
+  font-size: 1.8em;
+  line-height: 1;
+  color: var(--nt-cyan);
+  opacity: .7;
+}
+
+/* Fila de ley: el número hace de "isotipo". */
+.kimos-evento-ciberseguridad .ec-row-ley-n {
+  flex-shrink: 0;
+  font-size: var(--f-h2);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -.03em;
+  color: var(--nt-cyan);
+  min-width: 4.4em;
+}
+
+/* ═══════════════ Modal de detalle ═══════════════ */
+.kimos-evento-ciberseguridad .ec-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: calc(var(--pad) * 1.2) var(--pad);
+  background: rgb(4 3 20 / .72);
+  backdrop-filter: blur(6px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  animation: ec-fade .18s ease;
+}
+
+@keyframes ec-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.kimos-evento-ciberseguridad .ec-modal {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  margin: auto;
+  background: linear-gradient(168deg, #0b0740 0%, #120a52 100%);
+  border: 1.5px solid rgb(0 228 208 / .35);
+  border-radius: var(--nt-radius-lg);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / .75), var(--nt-glow-cyan);
+  animation: ec-pop .2s ease;
+}
+
+@keyframes ec-pop { from { transform: translateY(12px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.kimos-evento-ciberseguridad .ec-modal-x {
+  position: absolute;
+  top: calc(var(--pad) * .5);
+  right: calc(var(--pad) * .5);
+  z-index: 2;
+  width: var(--tap);
+  height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--nt-linea);
+  border-radius: 50%;
+  background: rgb(4 9 50 / .8);
+  color: var(--nt-blanco);
+  font-size: 1.8em;
+  line-height: 1;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.kimos-evento-ciberseguridad .ec-modal-x:hover {
+  border-color: var(--nt-cyan);
+  color: var(--nt-cyan);
+}
+
+.kimos-evento-ciberseguridad .ec-modal-body {
+  padding: calc(var(--pad) * 1.1);
+}
+
+.kimos-evento-ciberseguridad .ec-modal-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin-bottom: .6em;
+  padding-right: var(--tap);
+}
+
+.kimos-evento-ciberseguridad .ec-modal-titulo {
+  font-size: var(--f-h2);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--nt-blanco);
+  margin: 0 0 .5em;
+}
+
+.kimos-evento-ciberseguridad .ec-fichas {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 1.1em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha {
+  background: var(--nt-panel-alto);
+  border: 1px solid var(--nt-linea);
+  border-radius: var(--nt-radius);
+  padding: calc(var(--pad) * .8);
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-hd {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  margin-bottom: .7em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-av .ec-sp-foto,
+.kimos-evento-ciberseguridad .ec-ficha-av .ec-sp-ini {
+  width: 5em;
+  height: 5em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-emoji {
+  width: 5em;
+  height: 5em;
+  border-radius: 50%;
+  border: 2.5px solid var(--nt-cyan);
+  background: var(--nt-navy-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2em;
+  flex-shrink: 0;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-nombre {
+  font-size: var(--f-lg);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--nt-blanco);
+  margin: 0 0 .15em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-rol {
+  font-size: var(--f-base);
+  color: var(--nt-soft);
+  margin: 0 0 .2em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-org {
+  font-size: var(--f-sm);
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--nt-cyan);
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-bio {
+  font-size: var(--f-base);
+  color: var(--nt-soft);
+  line-height: 1.55;
+  margin: 0 0 1em;
+}
+
+.kimos-evento-ciberseguridad .ec-ficha-qrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) * .9);
+  padding-top: .9em;
+  border-top: 1px solid var(--nt-linea);
+}
+
 /* ───────────────────────── Footer (banda del landing) ─────────────────────
    Réplica de la banda de cierre del landing oficial: fondo cian #00E4D0.
    Aquí con tipografía blanca (y sombra sutil para mantener la legibilidad
@@ -1128,7 +1476,8 @@
 .kimos-evento-ciberseguridad .ec-ft-k {
   display: flex;
   align-items: center;
-  gap: .5em;
+  gap: .55em;
+  color: var(--nt-blanco);
 }
 
 .kimos-evento-ciberseguridad .ec-ft-k-lbl {
@@ -1136,28 +1485,25 @@
   opacity: .95;
 }
 
-.kimos-evento-ciberseguridad .ec-ft-k-logo {
+/* Logo de Kimos en el pie: isotipo + wordmark con las proporciones del logo
+   oficial en fondo azul, en blanco, a escala pequeña y sin sombra. */
+.kimos-evento-ciberseguridad .ec-ft-k-ico {
   display: block;
-  height: 1.35em;
+  height: 1.15em;
   width: auto;
-  color: var(--nt-blanco);
-  filter: drop-shadow(0 1px 2px rgb(4 9 50 / .45));
 }
 
-.kimos-evento-ciberseguridad .ec-ft-k-dev {
-  font-weight: 700;
-  margin-left: -.28em;
+.kimos-evento-ciberseguridad .ec-ft-k-logo {
+  display: block;
+  height: .82em;
+  width: auto;
 }
 
 /* Vertical: el footer se mantiene delgado para no chocar con el dock. */
 .modo-totem.kimos-evento-ciberseguridad .ec-ft {
-  gap: .4em 1.2em;
-  padding: 14px var(--pad);
-  font-size: 19px;
-}
-
-.modo-totem.kimos-evento-ciberseguridad .ec-ft-k-logo {
-  height: 1.5em;
+  gap: .4em 1.1em;
+  padding: 13px var(--pad);
+  font-size: 18px;
 }
 
 /* ───────────────────────── Responsive Angosto ───────────────────────── */

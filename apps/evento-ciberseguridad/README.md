@@ -2,7 +2,7 @@
 
 Anfitrión interactivo optimizado para **Totem Touch** y para el **modo vitrina vertical (9:16)** de Kimos Enterprise, del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software. 
 
-**Versión actual: 2.3.0**
+**Versión actual: 2.4.0**
 
 ---
 
@@ -116,3 +116,45 @@ reemplazan `INICIAR_DIAGNOSTICO`, `RESPONDER_DIAGNOSTICO`, `IR_A_PREGUNTA`,
 `REINICIAR_DIAGNOSTICO` y `RESULTADO_DIAGNOSTICO`, de modo que el asistente de
 voz de la vitrina puede conducir el formulario completo y leer el resultado con
 sus brechas.
+
+---
+
+## Cambios de la versión 2.4.0
+
+Rediseño de las tres primeras secciones en torno a un modal de detalle y al
+tiempo real, más ajustes de marca.
+
+**Ahora.** Se quitan la cuenta regresiva del contenedor principal y los dos
+botones inferiores («Ver Agenda…» y «Revisar Marco Legal»). En su lugar, dos
+tarjetas visuales que se actualizan solas cada segundo según la hora: la
+**sesión en curso** y la **siguiente**, cada una con las fotos de sus
+expositores (o el isotipo de NextTime en las sesiones de la organización) y,
+en la sesión en curso, una barra de avance. Antes del evento se muestra la
+apertura; terminado, un cierre de agradecimiento.
+
+**Agenda y Expositores.** Se quita el contenedor de título; queda solo el
+cronograma en filas compactas —miniatura de los expositores, hora, leyes y
+título— que caben en pantalla sin desplazamiento. Al tocar una fila se abre un
+**modal** con el detalle completo: resumen de la sesión y, por cada expositor,
+foto, cargo, biografía y **dos códigos QR**: el de su perfil/contacto y el del
+**sitio web de su empresa o institución**.
+
+**Marco Legal.** Se quita el contenedor de título; las dos leyes pasan a ser
+**tarjetas seleccionables** que abren su detalle (fechas, fiscalizador,
+aspectos clave y la sesión donde se tratan) en el mismo modal.
+
+**Expositores.**
+- Bernardo Donoso y Leonardo Jadue exponen juntos y aparecen en el mismo bloque
+  (sesión Lineage), con ambas fotos.
+- Se añade la foto de Bernardo Donoso (embebida en el bundle, sin depender de un
+  host externo) y una reseña nueva basada en su trayectoria como Director de TIC
+  para Latinoamérica y Asesor TI para Asia, y Customer Success Manager en
+  consultoría Microsoft.
+
+**Códigos QR.** Regenerados desde sus URLs. El **QR de NextTime Software** ahora
+dirige a `https://nexttimesoftware.com`. Los QR de empresa del modal apuntan al
+sitio de cada organización (Nexo Abogados, NextTime, CustomerTrigger, Lineage).
+
+**Pie.** El logo de Kimos pasa a ser el **logo completo** (isotipo + wordmark),
+con las proporciones del logo oficial en fondo azul pero a menor escala, en
+blanco, **sin el sufijo «.dev» y sin sombra**.
