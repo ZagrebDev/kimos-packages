@@ -411,10 +411,10 @@
     },
     {
       "id": "evento-ciberseguridad",
-      "name": "Desayuno Ejecutivo de Ciberseguridad 2026",
-      "description": "Dashboard del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: cuenta regresiva en vivo, temario, speakers, lugar y tu plan personal (asistencia, preguntas y notas), con control por agente IA.",
+      "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
+      "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: paleta y tipografía del landing oficial, navegación superior táctil que cabe en pantalla vertical, agenda y expositores integrados, marco legal (Leyes 21.663 y 21.719), consulta guiada, tablón de preguntas y pie corporativo.",
       "icon": "🛡️",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -425,28 +425,50 @@
         "agent.control"
       ],
       "configSchema": {
-        "title": "Preferencias del evento",
+        "title": "Preferencias del totem",
         "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          },
           {
             "key": "acento",
             "label": "Color de acento",
             "type": "color"
           },
           {
-            "key": "mostrarSegundos",
-            "label": "Mostrar los segundos en la cuenta regresiva",
-            "type": "boolean"
-          },
-          {
             "key": "mostrarFotos",
-            "label": "Mostrar las fotos de los speakers",
+            "label": "Mostrar las fotos de los expositores",
             "type": "boolean"
           }
         ]
       },
       "defaultConfig": {
-        "acento": "#00E9D8",
-        "mostrarSegundos": true,
+        "modo": "auto",
+        "segundosInactividad": 90,
+        "acento": "#00E4D0",
         "mostrarFotos": true
       }
     },
