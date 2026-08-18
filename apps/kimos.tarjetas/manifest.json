@@ -1,7 +1,7 @@
 {
   "id": "kimos.tarjetas",
   "name": "Tarjetas Virtuales",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Genera tarjetas de presentación virtuales desde los usuarios reales del sistema KIMOS (foto de perfil, correo, cargo y teléfono), con código QR vCard funcional que guarda el contacto en el móvil al escanearlo y logo de la marca aplicado a cada tarjeta generada.",
   "icon": "🪪",
   "author": "Kimos Apps",

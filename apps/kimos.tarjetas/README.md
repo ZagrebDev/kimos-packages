@@ -1,6 +1,6 @@
 # Tarjetas Virtuales para KIMOS (`kimos.tarjetas`)
 
-Versión actual: **1.1.0**
+Versión actual: **1.2.0**
 
 Aplicación oficial/instalable para el entorno de trabajo **KIMOS**, diseñada para crear, gestionar y exportar tarjetas de presentación virtuales profesionales en formato de imagen (PNG / JPG) con código QR vCard integrado para escaneo rápido de contactos en smartphones. Las tarjetas se generan desde los **usuarios reales del sistema KIMOS**, con su foto de perfil, correo, cargo y teléfono.
 
@@ -74,6 +74,7 @@ Esto genera el archivo comprimido instalable: `kimos.tarjetas-1.0.0.kapp`.
 
 | Versión | Cambios |
 |---|---|
+| **1.2.0** | Controles de visualización en 🎨 Diseño: **foto** con mostrar/ocultar, forma (círculo, cuadrado redondeado o cuadrado), tamaño, zoom del recorte con encuadre horizontal/vertical (recorte fino de la foto), anillo de acento opcional y botón de restablecer recorte; **logo** con mostrar/ocultar, tamaño, opacidad y placa de fondo (blanca o de acento, para logos sobre fondos oscuros). Los estilos viajan en la tarjeta (`photoStyle` / `logoStyle`), el agente puede ajustarlos vía `UPDATE_CARD` y las tarjetas guardadas con versiones previas conservan el aspecto de siempre. |
 | **1.1.0** | Publicación en la Tienda oficial. Tarjetas generadas desde los usuarios reales del sistema KIMOS (foto de perfil, correo, cargo, teléfono y ubicación vía `/api/identity`), pestaña 👥 Usuarios Kimos con generación individual y masiva, marca de la colección (logo + empresa + web) aplicada a las tarjetas generadas, siembra de la primera tarjeta con el perfil del usuario conectado, escapado RFC del vCard (QR robusto con comas/puntos y coma), dibujo de foto y logo sin distorsión (cover/contain), y nuevas tools de agente `LIST_USERS`, `CREATE_CARDS_FROM_USERS` y `SET_BRAND`. |
 | **1.0.0** | Versión inicial con generador QR vCard 3.0 puro, renderizador Canvas 2D HD, subida de foto y logo, paletas de colores Kimos, galería multi-tarjetas y herramientas de agente IA. |
 
