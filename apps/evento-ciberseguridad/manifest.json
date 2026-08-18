@@ -1,8 +1,8 @@
 {
   "id": "evento-ciberseguridad",
   "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
-  "version": "2.2.0",
-  "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: paleta y tipografía del landing oficial, navegación superior táctil que cabe en pantalla vertical, agenda y expositores integrados, marco legal (Leyes 21.663 y 21.719), consulta guiada, tablón de preguntas y pie corporativo.",
+  "version": "2.3.0",
+  "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: paleta y tipografía del landing oficial, navegación superior que cabe en pantalla vertical, agenda y expositores integrados, marco legal (Leyes 21.663 y 21.719) y el Diagnóstico Rápido de Cumplimiento de 10 preguntas con puntaje sobre 100, brechas detectadas y normativa a priorizar.",
   "icon": "🛡️",
   "author": "kimos",
   "entry": "dist/index.js",

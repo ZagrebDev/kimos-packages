@@ -9,7 +9,7 @@
  *  - Pantalla inicial directa sin interferencia con el widget de chat inferior.
  */
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 
 /* ── Marca y evento ───────────────────────────────────────────────────── */
 
@@ -214,51 +214,164 @@ const LEYES = [
   },
 ];
 
-/* ── Consulta interactiva ─────────────────────────────────────────────── */
+/* ── Diagnóstico Rápido de Cumplimiento ───────────────────────────────────
+ * Formulario de 10 preguntas · 10 puntos cada una · 100 puntos totales.
+ * El enunciado y el orden de las alternativas se conservan tal cual llegan
+ * del formulario oficial. El puntaje por alternativa es el de la pauta:
+ * control implementado = 10, implementado a medias = 5, ausente o
+ * "No aplica" = 0. Cada pregunta apunta a la ley que la exige, para poder
+ * enlazar las brechas con la sección de Marco Legal.
+ */
 
-const CONSULTA = [
-  {
-    id: 'rol',
-    pregunta: '¿Desde qué área o rol participas hoy?',
-    opciones: [
-      { id: 'direccion', label: 'Dirección General o Negocio' },
-      { id: 'ti', label: 'TI, Ciberseguridad o Infraestructura' },
-      { id: 'legal', label: 'Legal, Cumplimiento o Auditoría' },
-      { id: 'datos', label: 'Datos, Analítica o Transformación' },
-    ],
-  },
-  {
-    id: 'foco',
-    pregunta: '¿Cuál es tu principal desafío actual?',
-    opciones: [
-      { id: 'ley21663', label: 'Cumplir la Ley Marco de Ciberseguridad (21.663)' },
-      { id: 'ley21719', label: 'Preparar la Ley de Protección de Datos (21.719)' },
-      { id: 'gobernanza', label: 'Ordenar y gobernar los activos de datos' },
-      { id: 'partir', label: 'Diagnosticar brechas y saber por dónde empezar' },
-    ],
-  },
-];
-
-const RECOMENDACIONES = {
-  ley21663: { sesiones: ['contexto-legal', 'microsoft-21663'], leyes: ['21663'], speakers: ['lilian-jimenez', 'jose-gaete'] },
-  ley21719: { sesiones: ['contexto-legal', 'lineage'], leyes: ['21719'], speakers: ['lilian-jimenez', 'leonardo-jadue', 'bernardo-donoso'] },
-  gobernanza: { sesiones: ['gobernanza', 'lineage'], leyes: ['21719'], speakers: ['cristian-maulen', 'bernardo-donoso'] },
-  partir: { sesiones: ['contexto-legal', 'microsoft-21663', 'gobernanza'], leyes: ['21663', '21719'], speakers: ['lilian-jimenez', 'jose-gaete'] },
+const DIAGNOSTICO = {
+  titulo: 'Diagnóstico Rápido de Cumplimiento en Ciberseguridad y Protección de Datos',
+  aviso: 'Cuando envíe este formulario, no recopilará automáticamente sus detalles, '
+    + 'como el nombre y la dirección de correo electrónico, a menos que lo proporcione usted mismo.',
+  puntosPregunta: 10,
+  preguntas: [
+    {
+      id: 'politica-seguridad',
+      texto: '¿Tu empresa cuenta con una política de seguridad de la información formalmente documentada?',
+      leyes: ['21663'],
+      opciones: [
+        { id: 'actualizada', label: 'Sí, existe y está actualizada', puntos: 10 },
+        { id: 'desactualizada', label: 'Sí, pero no está actualizada', puntos: 5 },
+        { id: 'no-existe', label: 'No existe', puntos: 0 },
+      ],
+    },
+    {
+      id: 'politica-privacidad',
+      texto: '¿Está publicada la política de privacidad en tu sitio web o plataforma digital?',
+      leyes: ['21719'],
+      opciones: [
+        { id: 'no-publicada', label: 'No está publicada', puntos: 0 },
+        { id: 'publicada', label: 'Sí, está publicada y accesible', puntos: 10 },
+        { id: 'no-aplica', label: 'No aplica', puntos: 0 },
+      ],
+    },
+    {
+      id: 'consentimiento',
+      texto: '¿Se registra evidencia del consentimiento de los titulares para el tratamiento de sus datos personales?',
+      leyes: ['21719'],
+      opciones: [
+        { id: 'registra', label: 'Sí, se registra y almacena evidencia', puntos: 10 },
+        { id: 'no-registra', label: 'No se registra evidencia', puntos: 0 },
+        { id: 'no-aplica', label: 'No aplica', puntos: 0 },
+      ],
+    },
+    {
+      id: 'derechos-titulares',
+      texto: '¿Tu empresa tiene un proceso formal para atender solicitudes de acceso, rectificación o eliminación de datos personales?',
+      leyes: ['21719'],
+      opciones: [
+        { id: 'no-aplica', label: 'No aplica', puntos: 0 },
+        { id: 'sin-proceso', label: 'No existe proceso formal', puntos: 0 },
+        { id: 'con-proceso', label: 'Sí, existe y es conocido por los responsables', puntos: 10 },
+      ],
+    },
+    {
+      id: 'control-acceso',
+      texto: '¿Se controla el acceso a información sensible mediante roles y permisos definidos?',
+      leyes: ['21663', '21719'],
+      opciones: [
+        { id: 'no-aplica', label: 'No aplica', puntos: 0 },
+        { id: 'sin-control', label: 'No se controla el acceso', puntos: 0 },
+        { id: 'por-roles', label: 'Sí, el acceso está controlado por roles', puntos: 10 },
+      ],
+    },
+    {
+      id: 'mfa',
+      texto: '¿Está implementado el doble factor de autenticación (MFA) en los sistemas críticos?',
+      leyes: ['21663'],
+      opciones: [
+        { id: 'no-implementado', label: 'No está implementado', puntos: 0 },
+        { id: 'parcial', label: 'Solo en algunos sistemas', puntos: 5 },
+        { id: 'completo', label: 'Sí, en todos los sistemas críticos', puntos: 10 },
+      ],
+    },
+    {
+      id: 'backups',
+      texto: '¿Tu empresa realiza backups formales y tiene un plan de recuperación ante desastres?',
+      leyes: ['21663'],
+      opciones: [
+        { id: 'nada', label: 'No existen backups ni plan', puntos: 0 },
+        { id: 'solo-backups', label: 'Solo existen backups, sin plan de recuperación', puntos: 5 },
+        { id: 'completo', label: 'Sí, existen backups y plan de recuperación', puntos: 10 },
+      ],
+    },
+    {
+      id: 'proveedores',
+      texto: '¿Los proveedores críticos cuentan con contratos o NDA que incluyan cláusulas de protección de datos y ciberseguridad?',
+      leyes: ['21663', '21719'],
+      opciones: [
+        { id: 'algunos', label: 'Solo algunos proveedores tienen contratos/NDA', puntos: 5 },
+        { id: 'todos', label: 'Sí, todos los proveedores críticos tienen contratos/NDA', puntos: 10 },
+        { id: 'ninguno', label: 'No existen contratos/NDA', puntos: 0 },
+      ],
+    },
+    {
+      id: 'incidentes',
+      texto: '¿Existe un procedimiento formal para la gestión de incidentes de ciberseguridad?',
+      leyes: ['21663'],
+      opciones: [
+        { id: 'no-aplica', label: 'No aplica', puntos: 0 },
+        { id: 'sin-procedimiento', label: 'No existe procedimiento formal', puntos: 0 },
+        { id: 'documentado', label: 'Sí, existe y está documentado', puntos: 10 },
+      ],
+    },
+    {
+      id: 'clasificacion',
+      texto: '¿La información sensible está clasificada y existe registro de actividades de tratamiento?',
+      leyes: ['21719'],
+      opciones: [
+        { id: 'completo', label: 'Sí, la información está clasificada y existe registro', puntos: 10 },
+        { id: 'nada', label: 'No existe clasificación ni registro', puntos: 0 },
+        { id: 'solo-clasificacion', label: 'Solo existe clasificación, sin registro', puntos: 5 },
+      ],
+    },
+  ],
 };
 
-const NOTA_ROL = {
-  direccion: 'Como líder de negocio, el ángulo clave es la mitigación de riesgos legales, financieros y reputacionales.',
-  ti: 'Desde TI y Seguridad, el foco práctico está en los controles técnicos, monitoreo y reporte de incidentes en 3 horas.',
-  legal: 'Desde Legal y Cumplimiento, la prioridad son las nuevas obligaciones, plazos de adecuación y fiscalización de ANCI y APDP.',
-  datos: 'Desde Datos y Analítica, la base es la gobernanza, inventario y trazabilidad para cumplir con privacidad y habilitar IA.',
-};
+const PUNTAJE_MAXIMO = DIAGNOSTICO.preguntas.length * DIAGNOSTICO.puntosPregunta;
 
-const TEMAS_VOTO = [
-  { id: 'ley-marco', texto: 'Implicancias de la Ley Marco de Ciberseguridad' },
-  { id: 'datos-personales', texto: 'Protección de datos personales y responsabilidades' },
-  { id: 'incumplimiento', texto: 'Riesgos del incumplimiento normativo' },
-  { id: 'resiliencia', texto: 'Estrategias de resiliencia digital' },
-  { id: 'casos-practicos', texto: 'Casos prácticos y experiencias reales' },
+/* Tramos del resultado, de menor a mayor puntaje. */
+const NIVELES = [
+  {
+    id: 'critico',
+    desde: 0,
+    hasta: 40,
+    titulo: 'Riesgo crítico',
+    color: '#FF5B7A',
+    resumen: 'Faltan controles básicos que las Leyes 21.663 y 21.719 ya exigen. '
+      + 'La prioridad es levantar el estado actual y partir por las políticas y el control de accesos.',
+  },
+  {
+    id: 'inicial',
+    desde: 41,
+    hasta: 70,
+    titulo: 'Cumplimiento en desarrollo',
+    color: '#FFB84D',
+    resumen: 'Hay una base parcial, pero con brechas que dejan expuesta a la organización '
+      + 'ante una fiscalización o un incidente. Conviene cerrar los controles a medio implementar.',
+  },
+  {
+    id: 'avanzado',
+    desde: 71,
+    hasta: 90,
+    titulo: 'Cumplimiento avanzado',
+    color: '#00E4D0',
+    resumen: 'La mayoría de los controles está operando. Quedan brechas puntuales '
+      + 'que conviene formalizar y documentar antes de los plazos de adecuación.',
+  },
+  {
+    id: 'consolidado',
+    desde: 91,
+    hasta: 100,
+    titulo: 'Cumplimiento consolidado',
+    color: '#2FD98A',
+    resumen: 'El marco de control está maduro. El foco pasa a mantener la evidencia al día '
+      + 'y a extender las exigencias a la cadena de proveedores.',
+  },
 ];
 
 /* 4 Secciones principales */
@@ -266,7 +379,7 @@ const SECCIONES = [
   { id: 'ahora', ico: 'ahora', label: 'Ahora' },
   { id: 'agenda', ico: 'agenda', label: 'Agenda y Expositores' },
   { id: 'leyes', ico: 'leyes', label: 'Marco Legal' },
-  { id: 'consulta', ico: 'consulta', label: 'Consulta e Interacción' },
+  { id: 'consulta', ico: 'consulta', label: 'Diagnóstico de Cumplimiento' },
 ];
 
 /* ── QR Precalculados Embebidos ───────────────────────────────────────── */
@@ -382,20 +495,56 @@ function pathQR(m) {
   return partes.join('');
 }
 
+const buscarPregunta = (id) => DIAGNOSTICO.preguntas.find((q) => q.id === id) || null;
+
+/* Puntaje, nivel y brechas a partir de las respuestas { preguntaId: opcionId }. */
+function evaluar(respuestas) {
+  const r = respuestas || {};
+  const detalle = DIAGNOSTICO.preguntas.map((q) => {
+    const op = q.opciones.find((o) => o.id === r[q.id]) || null;
+    return { pregunta: q, opcion: op, puntos: op ? op.puntos : 0 };
+  });
+  const respondidas = detalle.filter((d) => d.opcion).length;
+  const puntaje = detalle.reduce((a, d) => a + d.puntos, 0);
+  const nivel = NIVELES.find((n) => puntaje >= n.desde && puntaje <= n.hasta) || NIVELES[0];
+  /* Brecha = todo control que no obtuvo el puntaje completo. */
+  const brechas = detalle.filter((d) => d.puntos < DIAGNOSTICO.puntosPregunta);
+  return { detalle, respondidas, puntaje, maximo: PUNTAJE_MAXIMO, nivel, brechas, completo: respondidas === DIAGNOSTICO.preguntas.length };
+}
+
+/* Leyes involucradas en las brechas, ordenadas por cuántas veces aparecen. */
+function leyesDeBrechas(brechas) {
+  const cuenta = {};
+  brechas.forEach((b) => b.pregunta.leyes.forEach((id) => { cuenta[id] = (cuenta[id] || 0) + 1; }));
+  return Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a]);
+}
+
+/* Lo único que persiste es el agregado ANÓNIMO de la sala: cuántos
+ * diagnósticos se completaron en el totem, la suma de puntajes (para el
+ * promedio) y cuántas veces se eligió cada alternativa. Nunca se guardan
+ * respuestas individuales ni datos de contacto. */
 function normalizar(bruto) {
   const d = bruto && typeof bruto === 'object' ? bruto : {};
-  const votos = {};
-  TEMAS_VOTO.forEach((t) => {
-    const n = Number(d.votos && d.votos[t.id]);
-    votos[t.id] = Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 99999) : 0;
+  const g = (d.agregado && typeof d.agregado === 'object') ? d.agregado : {};
+  const entero = (v, tope) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), tope) : 0;
+  };
+  const opciones = {};
+  DIAGNOSTICO.preguntas.forEach((q) => {
+    q.opciones.forEach((o) => {
+      const clave = q.id + ':' + o.id;
+      const n = entero(g.opciones && g.opciones[clave], 99999);
+      if (n) opciones[clave] = n;
+    });
   });
-  const preguntas = Array.isArray(d.preguntas) ? d.preguntas.slice(-300).map((p, i) => ({
-    id: String((p && p.id) || 'q' + i + '-' + Math.random().toString(36).slice(2, 8)),
-    texto: String((p && p.texto) || '').slice(0, 400),
-    para: buscarSpeaker(p && p.para) ? p.para : null,
-    ts: Number.isFinite(Number(p && p.ts)) ? Number(p.ts) : 0,
-  })).filter((p) => p.texto) : [];
-  return { votos, preguntas };
+  return {
+    agregado: {
+      total: entero(g.total, 99999),
+      suma: entero(g.suma, 99999 * PUNTAJE_MAXIMO),
+      opciones: opciones,
+    },
+  };
 }
 
 /* ── mount ────────────────────────────────────────────────────────────── */
@@ -405,7 +554,10 @@ export default function mount(shell) {
   const h = React.createElement;
 
   let doc = normalizar(null);
-  let vista = { seccion: 'ahora', abierta: null, consulta: {}, paso: 0 };
+  /* `diag` es efímero: se borra al volver al inicio, así el siguiente
+     asistente parte con el formulario limpio. */
+  const DIAG_VACIO = { fase: 'intro', paso: 0, respuestas: {} };
+  let vista = { seccion: 'ahora', abierta: null, diag: Object.assign({}, DIAG_VACIO) };
   let config = Object.assign({}, DEFAULT_CONFIG);
   const listeners = new Set();
   const emitir = () => listeners.forEach((l) => l({ doc, vista, config }));
@@ -425,7 +577,7 @@ export default function mount(shell) {
 
   let inactividadT = null;
   const volverAlInicio = () => {
-    vista = { seccion: 'ahora', abierta: null, consulta: {}, paso: 0 };
+    vista = { seccion: 'ahora', abierta: null, diag: Object.assign({}, DIAG_VACIO) };
     emitir();
   };
   const marcarActividad = () => {
@@ -433,7 +585,7 @@ export default function mount(shell) {
     const seg = Number(config.segundosInactividad);
     const espera = Number.isFinite(seg) && seg >= 15 ? seg : DEFAULT_CONFIG.segundosInactividad;
     inactividadT = setTimeout(() => {
-      if (vista.seccion !== 'ahora' || vista.abierta || vista.paso) volverAlInicio();
+      if (vista.seccion !== 'ahora' || vista.abierta || vista.diag.fase !== 'intro') volverAlInicio();
     }, espera * 1000);
   };
 
@@ -447,33 +599,58 @@ export default function mount(shell) {
     return true;
   };
 
-  const votar = (temaId) => {
-    if (!TEMAS_VOTO.some((t) => t.id === temaId)) return false;
-    const votos = Object.assign({}, doc.votos);
-    votos[temaId] = (votos[temaId] || 0) + 1;
-    commitDoc({ votos });
+  const setDiag = (parcial) => setVista({ diag: Object.assign({}, vista.diag, parcial) });
+
+  /* Suma el diagnóstico terminado al agregado anónimo de la sala. */
+  const registrarAgregado = (respuestas, puntaje) => {
+    const g = doc.agregado;
+    const opciones = Object.assign({}, g.opciones);
+    Object.keys(respuestas).forEach((preguntaId) => {
+      const clave = preguntaId + ':' + respuestas[preguntaId];
+      opciones[clave] = (opciones[clave] || 0) + 1;
+    });
+    commitDoc({ agregado: { total: g.total + 1, suma: g.suma + puntaje, opciones: opciones } });
+  };
+
+  const iniciarDiagnostico = () => {
+    setDiag({ fase: 'preguntas', paso: 0, respuestas: {} });
+    marcarActividad();
+  };
+
+  const reiniciarDiagnostico = () => {
+    setVista({ diag: Object.assign({}, DIAG_VACIO) });
+    marcarActividad();
+  };
+
+  /* Registra una respuesta y avanza. En la última pregunta cierra el
+     diagnóstico y guarda el resultado en el agregado. */
+  const responderDiagnostico = (preguntaId, opcionId) => {
+    const q = buscarPregunta(preguntaId);
+    if (!q || !q.opciones.some((o) => o.id === opcionId)) return false;
+    const respuestas = Object.assign({}, vista.diag.respuestas);
+    respuestas[preguntaId] = opcionId;
+    const idx = DIAGNOSTICO.preguntas.indexOf(q);
+    const evaluacion = evaluar(respuestas);
+    if (evaluacion.completo) {
+      setDiag({ fase: 'resultado', paso: idx, respuestas: respuestas });
+      registrarAgregado(respuestas, evaluacion.puntaje);
+    } else {
+      /* Salta a la primera pregunta que siga sin responder. */
+      let siguiente = idx + 1;
+      while (siguiente < DIAGNOSTICO.preguntas.length && respuestas[DIAGNOSTICO.preguntas[siguiente].id]) siguiente++;
+      if (siguiente >= DIAGNOSTICO.preguntas.length) {
+        siguiente = DIAGNOSTICO.preguntas.findIndex((x) => !respuestas[x.id]);
+      }
+      setDiag({ fase: 'preguntas', paso: siguiente, respuestas: respuestas });
+    }
     marcarActividad();
     return true;
   };
 
-  const addPregunta = (texto, para) => {
-    const limpio = String(texto || '').trim().slice(0, 400);
-    if (!limpio) return null;
-    const pregunta = {
-      id: 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      texto: limpio,
-      para: buscarSpeaker(para) ? para : null,
-      ts: Date.now(),
-    };
-    commitDoc({ preguntas: doc.preguntas.concat([pregunta]) });
+  const irAPaso = (n) => {
+    const paso = Math.max(0, Math.min(DIAGNOSTICO.preguntas.length - 1, Number(n) || 0));
+    setDiag({ fase: 'preguntas', paso: paso });
     marcarActividad();
-    return pregunta;
-  };
-
-  const removePregunta = (id) => {
-    const antes = doc.preguntas.length;
-    commitDoc({ preguntas: doc.preguntas.filter((p) => p.id !== id) });
-    return doc.preguntas.length < antes;
   };
 
   Promise.resolve(shell.loadData ? shell.loadData() : null)
@@ -508,35 +685,41 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: { seccion: { type: 'string', enum: IDS_SECCION } }, required: ['seccion'] },
         },
         {
-          name: 'ADD_PREGUNTA',
-          description: 'Publica una pregunta en el tablón del panel.',
-          inputSchema: {
-            type: 'object',
-            properties: { texto: { type: 'string' }, speakerId: { type: 'string', enum: SPEAKERS.map((s) => s.id) } },
-            required: ['texto'],
-          },
+          name: 'INICIAR_DIAGNOSTICO',
+          description: 'Abre el Diagnóstico Rápido de Cumplimiento en la primera pregunta.',
+          inputSchema: { type: 'object', properties: {} },
         },
         {
-          name: 'REMOVE_PREGUNTA',
-          description: 'Retira una pregunta del tablón por su ID.',
-          inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-        },
-        {
-          name: 'VOTAR_TEMA',
-          description: 'Suma un voto a un tema en la encuesta de la sala.',
-          inputSchema: { type: 'object', properties: { temaId: { type: 'string', enum: TEMAS_VOTO.map((t) => t.id) } }, required: ['temaId'] },
-        },
-        {
-          name: 'RECOMENDAR',
-          description: 'Devuelve recomendación personalizada por rol y foco.',
+          name: 'RESPONDER_DIAGNOSTICO',
+          description: 'Responde una pregunta del diagnóstico por voz y avanza a la siguiente. '
+            + 'Al responder la última se calcula el puntaje y se muestra el resultado.',
           inputSchema: {
             type: 'object',
             properties: {
-              rol: { type: 'string', enum: CONSULTA[0].opciones.map((o) => o.id) },
-              foco: { type: 'string', enum: CONSULTA[1].opciones.map((o) => o.id) },
+              preguntaId: { type: 'string', enum: DIAGNOSTICO.preguntas.map((q) => q.id) },
+              opcionId: { type: 'string' },
             },
-            required: ['foco'],
+            required: ['preguntaId', 'opcionId'],
           },
+        },
+        {
+          name: 'IR_A_PREGUNTA',
+          description: 'Muestra una pregunta concreta del diagnóstico (1 a ' + DIAGNOSTICO.preguntas.length + ').',
+          inputSchema: {
+            type: 'object',
+            properties: { numero: { type: 'number', minimum: 1, maximum: DIAGNOSTICO.preguntas.length } },
+            required: ['numero'],
+          },
+        },
+        {
+          name: 'REINICIAR_DIAGNOSTICO',
+          description: 'Borra las respuestas y vuelve a la portada del diagnóstico.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'RESULTADO_DIAGNOSTICO',
+          description: 'Devuelve el puntaje, el nivel y las brechas detectadas para leerlos en voz alta.',
+          inputSchema: { type: 'object', properties: {} },
         },
         {
           name: 'VOLVER_AL_INICIO',
@@ -573,10 +756,34 @@ export default function mount(shell) {
             id: l.id, numero: l.numero, nombre: l.nombre, resumen: l.resumen,
             datos: l.datos, puntos: l.puntos,
           })),
+          diagnostico: {
+            titulo: DIAGNOSTICO.titulo,
+            puntajeMaximo: PUNTAJE_MAXIMO,
+            preguntas: DIAGNOSTICO.preguntas.map((q, i) => ({
+              numero: i + 1, id: q.id, texto: q.texto, leyes: q.leyes,
+              opciones: q.opciones.map((o) => ({ id: o.id, label: o.label, puntos: o.puntos })),
+            })),
+            niveles: NIVELES.map((n) => ({ id: n.id, titulo: n.titulo, desde: n.desde, hasta: n.hasta })),
+          },
           publico: {
             seccionVisible: vista.seccion,
-            preguntas: doc.preguntas,
-            encuesta: TEMAS_VOTO.map((t) => ({ id: t.id, texto: t.texto, votos: doc.votos[t.id] || 0 })),
+            diagnosticoEnCurso: (() => {
+              const e = evaluar(vista.diag.respuestas);
+              return {
+                fase: vista.diag.fase,
+                preguntaActual: vista.diag.fase === 'preguntas'
+                  ? DIAGNOSTICO.preguntas[vista.diag.paso].id : null,
+                respondidas: e.respondidas,
+                puntaje: e.completo ? e.puntaje : null,
+                nivel: e.completo ? e.nivel.id : null,
+              };
+            })(),
+            /* Agregado anónimo acumulado en este totem. */
+            sala: {
+              diagnosticosCompletados: doc.agregado.total,
+              puntajePromedio: doc.agregado.total
+                ? Math.round(doc.agregado.suma / doc.agregado.total) : null,
+            },
           },
         };
       },
@@ -588,36 +795,69 @@ export default function mount(shell) {
             if (!irA(p.seccion)) return { success: false, error: 'Sección desconocida: ' + p.seccion };
             return { success: true, message: 'Mostrando "' + p.seccion + '".' };
           }
-          if (tipo === 'ADD_PREGUNTA') {
-            const q = addPregunta(p.texto, p.speakerId);
-            if (!q) return { success: false, error: 'La pregunta viene vacía.' };
-            return { success: true, message: 'Pregunta publicada (id ' + q.id + ').' };
+          if (tipo === 'INICIAR_DIAGNOSTICO') {
+            irA('consulta');
+            iniciarDiagnostico();
+            return { success: true, message: 'Diagnóstico iniciado en la pregunta 1.' };
           }
-          if (tipo === 'REMOVE_PREGUNTA') {
-            if (!removePregunta(String(p.id || ''))) return { success: false, error: 'No hay pregunta con id ' + p.id + '.' };
-            return { success: true, message: 'Pregunta retirada.' };
-          }
-          if (tipo === 'VOTAR_TEMA') {
-            if (!votar(p.temaId)) return { success: false, error: 'Tema desconocido: ' + p.temaId };
-            return { success: true, message: 'Voto registrado en "' + p.temaId + '".' };
-          }
-          if (tipo === 'RECOMENDAR') {
-            const rec = RECOMENDACIONES[p.foco];
-            if (!rec) return { success: false, error: 'Foco desconocido: ' + p.foco };
+          if (tipo === 'RESPONDER_DIAGNOSTICO') {
+            const q = buscarPregunta(p.preguntaId);
+            if (!q) return { success: false, error: 'Pregunta desconocida: ' + p.preguntaId };
+            if (!responderDiagnostico(p.preguntaId, p.opcionId)) {
+              return {
+                success: false,
+                error: 'Alternativa desconocida: ' + p.opcionId
+                  + '. Válidas: ' + q.opciones.map((o) => o.id).join(', ') + '.',
+              };
+            }
+            const e = evaluar(vista.diag.respuestas);
             return {
               success: true,
-              message: 'Recomendación generada.',
+              message: e.completo
+                ? 'Diagnóstico completo: ' + e.puntaje + ' de ' + PUNTAJE_MAXIMO + ' puntos (' + e.nivel.titulo + ').'
+                : 'Respuesta registrada (' + e.respondidas + ' de ' + DIAGNOSTICO.preguntas.length + ').',
+            };
+          }
+          if (tipo === 'IR_A_PREGUNTA') {
+            const n = Number(p.numero);
+            if (!Number.isFinite(n) || n < 1 || n > DIAGNOSTICO.preguntas.length) {
+              return { success: false, error: 'Número fuera de rango (1 a ' + DIAGNOSTICO.preguntas.length + ').' };
+            }
+            irA('consulta');
+            irAPaso(n - 1);
+            return { success: true, message: 'Mostrando la pregunta ' + n + '.' };
+          }
+          if (tipo === 'REINICIAR_DIAGNOSTICO') {
+            reiniciarDiagnostico();
+            return { success: true, message: 'Diagnóstico reiniciado.' };
+          }
+          if (tipo === 'RESULTADO_DIAGNOSTICO') {
+            const e = evaluar(vista.diag.respuestas);
+            if (!e.completo) {
+              return {
+                success: false,
+                error: 'El diagnóstico va en ' + e.respondidas + ' de ' + DIAGNOSTICO.preguntas.length + ' respuestas.',
+              };
+            }
+            return {
+              success: true,
+              message: e.puntaje + ' de ' + PUNTAJE_MAXIMO + ' puntos — ' + e.nivel.titulo + '.',
               data: {
-                nota: NOTA_ROL[p.rol] || '',
-                sesiones: rec.sesiones.map((id) => {
-                  const b = buscarBloque(id);
-                  return { hora: b.ini + '–' + b.fin, tema: b.tema, expone: expositoresDe(b) };
+                puntaje: e.puntaje,
+                maximo: PUNTAJE_MAXIMO,
+                nivel: e.nivel.titulo,
+                resumen: e.nivel.resumen,
+                brechas: e.brechas.map((b) => ({
+                  pregunta: b.pregunta.texto,
+                  respuesta: b.opcion ? b.opcion.label : null,
+                  puntos: b.puntos,
+                  de: DIAGNOSTICO.puntosPregunta,
+                  leyes: b.pregunta.leyes.map((id) => buscarLey(id).numero),
+                })),
+                leyesPrioritarias: leyesDeBrechas(e.brechas).map((id) => {
+                  const l = buscarLey(id);
+                  return l.numero + ' — ' + l.nombre;
                 }),
-                conversarCon: rec.speakers.map((id) => {
-                  const s = buscarSpeaker(id);
-                  return s.nombreLargo + ' (' + (ORGS[s.org] || {}).nombre + ')';
-                }),
-                leyes: rec.leyes.map((id) => buscarLey(id).numero + ' — ' + buscarLey(id).nombre),
               },
             };
           }
@@ -923,115 +1163,141 @@ export default function mount(shell) {
         h('p', { className: 'ec-aviso' }, 'Este resumen es estrictamente informativo y no constituye asesoría legal directa. Para planes de adecuación específicos, contacta al equipo consultor o a los expositores durante la jornada.')));
   }
 
-  /* 4. Consulta e Interacción */
-  function Consulta(props) {
-    const [texto, setTexto] = React.useState('');
-    const [para, setPara] = React.useState('');
-    const v = props.vista;
-    const paso = v.paso || 0;
-    const rec = v.consulta.foco ? RECOMENDACIONES[v.consulta.foco] : null;
-    const totalVotos = TEMAS_VOTO.reduce((a, t) => a + (props.doc.votos[t.id] || 0), 0);
+  /* 4. Diagnóstico Rápido de Cumplimiento.
+     Se recorre una pregunta por pantalla: en el totem vertical entran las tres
+     alternativas completas sin desplazamiento y el toque avanza solo. */
+  function Diagnostico(props) {
+    const d = props.vista.diag;
+    const ev = evaluar(d.respuestas);
+    const total = DIAGNOSTICO.preguntas.length;
+    const sala = props.doc.agregado;
 
-    const responder = (preguntaId, opcionId) => {
-      const consulta = Object.assign({}, v.consulta);
-      consulta[preguntaId] = opcionId;
-      setVista({ consulta: consulta, paso: paso + 1 });
-      marcarActividad();
-    };
+    /* ── Portada ──────────────────────────────────────────────────────── */
+    if (d.fase === 'intro') {
+      return h('div', { className: 'ec-wrap' },
+        h('div', { className: 'ec-card ec-hero-card' },
+          h('p', { className: 'ec-h3' }, 'Autoevaluación'),
+          h('h1', { className: 'ec-h1' }, DIAGNOSTICO.titulo),
+          h('div', { className: 'ec-diag-meta' },
+            h('span', { className: 'ec-tag ley' }, total + ' preguntas'),
+            h('span', { className: 'ec-tag ley' }, PUNTAJE_MAXIMO + ' puntos'),
+            h('span', { className: 'ec-tag ley' }, 'Leyes 21.663 y 21.719')),
+          h('p', { className: 'ec-p tenue ec-diag-aviso' }, DIAGNOSTICO.aviso),
+          h('button', {
+            type: 'button', className: 'ec-btn ec-btn-cta ec-diag-empezar',
+            onClick: iniciarDiagnostico,
+          }, 'Comenzar el diagnóstico →')),
+
+        sala.total ? h('div', { className: 'ec-card' },
+          h('p', { className: 'ec-h3' }, 'Resultados de la sala'),
+          h('p', { className: 'ec-p tenue' },
+            sala.total + ' diagnóstico' + (sala.total === 1 ? '' : 's')
+            + ' completado' + (sala.total === 1 ? '' : 's') + ' en este totem · promedio '
+            + Math.round(sala.suma / sala.total) + ' de ' + PUNTAJE_MAXIMO + ' puntos.')) : null);
+    }
+
+    /* ── Resultado ────────────────────────────────────────────────────── */
+    if (d.fase === 'resultado') {
+      const pct = Math.round((ev.puntaje / PUNTAJE_MAXIMO) * 100);
+      const leyes = leyesDeBrechas(ev.brechas);
+      return h('div', { className: 'ec-wrap' },
+        h('div', { className: 'ec-card ec-hero-card' },
+          h('p', { className: 'ec-h3' }, 'Resultado del diagnóstico'),
+          h('div', { className: 'ec-diag-score' },
+            h('div', { className: 'ec-diag-num', style: { color: ev.nivel.color } },
+              String(ev.puntaje),
+              h('span', { className: 'ec-diag-den' }, '/ ' + PUNTAJE_MAXIMO)),
+            h('div', { className: 'ec-diag-nivel' },
+              h('span', { className: 'ec-diag-badge', style: { background: ev.nivel.color } }, ev.nivel.titulo),
+              h('p', { className: 'ec-p' }, ev.nivel.resumen))),
+          h('div', { className: 'ec-diag-barra' },
+            h('div', {
+              className: 'ec-diag-barra-f',
+              style: { width: pct + '%', background: ev.nivel.color },
+            }))),
+
+        ev.brechas.length ? h('div', { className: 'ec-card' },
+          h('p', { className: 'ec-h3' },
+            'Brechas detectadas (' + ev.brechas.length + ' de ' + total + ')'),
+          h('p', { className: 'ec-p tenue' }, 'Controles que no obtuvieron el puntaje completo:'),
+          ev.brechas.map((b) => h('div', { className: 'ec-diag-brecha', key: b.pregunta.id },
+            h('div', { className: 'ec-diag-brecha-hd' },
+              h('span', { className: 'ec-diag-pts' }, b.puntos + '/' + DIAGNOSTICO.puntosPregunta),
+              b.pregunta.leyes.map((id) => h('span', {
+                className: 'ec-tag ley', key: id,
+              }, buscarLey(id).numero))),
+            h('p', { className: 'ec-diag-brecha-q' }, b.pregunta.texto),
+            b.opcion ? h('p', { className: 'ec-p tenue' }, 'Tu respuesta: ' + b.opcion.label) : null)))
+          : h('div', { className: 'ec-card' },
+            h('p', { className: 'ec-h3' }, 'Sin brechas'),
+            h('p', { className: 'ec-p' }, 'Los diez controles obtuvieron el puntaje completo. '
+              + 'Mantén la evidencia al día y revisa la cadena de proveedores.')),
+
+        leyes.length ? h('div', { className: 'ec-card' },
+          h('p', { className: 'ec-h3' }, 'Normativa a priorizar'),
+          leyes.map((id) => {
+            const l = buscarLey(id);
+            return h('p', { className: 'ec-p', key: id }, h('strong', null, l.numero + ' — ' + l.nombre));
+          }),
+          h('p', { className: 'ec-p tenue' }, 'Revisa el detalle en Marco Legal o conversa con los '
+            + 'expositores durante la jornada.')) : null,
+
+        h('div', { className: 'ec-card' },
+          h('div', { className: 'ec-diag-acciones' },
+            h('button', { type: 'button', className: 'ec-btn ghost', onClick: reiniciarDiagnostico },
+              'Hacer el diagnóstico de nuevo'),
+            h('button', { type: 'button', className: 'ec-btn', onClick: () => irA('leyes') },
+              'Ver Marco Legal'),
+            h('button', { type: 'button', className: 'ec-btn', onClick: () => irA('agenda') },
+              'Ver Agenda')),
+          h('p', { className: 'ec-aviso' }, 'Resultado orientativo y anónimo: no constituye asesoría '
+            + 'legal ni una auditoría formal. ' + DIAGNOSTICO.aviso)));
+    }
+
+    /* ── Preguntas, una por pantalla ──────────────────────────────────── */
+    const idx = Math.max(0, Math.min(total - 1, d.paso));
+    const q = DIAGNOSTICO.preguntas[idx];
+    const elegida = d.respuestas[q.id];
 
     return h('div', { className: 'ec-wrap' },
       h('div', { className: 'ec-card ec-hero-card' },
-        h('p', { className: 'ec-h3' }, 'Orientación Consultiva'),
-        h('h1', { className: 'ec-h1' }, rec ? 'Recomendación Personalizada' : '¿En qué te orientamos hoy?'),
-        h('p', { className: 'ec-p tenue' }, 'Responde 2 preguntas breves para saber qué sesiones, especialistas y normativas son prioritarias para ti.'),
-        h('div', { className: 'ec-pasos' }, CONSULTA.map((_, i) => h('span', {
-          key: i, className: 'ec-paso' + (i < paso ? ' on' : ''),
-        }))),
+        h('div', { className: 'ec-diag-hd' },
+          h('p', { className: 'ec-h3' }, 'Pregunta ' + (idx + 1) + ' de ' + total),
+          h('span', { className: 'ec-diag-pts' }, DIAGNOSTICO.puntosPregunta + ' puntos')),
 
-        !rec && CONSULTA[paso] ? h('div', null,
-          h('p', { className: 'ec-h2', style: { fontSize: 'var(--f-lg)', marginBottom: '.8em' } }, CONSULTA[paso].pregunta),
-          h('div', { className: 'ec-ops' }, CONSULTA[paso].opciones.map((o) => h('button', {
-            key: o.id, type: 'button', className: 'ec-op',
-            onClick: () => responder(CONSULTA[paso].id, o.id),
-          },
-          h('span', { className: 'ec-op-bullet' }),
-          h('span', null, o.label))))) : null,
+        h('div', { className: 'ec-diag-barra' },
+          h('div', { className: 'ec-diag-barra-f', style: { width: Math.round((idx / total) * 100) + '%' } })),
 
-        rec ? h('div', { className: 'ec-rec-box' },
-          NOTA_ROL[v.consulta.rol] ? h('p', { className: 'ec-p ec-rec-nota' }, NOTA_ROL[v.consulta.rol]) : null,
-          h('hr', { className: 'ec-hr' }),
-          h('p', { className: 'ec-h3' }, 'Sesiones Recomendadas:'),
-          rec.sesiones.map((id) => {
-            const b = buscarBloque(id);
-            return h('div', { className: 'ec-rec-item', key: id },
-              h('span', { className: 'ec-tag ley' }, b.ini + ' – ' + b.fin + ' hrs'),
-              h('div', null,
-                h('strong', { style: { color: '#FFFFFF', display: 'block' } }, b.tema),
-                h('span', { className: 'ec-p tenue' }, expositoresDe(b))));
-          }),
-          h('p', { className: 'ec-h3', style: { marginTop: '1.2em' } }, 'Especialistas con quién conversar:'),
-          h('p', { className: 'ec-p' }, rec.speakers.map((id) => {
-            const s = buscarSpeaker(id);
-            return s.nombre + ' (' + (ORGS[s.org] || {}).nombre + ')';
-          }).join(' · ')),
-          h('p', { className: 'ec-h3', style: { marginTop: '1.2em' } }, 'Normativa a Priorizar:'),
-          h('p', { className: 'ec-p' }, rec.leyes.map((id) => buscarLey(id).numero + ' — ' + buscarLey(id).nombre).join(' · ')),
-          h('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '1.5em' } },
-            h('button', {
-              type: 'button', className: 'ec-btn ghost',
-              onClick: () => { setVista({ consulta: {}, paso: 0 }); marcarActividad(); },
-            }, 'Nueva Consulta'),
-            h('button', { type: 'button', className: 'ec-btn', onClick: () => irA('agenda') }, 'Ver en la Agenda'))) : null),
+        h('p', { className: 'ec-diag-q' }, q.texto),
 
-      h('div', { className: 'ec-card' },
-        h('p', { className: 'ec-h3' }, 'Tablón de Preguntas al Panel'),
-        h('p', { className: 'ec-p tenue' }, 'Deja tu consulta para la ronda de preguntas y el panel de expositores.'),
-        h('div', { className: 'ec-form' },
-          h('input', {
-            className: 'ec-input', type: 'text', value: texto, maxLength: 400,
-            placeholder: 'Escribe tu pregunta para el panel...',
-            onChange: (e) => { setTexto(e.target.value); marcarActividad(); },
-            onKeyDown: (e) => {
-              if (e.key === 'Enter') { e.preventDefault(); if (addPregunta(texto, para)) setTexto(''); }
-            },
-          }),
-          h('select', {
-            className: 'ec-select', value: para,
-            onChange: (e) => { setPara(e.target.value); marcarActividad(); },
-          },
-          h('option', { value: '' }, 'Dirigida a: Todo el Panel'),
-          SPEAKERS.map((s) => h('option', { key: s.id, value: s.id }, 'Dirigida a: ' + s.nombre))),
+        h('div', { className: 'ec-ops' }, q.opciones.map((o) => h('button', {
+          key: o.id,
+          type: 'button',
+          className: 'ec-op' + (elegida === o.id ? ' on' : ''),
+          'aria-pressed': elegida === o.id ? 'true' : 'false',
+          onClick: () => responderDiagnostico(q.id, o.id),
+        },
+        h('span', { className: 'ec-op-bullet' }),
+        h('span', null, o.label)))),
+
+        h('div', { className: 'ec-diag-nav' },
           h('button', {
-            type: 'button', className: 'ec-btn', disabled: !texto.trim(),
-            onClick: () => { if (addPregunta(texto, para)) setTexto(''); },
-          }, 'Publicar Pregunta')),
-        props.doc.preguntas.length
-          ? props.doc.preguntas.slice().reverse().slice(0, 10).map((p) => {
-            const s = buscarSpeaker(p.para);
-            return h('div', { className: 'ec-preg', key: p.id },
-              h('div', { className: 'ec-preg-content' },
-                h('p', { className: 'ec-preg-t' }, p.texto),
-                h('p', { className: 'ec-preg-p' }, s ? 'Para ' + s.nombre : 'Para todo el panel')));
-          })
-          : h('div', { className: 'ec-vacio' }, 'Aún no hay preguntas en el tablón. Sé la primera persona en enviar una.')),
+            type: 'button', className: 'ec-btn ghost',
+            disabled: idx === 0,
+            onClick: () => irAPaso(idx - 1),
+          }, '← Anterior'),
+          h('div', { className: 'ec-pasos' }, DIAGNOSTICO.preguntas.map((x, i) => h('span', {
+            key: x.id,
+            className: 'ec-paso' + (d.respuestas[x.id] ? ' on' : '') + (i === idx ? ' aqui' : ''),
+          }))),
+          h('button', {
+            type: 'button', className: 'ec-btn ghost',
+            disabled: !elegida || idx === total - 1,
+            onClick: () => irAPaso(idx + 1),
+          }, 'Siguiente →'))),
 
       h('div', { className: 'ec-card' },
-        h('p', { className: 'ec-h3' }, 'Encuesta de Interés de la Sala'),
-        h('p', { className: 'ec-p tenue' }, totalVotos
-          ? totalVotos + ' voto' + (totalVotos === 1 ? '' : 's') + ' registrados. Toca un tema para votar:'
-          : 'Toca el tema que más te interesa resolver:'),
-        TEMAS_VOTO.map((t) => {
-          const n = props.doc.votos[t.id] || 0;
-          const pct = totalVotos ? Math.round((n / totalVotos) * 100) : 0;
-          return h('div', { className: 'ec-voto', key: t.id },
-            h('button', {
-              type: 'button', className: 'ec-op', style: { marginBottom: '.5em' },
-              onClick: () => votar(t.id),
-            },
-            h('span', { style: { flex: 1 } }, t.texto),
-            h('span', { className: 'ec-voto-n' }, n + (totalVotos ? ' (' + pct + '%)' : ''))),
-            h('div', { className: 'ec-voto-b' }, h('div', { className: 'ec-voto-f', style: { width: pct + '%' } })));
-        })));
+        h('p', { className: 'ec-p tenue ec-diag-aviso' }, DIAGNOSTICO.aviso)));
   }
 
   /* ── Componente Raíz ───────────────────────────────────────────────── */
@@ -1079,7 +1345,7 @@ export default function mount(shell) {
       ahora: () => h(Ahora, { est: est, ahora: ahora }),
       agenda: () => h(Agenda, { ahora: ahora, mostrarFotos: cfg.mostrarFotos !== false }),
       leyes: () => h(Leyes, null),
-      consulta: () => h(Consulta, { vista: v, doc: d }),
+      consulta: () => h(Diagnostico, { vista: v, doc: d }),
     };
 
     const hora = new Date(ahora);
