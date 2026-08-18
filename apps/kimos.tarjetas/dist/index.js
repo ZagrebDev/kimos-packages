@@ -10,10 +10,14 @@
  * v1.2.0: controles de visualización de foto (mostrar/ocultar, forma, tamaño,
  * zoom y encuadre del recorte, anillo) y de logo (mostrar/ocultar, tamaño,
  * opacidad y placa de fondo).
+ * v1.3.0: 7 paletas nuevas, paleta personalizada con TODOS los colores
+ * definibles (incluido el QR) y "partir desde una paleta"; el diseño de la
+ * tarjeta seleccionada se aplica a todas las tarjetas (botón y tool de agente)
+ * y lo heredan las tarjetas generadas desde los usuarios del sistema.
  */
 
 // ── Sincronizado con manifest.json ───────────────────────────────────────────
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const APP_ID = 'kimos.tarjetas';
 
 // ── Motor QR en JS puro (Byte Mode UTF-8 / Reed-Solomon) ──────────────────────
@@ -495,21 +499,112 @@ const THEME_PALETTES = {
     border: '#334155',
     qrBg: '#FFFFFF',
     qrColor: '#0F172A'
+  },
+  sunset: {
+    id: 'sunset',
+    name: 'Sunset Coral',
+    bg: '#FFF7ED',
+    accent: '#EA580C',
+    text: '#431407',
+    textMuted: '#9A3412',
+    cardBg: '#FFEDD5',
+    border: '#FED7AA',
+    qrBg: '#FFFFFF',
+    qrColor: '#431407'
+  },
+  rose: {
+    id: 'rose',
+    name: 'Rose Élégance',
+    bg: '#FFF1F2',
+    accent: '#E11D48',
+    text: '#4C0519',
+    textMuted: '#9F1239',
+    cardBg: '#FFE4E6',
+    border: '#FECDD3',
+    qrBg: '#FFFFFF',
+    qrColor: '#4C0519'
+  },
+  ocean: {
+    id: 'ocean',
+    name: 'Ocean Blue',
+    bg: '#F0F9FF',
+    accent: '#0284C7',
+    text: '#0C4A6E',
+    textMuted: '#075985',
+    cardBg: '#E0F2FE',
+    border: '#BAE6FD',
+    qrBg: '#FFFFFF',
+    qrColor: '#0C4A6E'
+  },
+  violet: {
+    id: 'violet',
+    name: 'Purple Night',
+    bg: '#1E1B4B',
+    accent: '#A78BFA',
+    text: '#F5F3FF',
+    textMuted: '#C4B5FD',
+    cardBg: '#312E81',
+    border: '#4338CA',
+    qrBg: '#FFFFFF',
+    qrColor: '#1E1B4B'
+  },
+  forest: {
+    id: 'forest',
+    name: 'Forest Dark',
+    bg: '#052E16',
+    accent: '#4ADE80',
+    text: '#F0FDF4',
+    textMuted: '#86EFAC',
+    cardBg: '#14532D',
+    border: '#166534',
+    qrBg: '#FFFFFF',
+    qrColor: '#052E16'
+  },
+  gold: {
+    id: 'gold',
+    name: 'Black & Gold',
+    bg: '#0A0A0A',
+    accent: '#D4AF37',
+    text: '#FAFAF9',
+    textMuted: '#A8A29E',
+    cardBg: '#1C1917',
+    border: '#44403C',
+    qrBg: '#FFFFFF',
+    qrColor: '#0A0A0A'
+  },
+  graphite: {
+    id: 'graphite',
+    name: 'Grafito Mono',
+    bg: '#FAFAFA',
+    accent: '#18181B',
+    text: '#18181B',
+    textMuted: '#71717A',
+    cardBg: '#F4F4F5',
+    border: '#E4E4E7',
+    qrBg: '#FFFFFF',
+    qrColor: '#18181B'
   }
 };
 
+// Campos de la paleta personalizada: [clave, etiqueta, valor por defecto].
+// Todos los colores de la tarjeta son definibles, incluido el QR.
+const CUSTOM_COLOR_FIELDS = [
+  ['bg', 'Fondo', '#FFFFFF'],
+  ['accent', 'Color de Acento', '#19ACB1'],
+  ['text', 'Texto Principal', '#0F172A'],
+  ['textMuted', 'Texto Secundario', '#64748B'],
+  ['cardBg', 'Superficie de Tarjeta', '#F8FAFC'],
+  ['border', 'Bordes y Líneas', '#E2E8F0'],
+  ['qrColor', 'Módulos del QR', '#0F172A'],
+  ['qrBg', 'Fondo del QR', '#FFFFFF']
+];
+
 function getCardPalette(card) {
-  if (card.theme === 'custom' && card.customColors) {
-    return {
-      bg: card.customColors.bg || '#FFFFFF',
-      accent: card.customColors.accent || '#19ACB1',
-      text: card.customColors.text || '#0F172A',
-      textMuted: card.customColors.textMuted || '#64748B',
-      cardBg: card.customColors.cardBg || '#F8FAFC',
-      border: '#E2E8F0',
-      qrBg: '#FFFFFF',
-      qrColor: '#0F172A'
-    };
+  if (card.theme === 'custom') {
+    const cc = card.customColors || {};
+    const pal = {};
+    for (const [key, , def] of CUSTOM_COLOR_FIELDS) pal[key] = cc[key] || def;
+    return pal;
   }
   return THEME_PALETTES[card.theme] || THEME_PALETTES.kimos;
 }
@@ -1128,7 +1223,55 @@ export default function mount(shell) {
     maybeSeedFromMe();
   }
 
-  /** Crea una tarjeta a partir de un usuario real, aplicando la marca. */
+  /**
+   * Diseño de una tarjeta (paleta + disposición + visualización de foto/logo),
+   * listo para copiarse a otras. El recorte de la foto (zoom/encuadre) NO se
+   * copia: es específico de cada foto.
+   */
+  function designOfCard(card) {
+    return {
+      theme: card.theme || 'kimos',
+      customColors: { ...(card.customColors || {}) },
+      style: card.style || 'modern-split',
+      format: card.format || 'horizontal',
+      photoStyle: { ...getPhotoStyle(card), zoom: 1, offsetX: 0, offsetY: 0 },
+      logoStyle: { ...getLogoStyle(card) }
+    };
+  }
+
+  /** Diseño de referencia de la colección: el de la tarjeta seleccionada. */
+  function currentDesign() {
+    const ref = model.cards.find((c) => c.id === model.selectedCardId) || model.cards[0];
+    return ref ? designOfCard(ref) : null;
+  }
+
+  /**
+   * Aplica el diseño de una tarjeta (la seleccionada por defecto) a TODAS las
+   * demás tarjetas de la colección. Devuelve cuántas se actualizaron.
+   */
+  function applyDesignToAllCards(sourceId) {
+    const source = model.cards.find((c) => c.id === (sourceId || model.selectedCardId));
+    if (!source) return 0;
+    const design = designOfCard(source);
+    const cards = model.cards.map((c) => {
+      if (c.id === source.id) return c;
+      // Conservar el recorte propio de cada foto al copiar el diseño.
+      const own = getPhotoStyle(c);
+      return {
+        ...c,
+        ...design,
+        customColors: { ...design.customColors },
+        photoStyle: { ...design.photoStyle, zoom: own.zoom, offsetX: own.offsetX, offsetY: own.offsetY },
+        logoStyle: { ...design.logoStyle },
+        updatedAt: new Date().toISOString()
+      };
+    });
+    commit({ cards });
+    return cards.length - 1;
+  }
+
+  /** Crea una tarjeta a partir de un usuario real, aplicando la marca y el
+   *  diseño vigente de la colección (paleta y estilo de la tarjeta seleccionada). */
   function cardFromMember(m) {
     const brand = model.brand || {};
     const card = createDefaultCard(m.name, m.title, brand.company || '');
@@ -1140,6 +1283,14 @@ export default function mount(shell) {
     card.photoUrl = m.photoUrl;
     card.logoUrl = brand.logoUrl || '';
     card.website = brand.website || '';
+    const design = currentDesign();
+    if (design) {
+      Object.assign(card, design, {
+        customColors: { ...design.customColors },
+        photoStyle: { ...design.photoStyle },
+        logoStyle: { ...design.logoStyle }
+      });
+    }
     return card;
   }
 
@@ -1242,6 +1393,16 @@ export default function mount(shell) {
           }
         },
         {
+          name: 'APPLY_DESIGN_TO_ALL',
+          description: 'Aplica el diseño de una tarjeta (paleta de colores, disposición, formato y visualización de foto/logo) a TODAS las tarjetas de la colección. Sin sourceCardId usa la tarjeta seleccionada. Cada foto conserva su propio recorte. Las tarjetas que se generen después también heredan este diseño.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sourceCardId: { type: 'string', description: 'ID de la tarjeta cuyo diseño se copia (por defecto, la seleccionada).' }
+            }
+          }
+        },
+        {
           name: 'SET_BRAND',
           description: 'Define la empresa y el sitio web de la marca que se aplican a las tarjetas generadas. Con applyToAll=true también actualiza las tarjetas existentes (el logo se sube desde la pestaña Usuarios Kimos).',
           inputSchema: {
@@ -1296,7 +1457,21 @@ export default function mount(shell) {
               email: { type: 'string' },
               phoneMobile: { type: 'string' },
               website: { type: 'string' },
-              theme: { type: 'string' },
+              theme: { type: 'string', description: "Paleta: 'kimos', 'slate', 'midnight', 'emerald', 'indigo', 'dualtone', 'sunset', 'rose', 'ocean', 'violet', 'forest', 'gold', 'graphite' o 'custom' (con customColors)." },
+              customColors: {
+                type: 'object',
+                description: 'Con theme=custom: colores hex de la paleta personalizada (bg, accent, text, textMuted, cardBg, border, qrColor, qrBg). El QR necesita qrColor oscuro sobre qrBg claro para escanear bien.',
+                properties: {
+                  bg: { type: 'string' },
+                  accent: { type: 'string' },
+                  text: { type: 'string' },
+                  textMuted: { type: 'string' },
+                  cardBg: { type: 'string' },
+                  border: { type: 'string' },
+                  qrColor: { type: 'string' },
+                  qrBg: { type: 'string' }
+                }
+              },
               photoStyle: {
                 type: 'object',
                 description: 'Visualización de la foto: visible (bool), shape (circle|rounded|square), size (0.7–1.25), zoom (1–3), offsetX/offsetY (-1–1, encuadre del recorte), ring (bool, anillo de acento).',
@@ -1338,6 +1513,7 @@ export default function mount(shell) {
         version: APP_VERSION,
         cardCount: model.cards.length,
         selectedCardId: model.selectedCardId,
+        availableThemes: Object.keys(THEME_PALETTES).concat('custom'),
         brand: { company: (model.brand || {}).company || '', website: (model.brand || {}).website || '', hasLogo: !!((model.brand || {}).logoUrl) },
         systemUsers: directory.members.map((m) => ({ id: m.id, name: m.name, title: m.title, email: m.email, hasPhoto: !!m.photoUrl })),
         cards: model.cards.map((c) => ({
@@ -1370,6 +1546,14 @@ export default function mount(shell) {
             message: `${created.length} tarjeta(s) generada(s)` + (skipped.length ? `; ya existían: ${skipped.join(', ')}` : '.'),
             createdIds: created.map((c) => c.id)
           };
+        }
+        if (type === 'APPLY_DESIGN_TO_ALL') {
+          const sourceId = payload.sourceCardId ? String(payload.sourceCardId) : '';
+          if (sourceId && !model.cards.some((c) => c.id === sourceId)) {
+            return { success: false, error: 'Tarjeta de origen no encontrada' };
+          }
+          const n = applyDesignToAllCards(sourceId);
+          return { success: true, message: `Diseño aplicado a ${n} tarjeta(s). Las tarjetas nuevas también lo heredarán.` };
         }
         if (type === 'SET_BRAND') {
           const brand = { ...(model.brand || {}) };
@@ -1410,6 +1594,9 @@ export default function mount(shell) {
             ...payload,
             // Los estilos se fusionan campo a campo y se normalizan (clamp de
             // rangos): el agente puede mandar valores fuera de rango.
+            customColors: payload.customColors
+              ? { ...(prev.customColors || {}), ...payload.customColors }
+              : prev.customColors,
             photoStyle: payload.photoStyle
               ? getPhotoStyle({ photoStyle: { ...(prev.photoStyle || {}), ...payload.photoStyle } })
               : prev.photoStyle,
@@ -1490,6 +1677,15 @@ export default function mount(shell) {
       const newCard = createDefaultCard('', '', brand.company || '');
       newCard.logoUrl = brand.logoUrl || '';
       newCard.website = brand.website || '';
+      // Hereda el diseño vigente (paleta + estilo de la tarjeta seleccionada).
+      const design = currentDesign();
+      if (design) {
+        Object.assign(newCard, design, {
+          customColors: { ...design.customColors },
+          photoStyle: { ...design.photoStyle },
+          logoStyle: { ...design.logoStyle }
+        });
+      }
       const cards = [...state.cards, newCard];
       commit({ cards, selectedCardId: newCard.id });
       setActiveTab('editor');
@@ -2271,8 +2467,19 @@ export default function mount(shell) {
           // Paletas de Color
           h('div', { className: 'kt-section' },
             h('div', { className: 'kt-section-header' },
-              h('span', { className: 'kt-section-title' }, '🎨 Paleta de Colores Kimos')
+              h('span', { className: 'kt-section-title' }, '🎨 Paleta de Colores'),
+              h('button', {
+                className: 'kt-btn kt-btn-sm kt-btn-primary',
+                title: 'Copia la paleta, la disposición, el formato y la visualización de foto/logo de esta tarjeta a todas las demás (cada foto conserva su propio recorte)',
+                disabled: state.cards.length < 2,
+                onClick: () => {
+                  const n = applyDesignToAllCards(currentCard.id);
+                  if (shell && shell.notify) shell.notify({ level: 'success', text: `Diseño aplicado a ${n} tarjeta(s). Las nuevas tarjetas también lo usarán.` });
+                }
+              }, '🖌️ Aplicar este diseño a todas')
             ),
+            h('p', { className: 'kt-hint', style: { margin: '0 0 10px' } },
+              'Las tarjetas generadas desde Usuarios Kimos usan el diseño de la tarjeta seleccionada.'),
             h('div', { className: 'kt-palette-grid' },
               Object.keys(THEME_PALETTES).map((palKey) => {
                 const pal = THEME_PALETTES[palKey];
@@ -2302,43 +2509,47 @@ export default function mount(shell) {
                 h('span', { className: 'kt-palette-name' }, 'Personalizado')
               )
             ),
-            // Selectores de color cuando está en personalizado
-            currentCard.theme === 'custom' && h('div', { className: 'kt-color-inputs' },
-              h('div', { className: 'kt-color-item' },
-                h('input', {
-                  type: 'color',
-                  className: 'kt-color-picker',
-                  value: currentCard.customColors?.bg || '#ffffff',
-                  onChange: (e) => handleUpdateCustomColor('bg', e.target.value)
-                }),
-                h('span', { className: 'kt-label' }, 'Fondo')
-              ),
-              h('div', { className: 'kt-color-item' },
-                h('input', {
-                  type: 'color',
-                  className: 'kt-color-picker',
-                  value: currentCard.customColors?.accent || '#19ACB1',
-                  onChange: (e) => handleUpdateCustomColor('accent', e.target.value)
-                }),
-                h('span', { className: 'kt-label' }, 'Color de Acento')
-              ),
-              h('div', { className: 'kt-color-item' },
-                h('input', {
-                  type: 'color',
-                  className: 'kt-color-picker',
-                  value: currentCard.customColors?.text || '#0f172a',
-                  onChange: (e) => handleUpdateCustomColor('text', e.target.value)
-                }),
-                h('span', { className: 'kt-label' }, 'Texto Principal')
-              ),
-              h('div', { className: 'kt-color-item' },
-                h('input', {
-                  type: 'color',
-                  className: 'kt-color-picker',
-                  value: currentCard.customColors?.cardBg || '#f8fafc',
-                  onChange: (e) => handleUpdateCustomColor('cardBg', e.target.value)
-                }),
-                h('span', { className: 'kt-label' }, 'Superficie de Tarjeta')
+            // Selectores de color cuando está en personalizado: TODOS los
+            // colores de la tarjeta son definibles, incluido el QR.
+            currentCard.theme === 'custom' && h('div', null,
+              h('div', { className: 'kt-style-controls', style: { marginTop: '10px' } },
+                h('div', { className: 'kt-section-header', style: { marginBottom: '8px' } },
+                  h('span', { className: 'kt-section-title' }, 'Paleta personalizada'),
+                  h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                    // Partir desde una paleta existente para ajustarla
+                    h('select', {
+                      className: 'kt-select',
+                      style: { width: 'auto', padding: '4px 8px' },
+                      value: '',
+                      onChange: (e) => {
+                        const base = THEME_PALETTES[e.target.value];
+                        if (!base) return;
+                        const cc = {};
+                        for (const [key] of CUSTOM_COLOR_FIELDS) cc[key] = base[key];
+                        handleUpdateCardField('customColors', cc);
+                      }
+                    },
+                      h('option', { value: '' }, 'Partir desde una paleta…'),
+                      Object.keys(THEME_PALETTES).map((k) =>
+                        h('option', { key: k, value: k }, THEME_PALETTES[k].name))
+                    )
+                  )
+                ),
+                h('div', { className: 'kt-color-inputs' },
+                  CUSTOM_COLOR_FIELDS.map(([key, label, def]) =>
+                    h('div', { className: 'kt-color-item', key },
+                      h('input', {
+                        type: 'color',
+                        className: 'kt-color-picker',
+                        value: (currentCard.customColors && currentCard.customColors[key]) || def,
+                        onChange: (e) => handleUpdateCustomColor(key, e.target.value)
+                      }),
+                      h('span', { className: 'kt-label' }, label)
+                    )
+                  )
+                ),
+                h('p', { className: 'kt-hint' },
+                  '💡 Para que el QR escanee bien, mantén contraste alto entre "Módulos del QR" (oscuro) y "Fondo del QR" (claro).')
               )
             )
           )
