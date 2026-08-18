@@ -1,0 +1,45 @@
+{
+  "id": "kimos.tarjetas",
+  "name": "Tarjetas Virtuales",
+  "version": "1.1.0",
+  "description": "Genera tarjetas de presentación virtuales desde los usuarios reales del sistema KIMOS (foto de perfil, correo, cargo y teléfono), con código QR vCard funcional que guarda el contacto en el móvil al escanearlo y logo de la marca aplicado a cada tarjeta generada.",
+  "icon": "🪪",
+  "author": "Kimos Apps",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ],
+  "configSchema": {
+    "title": "Preferencias de Tarjetas",
+    "fields": [
+      {
+        "key": "defaultFormat",
+        "label": "Formato por defecto",
+        "type": "select",
+        "options": [
+          { "value": "horizontal", "label": "Horizontal (1050 x 600 px)" },
+          { "value": "vertical", "label": "Vertical (600 x 950 px)" }
+        ]
+      },
+      {
+        "key": "exportScale",
+        "label": "Resolución de descarga",
+        "type": "select",
+        "options": [
+          { "value": "2", "label": "2x Alta definición (HD)" },
+          { "value": "3", "label": "3x Ultra nítida (Impresión)" },
+          { "value": "1", "label": "1x Estándar" }
+        ]
+      }
+    ]
+  },
+  "defaultConfig": {
+    "defaultFormat": "horizontal",
+    "exportScale": "2"
+  }
+}
