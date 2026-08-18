@@ -11,7 +11,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 
 const DATA = /* DATOS_INLINE */ null;
 const VIS = /* VISUAL_INLINE */ null;
@@ -54,9 +54,10 @@ const C = {
 
 function estadoInicial() {
   return {
-    v: 2,
+    v: 3,
     tab: 'resumen',
-    tema: 'estudio',
+    tema: 'dash',
+    menuTema: false,
     sup: Object.assign({}, SUP_BASE),
     desc: Object.assign({}, DESC_BASE),
     mix: Object.assign({}, MIX_BASE),
@@ -242,10 +243,15 @@ function calcularDemanda(sup, alcance, oferta, mix) {
  * Formato
  * ------------------------------------------------------------------ */
 
+// El modo dashboard replica el formato del tablero original (1,234.5); los
+// demás usan el formato local (1.234,5). Es lo único que cambia entre modos
+// además de la escala visual.
+let LOC = 'en-US';
 const nf = {};
-const fmt = (d) => (nf[d] || (nf[d] = new Intl.NumberFormat('es-CL', {
+const fmt = (d) => (nf[LOC + '|' + d] || (nf[LOC + '|' + d] = new Intl.NumberFormat(LOC, {
   minimumFractionDigits: d, maximumFractionDigits: d,
 })));
+const setLocale = (tema) => { LOC = tema === 'dash' ? 'en-US' : 'es-CL'; };
 
 const usd = (n) => '$' + fmt(0).format(Math.round(n || 0));
 const usd1 = (n) => '$' + fmt(1).format(n || 0);
@@ -416,6 +422,9 @@ export default function mount(shell) {
 
   const nota = (n) => h('div', { className: 'km-note' }, h('b', null, n.titulo + ' '), n.texto);
 
+  const qline = (etiqueta, valor, color) => h('div', { className: 'km-qline', key: etiqueta },
+    h('span', null, etiqueta), h('b', { style: color ? { color: color } : null }, valor));
+
   const pill = (texto, clase) => h('span', { className: 'km-pill ' + clase }, texto);
   const pillConf = (c) => pill(c, c === 'Verificado' ? 'km-p-ok' : 'km-p-est');
   const CLASE_CUAD = {
@@ -536,13 +545,14 @@ export default function mount(shell) {
 
   /** Barras horizontales simples: filas = [{ label, valor, nota }]. */
   function barrasSimples(filas, color, formato) {
+    const col = (i) => (typeof color === 'function' ? color(i) : color);
     const W = 700, LB = 150, PAD = 74, alto = 19;
     const H = filas.length * alto + 10;
     const max = Math.max.apply(null, filas.map((f) => f.valor).concat([1]));
     const cuerpo = filas.map((f, i) => h('g', { key: f.label, transform: 'translate(0,' + (i * alto + 8) + ')' },
       h('text', { x: LB - 8, y: 4, textAnchor: 'end', className: 'km-lbl' }, corto(f.label)),
       h('rect', {
-        x: LB, y: -5, height: 10, rx: 5, fill: color, opacity: .85,
+        x: LB, y: -5, height: 10, rx: 5, fill: col(i), opacity: .85,
         width: Math.max(1, (f.valor / max) * (W - LB - PAD)),
       }, h('title', null, f.label + ' — ' + formato(f.valor) + (f.nota ? ' · ' + f.nota : ''))),
       h('text', { x: LB + (f.valor / max) * (W - LB - PAD) + 6, y: 4, className: 'km-val' }, formato(f.valor))));
@@ -553,6 +563,13 @@ export default function mount(shell) {
   }
 
   /* ------------------------------- pestañas ------------------------------ */
+
+  // Tres modos visuales. El dashboard es el que replica el tablero del estudio.
+  const TEMAS = [
+    ['dash', 'Modo dashboard', '▦', 'La estética del tablero del estudio, tal cual'],
+    ['estudio', 'Modo compacto', '▤', 'Lo mismo, con menos aire: ventanas chicas'],
+    ['host', 'Modo KIMOS', '◐', 'Sigue el día/noche y el acento del escritorio'],
+  ];
 
   const TABS = [
     ['resumen', 'Resumen', '◎'],
@@ -602,7 +619,7 @@ export default function mount(shell) {
       label: p.nombre, valor: p.porUsuario, color: [C.violet, C.calipso, C.fuchsia, C.teal][i % 4],
     })).concat([{ label: 'Stack actual', valor: oferta.stackPorUsuario, color: C.orange }]);
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       nota(VIS.notas.resumen),
       h('div', { className: 'km-g2' },
         card('Precio sugerido KIMOS vs. mediana del mercado', C.cyan,
@@ -664,7 +681,7 @@ export default function mount(shell) {
     });
 
     const sel = estado.modSel != null ? oferta.byN.get(estado.modSel) : null;
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       card('Mapa competitivo por aplicación', C.violet,
         'Cada app de KIMOS, contra quién compite, en qué rango se mueve el mercado y a qué precio conviene entrar. La mediana excluye planes Enterprise (Akeneo, Salsify, Cvent, Bizzabo, Kissflow, Nintex) porque son de otro segmento y distorsionan la referencia. Haz clic en una fila para ver el detalle.',
         t),
@@ -757,7 +774,7 @@ export default function mount(shell) {
         }),
         h('span', { className: 'km-val' }, formato(estado.sup[k]))));
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       h('div', { className: 'km-ctrls' },
         ctrl('Usuarios del cliente tipo', 'usuarios', 1, 200, 1, num),
         ctrl('Canales sociales', 'canales', 1, 30, 1, num),
@@ -792,16 +809,21 @@ export default function mount(shell) {
       h('h3', null, p.nombre),
       h('div', { className: 'km-plan-who' }, p.para),
       h('div', { className: 'km-plan-precio' }, usd(p.mensual)),
-      h('div', { className: 'km-plan-pu' }, 'al mes · ' + usd1(p.porUsuario) + ' por usuario · ' + usd(p.anual) + '/año'),
-      h('div', { className: 'km-plan-desc' },
-        h('span', null, 'Suma a la carta ' + usd(p.suma) + ' · descuento'),
-        h('input', {
-          className: 'km-edit', type: 'number', min: '0', max: '95', step: '1',
-          value: Math.round(p.descuento * 100), style: { width: '62px' },
-          onChange: (e) => setDesc(p.id, Number(e.target.value) / 100),
-        }),
-        h('span', null, '%')),
-      h('ul', { className: 'km-plan-mods' }, p.nombres.map((n) => h('li', { key: n }, corto(n)))));
+      h('div', { className: 'km-plan-pu' }, 'al mes · ' + usd1(p.porUsuario) + ' por usuario'),
+      h('div', { className: 'km-plan-desc' }, p.incluye),
+      qline('Suma a la carta', usd(p.suma)),
+      h('div', { className: 'km-qline' },
+        h('span', null, 'Descuento bundle'),
+        h('span', null,
+          h('input', {
+            className: 'km-edit', type: 'number', min: '0', max: '95', step: '1',
+            value: Math.round(p.descuento * 100), style: { width: '62px' },
+            title: 'Descuento del plan sobre la suma a la carta',
+            onChange: (e) => setDesc(p.id, Number(e.target.value) / 100),
+          }), ' %')),
+      qline('Precio anual', usd(p.anual)),
+      qline('Ahorro anual del cliente', usd(p.ahorroAnual), C.green),
+      qline('Módulos incluidos', String(p.mods.length)));
   }
 
   function vistaPlanes(oferta) {
@@ -819,7 +841,7 @@ export default function mount(shell) {
       { v: usd(oferta.stackTotal), num: true },
     ])];
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       card('Planes por tamaño de empresa', C.fuchsia,
         'El descuento de bundle es editable en cada plan. Sin descuento, la suma de módulos da un precio que ningún cliente paga.',
         h('div', { className: 'km-g3' }, oferta.planes.map((p) => tarjetaPlan(p, p.id === 'business')))),
@@ -864,15 +886,12 @@ export default function mount(shell) {
       h('span', null, corto(m.app)),
       h('span', { className: 'km-mod-pz' }, usd(m.sugerido))));
 
-    const linea = (l, v, color) => h('div', { className: 'km-qline', key: l },
-      h('span', null, l), h('b', { style: color ? { color: color } : null }, v));
-
     const cotizacion = h('div', { className: 'km-quote' },
       h('div', { className: 'km-quote-k' }, 'Cotización'),
       h('div', { className: 'km-quote-big' }, usd(precio)),
       h('div', { style: { color: 'var(--k-mut)', fontSize: '12px', marginBottom: '12px' } },
         'al mes · ' + usd1(precio / estado.sup.usuarios) + ' por usuario · ' + sel.length + ' módulos'),
-      linea('Suma a la carta', usd(suma)),
+      qline('Suma a la carta', usd(suma)),
       h('div', { className: 'km-qline' },
         h('span', null, 'Descuento bundle'),
         h('span', null,
@@ -881,12 +900,13 @@ export default function mount(shell) {
             value: Math.round(estado.cfg.desc * 100), style: { width: '62px' },
             onChange: (e) => commit({ cfg: Object.assign({}, estado.cfg, { desc: Math.min(0.95, Math.max(0, Number(e.target.value) / 100)) }) }),
           }), ' %')),
-      linea('Precio anual', usd(precio * 12 * (1 - estado.sup.descAnual))),
-      linea('Equivalente en el mercado', usd(equivalente), C.orange),
-      linea('Ahorro anual del cliente', usd(Math.max(0, (equivalente - precio) * 12)), C.green),
+      qline('Precio anual', usd(precio * 12 * (1 - estado.sup.descAnual))),
+      qline('Equivalente en el mercado', usd(equivalente), C.orange),
+      qline('Ahorro anual del cliente', usd(Math.max(0, (equivalente - precio) * 12)), C.green),
+      qline('Módulos incluidos', String(sel.length)),
       h('div', { className: 'km-veredicto' }, veredicto));
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       card('Configurador de suscripción', C.cyan,
         'Marca los módulos que necesita el cliente y obtén la cotización al instante, comparada contra lo que gastaría comprando cada herramienta por separado.',
         h('div', { className: 'km-cfg' },
@@ -924,7 +944,7 @@ export default function mount(shell) {
       { k: 'reco', l: 'Recomendación', cell: (f) => h('span', { className: 'km-mut' }, reco(f.indice)) },
     ];
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       h('div', { className: 'km-ctrls', style: { gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' } },
         h('div', { className: 'km-ctrl' }, h('label', null, 'Región'), selector(a.region, uniq('region'), (v) => setAlcance('region', v), 'Todas')),
         h('div', { className: 'km-ctrl' }, h('label', null, 'País'), selector(a.pais, DATA.demanda.paises.map((p) => p.pais), (v) => setAlcance('pais', v), 'Todos')),
@@ -981,7 +1001,7 @@ export default function mount(shell) {
 
     const mixSuma = ['starter', 'business', 'enterprise'].reduce((a, k) => a + (estado.mix[k] || 0), 0);
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       h('div', { className: 'km-ctrls' },
         ctrl('Churn mensual', 'churn', 0.01, 0.12, 0.005, (v) => pct(v, 1)),
         ctrl('Margen bruto', 'margen', 0.4, 0.95, 0.01, (v) => pct(v, 0)),
@@ -1054,7 +1074,7 @@ export default function mount(shell) {
       return card(g.titulo, C.blue, null, tabla(cols, g.filas, { key: (f, i) => i }), { key: g.titulo });
     });
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       card('Perfiles de cliente ideal', C.violet,
         'Seis perfiles con el dolor que los mueve, el gatillo que dispara la compra y la objeción que hay que responder.',
         h('div', { className: 'km-g3' }, perfiles)),
@@ -1078,7 +1098,7 @@ export default function mount(shell) {
         h('div', null, 'Cuadrante ', h('b', null, m.cuadrante))),
       h('div', { className: 'km-strat' }, h('b', null, 'Estrategia: '), m.estrategia)));
 
-    return h('div', { className: 'km-wrap km-fade' },
+    return h('div', { className: 'km-vista km-fade' },
       nota(VIS.notas.proscontras),
       h('div', { className: 'km-g3' }, tarjetas));
   }
@@ -1131,14 +1151,23 @@ export default function mount(shell) {
       h('p', null, h('b', null, 'Demanda. '), d.demanda),
       h('p', { style: { color: 'var(--k-tx)' } }, h('b', null, 'Qué hacer. '), d.hacer)));
 
-    return h('div', { className: 'km-wrap km-fade' },
+    const totalSuite = oferta.aLaCarta || 1;
+    const concentracion = oferta.modulos.slice()
+      .sort((a, b) => b.sugerido - a.sugerido).slice(0, 12)
+      .map((m) => ({ label: m.app, valor: m.sugerido / totalSuite }));
+
+    return h('div', { className: 'km-vista km-fade' },
       h('div', { className: 'km-g2' },
         card('Dónde está parado KIMOS', C.green,
           'Evaluación por dimensión, de 0 a 10, según la posición competitiva que muestra este estudio.',
           h('div', null, scores)),
-        card('Qué hacer con esto', C.fuchsia,
-          'Ocho movimientos concretos que salen de cruzar los precios de la competencia con la demanda.',
-          h('div', { className: 'km-col' }, VIS.sugerencias.map((s) => tarjetaDiag(s, vals))))),
+        card('Concentración del valor', C.cyan,
+          'Qué porcentaje del precio total de la suite aporta cada módulo. Muestra de qué depende realmente el ingreso.',
+          barrasSimples(concentracion, (i) => PAL[i % PAL.length], (v) => pct(v, 1))),
+        ),
+      card('Sugerencias y mejoras', C.fuchsia,
+        'Ocho movimientos concretos que salen de cruzar los precios de la competencia con la demanda.',
+        h('div', { className: 'km-col' }, VIS.sugerencias.map((s) => tarjetaDiag(s, vals)))),
       card('Las ocho decisiones del estudio', C.violet,
         'Cada una con el dato de oferta y el de demanda que la sostienen. Si un dato cambia, la decisión se revisa.',
         h('div', { className: 'km-g2' }, decisiones)),
@@ -1162,6 +1191,7 @@ export default function mount(shell) {
       return () => { oyentes.delete(setSt); };
     }, []);
 
+    setLocale(st.tema);
     const oferta = React.useMemo(() => calcularOferta(st.sup, st.desc, st.precios), [st.sup, st.desc, st.precios]);
     const demanda = React.useMemo(() => calcularDemanda(st.sup, st.alcance, oferta, st.mix), [st.sup, st.alcance, st.mix, oferta]);
 
@@ -1180,44 +1210,59 @@ export default function mount(shell) {
       : st.tab === 'diagnostico' ? vistaDiagnostico(oferta)
       : vistaResumen(oferta, demanda);
 
-    return h('div', { className: 'kimos-mercado' + (st.tema === 'host' ? ' km-host' : '') },
-      h('header', { className: 'km-head' },
-        h('div', { className: 'km-brand' },
-          h('div', { className: 'km-logo' }, h('span', null, 'K')),
-          h('div', null,
-            h('div', { className: 'km-tit' }, 'Estudio de Mercado y Modelo de Precios',
-              h('span', { className: 'km-ver', title: 'Estudio de Mercado v' + APP_VERSION }, 'v' + APP_VERSION)),
-            h('div', { className: 'km-sub' }, DATA.modulos.length + ' aplicaciones · ' + DATA.competidores.length
-              + ' planes de competencia analizados · precios de lista ' + DATA.meta.moneda + ' · agosto 2026'))),
-        h('span', { className: 'km-chip-alc' }, alcanceTxt),
-        h('div', { className: 'km-tools' },
-          h('button', {
-            className: 'km-btn', title: 'Vuelve a los supuestos, precios y descuentos del estudio',
-            onClick: () => commit({
-              sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE),
-              mix: Object.assign({}, MIX_BASE), precios: {}, cfg: { mods: [], desc: 0.5 },
-            }),
-          }, '↺ Restablecer'),
-          h('button', { className: 'km-btn', onClick: () => exportar(oferta, demanda), title: 'Exporta a CSV la pestaña actual' }, '⭳ Exportar datos'),
-          h('button', {
-            className: 'km-btn' + (st.tema === 'host' ? ' on' : ''),
-            title: 'Alterna entre el tema del estudio y el tema del escritorio de KIMOS',
-            onClick: () => commit({ tema: st.tema === 'host' ? 'estudio' : 'host' }),
-          }, st.tema === 'host' ? '◐ Tema KIMOS' : '◑ Tema estudio'))),
-      h('nav', { className: 'km-tabs' }, TABS.map(([id, label, ico]) => h('button', {
-        key: id, className: 'km-tab' + (st.tab === id ? ' on' : ''),
-        onClick: () => commit({ tab: id }),
-      }, h('span', { className: 'km-tab-i' }, ico), label))),
-      h('div', { className: 'km-body' },
-        h('div', { className: 'km-wrap', style: { marginBottom: '16px' } },
-          h('div', { className: 'km-kpis' },
-            kpi('Gasto actual del cliente', usd(oferta.stackTotal), usd1(oferta.stackPorUsuario) + ' por usuario/mes', C.orange),
-            kpi('KIMOS Enterprise', usd(ent.mensual), usd1(ent.porUsuario) + ' por usuario/mes', C.cyan),
-            kpi('KIMOS vs. gasto actual', pct(oferta.ratioStack, 0),
-              oferta.ratioStack > 0.6 ? 'Sobre la banda sana' : oferta.ratioStack < 0.25 ? 'Bajo la banda sana' : 'Dentro de la banda sana', banda),
-            kpi('Ahorro anual del cliente', usd(oferta.ahorroAnualStack), 'Argumento central de venta', C.green),
-            kpi('Precios verificados', oferta.verificados + '/' + DATA.competidores.length, 'El resto requiere validación', C.violet))),
-        cuerpo));
+    const temaActual = TEMAS.filter((t) => t[0] === st.tema)[0] || TEMAS[0];
+
+    const menuTema = h('div', { className: 'km-menu-wrap' },
+      h('button', {
+        className: 'km-btn' + (st.menuTema ? ' pri' : ''),
+        title: 'Elige cómo se ve el tablero',
+        onClick: () => commit({ menuTema: !st.menuTema }),
+      }, temaActual[2] + ' ' + temaActual[1]),
+      st.menuTema ? h('div', { className: 'km-menu' }, TEMAS.map(([id, label, ico, desc]) => h('button', {
+        key: id, className: st.tema === id ? 'on' : '',
+        onClick: () => commit({ tema: id, menuTema: false }),
+      }, h('span', null, ico), h('span', null, label, h('small', null, desc))))) : null);
+
+    const cabecera = h('header', { className: 'km-head' },
+      h('div', { className: 'km-brand' },
+        h('div', { className: 'km-logo' }, h('span', null, 'K')),
+        h('div', null,
+          h('h1', { className: 'km-tit' }, 'KIMOS · Estudio de Mercado y Modelo de Precios',
+            h('span', { className: 'km-ver', title: 'Estudio de Mercado v' + APP_VERSION }, 'v' + APP_VERSION)),
+          h('div', { className: 'km-sub' }, DATA.modulos.length + ' aplicaciones · ' + DATA.competidores.length
+            + ' planes de competencia analizados · precios de lista ' + DATA.meta.moneda + ' · agosto 2026 · ',
+            h('span', { className: 'km-chip-alc', title: 'Alcance del análisis de demanda' }, alcanceTxt)))),
+      h('div', { className: 'km-tools' },
+        h('button', {
+          className: 'km-btn', title: 'Vuelve a los supuestos, precios y descuentos del estudio',
+          onClick: () => commit({
+            sup: Object.assign({}, SUP_BASE), desc: Object.assign({}, DESC_BASE),
+            mix: Object.assign({}, MIX_BASE), precios: {}, cfg: { mods: [], desc: 0.5 },
+          }),
+        }, '↺ Restablecer'),
+        h('button', { className: 'km-btn', onClick: () => exportar(oferta, demanda), title: 'Exporta a CSV la pestaña actual' }, '⭳ Exportar datos'),
+        menuTema,
+        h('button', {
+          className: 'km-btn pri', title: 'Imprime el tablero o lo guarda como PDF',
+          onClick: () => { try { window.print(); } catch (e) { /* sin soporte de impresión */ } },
+        }, '⎙ Imprimir / PDF')));
+
+    const kpis = h('div', { className: 'km-kpis' },
+      kpi('Gasto actual del cliente', usd(oferta.stackTotal), usd1(oferta.stackPorUsuario) + ' por usuario/mes', C.orange),
+      kpi('KIMOS Enterprise', usd(ent.mensual), usd1(ent.porUsuario) + ' por usuario/mes', C.violet),
+      kpi('KIMOS vs. gasto actual', pct(oferta.ratioStack, 0),
+        oferta.ratioStack > 0.6 ? 'Sobre la banda sana' : oferta.ratioStack < 0.25 ? 'Bajo la banda sana' : 'Dentro de la banda sana', banda),
+      kpi('Ahorro anual del cliente', usd(oferta.ahorroAnualStack), 'Argumento central de venta', C.cyan),
+      kpi('Precios verificados', oferta.verificados + '/' + DATA.competidores.length, 'El resto requiere validación', C.fuchsia));
+
+    const navTabs = h('nav', { className: 'km-tabs-box' }, TABS.map(([id, label, ico]) => h('button', {
+      key: id, className: 'km-tab' + (st.tab === id ? ' on' : ''),
+      onClick: () => commit({ tab: id, menuTema: false }),
+    }, h('span', { className: 'km-tab-i' }, ico), label)));
+
+    return h('div', { className: 'kimos-mercado km-' + st.tema },
+      h('div', { className: 'km-scroll' },
+        h('div', { className: 'km-wrap' }, cabecera, kpis, navTabs, cuerpo)));
   }
 
   /* -------------------------------- agente -------------------------------- */
@@ -1301,6 +1346,15 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'SET_TEMA',
+          description: 'Cambia el modo visual del tablero: dash (estética del dashboard del estudio), estudio (compacto) o host (sigue el tema del escritorio de KIMOS).',
+          inputSchema: {
+            type: 'object',
+            properties: { tema: { type: 'string', enum: ['dash', 'estudio', 'host'] } },
+            required: ['tema'],
+          },
+        },
+        {
           name: 'RESTAURAR_SUPUESTOS',
           description: 'Vuelve a los supuestos, descuentos, precios y cotización con los que se levantó el estudio.',
           inputSchema: { type: 'object', properties: {} },
@@ -1317,6 +1371,7 @@ export default function mount(shell) {
           version: APP_VERSION,
           levantamiento: DATA.meta.fecha,
           pestana: estado.tab,
+          tema: estado.tema,
           supuestos: estado.sup,
           alcance: estado.alcance,
           mixPlanes: estado.mix,
@@ -1419,6 +1474,11 @@ export default function mount(shell) {
             if (!m) return { success: false, error: 'Módulo desconocido: ' + p.app };
             commit({ tab: 'mapa', modSel: m.n });
             return { success: true, message: 'Detalle de ' + m.app };
+          }
+          if (t === 'SET_TEMA') {
+            if (!TEMAS.some((x) => x[0] === p.tema)) return { success: false, error: 'Modo desconocido: ' + p.tema };
+            commit({ tema: p.tema, menuTema: false });
+            return { success: true, message: 'Modo ' + p.tema };
           }
           if (t === 'RESTAURAR_SUPUESTOS') {
             commit({
