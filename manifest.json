@@ -453,9 +453,9 @@
     {
       "id": "estudio-mercado",
       "name": "Estudio de Mercado",
-      "description": "Estudio del mercado competitivo de KIMOS como tablero interactivo: 24 módulos frente a 154 planes de precio de la competencia, con precio sugerido por módulo, gráficos en vivo, precios de la competencia editables, planes y kits con descuento ajustable, configurador de suscripción con cotización instantánea contra el gasto actual del cliente, mercado por región y por país con filtros de idioma y prioridad comercial, economía por cliente (LTV, CAC, payback, proyección a 3 años), diagnóstico por dimensión y las decisiones que cruzan oferta y demanda. Todos los supuestos son editables y todo se recalcula en vivo; control por agente IA.",
+      "description": "Estudio del mercado competitivo de KIMOS como tablero interactivo: 24 módulos frente a 154 planes de precio de la competencia, con precio sugerido por módulo, gráficos en vivo, precios de la competencia editables, planes y kits con descuento ajustable, configurador de suscripción con cotización instantánea contra el gasto actual del cliente, mercado por región y por país con filtros de idioma y prioridad comercial, economía por cliente (LTV, CAC, payback, proyección a 3 años), diagnóstico por dimensión y las decisiones que cruzan oferta y demanda. Tres modos visuales (dashboard, compacto y tema de KIMOS), adaptado a PC, tablet, movil y totem. Todos los supuestos son editables y todo se recalcula en vivo; control por agente IA.",
       "icon": "🎯",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
