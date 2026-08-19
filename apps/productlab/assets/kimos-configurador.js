@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.35.0';
+  var VERSION = '5.36.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -149,26 +149,31 @@
     return out.id == null ? null : out;
   }
 
-  // El JSON público se pide SIEMPRE fresco a la red: publicar en ProductLab
-  // se ve en la tienda en la visita siguiente, sin TTL ni CDN de por medio
-  // (el velo de arranque ya tapa esa espera, y la copia local es una página
-  // del mismo origen: rapidísima). La copia en localStorage queda SOLO de
-  // respaldo: si ni la página ni KIMOS responden, la tienda usa la última
-  // buena y no se queda sin ficha.
-  // La clave lleva el producto: desde que el gateway puede devolver el
-  // catálogo recortado a uno solo, una copia guardada bajo una clave común
-  // dejaría a las demás fichas leyendo un catálogo donde su producto no está.
-  function defCacheKey(ref) { return 'kc-def::' + CFG_URLS.join('|') + (ref ? '::' + ref : ''); }
-  function defCacheRead(ref) {
-    try {
-      var raw = localStorage.getItem(defCacheKey(ref));
-      if (!raw) return null;
-      var c = JSON.parse(raw);
-      return (c && c.def) ? c : null;
-    } catch (e) { return null; }
+  // REGLA DE ORO (decisión del usuario): la ficha KIMOS solo se muestra con
+  // datos CONFIRMADOS — la página publicada en la tienda (la publicación ES
+  // esa página) o una copia cuya versión confirmó el faro. Jamás una copia
+  // vieja "por si acaso": si no hay fuente confiable, manda la ficha nativa
+  // del theme, que cobra siempre los precios REALES de Jumpseller. Vender feo
+  // es aceptable; vender con datos de ayer no.
+  // (Aquí vivía un caché defCache que servía "la última buena" sin confirmar
+  // versión: eliminado por esa regla.)
+  // La publicación declara qué versión de kit espera (def.kitExpected): si el
+  // theme corre una anterior, se grita en consola — un theme activado desde
+  // un zip puede traer assets viejos y revivir bugs ya corregidos.
+  function kitViejo(esperado) {
+    if (!esperado) return false;
+    var a = String(VERSION).split('.').map(Number), b = String(esperado).split('.').map(Number);
+    for (var i = 0; i < 3; i++) { if ((a[i] || 0) < (b[i] || 0)) return true; if ((a[i] || 0) > (b[i] || 0)) return false; }
+    return false;
   }
-  function defCacheWrite(ref, def) {
-    try { localStorage.setItem(defCacheKey(ref), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
+  function avisarKitViejo(def) {
+    if (def && kitViejo(def.kitExpected)) {
+      console.error(LOG, '⚠ EL KIT DEL THEME ESTÁ DESACTUALIZADO: corre v' + VERSION
+        + ' pero la publicación espera v' + def.kitExpected
+        + '. Actualiza los archivos del theme desde ProductLab (KIT MANUAL) — un theme activado desde zip trae assets viejos.');
+      try { window.KIMOS_KIT_DESACTUALIZADO = def.kitExpected; } catch (e) {}
+    }
+    return def;
   }
   // Copia LOCAL del catálogo: ProductLab puede publicar el JSON en una
   // página de la propia tienda (permalink derivado de la instancia). Se
@@ -188,7 +193,6 @@
     // completo —es un solo archivo servido por el CDN de Jumpseller— y se
     // intenta primero, así que esto solo aligera el camino de respaldo.
     var refProd = prod ? String(prod.id || prod.sku || prod.name || '').trim() : '';
-    var hit = defCacheRead(refProd);
     // CACHÉ DEL CATÁLOGO. Aquí había una marca única por carga (`_t=Date.now()`)
     // que garantizaba ver siempre lo último — al precio de que NADA pudiera
     // guardarse: ni el navegador, ni el CDN de la tienda, ni el de KIMOS. Cada
@@ -328,11 +332,10 @@
           }
           // ORDEN DE SUPERVIVENCIA: la fuente primaria es la PÁGINA DE LA
           // TIENDA (se sirve del mismo Jumpseller que la ficha: si el
-          // comprador ve la ficha, la página está). KIMOS aparece después y
-          // solo como respaldo; y si tampoco responde, vale la copia del
-          // navegador aunque no se pudiera confirmar su versión — una ficha
-          // con precios de ayer se corrige al republicar; una ficha muerta
-          // pierde la venta.
+          // comprador ve la ficha, la página está — y la página ES la
+          // publicación, no puede estar "vieja" respecto de lo publicado).
+          // KIMOS va después, solo como respaldo. Sin fuente confirmada no se
+          // monta nada: ficha nativa del theme, precios reales de Jumpseller.
           return pedirLocal(u, marca, faro.page)
             .then(guardarUrl)
             .then(function (def) {
@@ -346,17 +349,10 @@
               return conTope(pedirRemoto(u, marca), REMOTO_MS).then(guardarUrl).then(function (def) {
                 return cuenta(def, 'KIMOS (respaldo — copia local: '
                   + ((eLocal && eLocal.message) || '?') + (marca ? '' : ' · faro sin respuesta') + ')');
-              }).catch(function (eRem) {
-                // Un 403/404 REAL de KIMOS significa instancia despublicada o
-                // borrada: ahí no corresponde revivir una copia vieja (y se
-                // marca ausente más abajo, como siempre). Cualquier otra cosa
-                // es KIMOS caído/colgado: ÚLTIMO REFUGIO, la copia guardada.
-                if (enCache && !/HTTP (403|404)/.test((eRem && eRem.message) || '')) {
-                  return cuenta(enCache.def, 'copia del navegador SIN confirmar versión (página: '
-                    + ((eLocal && eLocal.message) || '?') + ' · KIMOS: ' + ((eRem && eRem.message) || '?') + ')');
-                }
-                throw eRem;
               });
+              // Si tampoco KIMOS responde, AQUÍ TERMINA: nada de revivir
+              // copias sin confirmar (regla de oro) — la ficha nativa del
+              // theme queda al mando, con los precios reales de Jumpseller.
             });
         })
         .catch(function (err) {
@@ -374,18 +370,17 @@
     };
     return Promise.all(CFG_URLS.map(pedir)).then(function (defs) {
       defs = defs.filter(function (x) { return !!x; });
-      if (!defs.length) {
-        if (hit) { console.warn(LOG, 'ningún catálogo responde; usando copia local'); return hit.def; }
-        throw new Error('ningún catálogo respondió');
-      }
+      // Sin fuente confirmada NO se inventa nada: error → la ficha nativa
+      // del theme queda al mando (regla de oro).
+      if (!defs.length) throw new Error('ningún catálogo respondió');
       var def = defs[0];
       if (defs.length > 1) {
         var prods = [];
         for (var i = 0; i < defs.length; i++) prods = prods.concat((defs[i].productos || defs[i].equipos) || []);
-        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store, productos: prods };
+        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store,
+          kitExpected: def.kitExpected, productos: prods };
       }
-      defCacheWrite(refProd, def);
-      return def;
+      return avisarKitViejo(def);
     });
   }
 

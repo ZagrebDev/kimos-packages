@@ -2388,6 +2388,11 @@ export default function mount(shell) {
       // storefront.style; el theme acepta version 1 sin cambios (degradación).
       version: 2,
       updatedAt: nowIso(),
+      // Versión del kit que acompaña a ESTA app (los archivos de assets/, los
+      // mismos del KIT MANUAL). El kit del theme la compara con la suya y
+      // grita en consola si quedó viejo — un theme activado desde un zip
+      // puede traer assets antiguos. Mantener sincronizada en cada release.
+      kitExpected: '5.36.0',
       currency: rules().currency,
       store: s((model.def || {}).storeName).trim() || s(instanceId),
       productos: model.productos.filter((eq) => eq.status !== 'inactive').map((eq) => {
@@ -2696,6 +2701,20 @@ export default function mount(shell) {
         }
       }
       const rp = await pushPaginaTienda(aPublicar);
+      // El chequeo externo mira además qué versión del kit corre el THEME
+      // ACTIVO. Si es más vieja que la que trae esta app, publicar lo DICE
+      // aquí mismo (incidente real: un theme activado desde zip corría un
+      // kit de hace cinco versiones y nadie lo sabía).
+      const kitApp = s((aPublicar || data || {}).kitExpected);
+      const versionMenor = (a, b) => {
+        const A = s(a).split('.').map(Number), B = s(b).split('.').map(Number);
+        for (let i = 0; i < 3; i++) { if ((A[i] || 0) < (B[i] || 0)) return true; if ((A[i] || 0) > (B[i] || 0)) return false; }
+        return false;
+      };
+      if (rp && rp.kitTienda && kitApp && versionMenor(rp.kitTienda, kitApp)) {
+        rp.aviso = '⚠ EL THEME CORRE UN KIT VIEJO (v' + s(rp.kitTienda) + '; esta publicación espera v' + kitApp
+          + '). Actualiza los archivos del theme activo desde el KIT MANUAL de ProductLab.' + (rp.aviso ? ' · ' + rp.aviso : '');
+      }
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
       if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
       else if (rp.aviso) shell.notify({ level: 'warn', text: 'Copia en la tienda: ' + rp.aviso });

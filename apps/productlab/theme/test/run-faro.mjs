@@ -49,8 +49,10 @@ const pagina = () => `<!doctype html><html lang="es"><body>
   <form action="/cart/add" name="buy"><button type="button" class="product-form__button" id="add-to-cart"><span>Añadir</span></button></form>
 </div></section></body></html>`;
 
+let KIT_ESPERADO = null;   // lo fija cada escenario que lo necesite
 const defDe = (updatedAt) => ({
   version: 2, updatedAt, currency: 'CLP', store: 'i1',
+  ...(KIT_ESPERADO ? { kitExpected: KIT_ESPERADO } : {}),
   productos: [{ sku: 'PC-1', productId: 23008278, name: 'PC Gamer', basePrice: 100000,
     imageUrl: '', images: [], description: '', model3d: null,
     groups: [{ id: 'g-c', label: 'Color', type: 'other', values: [{ id: 'v-n', name: 'Negro', isDefault: true }] }],
@@ -58,6 +60,7 @@ const defDe = (updatedAt) => ({
 });
 
 async function montar(opts) {
+  KIT_ESPERADO = opts.kitExpected || null;
   const dom = new JSDOM(pagina(), { url: 'https://tienda.local/pc-gamer', runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
   w.HTMLElement.prototype.scrollIntoView = function () {};
@@ -138,11 +141,14 @@ console.log('— KIMOS COMPLETAMENTE CAÍDO → la ficha vive de la PÁGINA DE L
   t('la ficha montó SIN una sola respuesta de KIMOS', !!w.document.querySelector('.kimos-cfg'));
 }
 
-console.log('— TODO caído (faro, página y catálogo) → último refugio: copia del navegador —');
+console.log('— TODO caído (faro, página y catálogo) → NADA de copias sin confirmar: ficha nativa —');
 {
+  // REGLA DE ORO del usuario: sin fuente confirmada no se vende con datos
+  // viejos. Aunque haya copia guardada, si nadie confirma su versión manda
+  // la ficha nativa del theme (precios reales de Jumpseller).
   const { w } = await montar({ faroFalla: true, kimosCaido: true, cachea: 'V2' });
-  t('la ficha montó desde la copia guardada aunque nadie confirmó su versión',
-    !!w.document.querySelector('.kimos-cfg'));
+  t('el kit NO montó desde la copia sin confirmar (ficha nativa al mando)',
+    !w.document.querySelector('.kimos-cfg'));
 }
 
 console.log('— TODO caído y SIN copia guardada → la ficha nativa del theme queda (no hay velo eterno) —');
@@ -152,5 +158,16 @@ console.log('— TODO caído y SIN copia guardada → la ficha nativa del theme 
     !w.document.querySelector('.kimos-cfg'));
 }
 
+console.log('— la publicación declara el kit que espera → un theme viejo GRITA en consola —');
+{
+  const { w } = await montar({ versionFaro: 'V9', kitExpected: '9.99.0' });
+  t('la ficha montó igual (el aviso no rompe la venta)', !!w.document.querySelector('.kimos-cfg'));
+  t('quedó la marca de kit desactualizado', w.KIMOS_KIT_DESACTUALIZADO === '9.99.0');
+}
+{
+  const { w } = await montar({ versionFaro: 'V9', kitExpected: '1.0.0' });
+  t('un kit al día no marca nada', !w.KIMOS_KIT_DESACTUALIZADO);
+}
+
 if (fallos) { console.error('\n✘ ' + fallos + ' fallo(s) en el contrato del faro'); process.exit(1); }
-console.log('\nContrato del faro OK ✔ — publicar se ve, y la DISPONIBILIDAD no depende de KIMOS: página de la tienda como fuente primaria, copia del navegador como último refugio y degradación sin faro, todo verificado offline');
+console.log('\nContrato del faro OK ✔ — publicar se ve, la DISPONIBILIDAD no depende de KIMOS (página de la tienda como fuente primaria) y JAMÁS se venden datos sin confirmar: sin fuente confiable manda la ficha nativa. El kit viejo grita en consola. Todo verificado offline');

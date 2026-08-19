@@ -153,6 +153,15 @@ migrar el resto; confirmar contra la tienda real.
 
 **Regla operativa**: los assets del theme activo se actualizan SIEMPRE desde el KIT MANUAL de ProductLab tras actualizar la app — un theme activado desde zip puede traer kit viejo y revivir la dependencia de KIMOS.
 
+### Regla de oro de datos (decisión del usuario, 2026-08-19) — kit 5.36.0 / ProductLab 3.47.0 / backend 0.61.8
+
+**«No vender con datos de ayer»**: la ficha KIMOS solo se muestra con datos CONFIRMADOS — la página publicada en la tienda (la publicación ES esa página) o una copia cuya versión confirmó el faro. Se eliminó todo servicio de copias sin confirmar (el "último refugio" de 5.35.0 y el defCache heredado): si no hay fuente confiable, manda la ficha nativa del theme, que cobra siempre los precios REALES de Jumpseller. Verificado en `run-faro.mjs` (todo caído + copia guardada ⇒ el kit NO monta).
+
+**«Actualizar actualiza todo»** (detección de deriva de versiones, doble vía):
+1. La publicación declara `kitExpected` (el kit que acompaña a la app); el kit del theme lo compara con su versión y GRITA en consola si quedó viejo (`window.KIMOS_KIT_DESACTUALIZADO`).
+2. Al publicar, el backend sonda `/assets/kimos-configurador(.min).js` de la tienda y devuelve `kitTienda`; la app compara y deja el aviso «⚠ EL THEME CORRE UN KIT VIEJO…» en la notificación y la bitácora. (Tras muro de contraseña la sonda puede no ver el asset: entonces no afirma nada — la vía 1 sigue cubriendo.)
+Nota técnica: Jumpseller no expone API para escribir assets del theme; por eso el paso KIT MANUAL no puede automatizarse del todo, pero ya no puede pasar inadvertido.
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.
