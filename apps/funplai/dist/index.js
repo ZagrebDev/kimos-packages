@@ -239,7 +239,7 @@ export default function mount(shell) {
       config: {
         equipos: 1,              // 1 = individual · 2 = duelo por equipos
         tejosPorEquipo: 4,
-        distanciaMetros: 1.5,    // medio cuerpo: se juega cerca del tótem
+        distanciaMetros: 2.2,    // zona única: la misma marca para todos los juegos
         viento: 0.35,            // 0..1 — hay que compensarlo, como en el golf
         velocidadBarra: 1.5,     // rapidez del marcador de precisión
         fuerzaLienza: 3.2,       // fuerza del gesto que cae justo en la lienza
@@ -259,7 +259,7 @@ export default function mount(shell) {
         contrincante: 'canguro', // canguro | humano (el jugador puede cambiarlo)
         dificultad: 'media',     // facil | media | dificil
         duracion: 90,            // segundos del asalto
-        distanciaMetros: 1.5,
+        distanciaMetros: 2.2,
       },
     },
     {
@@ -272,7 +272,7 @@ export default function mount(shell) {
         fuerzaReferencia: 3.0,     // patada que llega con potencia media
         sensibilidadLateral: 0.55,
         dispersion: 0.08,
-        distanciaMetros: 2.5,      // cuerpo entero: hay que ver los pies
+        distanciaMetros: 2.2,      // zona única (aquí sí hacen falta los pies)
       },
     },
     {
@@ -344,7 +344,7 @@ export default function mount(shell) {
       alto: 240,               // alto útil de captura (incluye brazos arriba y saltos)
       ancho: 220,
       profundidad: 250,
-      distanciaZona: 220,      // dónde se para la persona, medido desde el tótem
+      distanciaZona: 220,      // única marca en el piso, para TODOS los juegos
       camaraAltura: 145,       // altura de la cámara sobre el piso (sobre la pantalla)
       camaraInclinacion: 5,    // grados hacia abajo: con la cámara arriba hay que inclinarla
       fovHorizontal: 90,       // campo de visión horizontal del lente
@@ -1396,15 +1396,32 @@ export default function mount(shell) {
     const alto = num(espacio && espacio.alto, ESPACIO_SUGERIDO.alto);
     const prof = num(espacio && espacio.profundidad, ESPACIO_SUGERIDO.profundidad);
     const hcActual = num(espacio && espacio.camaraAltura, 160);
-    // Distancia mínima para que quepan `alto` cm de franja vertical.
-    const distancia = Math.min(prof - 20, Math.max(120, alto / (2 * g.tanV)));
-    const centroFranja = alto / 2;                 // el cuerpo va de 0 a `alto`
-    // Con la cámara donde está, cuánto hay que inclinarla para centrar.
-    const inclinacion = (Math.atan((hcActual - centroFranja) / distancia) * 180) / Math.PI;
-    // Y si se pudiera mover la cámara, a qué altura quedaría sin inclinarla.
-    const alturaSinInclinar = centroFranja;
+    // Lo que hay que abarcar no se reparte a partes iguales en centímetros sino
+    // en ÁNGULOS: desde la cámara, los 175 cm que hay hasta el piso ocupan
+    // muchos más grados que los 65 que quedan sobre ella. Apuntar al punto
+    // medio en centímetros (120 cm) inclina de más y deja la cabeza fuera.
+    const grados = (r) => (r * 180) / Math.PI;
+    const aPiso = (d) => grados(Math.atan(hcActual / d));           // hacia abajo
+    const aTecho = (d) => grados(Math.atan((alto - hcActual) / d)); // hacia arriba (puede ser negativo)
+    const abarca = (d) => aPiso(d) + aTecho(d);                     // franja vertical total
+    // Distancia mínima donde la franja cabe con ~3° de margen, en cm enteros.
+    const margen = 3;
+    let distancia = Math.max(80, prof - 15);
+    for (let d = 80; d <= prof - 15; d += 1) {
+      if (abarca(d) <= g.fovV - margen) { distancia = d; break; }
+    }
+    // La inclinación correcta es la bisectriz de esos dos ángulos.
+    const inclinacion = (aPiso(distancia) - aTecho(distancia)) / 2;
+    // Y si se pudiera mover la cámara, a qué altura quedaría sin inclinarla:
+    // ahí sí, la bisectriz coincide con el punto medio de la franja.
+    const alturaSinInclinar = alto / 2;
     const al = alcanceVertical(espacio, aspecto);
     const veCuerpoEntero = al.distanciaPies <= prof && al.techoEn(al.distanciaPies) >= alto - 1;
+    // El mejor caso posible del lente: la cámara a media franja, al fondo del
+    // espacio. Si ni así cabe, no hay altura ni inclinación que lo arregle.
+    const mejorCaso = 2 * grados(Math.atan(alto / (2 * prof)));
+    const hayMontaje = mejorCaso <= g.fovV;
+    const fovMinimo = grados(Math.atan(Math.tan(rad(mejorCaso / 2)) * g.aspecto)) * 2;
     return {
       distancia: Math.round(distancia),
       inclinacion: Math.round(inclinacion),
@@ -1412,13 +1429,19 @@ export default function mount(shell) {
       distanciaPies: al.distanciaPies,
       techoEnZona: al.techoEn(num(espacio && espacio.distanciaZona, distancia)),
       pisoEnZona: al.pisoEn(num(espacio && espacio.distanciaZona, distancia)),
-      veCuerpoEntero,
+      veCuerpoEntero, hayMontaje,
       mensaje: veCuerpoEntero
         ? 'El montaje actual ve el cuerpo entero dentro del espacio disponible.'
-        : 'Con la cámara a ' + Math.round(hcActual) + ' cm e inclinación ' + Math.round(num(espacio && espacio.camaraInclinacion, 10)) +
-          '°, el piso recién entra en cuadro a ' + (al.distanciaPies === Infinity ? '∞' : Math.round(al.distanciaPies)) +
-          ' cm. Para ver de pies a cabeza dentro de ' + Math.round(prof) + ' cm: inclínala ' + Math.round(inclinacion) +
-          '° hacia abajo, o bájala a ' + Math.round(alturaSinInclinar) + ' cm y déjala horizontal.',
+        : !hayMontaje
+          ? 'Con ' + Math.round(g.fovH) + '° horizontales no hay altura ni inclinación que sirva para cuerpo entero: ' +
+            'los ' + Math.round(alto) + ' cm de franja ocupan ' + Math.round(mejorCaso) + '° verticales incluso desde ' +
+            Math.round(prof) + ' cm, y el lente da ' + Math.round(g.fovV) + '°. Hace falta un lente de al menos ' +
+            Math.round(fovMinimo) + '° horizontales; para los juegos de medio cuerpo este sirve igual.'
+          : 'Con la cámara a ' + Math.round(hcActual) + ' cm e inclinación ' + Math.round(num(espacio && espacio.camaraInclinacion, 10)) +
+            '°, el piso recién entra en cuadro a ' + (al.distanciaPies === Infinity ? '∞' : Math.round(al.distanciaPies)) +
+            ' cm. Para ver de pies a cabeza dentro de ' + Math.round(prof) + ' cm: inclínala ' + Math.round(inclinacion) +
+            '° hacia abajo y marca la zona a ' + Math.round(distancia) + ' cm, o bájala a ' +
+            Math.round(alturaSinInclinar) + ' cm y déjala horizontal.',
     };
   }
 
@@ -1489,12 +1512,23 @@ export default function mount(shell) {
     const zona = cob.zona;
     const pisoZona = al.pisoEn(zona);
     const techoZona = al.techoEn(zona);
+    // Medio cuerpo y cuerpo entero se evalúan en la MISMA zona marcada: hay una
+    // sola marca en el piso para todos los juegos. La columna de medio cuerpo
+    // no es otra distancia, es la respuesta a "si no da para cuerpo entero,
+    // ¿qué juegos puedo correr igual?".
+    const zonaMedio = zona;
+    const pisoMedio = pisoZona;
+    const techoMedio = techoZona;
     // Medio cuerpo: los hombros de un niño de 100 cm quedan a ~82 cm del piso.
-    const medioCuerpo = pisoZona <= 82 && techoZona >= 200;
+    const medioCuerpo = pisoMedio <= 82 && techoMedio >= 200;
     const cuerpoEntero = pisoZona <= 1 && techoZona >= num(e.alto, 240) - 1;
     const razones = [];
     if (!cuerpoEntero) {
       razones.push('En la zona ve de ' + Math.round(pisoZona) + ' a ' + Math.round(techoZona) + ' cm: no llega al piso.');
+    }
+    if (!medioCuerpo) {
+      razones.push('A ' + Math.round(zonaMedio) + ' cm ve desde ' + Math.round(pisoMedio) +
+        ' cm: corta a los niños en los juegos de medio cuerpo (los hombros de uno de 100 cm están a 82 cm).');
     }
     if (!cob.alcanza) razones.push('Necesita ' + Math.round(cob.distanciaMinima) + ' cm de profundidad y hay ' + Math.round(cob.profundidad) + '.');
     if (c.seguimiento === 'mecanico') razones.push('Al mover el lente se pierde la referencia para medir en centímetros.');
@@ -1502,6 +1536,7 @@ export default function mount(shell) {
     return {
       camara: c, fovH: cob.geometria.fovH, fovV: cob.geometria.fovV,
       cobertura: cob, montaje: mont, pisoZona, techoZona,
+      zonaMedio, pisoMedio, techoMedio,
       sirveMedioCuerpo: medioCuerpo, sirveCuerpoEntero: cuerpoEntero,
       inclinacionNecesaria: mont.inclinacion,
       apta: cuerpoEntero && cob.alcanza && c.seguimiento !== 'mecanico',
@@ -1701,9 +1736,9 @@ export default function mount(shell) {
     return h('div', { className: 'fp-camtabla' },
       h('h4', null, 'Qué pasa con cada cámara en este montaje'),
       h('p', { className: 'fp-hint' },
-        'Cámara a ' + Math.round(num(props.espacio.camaraAltura, 145)) + ' cm, inclinada ' +
-        Math.round(num(props.espacio.camaraInclinacion, 5)) + '°, zona a ' +
-        Math.round(num(props.espacio.distanciaZona, 210)) + ' cm.'),
+        'Cámara a ' + num(props.espacio.camaraAltura, 145) + ' cm, inclinada ' +
+        Math.round(num(props.espacio.camaraInclinacion, 5)) + '°, zona única a ' +
+        Math.round(num(props.espacio.distanciaZona, 220)) + ' cm.'),
       h('div', { className: 'fp-tabla-scroll' },
         h('table', { className: 'fp-table fp-tabla' },
           h('thead', null, h('tr', null,
@@ -1720,9 +1755,10 @@ export default function mount(shell) {
             h('td', null, f.razones.length ? f.razones[0] : f.resumen))))))
       ,
       h('p', { className: 'fp-hint' },
-        'La columna "en la zona ve" es la franja de alturas que entra en cuadro donde se para la persona. ' +
-        'Para cuerpo entero tiene que empezar en 0 cm; para medio cuerpo basta con llegar a los hombros ' +
-        'de alguien de 100 cm (≈ 82 cm).'));
+        'La columna "en la zona ve" es la franja de alturas que entra en cuadro en la marca del piso. ' +
+        'Para cuerpo entero tiene que empezar en 0 cm; la columna de medio cuerpo dice si, aun sin ver los pies, ' +
+        'se pueden jugar rayuela, boxeo y esquiva: basta con cubrir los hombros de alguien de 100 cm (≈ 82 cm), ' +
+        'que es lo que decide si los niños quedan fuera de cuadro.'));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -2916,7 +2952,7 @@ export default function mount(shell) {
       },
         h('div', { className: 'fp-pos' },
           h('h2', { className: 'fp-pos-title' }, 'Ubícate frente al tótem'),
-          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 1.5), nota: 'representa los 14 m oficiales' }),
+          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 2.2), nota: 'representa los 14 m oficiales' }),
           h('div', { className: 'fp-pos-cam' },
             videoBox,
             h('div', { className: 'fp-calib' },
@@ -3496,7 +3532,7 @@ export default function mount(shell) {
       },
         h('div', { className: 'fp-pos' },
           h('h2', { className: 'fp-pos-title' }, 'Ponte en guardia frente al tótem'),
-          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 1.5), nota: 'con el torso y los brazos basta' }),
+          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 2.2), nota: 'con el torso y los brazos basta' }),
           h('div', { className: 'fp-pos-cam' },
             videoBox,
             h('div', { className: 'fp-calib' },
@@ -4267,7 +4303,7 @@ export default function mount(shell) {
       },
         h('div', { className: 'fp-pos' },
           h('h2', { className: 'fp-pos-title' }, 'Ubícate para patear'),
-          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 2.5), nota: 'aquí sí hacen falta las piernas' }),
+          h(ZonaMedioCuerpo, { ok: guia.ok, metros: num(cfg.distanciaMetros, 2.2), nota: 'aquí sí hacen falta las piernas' }),
           h('div', { className: 'fp-pos-cam' },
             videoBox,
             h('div', { className: 'fp-calib' },
@@ -5260,7 +5296,7 @@ export default function mount(shell) {
         { value: 2, label: 'Duelo por equipos (turnos)' },
       ] },
       { key: 'tejosPorEquipo', label: 'Tejos por jugador o equipo', type: 'number', min: 1, max: 8 },
-      { key: 'distanciaMetros', label: 'Distancia real a la zona (m)', type: 'range', min: 0.8, max: 4, step: 0.1, help: 'Con medio cuerpo basta ~1,5 m: representa los 14 m oficiales.' },
+      { key: 'distanciaMetros', label: 'Distancia real a la zona (m)', type: 'range', min: 0.8, max: 4, step: 0.1, help: 'Por defecto la zona única del tótem (2,2 m), que representa los 14 m oficiales.' },
       { key: 'viento', label: 'Viento máximo', type: 'range', min: 0, max: 1, step: 0.05, help: 'Como en el golf: desvía el tejo y hay que compensarlo.' },
       { key: 'velocidadBarra', label: 'Velocidad de la barra de precisión', type: 'range', min: 0.4, max: 4, step: 0.1, help: 'Más rápida = más difícil acertar al centro.' },
       { key: 'fuerzaLienza', label: 'Fuerza del gesto que cae en la lienza', type: 'range', min: 1, max: 6, step: 0.1, help: 'Calibración del tótem: súbela si todos se pasan de largo.' },
@@ -5282,7 +5318,7 @@ export default function mount(shell) {
         { value: 'dificil', label: 'Difícil' },
       ] },
       { key: 'duracion', label: 'Duración del asalto (s)', type: 'number', min: 20, max: 300 },
-      { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 0.8, max: 3, step: 0.1 },
+      { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 0.8, max: 4, step: 0.1, help: 'Por defecto la zona única del tótem (2,2 m).' },
     ],
     gato: [
       { key: 'modo', label: 'Modalidad inicial', type: 'select', help: 'Solo el valor por defecto: el jugador elige rival y ficha en pantalla.', options: [
@@ -5306,7 +5342,7 @@ export default function mount(shell) {
       { key: 'fuerzaReferencia', label: 'Patada de potencia media', type: 'range', min: 1, max: 6, step: 0.1, help: 'Calibración: súbela si todos los tiros salen demasiado fuertes.' },
       { key: 'sensibilidadLateral', label: 'Sensibilidad de colocación', type: 'range', min: 0.1, max: 1.5, step: 0.05 },
       { key: 'dispersion', label: 'Dispersión del remate', type: 'range', min: 0, max: 0.4, step: 0.01 },
-      { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 1.5, max: 5, step: 0.1 },
+      { key: 'distanciaMetros', label: 'Distancia a la zona (m)', type: 'range', min: 0.8, max: 5, step: 0.1, help: 'Por defecto la zona única del tótem (2,2 m).' },
     ],
     esquiva2d: [
       { key: 'velocidad', label: 'Velocidad inicial', type: 'range', min: 0.15, max: 1.2, step: 0.02 },
@@ -5430,8 +5466,8 @@ export default function mount(shell) {
             h(Campo, { label: 'Alto útil de captura (cm)', type: 'range', min: 180, max: 320, step: 5, value: m.espacio.alto, help: 'Incluye brazos arriba y saltos, no solo la estatura.', onChange: (v) => patch({ espacio: { alto: v } }) }),
             h(Campo, { label: 'Ancho de la zona (cm)', type: 'range', min: 120, max: 400, step: 5, value: m.espacio.ancho, onChange: (v) => patch({ espacio: { ancho: v } }) }),
             h(Campo, { label: 'Profundidad disponible (cm)', type: 'range', min: 100, max: 500, step: 5, value: m.espacio.profundidad, onChange: (v) => patch({ espacio: { profundidad: v } }) }),
-            h(Campo, { label: 'Distancia de la zona al tótem (cm)', type: 'range', min: 60, max: 400, step: 5, value: m.espacio.distanciaZona, help: 'Dónde se marca el piso para que se pare la persona.', onChange: (v) => patch({ espacio: { distanciaZona: v } }) }),
-            h(Campo, { label: 'Altura de la cámara (cm)', type: 'range', min: 40, max: 320, step: 5, value: m.espacio.camaraAltura, onChange: (v) => patch({ espacio: { camaraAltura: v } }) }),
+            h(Campo, { label: 'Distancia de la zona al tótem (cm)', type: 'range', min: 60, max: 400, step: 5, value: m.espacio.distanciaZona, help: 'Una sola marca en el piso para todos los juegos con cámara: así se calibra una vez y nadie tiene que moverse entre juego y juego.', onChange: (v) => patch({ espacio: { distanciaZona: v } }) }),
+            h(Campo, { label: 'Altura de la cámara (cm)', type: 'range', min: 40, max: 320, step: 0.5, value: m.espacio.camaraAltura, help: 'Del piso al centro del lente, no al borde de la carcasa. En el tótem de 180 cm son 175,5 cm.', onChange: (v) => patch({ espacio: { camaraAltura: v } }) }),
             h(Campo, { label: 'Inclinación de la cámara (grados hacia abajo)', type: 'range', min: -20, max: 40, step: 1, value: m.espacio.camaraInclinacion, onChange: (v) => patch({ espacio: { camaraInclinacion: v } }) }),
             h(Campo, { label: 'Campo de visión horizontal del lente (grados)', type: 'range', min: 40, max: 150, step: 1, value: m.espacio.fovHorizontal, help: 'Dato del fabricante. El diagnóstico lo verifica midiendo a una persona real.', onChange: (v) => patch({ espacio: { fovHorizontal: v } }) }),
             h(Campo, { label: 'Dibujar la zona en las pantallas de ubicación', type: 'boolean', value: m.espacio.mostrarGuia, onChange: (v) => patch({ espacio: { mostrarGuia: v } }) })),
@@ -5448,8 +5484,17 @@ export default function mount(shell) {
               },
             }, 'Calcular inclinación y zona para esta cámara'),
             h(Boton, {
-              onClick: () => { patch({ espacio: { camaraAltura: 175, camaraInclinacion: 12, distanciaZona: 220 } }); notify('info', 'Tótem de 180 cm: cámara arriba, inclinada 12°.'); },
-            }, 'Tótem de 180 cm con cámara arriba (175 cm, 12°)')),
+              onClick: () => { patch({ espacio: { camaraAltura: 175.5, camaraInclinacion: 11, distanciaZona: 220 } }); notify('info', 'Cámara del tótem a 175,5 cm con cuña de 11°: ve de 0 a 249 cm en la zona.'); },
+            }, 'Cámara del tótem a 175,5 cm, con cuña de 11°'),
+            // El estado "tal como viene de fábrica", para ver el veredicto sin
+            // tocar nada: es el punto de partida de cualquier instalación.
+            h(Boton, {
+              variant: 'soft',
+              onClick: () => {
+                patch({ espacio: { camaraAltura: 175.5, camaraInclinacion: 0, camaraModelo: 'integrada', fovHorizontal: 70, distanciaZona: 220 } });
+                notify('info', 'Cámara del tótem sin inclinar: el piso recién entra en cuadro a 446 cm.');
+              },
+            }, 'Cámara del tótem tal como viene (175,5 cm, 0°)')),
           h(TablaCamaras, { espacio: m.espacio, aspecto: 16 / 9 })) : null,
 
         tab === 'datos' ? h('div', { className: 'fp-form' },
