@@ -654,7 +654,18 @@ expectEq('redondeo ending (terminación 990)', priceOf(), 11990);
 // El impuesto de venta es un parámetro, no un 19% fijo.
 await reload({ roundMode: 'none', salesTaxPct: 21 });
 expectEq('impuesto de venta parametrizable (21%)', priceOf(), Math.round(11000 * 1.21));
-console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo e impuesto parametrizable OK');
+
+// Costo cargado CON el impuesto de venta incluido (boleta / precio web): se
+// descuenta antes del margen. Round-trip sin margen: 119.000 c/IVA → neto
+// 100.000 → venta con IVA 19% = 119.000 de vuelta. Con margen 25%: 148.750.
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 0 });
+await act('UPSERT_COMPONENT', { name: 'Tela boleta', type: 'tela', cost: 119000, currency: 'CLP', costConIva: true });
+const boleta = () => agentReg.getSnapshot().components.find((c) => c.name === 'Tela boleta');
+expectEq('costo c/IVA sin margen: la venta reproduce el costo de boleta', boleta().salePrice, 119000);
+expectEq('el snapshot expone costConIva', boleta().costConIva, true);
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 25, marginBasis: 'cost' });
+expectEq('costo c/IVA con margen 25%: neto 100.000 × 1.25 × 1.19', boleta().salePrice, 148750);
+console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo, impuesto parametrizable y costo c/IVA OK');
 
 // ── 10. Visor 3D OPCIONAL ────────────────────────────────────────────────
 // Nada de lo anterior tiene modelo 3D: eso ya demuestra que la app funciona
@@ -1211,7 +1222,7 @@ if (csvText.indexOf('Ryzen 5 8500G') === -1) throw new Error('CSV sin los compon
 // Editar el CSV como en una planilla: cambio de costo y componente nuevo.
 const editado = csvText.split('\r\n')
   .map((ln) => (ln.indexOf('cmp-r5') === 0 ? ln.replace('110000', '125000') : ln))
-  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,0,7,4,PC Factory,https://p/9,,,,,si,,'])
+  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,si,0,7,4,PC Factory,https://p/9,,,,,si,,'])
   .join('\r\n');
 uploads.set(csvUrl, editado);
 const impCsv = await act('IMPORT_DATA', { url: csvUrl });
@@ -1223,6 +1234,8 @@ if (!nuevoCsv) throw new Error('el componente agregado en el CSV no llegó');
 expectEq('stock del componente nuevo (columna stock)', nuevoCsv.stock, 7);
 expectEq('días de entrega del componente nuevo', nuevoCsv.deliveryDays, 4);
 expectEq('costo del componente nuevo', nuevoCsv.cost, 39990);
+expectEq('columna costoConIva del CSV (si → true)', nuevoCsv.costConIva, true);
+expectEq('los componentes exportados sin marcar siguen netos', snapCsv.components.find((c) => c.id === 'cmp-r5').costConIva, false);
 if (!agentReg.getSnapshot().types.some((t) => t.label === 'Chasis')) throw new Error('el tipo nuevo del CSV debía crearse solo');
 
 // Export JSON completo y reimportación en modo "skip" (no toca lo existente).

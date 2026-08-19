@@ -481,8 +481,13 @@ export default function mount(shell) {
   }
   // Costo neto en moneda base: costo de proveedor (convertido si viene en otra
   // moneda) + impuesto adicional % (aduana/importación, servicio externo…).
+  // Si el costo se cargó CON el impuesto de venta incluido (boleta con IVA en
+  // vez de factura neta), primero se le descuenta: el margen siempre se aplica
+  // sobre el neto, y el IVA de venta se suma una sola vez en componentGross.
   function componentNetCost(c) {
-    return costBase(c.cost, c.currency) * (1 + Math.max(0, num(c.taxPct)) / 100);
+    const base = costBase(c.cost, c.currency);
+    const neto = c.costConIva ? base / (1 + Math.max(0, num(rules().salesTaxPct, 19)) / 100) : base;
+    return neto * (1 + Math.max(0, num(c.taxPct)) / 100);
   }
   // Precio bruto de venta de un componente (sin redondear): margen del tipo +
   // impuesto de venta.
@@ -881,6 +886,9 @@ export default function mount(shell) {
       imageUrl: s(draft.imageUrl).trim(),
       currency: normCurrency(draft.currency),
       cost: num(draft.cost, 0),
+      // true = el costo se cargó CON el impuesto de venta (IVA) incluido; se
+      // descuenta antes de aplicar margen. false/ausente = costo neto (histórico).
+      costConIva: draft.costConIva === true || /^(s[ií]|true|1|x)$/i.test(s(draft.costConIva).trim()),
       // Impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin impuesto.
       taxPct: Math.max(0, num(draft.taxPct, 0)),
       supplierName: s(draft.supplierName).trim(),
@@ -2677,7 +2685,11 @@ export default function mount(shell) {
         const al = await alojarImagenesFicha(aPublicar);
         aPublicar = al.data;
         pub.data = al.data;
-        pub.assetMirror = { at: nowIso(), copiadas: al.copiadas, pendientes: al.pendientes };
+        // Los avisos del alojado se GUARDAN (no solo la notificación pasajera):
+        // la pestaña Publicación los muestra como "última publicación" y se
+        // pueden leer y copiar con calma después.
+        pub.assetMirror = { at: nowIso(), copiadas: al.copiadas, pendientes: al.pendientes,
+          avisos: (al.errores || []).slice(0, 8) };
         if (al.errores.length) {
           shell.notify({ level: 'warn', text: 'Algunas imágenes de la ficha no se alojaron en la tienda: '
             + al.errores.slice(0, 2).join(' · ') + ' — esas seguirán sirviéndose desde KIMOS.' });
@@ -2786,6 +2798,7 @@ export default function mount(shell) {
     ['specs', (c) => s(c.specs)],
     ['costo', (c) => s(num(c.cost, 0))],
     ['moneda', (c) => s(c.currency || rules().currency)],
+    ['costoConIva', (c) => (c.costConIva ? 'si' : 'no')],
     ['impuestoPct', (c) => s(num(c.taxPct, 0))],
     ['stock', (c) => (c.stock == null ? '' : s(num(c.stock)))],
     ['diasEntrega', (c) => s(num(c.deliveryDays, 0))],
@@ -2847,7 +2860,8 @@ export default function mount(shell) {
     if (iName === -1) return { error: 'Falta la columna "nombre" (encabezados encontrados: ' + rows[0].join(', ') + ').' };
     const cols = {
       id: idx('id'), type: idx('tipo', 'type'), brand: idx('marca', 'brand'), specs: idx('specs', 'descripcion', 'descripción'),
-      cost: idx('costo', 'cost', 'precio'), currency: idx('moneda', 'currency'), taxPct: idx('impuestopct', 'impuesto', 'taxpct'),
+      cost: idx('costo', 'cost', 'precio'), currency: idx('moneda', 'currency'),
+      costConIva: idx('costoconiva', 'coniva', 'ivaincluido'), taxPct: idx('impuestopct', 'impuesto', 'taxpct'),
       stock: idx('stock'), deliveryDays: idx('diasentrega', 'dias', 'deliverydays'),
       supplierName: idx('proveedor', 'suppliername'), supplierUrl: idx('urlproveedor', 'link', 'supplierurl'),
       verifiedAt: idx('verificadoen', 'verifiedat'), tags: idx('aporta', 'tags'), requires: idx('requiere', 'requires'),
@@ -2866,6 +2880,7 @@ export default function mount(shell) {
       c.brand = get(r, cols.brand); c.specs = get(r, cols.specs);
       c.cost = num(get(r, cols.cost).replace(/\./g, '').replace(',', '.'), 0);
       c.currency = get(r, cols.currency) || rules().currency;
+      c.costConIva = get(r, cols.costConIva);   // normalizeComponent entiende si/sí/true/1/x
       c.taxPct = num(get(r, cols.taxPct), 0);
       const stk = get(r, cols.stock);
       c.stock = stk === '' ? null : Math.max(0, num(stk, 0));
@@ -3287,6 +3302,7 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             name: { type: 'string' }, type: { type: 'string', description: 'id de un tipo definido en la app (ver snapshot.types); los tipos los define cada empresa según su rubro' },
             cost: { type: 'number' }, currency: { type: 'string', description: 'CLP|USD' },
+            costConIva: { type: 'boolean', description: 'true = el costo trae el impuesto de venta (IVA) INCLUIDO y se descuenta antes del margen; omitir/false = costo neto' },
             taxPct: { type: 'number', description: 'impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin' },
             supplierName: { type: 'string' }, supplierUrl: { type: 'string' },
             specs: { type: 'string' }, imageUrl: { type: 'string' }, deliveryDays: { type: 'number' },
@@ -3479,7 +3495,8 @@ export default function mount(shell) {
         rules: rules(),
         types: types(),
         components: model.components.map((c) => ({
-          id: c.id, name: c.name, type: c.type, cost: c.cost, currency: c.currency, taxPct: num(c.taxPct, 0),
+          id: c.id, name: c.name, type: c.type, cost: c.cost, currency: c.currency,
+          costConIva: c.costConIva === true, taxPct: num(c.taxPct, 0),
           salePrice: componentSale(c), deliveryDays: num(c.deliveryDays, 0),
           supplierUrl: c.supplierUrl, supplierName: c.supplierName,
           verifiedAt: c.verifiedAt, staleDays: daysSince(c.verifiedAt) === Infinity ? null : daysSince(c.verifiedAt),
@@ -4924,7 +4941,7 @@ export default function mount(shell) {
   function ComponentForm({ initial, onDone, sec }) {
     sec = sec || 'general';
     const [d, setD] = useState(() => Object.assign({
-      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, taxPct: 0,
+      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, costConIva: false, taxPct: 0,
       supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, storeRef: null,
       tags: [], requires: [], excludes: [], altIds: [], active: true, notes: '',
     }, initial || {}));
@@ -5041,6 +5058,14 @@ export default function mount(shell) {
         h(Row, { key: 'c', label: 'Costo proveedor *' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.cost, onChange: (e) => up({ cost: e.target.value }) })),
         h(Row, { key: 'm', label: 'Moneda' }, h('select', { className: 'gp-select', value: d.currency, onChange: (e) => up({ currency: e.target.value }) },
           costCurrencies().map((c) => h('option', { key: c, value: c }, c)))),
+        // El costo puede venir de una factura (neto) o de una boleta / precio
+        // web (con IVA). Se declara aquí y el cálculo descuenta el impuesto
+        // antes del margen — sin que nadie tenga que dividir a mano.
+        h(Row, { key: 'iva', label: '¿El costo incluye ' + rules().salesTaxLabel + '?' },
+          h('select', { className: 'gp-select', value: d.costConIva ? 'si' : 'no', onChange: (e) => up({ costConIva: e.target.value === 'si' }) }, [
+            h('option', { key: 'no', value: 'no' }, 'No — es costo neto (sin ' + rules().salesTaxLabel + ')'),
+            h('option', { key: 'si', value: 'si' }, 'Sí — incluye ' + rules().salesTaxLabel + ' ' + num(rules().salesTaxPct, 19) + '% (se descuenta antes del margen)'),
+          ])),
         h(Row, { key: 'tx', label: 'Impuesto adicional % sobre el costo (aduana, importación, recargo del proveedor; 0 = sin)' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.taxPct == null ? 0 : d.taxPct, onChange: (e) => up({ taxPct: e.target.value }) })),
         h(Row, { key: 'st', label: 'Stock (vacío = sin control; 0 = no elegible)' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.stock == null ? '' : d.stock, onChange: (e) => up({ stock: e.target.value === '' ? null : e.target.value }) })),
@@ -5332,7 +5357,8 @@ export default function mount(shell) {
                     h('div', { key: '2', className: 'gp-muted' }, [c.brand, c.specs].filter(Boolean).join(' · ')),
                   ]),
                   h('td', { key: 't' }, h('span', { className: 'gp-chip neg' }, typeLabel(c.type))),
-                  h('td', { key: 'c', className: 'gp-price' }, fmtMoney(costBase(c.cost, c.currency)) + (c.currency && c.currency !== r.currency ? ' (' + c.currency + ' ' + num(c.cost) + ')' : '')),
+                  h('td', { key: 'c', className: 'gp-price', title: c.costConIva ? 'Costo cargado CON ' + r.salesTaxLabel + ' incluido: se descuenta antes del margen (neto ' + fmtMoney(componentNetCost(c)) + ')' : null },
+                    fmtMoney(costBase(c.cost, c.currency)) + (c.currency && c.currency !== r.currency ? ' (' + c.currency + ' ' + num(c.cost) + ')' : '') + (c.costConIva ? ' c/' + r.salesTaxLabel : '')),
                   h('td', { key: 'v', className: 'gp-price', title: 'margen ' + marginFor(c.type) + '% (' + (r.marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') + ') + ' + r.salesTaxLabel }, fmtMoney(componentSale(c))),
                   h('td', { key: 'stk' }, h(TextInput, { mono: true, type: 'number', min: 0,
                     value: stockDrafts[c.id] != null ? stockDrafts[c.id] : (c.stock == null ? '' : c.stock),
@@ -7705,7 +7731,8 @@ export default function mount(shell) {
               'Ejemplo con el margen por defecto (' + m + '%): costo ' + dfmt(ex) + ' → neto ' + dfmt(net) + ' → con ' + taxLbl + ' ' + taxPct + '% = ' + dfmt(net * (1 + taxPct / 100)) + '. ' +
               (basis === 'sale'
                 ? 'Con base "sobre la venta", el ' + m + '% del precio neto de venta es tu ganancia.'
-                : 'Con base "sobre el costo", ganas el ' + m + '% de lo que te costó.')),
+                : 'Con base "sobre el costo", ganas el ' + m + '% de lo que te costó.')
+              + ' El costo del componente se asume NETO; si lo cargaste con ' + taxLbl + ' incluido (boleta o precio web), márcalo en el componente ("¿El costo incluye ' + taxLbl + '?") y se descuenta solo antes del margen.'),
           ]);
         })(),
         // ── Moneda y formato ──
@@ -8081,6 +8108,22 @@ export default function mount(shell) {
                 '/' + s(pub.pagePush.permalink) + ' · ' + Math.round(num(pub.pagePush.bytes) / 1024) + ' KB')
             : h('span', { key: 'st', className: 'gp-chip err', title: s(pub.pagePush.error) }, 'copia falló')) : null,
         ]),
+        // ── Bitácora de la ÚLTIMA publicación ──────────────────────────────
+        // Lo que antes solo pasaba como notificación fugaz queda aquí escrito:
+        // cuántas imágenes se alojaron, cuántas quedaron pendientes y cada
+        // aviso textual (copiables con calma, no hay que cazarlos al vuelo).
+        (pub.assetMirror || (pub.pagePush && (pub.pagePush.aviso || pub.pagePush.error))) ? h('div', { key: 'bitacora', className: 'gp-compline', style: { flexDirection: 'column', alignItems: 'stretch', gap: 4 } }, [
+          h('div', { key: 't', className: 'gp-muted', style: { fontSize: 12, fontWeight: 600 } },
+            'Última publicación' + (pub.assetMirror ? ' · ' + fmtDateTime(pub.assetMirror.at)
+              + ' — imágenes alojadas en la tienda: ' + num(pub.assetMirror.copiadas)
+              + (num(pub.assetMirror.pendientes) ? ' · pendientes: ' + num(pub.assetMirror.pendientes) + ' (se retoman al republicar)' : '') : '')),
+          ...(((pub.assetMirror || {}).avisos || []).map((a, i) =>
+            h('div', { key: 'a' + i, className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } }, '· ' + s(a)))),
+          (pub.pagePush && (pub.pagePush.aviso || pub.pagePush.error))
+            ? h('div', { key: 'pp', className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } },
+                '· copia en la tienda: ' + s(pub.pagePush.aviso || pub.pagePush.error))
+            : null,
+        ]) : null,
         // Identidad de la empresa: marca visible en la app y nombre corto que
         // viaja en el JSON público (el theme puede usarlo para distinguir tiendas).
         h('div', { key: 'ident', className: 'gp-grid2' }, [
