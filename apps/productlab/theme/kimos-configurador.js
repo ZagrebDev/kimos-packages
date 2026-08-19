@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.34.0';
+  var VERSION = '5.35.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -283,6 +283,17 @@
     var marcarAusente = function (u) {
       try { localStorage.setItem(claveAusente(u), String(Date.now())); } catch (e) {}
     };
+    // Tope de espera para lo que viene de KIMOS. La DISPONIBILIDAD de la
+    // tienda no puede depender de que KIMOS responda: un backend colgado o en
+    // arranque en frío (30 s) dejaba al comprador mirando el spinner. Con el
+    // tope, KIMOS que no responde A TIEMPO cuenta como KIMOS caído y se sigue
+    // con lo que la tienda tiene (página publicada, copia del navegador).
+    var FARO_MS = 2500, REMOTO_MS = 8000;
+    var conTope = function (p, ms) {
+      return Promise.race([p, new Promise(function (_, rj) {
+        setTimeout(function () { rj(new Error('sin respuesta en ' + ms + ' ms')); }, ms);
+      })]);
+    };
     var pedir = function (u) {
       if (estaAusente(u)) {
         console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
@@ -307,23 +318,44 @@
         try { localStorage.setItem(claveUrl, JSON.stringify({ v: String((def && def.updatedAt) || ''), def: def })); } catch (e) {}
         return def;
       };
-      return pedirVersion(u)
+      return conTope(pedirVersion(u), FARO_MS)
+        .catch(function () { return { v: '', page: '' }; })
         .then(function (faro) {
           var marca = faro.v;
           var enCache = leerUrl();
           if (marca && enCache && enCache.v === String(marca)) {
             return cuenta(enCache.def, 'copia del navegador (versión vigente confirmada por el faro)');
           }
+          // ORDEN DE SUPERVIVENCIA: la fuente primaria es la PÁGINA DE LA
+          // TIENDA (se sirve del mismo Jumpseller que la ficha: si el
+          // comprador ve la ficha, la página está). KIMOS aparece después y
+          // solo como respaldo; y si tampoco responde, vale la copia del
+          // navegador aunque no se pudiera confirmar su versión — una ficha
+          // con precios de ayer se corrige al republicar; una ficha muerta
+          // pierde la venta.
           return pedirLocal(u, marca, faro.page)
             .then(guardarUrl)
-            .then(function (def) { return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ') — independiente de KIMOS'); })
+            .then(function (def) {
+              return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ')'
+                + (marca ? ' — independiente de KIMOS' : ' — KIMOS no respondió: la tienda se bastó sola'));
+            })
             .catch(function (eLocal) {
               // El MOTIVO por el que se descartó la copia local va en la
               // línea: "respaldo" a secas obligaba a adivinar (¿404?, ¿sin
               // bloque de datos?, ¿desactualizada?).
-              return pedirRemoto(u, marca).then(guardarUrl).then(function (def) {
+              return conTope(pedirRemoto(u, marca), REMOTO_MS).then(guardarUrl).then(function (def) {
                 return cuenta(def, 'KIMOS (respaldo — copia local: '
                   + ((eLocal && eLocal.message) || '?') + (marca ? '' : ' · faro sin respuesta') + ')');
+              }).catch(function (eRem) {
+                // Un 403/404 REAL de KIMOS significa instancia despublicada o
+                // borrada: ahí no corresponde revivir una copia vieja (y se
+                // marca ausente más abajo, como siempre). Cualquier otra cosa
+                // es KIMOS caído/colgado: ÚLTIMO REFUGIO, la copia guardada.
+                if (enCache && !/HTTP (403|404)/.test((eRem && eRem.message) || '')) {
+                  return cuenta(enCache.def, 'copia del navegador SIN confirmar versión (página: '
+                    + ((eLocal && eLocal.message) || '?') + ' · KIMOS: ' + ((eRem && eRem.message) || '?') + ')');
+                }
+                throw eRem;
               });
             });
         })

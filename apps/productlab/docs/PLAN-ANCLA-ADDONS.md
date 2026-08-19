@@ -140,6 +140,23 @@ migrar el resto; confirmar contra la tienda real.
 - **Presupuesto de tiempo del espejo** (`mirror_assets_to_product`, 18 s): la pasada devuelve siempre antes del corte del gateway; lo no subido queda declarado pendiente y la publicación siguiente lo retoma sola. Mata el «HTTP 502» que se tragaba el mapa completo.
 - **Costo con IVA incluido** (por componente, `costConIva`): el «Costo proveedor» se asume NETO; si se carga con IVA (boleta/precio web) se marca en el formulario y el cálculo lo descuenta antes del margen. Cubierto en formulario, CSV (columna `costoConIva`), agente (UPSERT_COMPONENT) y snapshot. Tests en `test-app.mjs`.
 
+### Incidente 2026-08-19 (caída de KIMOS en horario de trabajo) y respuesta — kit 5.35.0 / ProductLab 3.46.0
+
+**Lo que pasó**: KIMOS se cayó mientras el usuario publicaba; durante la caída la ficha de Plasma en hubpro.cl quedó en la vista nativa (lista de checkboxes). La consola del usuario probó la causa: el theme ACTIVO corría **kit 5.31.0** (`kv=1786687412000`), anterior a la copia en la tienda con `same-origin` (5.34.0) — ese kit solo sabía pedirle a KIMOS. El theme que se activó desde el zip traía assets viejos.
+
+**Contrato de DISPONIBILIDAD del kit (5.35.0), verificado en `run-faro.mjs`**:
+1. Faro con tope de 2,5 s (KIMOS lento = KIMOS caído; nunca se espera colgado).
+2. Fuente primaria: **página de la tienda** (mismo Jumpseller que sirve la ficha — si el comprador ve la ficha, la página está). KIMOS solo confirma frescura.
+3. KIMOS caído del todo → la ficha monta 100 % desde la tienda, cero respuestas de KIMOS (test dedicado).
+4. Todo caído (página incluida) → último refugio: copia del navegador sin confirmar versión. 403/404 real (instancia borrada) NO revive copias.
+5. Catálogo de KIMOS con tope de 8 s; sin fuente alguna → ficha nativa del theme, sin velo eterno.
+
+**Regla operativa**: los assets del theme activo se actualizan SIEMPRE desde el KIT MANUAL de ProductLab tras actualizar la app — un theme activado desde zip puede traer kit viejo y revivir la dependencia de KIMOS.
+
+**Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
+- Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
+- Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.
+
 ## 5. Riesgos conocidos
 
 | Riesgo | Mitigación |

@@ -73,8 +73,15 @@ async function montar(opts) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ v: opts.versionFaro }) });
     }
     if (String(url).indexOf('kimos-productlab') !== -1) {
+      if (opts.paginaTienda) {
+        // La copia publicada en la tienda: página con el envase <textarea>.
+        const html = '<html><body><textarea id="kimos-productlab-datos" style="display:none">'
+          + JSON.stringify(defDe(opts.paginaTienda)) + '</textarea></body></html>';
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(html) });
+      }
       return Promise.resolve({ ok: false, status: 404 });   // sin copia local en la tienda
     }
+    if (opts.kimosCaido) return Promise.reject(new Error('red'));
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: defDe(opts.versionCatalogo || opts.versionFaro) }) });
   };
   if (opts.cachea) {
@@ -123,5 +130,27 @@ console.log('— faro caído → camino clásico, la ficha vive —');
   t('la ficha montó', !!w.document.querySelector('.kimos-cfg'));
 }
 
+console.log('— KIMOS COMPLETAMENTE CAÍDO → la ficha vive de la PÁGINA DE LA TIENDA —');
+{
+  const { w, llamadas } = await montar({ faroFalla: true, kimosCaido: true, paginaTienda: 'V4' });
+  const pagina = llamadas.find((x) => x.url.indexOf('kimos-productlab') !== -1);
+  t('pidió la página publicada en la tienda (mismo origen)', !!pagina);
+  t('la ficha montó SIN una sola respuesta de KIMOS', !!w.document.querySelector('.kimos-cfg'));
+}
+
+console.log('— TODO caído (faro, página y catálogo) → último refugio: copia del navegador —');
+{
+  const { w } = await montar({ faroFalla: true, kimosCaido: true, cachea: 'V2' });
+  t('la ficha montó desde la copia guardada aunque nadie confirmó su versión',
+    !!w.document.querySelector('.kimos-cfg'));
+}
+
+console.log('— TODO caído y SIN copia guardada → la ficha nativa del theme queda (no hay velo eterno) —');
+{
+  const { w } = await montar({ faroFalla: true, kimosCaido: true });
+  t('el kit no montó (no hay de dónde) y no dejó la página rota',
+    !w.document.querySelector('.kimos-cfg'));
+}
+
 if (fallos) { console.error('\n✘ ' + fallos + ' fallo(s) en el contrato del faro'); process.exit(1); }
-console.log('\nContrato del faro OK ✔ — publicar se ve: versión en la URL, copia local por versión y degradación sin faro verificadas offline');
+console.log('\nContrato del faro OK ✔ — publicar se ve, y la DISPONIBILIDAD no depende de KIMOS: página de la tienda como fuente primaria, copia del navegador como último refugio y degradación sin faro, todo verificado offline');
