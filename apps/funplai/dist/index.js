@@ -336,6 +336,21 @@ export default function mount(shell) {
       poseModelUrl: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
       avisoCamara: true,
       trackerExterno: false,   // escucha window.postMessage({type:'funplai:impact'})
+      segmentacion: false,     // separa persona/fondo (cuesta CPU)
+    },
+    // Volumen de juego declarado, en centímetros. Es lo que permite pasar de
+    // píxeles a medidas reales (distancia, altura, envergadura).
+    espacio: {
+      alto: 240,               // alto útil de captura (incluye brazos arriba y saltos)
+      ancho: 220,
+      profundidad: 250,
+      distanciaZona: 220,      // dónde se para la persona, medido desde el tótem
+      camaraAltura: 145,       // altura de la cámara sobre el piso (sobre la pantalla)
+      camaraInclinacion: 5,    // grados hacia abajo: con la cámara arriba hay que inclinarla
+      fovHorizontal: 90,       // campo de visión horizontal del lente
+      mostrarGuia: true,       // dibuja la zona en las pantallas de ubicación
+      camaraModelo: 'gran-angular',  // perfil del catálogo (ver CAMARAS)
+      seguimiento: 'digital',  // ninguno | digital | mecanico (PTZ con gimbal)
     },
     games: DEFAULT_GAMES,
     choreos: CHOREOS,
@@ -1126,6 +1141,35 @@ export default function mount(shell) {
   }
 
   /** Proveedor MediaPipe Tasks Vision (carga dinámica desde URL configurable). */
+  /**
+   * Contorno de la persona a partir de la máscara de segmentación.
+   * Recorre unas pocas columnas y guarda el píxel más alto y el más bajo de
+   * cada una: con eso arma un perímetro cerrado (borde superior de izquierda a
+   * derecha y borde inferior de vuelta). Barato incluso en un Celeron, porque
+   * no recorre la máscara entera.
+   */
+  let ultimoContorno = null;
+  function contornoDeMascara(mask) {
+    const w = mask.width, h = mask.height;
+    if (!w || !h) return;
+    let datos = null, umbral = 128;
+    try { datos = mask.getAsUint8Array(); } catch (e) { datos = null; }
+    if (!datos) {
+      try { datos = mask.getAsFloat32Array(); umbral = 0.5; } catch (e) { return; }
+    }
+    const cols = 56, pasoY = Math.max(1, Math.round(h / 90));
+    const arriba = [], abajo = [];
+    for (let c = 0; c < cols; c++) {
+      const x = Math.min(w - 1, Math.round((c + 0.5) * w / cols));
+      let y0 = -1, y1 = -1;
+      for (let y = 0; y < h; y += pasoY) {
+        if (datos[y * w + x] > umbral) { if (y0 < 0) y0 = y; y1 = y; }
+      }
+      if (y0 >= 0) { arriba.push({ x: x / w, y: y0 / h }); abajo.push({ x: x / w, y: y1 / h }); }
+    }
+    ultimoContorno = arriba.length >= 4 ? arriba.concat(abajo.reverse()) : null;
+  }
+
   function proveedorMediaPipe(hw) {
     let landmarker = null, video = null, ultimoTs = -1, ultima = null;
     return {
@@ -1143,6 +1187,8 @@ export default function mount(shell) {
           baseOptions: { modelAssetPath: s(hw.poseModelUrl), delegate: 'GPU' },
           runningMode: 'VIDEO',
           numPoses: 1,
+          // Separa a la persona del fondo. Cuesta CPU: se activa a voluntad.
+          outputSegmentationMasks: hw.segmentacion === true,
         });
         return true;
       },
@@ -1158,8 +1204,20 @@ export default function mount(shell) {
         let res = null;
         try { res = landmarker.detectForVideo(video, ts); } catch (e) { return ultima; }
         const L = res && res.landmarks && res.landmarks[0];
+        // Máscara de segmentación (persona vs. fondo), si se pidió.
+        const mask = res && res.segmentationMasks && res.segmentationMasks[0];
+        if (mask) {
+          try { contornoDeMascara(mask); } finally {
+            try { mask.close && mask.close(); } catch (e) { /* noop */ }
+          }
+        }
         if (!L) { ultima = null; return null; }
-        ultima = { landmarks: L, angulos: null, sintetico: false };
+        ultima = {
+          landmarks: L, angulos: null, sintetico: false,
+          // Coordenadas del mundo en metros relativas a la cadera (MediaPipe).
+          mundo: (res.worldLandmarks && res.worldLandmarks[0]) || null,
+          contorno: mask ? ultimoContorno : null,
+        };
         return ultima;
       },
     };
@@ -1177,6 +1235,494 @@ export default function mount(shell) {
     if (hw.camaraDeviceId) video.deviceId = { exact: hw.camaraDeviceId };
     else video.facingMode = 'user';
     return navigator.mediaDevices.getUserMedia({ video, audio: false });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.b Espacio de juego y parametrización corporal en centímetros
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Todos los juegos con cámara comparten un VOLUMEN DE JUEGO declarado: alto,
+  // ancho y profundidad en centímetros, más la altura, la inclinación y el
+  // campo de visión de la cámara. Ese volumen no es decorativo: es lo que
+  // permite pasar de píxeles a centímetros reales.
+  //
+  // Modelo: cámara estenopeica a `camaraAltura` cm del suelo, inclinada
+  // `camaraInclinacion` grados hacia abajo, sobre un piso plano. Para un punto
+  // de la imagen se conoce el ángulo de su rayo; el rayo de los tobillos corta
+  // el piso y da la DISTANCIA real, y con esa distancia el rayo de la cabeza da
+  // la ALTURA real. De ahí salen también envergadura y largos de segmento.
+
+  const ESPACIO_SUGERIDO = { alto: 240, ancho: 220, profundidad: 250 };
+
+  /** Geometría de la cámara: campos de visión en radianes y sus tangentes. */
+  function camaraGeometria(espacio, aspecto) {
+    const fovH = clamp(num(espacio && espacio.fovHorizontal, 90), 30, 170);
+    const asp = num(aspecto, 16 / 9);
+    const tanH = Math.tan(rad(fovH / 2));
+    const tanV = tanH / Math.max(0.4, asp);
+    return { fovH, fovV: (Math.atan(tanV) * 2 * 180) / Math.PI, tanH, tanV, aspecto: asp };
+  }
+
+  /**
+   * ¿La cámara cubre el volumen declarado? Devuelve las distancias mínimas a
+   * las que entra el alto y el ancho pedidos, y qué hacer si no entra.
+   */
+  function coberturaEspacio(espacio, aspecto) {
+    const g = camaraGeometria(espacio, aspecto);
+    const alto = num(espacio && espacio.alto, ESPACIO_SUGERIDO.alto);
+    const ancho = num(espacio && espacio.ancho, ESPACIO_SUGERIDO.ancho);
+    const prof = num(espacio && espacio.profundidad, ESPACIO_SUGERIDO.profundidad);
+    const zona = clamp(num(espacio && espacio.distanciaZona, prof * 0.72), 40, prof);
+    // A la distancia de la zona, cuánto abarca la cámara.
+    const altoCubierto = 2 * zona * g.tanV;
+    const anchoCubierto = 2 * zona * g.tanH;
+    const distMinAlto = alto / (2 * g.tanV);
+    const distMinAncho = ancho / (2 * g.tanH);
+    const necesaria = Math.max(distMinAlto, distMinAncho);
+    const alcanza = necesaria <= prof + 0.5;
+    // FOV horizontal que haría falta para cubrir todo dentro de la profundidad.
+    const tanHNec = Math.max(ancho / (2 * prof), (alto / (2 * prof)) * g.aspecto);
+    const fovNecesario = (Math.atan(tanHNec) * 2 * 180) / Math.PI;
+    return {
+      geometria: g, zona, alto, ancho, profundidad: prof,
+      altoCubierto, anchoCubierto,
+      distanciaMinima: necesaria, distMinAlto, distMinAncho,
+      alcanza,
+      cubreEnLaZona: altoCubierto >= alto - 0.5 && anchoCubierto >= ancho - 0.5,
+      fovNecesario,
+      recomendacion: alcanza
+        ? 'La cámara cubre el volumen declarado dentro de la profundidad disponible.'
+        : 'Con ' + Math.round(g.fovH) + '° harían falta ' + Math.round(necesaria) + ' cm de profundidad. '
+          + 'Con ' + Math.round(prof) + ' cm disponibles se necesita un lente de al menos '
+          + Math.round(fovNecesario) + '° horizontales.',
+    };
+  }
+
+  /**
+   * Parametrización del cuerpo en centímetros a partir de los 33 puntos.
+   * Requiere ver los tobillos (contacto con el piso) para estimar la distancia.
+   * Si el proveedor entrega `mundo` (coordenadas métricas de MediaPipe), se usa
+   * como control cruzado de la envergadura.
+   */
+  function medirCuerpo(L, espacio, aspecto, mundo) {
+    if (!L || L.length < 33) return { ok: false, motivo: 'Sin persona detectada' };
+    const g = camaraGeometria(espacio, aspecto);
+    const hc = clamp(num(espacio && espacio.camaraAltura, 160), 30, 400);
+    const incl = clamp(num(espacio && espacio.camaraInclinacion, 10), -45, 45);
+    const vis = (i) => L[i] && (L[i].visibility == null || L[i].visibility > 0.35);
+    /** Ángulo de elevación del rayo que pasa por un punto de la imagen (grados). */
+    const elevacion = (y) => {
+      const theta = (Math.atan((0.5 - y) * 2 * g.tanV) * 180) / Math.PI;
+      return theta - incl;                    // la cámara mira hacia abajo
+    };
+    const pies = [];
+    if (vis(IDX.tobilloI)) pies.push(L[IDX.tobilloI]);
+    if (vis(IDX.tobilloD)) pies.push(L[IDX.tobilloD]);
+    if (!pies.length) return { ok: false, motivo: 'No veo tus pies: la distancia se mide desde el piso' };
+    const yPies = pies.reduce((a, p) => a + p.y, 0) / pies.length;
+    const aPies = elevacion(yPies);
+    if (aPies >= -0.5) return { ok: false, motivo: 'Los pies quedan sobre el horizonte: revisa la inclinación de la cámara' };
+    const distancia = hc / Math.tan(rad(-aPies));
+    if (!Number.isFinite(distancia) || distancia <= 0 || distancia > 2000) {
+      return { ok: false, motivo: 'Distancia fuera de rango: revisa altura e inclinación de la cámara' };
+    }
+    // Centímetros por unidad normalizada de imagen a esa distancia.
+    const cmPorY = 2 * distancia * g.tanV;
+    const cmPorX = 2 * distancia * g.tanH;
+    const cabeza = vis(IDX.nariz) ? L[IDX.nariz] : null;
+    let altura = null;
+    if (cabeza) {
+      const aCabeza = elevacion(cabeza.y);
+      // La nariz queda unos 10 cm bajo la coronilla en un adulto.
+      altura = hc + distancia * Math.tan(rad(aCabeza)) + 10;
+    }
+    const dist2 = (a, b) => (a && b ? Math.hypot((a.x - b.x) * cmPorX, (a.y - b.y) * cmPorY) : null);
+    const segmentos = {
+      anchoHombros: dist2(L[IDX.hombroI], L[IDX.hombroD]),
+      brazoI: dist2(L[IDX.hombroI], L[IDX.codoI]),
+      brazoD: dist2(L[IDX.hombroD], L[IDX.codoD]),
+      antebrazoI: dist2(L[IDX.codoI], L[IDX.munecaI]),
+      antebrazoD: dist2(L[IDX.codoD], L[IDX.munecaD]),
+      torso: dist2(L[IDX.hombroI], L[IDX.caderaI]),
+      musloI: dist2(L[IDX.caderaI], L[IDX.rodillaI]),
+      musloD: dist2(L[IDX.caderaD], L[IDX.rodillaD]),
+      piernaI: dist2(L[IDX.rodillaI], L[IDX.tobilloI]),
+      piernaD: dist2(L[IDX.rodillaD], L[IDX.tobilloD]),
+    };
+    const envergadura = dist2(L[IDX.munecaI], L[IDX.munecaD]);
+    // Control cruzado con las coordenadas métricas del modelo, si vienen.
+    let envergaduraMundo = null;
+    if (mundo && mundo[IDX.munecaI] && mundo[IDX.munecaD]) {
+      const a = mundo[IDX.munecaI], b = mundo[IDX.munecaD];
+      envergaduraMundo = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * 100;
+    }
+    const cob = coberturaEspacio(espacio, aspecto);
+    const dentro = distancia >= cob.zona * 0.55 && distancia <= (espacio && num(espacio.profundidad, 250)) + 30;
+    return {
+      ok: true, distancia, altura, envergadura, envergaduraMundo, segmentos,
+      cmPorX, cmPorY, dentroDelEspacio: dentro,
+      motivo: dentro ? 'Dentro del espacio de juego' : 'Fuera del espacio declarado',
+      angulos: angulosDePose(L, false),
+    };
+  }
+
+  /**
+   * ¿Desde dónde ve la cámara el piso y hasta qué altura llega?
+   * Con la cámara arriba del tótem y mirando al frente, el piso entra en cuadro
+   * muy lejos: por eso esto se calcula y se avisa, en vez de suponerlo.
+   */
+  function alcanceVertical(espacio, aspecto) {
+    const g = camaraGeometria(espacio, aspecto);
+    const hc = clamp(num(espacio && espacio.camaraAltura, 160), 20, 400);
+    const incl = clamp(num(espacio && espacio.camaraInclinacion, 10), -45, 45);
+    const medio = g.fovV / 2;
+    // Distancia a la que el borde inferior del cuadro toca el piso.
+    const tanAbajo = Math.tan(rad(incl + medio));
+    const distanciaPies = tanAbajo > 0.01 ? hc / tanAbajo : Infinity;
+    /** Altura máxima visible a una distancia dada. */
+    const techoEn = (d) => hc + d * Math.tan(rad(medio - incl));
+    /** Altura mínima visible (0 = ya se ve el piso). */
+    const pisoEn = (d) => Math.max(0, hc - d * tanAbajo);
+    return { g, hc, incl, distanciaPies, techoEn, pisoEn };
+  }
+
+  /**
+   * Sugerencia de montaje para un rango de estaturas dado. Busca la altura de
+   * cámara e inclinación que dejan el cuerpo entero en cuadro dentro de la
+   * profundidad disponible, centrando la franja que hay que capturar.
+   */
+  function sugerirMontaje(espacio, aspecto) {
+    const g = camaraGeometria(espacio, aspecto);
+    const alto = num(espacio && espacio.alto, ESPACIO_SUGERIDO.alto);
+    const prof = num(espacio && espacio.profundidad, ESPACIO_SUGERIDO.profundidad);
+    const hcActual = num(espacio && espacio.camaraAltura, 160);
+    // Distancia mínima para que quepan `alto` cm de franja vertical.
+    const distancia = Math.min(prof - 20, Math.max(120, alto / (2 * g.tanV)));
+    const centroFranja = alto / 2;                 // el cuerpo va de 0 a `alto`
+    // Con la cámara donde está, cuánto hay que inclinarla para centrar.
+    const inclinacion = (Math.atan((hcActual - centroFranja) / distancia) * 180) / Math.PI;
+    // Y si se pudiera mover la cámara, a qué altura quedaría sin inclinarla.
+    const alturaSinInclinar = centroFranja;
+    const al = alcanceVertical(espacio, aspecto);
+    const veCuerpoEntero = al.distanciaPies <= prof && al.techoEn(al.distanciaPies) >= alto - 1;
+    return {
+      distancia: Math.round(distancia),
+      inclinacion: Math.round(inclinacion),
+      alturaSinInclinar: Math.round(alturaSinInclinar),
+      distanciaPies: al.distanciaPies,
+      techoEnZona: al.techoEn(num(espacio && espacio.distanciaZona, distancia)),
+      pisoEnZona: al.pisoEn(num(espacio && espacio.distanciaZona, distancia)),
+      veCuerpoEntero,
+      mensaje: veCuerpoEntero
+        ? 'El montaje actual ve el cuerpo entero dentro del espacio disponible.'
+        : 'Con la cámara a ' + Math.round(hcActual) + ' cm e inclinación ' + Math.round(num(espacio && espacio.camaraInclinacion, 10)) +
+          '°, el piso recién entra en cuadro a ' + (al.distanciaPies === Infinity ? '∞' : Math.round(al.distanciaPies)) +
+          ' cm. Para ver de pies a cabeza dentro de ' + Math.round(prof) + ' cm: inclínala ' + Math.round(inclinacion) +
+          '° hacia abajo, o bájala a ' + Math.round(alturaSinInclinar) + ' cm y déjala horizontal.',
+    };
+  }
+
+  // ── Catálogo de cámaras ────────────────────────────────────────────────
+  //
+  // El tótem trae la cámara arriba, fija y mirando al frente. Esa posición es
+  // la que obliga a inclinar o a bajar el lente. Como no siempre se puede tocar
+  // el herraje, la app permite declarar QUÉ cámara se usa y calcula con sus
+  // datos si ese montaje sirve. `fovH` es el campo horizontal del fabricante;
+  // `seguimiento` dice si la cámara mueve el lente sola (gimbal / PTZ).
+  //
+  // Sobre el seguimiento: una cámara con gimbal reencuadra sola, pero al girar
+  // cambian su ángulo y su punto de vista, y la app deja de saber a qué ángulo
+  // corresponde cada píxel — que es justo lo que permite medir en centímetros.
+  // Por eso el seguimiento recomendado es DIGITAL: lente fijo y ancho, y el
+  // recorte que sigue a la persona se hace en software, donde sí se conoce.
+
+  const CAMARAS = [
+    {
+      id: 'integrada', nombre: 'Cámara integrada del tótem', fovH: 70, res: '1080p', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'fija en el marco de la pantalla',
+      nota: 'Es la que ya viene. Sirve para juegos de medio cuerpo si la zona queda cerca; para cuerpo entero se queda corta de campo.',
+    },
+    {
+      id: 'gran-angular', nombre: 'Webcam USB gran angular (90°)', fovH: 90, res: '1080p', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'soporte propio, altura libre',
+      nota: 'La opción recomendada: barata, se monta a la altura que uno quiera y con 90° cubre el volumen completo a poco más de 2 m.',
+    },
+    {
+      id: 'ultra-ancha', nombre: 'Módulo USB ultra ancho (120°)', fovH: 120, res: '1080p', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'fija arriba, sin inclinar',
+      nota: 'Permite dejar la cámara arriba y horizontal, pero el lente distorsiona en los bordes: la medición en centímetros pierde precisión si no se corrige la distorsión.',
+    },
+    {
+      id: 'ptz-ia', nombre: 'PTZ de escritorio con gimbal e IA (tipo OBSBOT Tiny 2)', fovH: 86, res: '4K', fps: 30,
+      seguimiento: 'mecanico', profundidad: false, montaje: 'gimbal de 2 ejes sobre la pantalla',
+      nota: 'Sigue a la persona moviendo el lente. Encuadra muy bien para mostrar en pantalla, pero al girar cambia la geometría y la app no puede medir estatura ni distancia mientras se mueve.',
+    },
+    {
+      id: 'profundidad', nombre: 'Cámara de profundidad OAK-D Lite', fovH: 69, res: '1080p + estéreo', fps: 30,
+      seguimiento: 'ninguno', profundidad: true, montaje: 'soporte propio, altura libre',
+      nota: 'Mide distancia de verdad, sin depender del piso ni de ver los tobillos. Su campo es angosto: hay que darle distancia o bajarla.',
+    },
+    {
+      id: 'profundidad-ancha', nombre: 'Cámara de profundidad Orbbec Gemini 335 (90°)', fovH: 90, res: '1080p + estéreo', fps: 30,
+      seguimiento: 'ninguno', profundidad: true, montaje: 'soporte propio, altura libre',
+      nota: 'Profundidad real y campo ancho: la mejor experiencia posible hoy, y la más cara.',
+    },
+    {
+      id: 'personalizada', nombre: 'Otra cámara (campo definido a mano)', fovH: 90, res: '—', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'a definir',
+      nota: 'Usa el campo de visión que se declare abajo.',
+    },
+  ];
+
+  const camaraPorId = (id) => CAMARAS.find((c) => c.id === id) || CAMARAS[CAMARAS.length - 1];
+
+  /**
+   * ¿Sirve esta cámara con el montaje declarado? Recalcula cobertura y alcance
+   * vertical con el campo de visión del modelo elegido, sin tocar el resto.
+   */
+  function evaluarCamara(cam, espacio, aspecto) {
+    const c = typeof cam === 'string' ? camaraPorId(cam) : cam;
+    const e = Object.assign({}, espacio, { fovHorizontal: c.id === 'personalizada' ? num(espacio && espacio.fovHorizontal, c.fovH) : c.fovH });
+    const cob = coberturaEspacio(e, aspecto);
+    const mont = sugerirMontaje(e, aspecto);
+    const al = alcanceVertical(e, aspecto);
+    const zona = cob.zona;
+    const pisoZona = al.pisoEn(zona);
+    const techoZona = al.techoEn(zona);
+    // Medio cuerpo: los hombros de un niño de 100 cm quedan a ~82 cm del piso.
+    const medioCuerpo = pisoZona <= 82 && techoZona >= 200;
+    const cuerpoEntero = pisoZona <= 1 && techoZona >= num(e.alto, 240) - 1;
+    const razones = [];
+    if (!cuerpoEntero) {
+      razones.push('En la zona ve de ' + Math.round(pisoZona) + ' a ' + Math.round(techoZona) + ' cm: no llega al piso.');
+    }
+    if (!cob.alcanza) razones.push('Necesita ' + Math.round(cob.distanciaMinima) + ' cm de profundidad y hay ' + Math.round(cob.profundidad) + '.');
+    if (c.seguimiento === 'mecanico') razones.push('Al mover el lente se pierde la referencia para medir en centímetros.');
+    if (c.fovH >= 110) razones.push('El lente ultra ancho distorsiona los bordes: conviene calibrarlo antes de confiar en la estatura.');
+    return {
+      camara: c, fovH: cob.geometria.fovH, fovV: cob.geometria.fovV,
+      cobertura: cob, montaje: mont, pisoZona, techoZona,
+      sirveMedioCuerpo: medioCuerpo, sirveCuerpoEntero: cuerpoEntero,
+      inclinacionNecesaria: mont.inclinacion,
+      apta: cuerpoEntero && cob.alcanza && c.seguimiento !== 'mecanico',
+      razones,
+      resumen: cuerpoEntero
+        ? 'Ve de pies a cabeza en la zona marcada.'
+        // Si el lente no cubre el volumen, mover la cámara no arregla nada:
+        // el problema es el campo de visión, y hay que decirlo así.
+        : !cob.alcanza
+          ? 'Para cuerpo entero este lente necesita ' + Math.round(cob.distanciaMinima) + ' cm de distancia y hay ' +
+            Math.round(cob.profundidad) + ': no se arregla inclinándola, hace falta un lente de al menos ' +
+            Math.round(cob.fovNecesario) + '°. Sirve igual para los juegos de medio cuerpo.'
+          : (medioCuerpo ? 'Sirve para los juegos de medio cuerpo; para cuerpo entero hay que inclinarla ' + Math.round(mont.inclinacion) + '° o bajarla a ' + Math.round(mont.alturaSinInclinar) + ' cm.'
+            : 'Con este montaje no alcanza ni para medio cuerpo: inclínala ' + Math.round(mont.inclinacion) + '° o bájala a ' + Math.round(mont.alturaSinInclinar) + ' cm.'),
+    };
+  }
+
+  /**
+   * Evalúa todo el catálogo con el montaje actual y lo ordena por conveniencia:
+   * primero las aptas y sin advertencias, después las aptas con reparos, y al
+   * final las que no cubren el volumen. "Otra cámara" siempre va al final:
+   * no es un modelo, es un hueco para escribir los datos a mano.
+   */
+  function compararCamaras(espacio, aspecto) {
+    const orden = (f) => (f.camara.id === 'personalizada' ? -10 : 0) +
+      (f.apta ? 4 : 0) + (f.razones.length ? 0 : 2) + (f.sirveMedioCuerpo ? 1 : 0);
+    return CAMARAS.map((c) => evaluarCamara(c, espacio, aspecto))
+      .sort((a, b) => (orden(b) - orden(a)) || (b.fovH - a.fovH));
+  }
+
+  /**
+   * Seguimiento digital ("gimbal electrónico"): en vez de mover el lente, se
+   * recorta la parte del cuadro donde está la persona y se amplía en pantalla.
+   * La pose se sigue calculando sobre el cuadro completo, así que la medición
+   * en centímetros no se ve afectada: esto es solo encuadre.
+   * Devuelve un estado suavizado {zoom, cx, cy} y su transform CSS.
+   */
+  function seguimientoDigital(L, previo, opts) {
+    const o = opts || {};
+    const suave = clamp(num(o.suavizado, 0.12), 0.01, 1);
+    const zoomMax = clamp(num(o.zoomMax, 1.8), 1, 3);
+    const base = previo || { zoom: 1, cx: 0.5, cy: 0.5 };
+    if (!L || !L.length) {
+      // Sin persona vuelve despacio al cuadro completo.
+      return {
+        zoom: base.zoom + (1 - base.zoom) * suave,
+        cx: base.cx + (0.5 - base.cx) * suave,
+        cy: base.cy + (0.5 - base.cy) * suave,
+        siguiendo: false,
+      };
+    }
+    const pts = L.filter((p) => p && (p.visibility == null || p.visibility > 0.4));
+    if (pts.length < 4) return Object.assign({}, base, { siguiendo: false });
+    let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+    for (const p of pts) {
+      if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    }
+    const margen = num(o.margen, 0.12);
+    const ancho = clamp((x1 - x0) + margen * 2, 0.08, 1);
+    const alto = clamp((y1 - y0) + margen * 2, 0.08, 1);
+    const objetivoZoom = clamp(Math.min(1 / ancho, 1 / alto), 1, zoomMax);
+    // El centro no puede acercarse al borde más de lo que el zoom permite.
+    const lim = (z) => 0.5 - 0.5 / z;
+    const objCx = clamp((x0 + x1) / 2, 0.5 - lim(objetivoZoom), 0.5 + lim(objetivoZoom));
+    const objCy = clamp((y0 + y1) / 2, 0.5 - lim(objetivoZoom), 0.5 + lim(objetivoZoom));
+    const zoom = base.zoom + (objetivoZoom - base.zoom) * suave;
+    const l = lim(zoom);
+    return {
+      zoom,
+      cx: clamp(base.cx + (objCx - base.cx) * suave, 0.5 - l, 0.5 + l),
+      cy: clamp(base.cy + (objCy - base.cy) * suave, 0.5 - l, 0.5 + l),
+      siguiendo: true,
+    };
+  }
+
+  /**
+   * Transform CSS del seguimiento digital. Se aplica al contenedor que lleva el
+   * video Y sus capas encima (esqueleto, silueta), para que todo siga alineado.
+   * `contenidoEspejado` avisa que abajo la imagen ya está en espejo.
+   */
+  function transformSeguimiento(t, contenidoEspejado) {
+    if (!t) return 'none';
+    const cx = contenidoEspejado ? 1 - t.cx : t.cx;
+    const dx = ((0.5 - cx) * 100) / t.zoom;
+    const dy = ((0.5 - t.cy) * 100) / t.zoom;
+    return 'scale(' + t.zoom.toFixed(3) + ') translate(' + dx.toFixed(2) + '%,' + dy.toFixed(2) + '%)';
+  }
+
+  /** Nombres legibles de las articulaciones que la app usa. */
+  const ARTICULACIONES = [
+    { i: IDX.nariz, n: 'Cabeza' },
+    { i: IDX.hombroI, n: 'Hombro izq.' }, { i: IDX.hombroD, n: 'Hombro der.' },
+    { i: IDX.codoI, n: 'Codo izq.' }, { i: IDX.codoD, n: 'Codo der.' },
+    { i: IDX.munecaI, n: 'Muñeca izq.' }, { i: IDX.munecaD, n: 'Muñeca der.' },
+    { i: IDX.caderaI, n: 'Cadera izq.' }, { i: IDX.caderaD, n: 'Cadera der.' },
+    { i: IDX.rodillaI, n: 'Rodilla izq.' }, { i: IDX.rodillaD, n: 'Rodilla der.' },
+    { i: IDX.tobilloI, n: 'Tobillo izq.' }, { i: IDX.tobilloD, n: 'Tobillo der.' },
+  ];
+
+  /** Diagrama a escala del volumen de juego, con su veredicto de cobertura. */
+  function DiagramaEspacio(props) {
+    const e = props.espacio || {};
+    const c = coberturaEspacio(e, props.aspecto);
+    const alto = c.alto, prof = c.profundidad, zona = c.zona;
+    const esc = 460 / Math.max(alto, prof);            // px por cm
+    const px = (cm) => cm * esc;
+    const suelo = 520, camX = 90;
+    const camY = suelo - px(num(e.camaraAltura, 160));
+    const finX = camX + px(prof);
+    const zonaX = camX + px(zona);
+    const personaAlto = px(num(props.altura, 175));
+    return h('svg', { viewBox: '0 0 640 580', className: 'fp-espacio-svg' },
+      h('rect', { width: 640, height: 580, fill: 'rgba(255,255,255,.03)', rx: 12 }),
+      // piso y volumen
+      h('line', { x1: 40, y1: suelo, x2: 620, y2: suelo, stroke: 'rgba(255,255,255,.6)', strokeWidth: 4 }),
+      h('rect', {
+        x: camX, y: suelo - px(alto), width: px(prof), height: px(alto),
+        fill: 'rgba(124,255,178,.06)', stroke: 'rgba(124,255,178,.5)', strokeWidth: 3, strokeDasharray: '10 8',
+      }),
+      // cono de la cámara
+      h('path', {
+        d: 'M' + camX + ' ' + camY +
+           ' L' + finX + ' ' + (camY - px(prof) * Math.tan(rad(camaraGeometria(e, props.aspecto).fovV / 2 - num(e.camaraInclinacion, 10)))) +
+           ' L' + finX + ' ' + (camY + px(prof) * Math.tan(rad(camaraGeometria(e, props.aspecto).fovV / 2 + num(e.camaraInclinacion, 10)))) + ' Z',
+        fill: 'rgba(25,172,177,.18)', stroke: 'rgba(25,172,177,.6)', strokeWidth: 2,
+      }),
+      // tótem + cámara
+      h('rect', { x: camX - 46, y: suelo - px(180), width: 46, height: px(180), rx: 6, fill: '#1f2937', stroke: 'rgba(255,255,255,.35)', strokeWidth: 3 }),
+      h('circle', { cx: camX - 4, cy: camY, r: 9, fill: '#111827', stroke: '#fff', strokeWidth: 2 }),
+      h('text', { x: camX - 24, y: suelo + 22, textAnchor: 'middle', className: 'fp-esp-cota' }, 'tótem'),
+      // persona en la zona
+      h('g', { transform: 'translate(' + zonaX + ',' + suelo + ')', stroke: c.alcanza ? '#4ADE80' : '#F4B400', strokeWidth: 4, fill: 'none' },
+        h('circle', { cx: 0, cy: -personaAlto + 14, r: 14 }),
+        h('path', { d: 'M0 ' + (-personaAlto + 28) + ' L0 ' + (-personaAlto * 0.45) }),
+        h('path', { d: 'M0 ' + (-personaAlto * 0.45) + ' L-16 0 M0 ' + (-personaAlto * 0.45) + ' L16 0' }),
+        h('path', { d: 'M0 ' + (-personaAlto * 0.8) + ' L-22 ' + (-personaAlto * 0.5) + ' M0 ' + (-personaAlto * 0.8) + ' L22 ' + (-personaAlto * 0.5) })),
+      h('line', { x1: zonaX, y1: suelo, x2: zonaX, y2: suelo + 16, stroke: '#fff', strokeWidth: 3 }),
+      // cotas
+      h('g', null,
+        h('path', { d: 'M' + camX + ' ' + (suelo + 38) + ' L' + zonaX + ' ' + (suelo + 38), stroke: '#fff', strokeWidth: 2 }),
+        h('text', { x: (camX + zonaX) / 2, y: suelo + 32, textAnchor: 'middle', className: 'fp-esp-cota' }, Math.round(zona) + ' cm'),
+        h('path', { d: 'M' + camX + ' ' + (suelo + 58) + ' L' + finX + ' ' + (suelo + 58), stroke: 'rgba(255,255,255,.6)', strokeWidth: 2 }),
+        h('text', { x: (camX + finX) / 2, y: suelo + 74, textAnchor: 'middle', className: 'fp-esp-cota' }, 'profundidad ' + Math.round(prof) + ' cm'),
+        h('path', { d: 'M' + (finX + 22) + ' ' + suelo + ' L' + (finX + 22) + ' ' + (suelo - px(alto)), stroke: 'rgba(255,255,255,.6)', strokeWidth: 2 }),
+        h('text', { x: finX + 30, y: suelo - px(alto) / 2, className: 'fp-esp-cota' }, 'alto ' + Math.round(alto) + ' cm')),
+      // veredicto
+      h('text', { x: 320, y: 30, textAnchor: 'middle', className: 'fp-esp-titulo' },
+        'FOV ' + Math.round(c.geometria.fovH) + '°H / ' + Math.round(c.geometria.fovV) + '°V · a ' + Math.round(zona) + ' cm abarca ' +
+        Math.round(c.anchoCubierto) + '×' + Math.round(c.altoCubierto) + ' cm'),
+      );
+  }
+
+  /** El diagrama más su veredicto en texto (que necesita fluir en varias líneas). */
+  function BloqueEspacio(props) {
+    const c = coberturaEspacio(props.espacio, props.aspecto);
+    const mont = sugerirMontaje(props.espacio, props.aspecto);
+    return h('div', { className: 'fp-espacio-bloque' },
+      h(DiagramaEspacio, props),
+      h('p', { className: 'fp-esp-veredicto' + (c.alcanza ? ' is-ok' : ' is-mal') },
+        (c.alcanza ? '✔ ' : '⚠ ') + c.recomendacion),
+      h('p', { className: 'fp-esp-veredicto' + (mont.veCuerpoEntero ? ' is-ok' : ' is-mal') },
+        (mont.veCuerpoEntero ? '✔ ' : '⚠ ') + mont.mensaje),
+      h('p', { className: 'fp-esp-veredicto' },
+        'En la zona (' + Math.round(num(props.espacio.distanciaZona, 180)) + ' cm) la cámara ve de ' +
+        Math.round(mont.pisoEnZona) + ' cm a ' + Math.round(mont.techoEnZona) + ' cm de altura' +
+        (mont.pisoEnZona > 5
+          ? ' — los juegos de cuerpo entero necesitan llegar a 0 cm; los de medio cuerpo, cubrir los hombros de una persona de 100 cm (≈ 82 cm).'
+          : ' — alcanza para ver de pies a cabeza.')));
+  }
+
+  /**
+   * Video de la cámara con seguimiento digital opcional. Los hijos (esqueleto,
+   * silueta, contorno) van dentro del mismo contenedor transformado, así que el
+   * recorte no los desalinea. La pose se sigue leyendo del cuadro completo.
+   */
+  function CamaraVista(props) {
+    const segRef = useRef({ zoom: 1, cx: 0.5, cy: 0.5, siguiendo: false });
+    const activo = !!(props.espacio && props.espacio.seguimiento === 'digital');
+    let estilo = null;
+    if (activo) {
+      segRef.current = seguimientoDigital(props.landmarks, segRef.current, { margen: num(props.margen, 0.14), zoomMax: num(props.zoomMax, 1.7) });
+      estilo = { transform: transformSeguimiento(segRef.current, !!props.espejo) };
+    }
+    return h('div', { className: 'fp-cam-track' + (activo ? ' is-activo' : ''), style: estilo },
+      h('video', {
+        ref: props.attach, className: 'fp-video' + (props.espejo ? ' is-mirror' : '') + (props.mini ? ' fp-video--mini' : ''),
+        autoPlay: true, playsInline: true, muted: true,
+      }),
+      props.children);
+  }
+
+  /** Comparativa del catálogo de cámaras con el montaje declarado. */
+  function TablaCamaras(props) {
+    const filas = compararCamaras(props.espacio, props.aspecto);
+    const sel = s(props.espacio && props.espacio.camaraModelo);
+    return h('div', { className: 'fp-camtabla' },
+      h('h4', null, 'Qué pasa con cada cámara en este montaje'),
+      h('p', { className: 'fp-hint' },
+        'Cámara a ' + Math.round(num(props.espacio.camaraAltura, 145)) + ' cm, inclinada ' +
+        Math.round(num(props.espacio.camaraInclinacion, 5)) + '°, zona a ' +
+        Math.round(num(props.espacio.distanciaZona, 210)) + ' cm.'),
+      h('div', { className: 'fp-tabla-scroll' },
+        h('table', { className: 'fp-table fp-tabla' },
+          h('thead', null, h('tr', null,
+            h('th', null, 'Cámara'), h('th', null, 'FOV'), h('th', null, 'En la zona ve'),
+            h('th', null, 'Medio cuerpo'), h('th', null, 'Cuerpo entero'), h('th', null, 'Observación'))),
+          h('tbody', null, filas.map((f) => h('tr', {
+            key: f.camara.id, className: f.camara.id === sel ? 'is-sel' : '',
+          },
+            h('td', null, (f.camara.id === sel ? '▸ ' : '') + f.camara.nombre + (f.camara.profundidad ? ' · profundidad' : '')),
+            h('td', null, Math.round(f.fovH) + '°H / ' + Math.round(f.fovV) + '°V'),
+            h('td', null, Math.round(f.pisoZona) + '–' + Math.round(f.techoZona) + ' cm'),
+            h('td', null, f.sirveMedioCuerpo ? '✔' : '—'),
+            h('td', null, f.sirveCuerpoEntero ? '✔' : '—'),
+            h('td', null, f.razones.length ? f.razones[0] : f.resumen))))))
+      ,
+      h('p', { className: 'fp-hint' },
+        'La columna "en la zona ve" es la franja de alturas que entra en cuadro donde se para la persona. ' +
+        'Para cuerpo entero tiene que empezar en 0 cm; para medio cuerpo basta con llegar a los hombros ' +
+        'de alguien de 100 cm (≈ 82 cm).'));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -1368,7 +1914,8 @@ export default function mount(shell) {
       // cota de distancia
       h('path', { d: 'M175 285 L365 285 M175 279 L175 291 M365 279 L365 291', stroke: '#fff', strokeWidth: 2 }),
       h('text', { x: 270, y: 276, textAnchor: 'middle', fill: '#fff', fontSize: 16, fontWeight: 700 },
-        '≈ ' + props.metros + ' m'),
+        '≈ ' + props.metros + ' m' + (model.espacio && model.espacio.mostrarGuia !== false
+          ? '  ·  zona de ' + num(model.espacio.ancho, 220) + '×' + num(model.espacio.profundidad, 250) + ' cm' : '')),
       props.nota ? h('text', { x: 270, y: 300, textAnchor: 'middle', fill: 'rgba(255,255,255,.7)', fontSize: 12 }, props.nota) : null);
   }
 
@@ -1575,12 +2122,9 @@ export default function mount(shell) {
     // ── Render ────────────────────────────────────────────────────────
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' ? ' is-hidden' : '') },
-      h('video', {
-        ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
-        autoPlay: true, playsInline: true, muted: true,
-      }),
-      cfg.mostrarEsqueleto !== false && vista.landmarks
-        ? h(Esqueleto, { landmarks: vista.landmarks, espejo: espejo }) : null,
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: vista.landmarks, espacio: model.espacio, margen: 0.18 },
+        cfg.mostrarEsqueleto !== false && vista.landmarks
+          ? h(Esqueleto, { landmarks: vista.landmarks, espejo: espejo }) : null),
       fase === 'calibrando' ? h(Silueta, { ok: hud.ok }) : null,
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
@@ -2330,11 +2874,8 @@ export default function mount(shell) {
     const espejo = hw.espejo !== false;
 
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h('video', {
-        ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
-        autoPlay: true, playsInline: true, muted: true,
-      }),
-      guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null,
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+        guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
@@ -2912,11 +3453,8 @@ export default function mount(shell) {
 
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h('video', {
-        ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
-        autoPlay: true, playsInline: true, muted: true,
-      }),
-      guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null,
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+        guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
@@ -3692,8 +4230,8 @@ export default function mount(shell) {
     const goles = remates.filter((r) => r.gol).length;
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
-      guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null,
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+        guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
@@ -3987,6 +4525,7 @@ export default function mount(shell) {
     const [hud, setHud] = useState({ vidas: 3, puntos: 0, accion: null, aviso: '', calibrando: true, t: 0 });
     const [obstaculos, setObstaculos] = useState([]);
     const [landmarks, setLandmarks] = useState(null);
+    const [contorno, setContorno] = useState(null);   // silueta real (segmentación)
     const [fin, setFin] = useState(null);
 
     const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
@@ -4068,7 +4607,10 @@ export default function mount(shell) {
           accion = r.accion;
           calibrando = r.calibrando;
           if (accionRef.current.hasta > t) accion = accionRef.current.accion;   // respaldo táctil siempre activo
-          if (t - ultimoHud > 60) setLandmarks(L);
+          if (t - ultimoHud > 60) {
+            setLandmarks(L);
+            if (lec && lec.contorno) setContorno(lec.contorno);
+          }
         }
         const ev = calibrando ? { choque: null, esquivado: null, fin: false } : P.paso(dt, accion);
         if (ev.choque && navigator.vibrate) { try { navigator.vibrate(60); } catch (e) { /* noop */ } }
@@ -4091,7 +4633,7 @@ export default function mount(shell) {
     }, [fase, modoTactil, irA]);
 
     return {
-      cfg, hw, fase, error, modoTactil, hud, obstaculos, landmarks, fin,
+      cfg, hw, fase, error, modoTactil, hud, obstaculos, landmarks, contorno, fin,
       iniciar, accionar, soltarTodo, irA, attachVideo, streamRef, provRef, detRef, pistaRef,
       reiniciar: () => {
         pistaRef.current = motorEsquiva(cfg);
@@ -4106,7 +4648,7 @@ export default function mount(shell) {
   function marcoEsquiva(props, E, extra) {
     const espejo = E.hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (E.fase === 'intro' || E.fase === 'fin' ? ' is-hidden' : '') },
-      h('video', { ref: E.attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
+      h(CamaraVista, { attach: E.attachVideo, espejo: espejo, landmarks: E.landmarks, espacio: model.espacio }),
       E.hw.avisoCamara !== false && E.streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
 
@@ -4295,7 +4837,16 @@ export default function mount(shell) {
           }),
           // el jugador: contorno verde de su cuerpo, interior transparente
           h('g', { transform: 'translate(0,' + desplazo + ')' },
-            E.landmarks
+            E.contorno && E.contorno.length > 6
+              // Silueta real: contorno de la máscara de segmentación.
+              ? h('path', {
+                  className: 'fp-contorno',
+                  d: E.contorno.map((p, i) => (i ? 'L' : 'M')
+                    + (250 + (E.hw.espejo !== false ? 1 - p.x : p.x) * 500).toFixed(1) + ' '
+                    + (380 + p.y * 600).toFixed(1)).join(' ') + ' Z',
+                  fill: 'rgba(74,222,128,.10)', stroke: '#4ADE80', strokeWidth: 6, strokeLinejoin: 'round',
+                })
+              : E.landmarks
               ? h('svg', { x: 250, y: 380, width: 500, height: 600, viewBox: '0 0 500 600', className: 'fp-contorno-svg' },
                   h(ContornoCuerpo, { landmarks: E.landmarks, w: 500, h: 600, espejo: E.hw.espejo !== false }))
               : h('g', { transform: 'translate(500,760) scale(0.62)' },
@@ -4410,10 +4961,66 @@ export default function mount(shell) {
     const [pose, setPose] = useState(null);       // {ok, ms, error}
     const [puntero, setPuntero] = useState(null);
     const [cargando, setCargando] = useState('');
+    const [cuerpo, setCuerpo] = useState(null);      // parametrización en cm
+    const [midiendo, setMidiendo] = useState(false);
+    const medirRef = useRef({ parar: null, prov: null, stream: null });
     const videoRef = useRef(null);
     const stopRef = useRef(null);
 
-    useEffect(() => () => { if (stopRef.current) stopRef.current(); }, []);
+    useEffect(() => () => {
+      if (stopRef.current) stopRef.current();
+      const M = medirRef.current;
+      if (M.parar) M.parar();
+      try { M.prov && M.prov.detener(); } catch (e) { /* noop */ }
+      if (M.stream) { try { M.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+    }, []);
+
+    /**
+     * Mide al participante en centímetros: distancia, altura, envergadura y
+     * todos los puntos de articulación, usando la geometría declarada del
+     * espacio de juego.
+     */
+    const medirParticipante = async () => {
+      const M = medirRef.current;
+      if (midiendo) {                                   // segundo toque: detener
+        if (M.parar) M.parar();
+        try { M.prov && M.prov.detener(); } catch (e) { /* noop */ }
+        if (M.stream) { try { M.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+        M.parar = null; M.prov = null; M.stream = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        setMidiendo(false);
+        return;
+      }
+      setCargando('cuerpo');
+      try {
+        const stream = await abrirCamara(model.hardware);
+        M.stream = stream;
+        const v = videoRef.current;
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(model.hardware);
+        await prov.iniciar(v);
+        M.prov = prov;
+        setMidiendo(true);
+        setCargando('');
+        let ultimo = 0;
+        M.parar = loop(() => {
+          const lec = prov.leer();
+          const L = lec && lec.landmarks;
+          const t = nowMs();
+          if (t - ultimo < 200) return;
+          ultimo = t;
+          const aspecto = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+          setCuerpo(Object.assign(
+            { landmarks: L, aspecto: aspecto },
+            L ? medirCuerpo(L, model.espacio, aspecto, lec && lec.mundo) : { ok: false, motivo: 'Sin persona detectada' },
+          ));
+        });
+      } catch (e) {
+        setCargando('');
+        setCuerpo({ ok: false, motivo: s(e && e.message ? e.message : e) });
+      }
+    };
 
     const listar = async () => {
       setCargando('camaras');
@@ -4559,14 +5166,54 @@ export default function mount(shell) {
             }, 'Dispara o toca aquí'),
             puntero ? h('ul', null,
               h('li', null, 'Tipo de puntero: ' + puntero.tipo + (puntero.tipo === 'mouse' ? ' (compatible con lightgun IR en modo mouse absoluto)' : '')),
-              h('li', null, 'Coordenadas: ' + puntero.x + ', ' + puntero.y)) : null)),
+              h('li', null, 'Coordenadas: ' + puntero.x + ', ' + puntero.y)) : null),
+          h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
+            h('h3', null, '6. Cuerpo y espacio de juego'),
+            h('p', { className: 'fp-note' },
+              'Mide en centímetros con la geometría declarada en ⚙️ Editor → 📐 Espacio: ' +
+              'la cámara está a ' + num(model.espacio.camaraAltura, 160) + ' cm, inclinada ' +
+              num(model.espacio.camaraInclinacion, 10) + '° y con ' + num(model.espacio.fovHorizontal, 90) + '° de campo horizontal.'),
+            h(Boton, { variant: midiendo ? 'danger' : 'soft', onClick: medirParticipante, disabled: cargando === 'cuerpo' },
+              cargando === 'cuerpo' ? 'Abriendo…' : midiendo ? 'Detener medición' : 'Medir al participante'),
+            cuerpo ? (cuerpo.ok
+              ? h('div', { className: 'fp-medidas' },
+                  h('div', { className: 'fp-medida' }, h('b', null, Math.round(cuerpo.distancia) + ' cm'), h('span', null, 'distancia al tótem')),
+                  h('div', { className: 'fp-medida' }, h('b', null, cuerpo.altura ? Math.round(cuerpo.altura) + ' cm' : '—'), h('span', null, 'altura estimada')),
+                  h('div', { className: 'fp-medida' }, h('b', null, cuerpo.envergadura ? Math.round(cuerpo.envergadura) + ' cm' : '—'), h('span', null, 'envergadura')),
+                  h('div', { className: 'fp-medida' }, h('b', null, cuerpo.segmentos.anchoHombros ? Math.round(cuerpo.segmentos.anchoHombros) + ' cm' : '—'), h('span', null, 'ancho de hombros')),
+                  h('div', { className: 'fp-medida' + (cuerpo.dentroDelEspacio ? ' is-ok' : ' is-mal') },
+                    h('b', null, cuerpo.dentroDelEspacio ? 'DENTRO' : 'FUERA'), h('span', null, 'del espacio declarado')))
+              : h('p', { className: 'fp-error' }, '⚠ ' + cuerpo.motivo)) : null,
+            cuerpo && cuerpo.ok ? h('details', { className: 'fp-detalles' },
+              h('summary', null, 'Puntos de articulación y segmentos'),
+              h('table', { className: 'fp-table' },
+                h('thead', null, h('tr', null, h('th', null, 'Articulación'), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'visible'))),
+                h('tbody', null, ARTICULACIONES.map((a) => {
+                  const p = cuerpo.landmarks && cuerpo.landmarks[a.i];
+                  return h('tr', { key: a.i },
+                    h('td', null, a.n),
+                    h('td', null, p ? p.x.toFixed(3) : '—'),
+                    h('td', null, p ? p.y.toFixed(3) : '—'),
+                    h('td', null, p && (p.visibility == null || p.visibility > 0.35) ? '✔' : '—'));
+                }))),
+              h('div', { className: 'fp-chips' }, Object.keys(cuerpo.segmentos).map((k) => h(Chip, { key: k },
+                k + ': ' + (cuerpo.segmentos[k] ? Math.round(cuerpo.segmentos[k]) + ' cm' : '—'))))) : null,
+            h(BloqueEspacio, { espacio: model.espacio, aspecto: (cuerpo && cuerpo.aspecto) || 16 / 9, altura: (cuerpo && cuerpo.altura) || 175 }),
+            cuerpo && cuerpo.landmarks
+              ? h('div', { className: 'fp-cam fp-cam--diag' },
+                  h(CamaraVista, { attach: videoRef, espejo: true, landmarks: cuerpo.landmarks, espacio: model.espacio },
+                    h(Esqueleto, { landmarks: cuerpo.landmarks, espejo: true })))
+              : null,
+            h(TablaCamaras, { espacio: model.espacio, aspecto: (cuerpo && cuerpo.aspecto) || 16 / 9 }))),
         h('h3', { className: 'fp-h3' }, 'Veredicto por juego'),
         h('table', { className: 'fp-table' },
           h('thead', null, h('tr', null, h('th', null, 'Función'), h('th', null, '¿Sirve la cámara común del tótem?'), h('th', null, 'Recomendación'))),
           h('tbody', null,
             fila('Coloca la cola al burro', 'No hace falta cámara', 'Pantalla táctil'),
             fila('Detectar postura y movimientos de baile', 'Sí, normalmente', 'Cámara RGB 1080p + reconocimiento de pose'),
-            fila('Calcular altura/distancia con precisión', 'Limitado', 'Cámara de profundidad RGB-D'),
+            fila('Puntos de articulación del cuerpo', 'Sí: 33 puntos', 'Cámara RGB; se listan en la tarjeta 6'),
+            fila('Medir altura y distancia en centímetros', 'Sí, con el espacio declarado y los pies a la vista', 'Mejora con cámara RGB-D (medición directa)'),
+            fila('Separar a la persona del fondo', 'Sí, con segmentación activada', 'Cuesta CPU: verifícalo en este equipo'),
             fila('Detectar temperatura', 'No', 'Cámara térmica específica (fuera de alcance en v1)'),
             fila('Seguir lanzamiento físico rápido', 'Limitado a 30 fps', 'Cámara global shutter 120+ fps e iluminación controlada'))),
         h('p', { className: 'fp-note' },
@@ -4678,7 +5325,7 @@ export default function mount(shell) {
     const [json, setJson] = useState('');
     const juego = m.games.find((g) => g.id === sel) || m.games[0];
 
-    const tabs = [['marca', '🎨 Marca'], ['juegos', '🎮 Juegos'], ['hardware', '🔌 Hardware'], ['datos', '💾 Datos']];
+    const tabs = [['marca', '🎨 Marca'], ['juegos', '🎮 Juegos'], ['espacio', '📐 Espacio'], ['hardware', '🔌 Hardware'], ['datos', '💾 Datos']];
 
     const campoJuego = (f) => {
       const opciones = f.options === 'choreos'
@@ -4745,7 +5392,65 @@ export default function mount(shell) {
           h(Campo, { label: 'URL del runtime WASM', value: m.hardware.poseWasmUrl, onChange: (v) => patch({ hardware: { poseWasmUrl: v } }) }),
           h(Campo, { label: 'URL del modelo (.task)', value: m.hardware.poseModelUrl, onChange: (v) => patch({ hardware: { poseModelUrl: v } }) }),
           h(Campo, { label: 'Mostrar aviso de cámara activa', type: 'boolean', value: m.hardware.avisoCamara, onChange: (v) => patch({ hardware: { avisoCamara: v } }) }),
-          h(Campo, { label: 'Aceptar impactos de tracker externo', type: 'boolean', value: m.hardware.trackerExterno, help: 'window.postMessage({type:"funplai:impact", x, y}) con x,y entre 0 y 1.', onChange: (v) => patch({ hardware: { trackerExterno: v } }) })) : null,
+          h(Campo, { label: 'Aceptar impactos de tracker externo', type: 'boolean', value: m.hardware.trackerExterno, help: 'window.postMessage({type:"funplai:impact", x, y}) con x,y entre 0 y 1.', onChange: (v) => patch({ hardware: { trackerExterno: v } }) }),
+          h(Campo, { label: 'Separar persona del fondo (segmentación)', type: 'boolean', value: m.hardware.segmentacion, help: 'Da el contorno real del cuerpo (lo usa Esquiva 3D). Cuesta CPU: en un Celeron, actívalo solo si el diagnóstico lo aguanta.', onChange: (v) => patch({ hardware: { segmentacion: v } }) })) : null,
+
+        tab === 'espacio' ? h('div', null,
+          h('p', { className: 'fp-lead' },
+            'El volumen de juego no es decorativo: declarar cuánto mide el espacio y dónde está la cámara ' +
+            'es lo que permite convertir píxeles en centímetros —distancia, altura y envergadura reales— ' +
+            'y avisar si el lente no alcanza a cubrirlo.'),
+          h(BloqueEspacio, { espacio: m.espacio, aspecto: 16 / 9 }),
+          h('div', { className: 'fp-form' },
+            h(Campo, {
+              label: 'Cámara instalada', type: 'select', value: m.espacio.camaraModelo,
+              options: CAMARAS.map((c) => ({ value: c.id, label: c.nombre })),
+              help: camaraPorId(m.espacio.camaraModelo).nota,
+              onChange: (v) => {
+                const c = camaraPorId(v);
+                const p = { camaraModelo: v };
+                if (v !== 'personalizada') p.fovHorizontal = c.fovH;
+                if (c.seguimiento === 'mecanico') p.seguimiento = 'mecanico';
+                patch({ espacio: p });
+                const ev = evaluarCamara(c, Object.assign({}, m.espacio, p), 16 / 9);
+                notify(ev.apta ? 'success' : 'info', c.nombre + ' · ' + ev.resumen +
+                  (c.seguimiento === 'mecanico' ? ' Ojo: mientras el gimbal gira no se puede medir en centímetros.' : ''));
+              },
+            }),
+            h(Campo, {
+              label: 'Seguimiento del participante', type: 'select', value: m.espacio.seguimiento,
+              options: [
+                { value: 'digital', label: 'Digital (recorte por software, recomendado)' },
+                { value: 'ninguno', label: 'Sin seguimiento (cuadro fijo)' },
+                { value: 'mecanico', label: 'Mecánico (gimbal / PTZ de la cámara)' },
+              ],
+              help: 'El digital sigue a la persona sin mover el lente, así la app conserva la referencia para medir en centímetros. El mecánico encuadra mejor pero desactiva la medición mientras el lente gira.',
+              onChange: (v) => patch({ espacio: { seguimiento: v } }),
+            }),
+            h(Campo, { label: 'Alto útil de captura (cm)', type: 'range', min: 180, max: 320, step: 5, value: m.espacio.alto, help: 'Incluye brazos arriba y saltos, no solo la estatura.', onChange: (v) => patch({ espacio: { alto: v } }) }),
+            h(Campo, { label: 'Ancho de la zona (cm)', type: 'range', min: 120, max: 400, step: 5, value: m.espacio.ancho, onChange: (v) => patch({ espacio: { ancho: v } }) }),
+            h(Campo, { label: 'Profundidad disponible (cm)', type: 'range', min: 100, max: 500, step: 5, value: m.espacio.profundidad, onChange: (v) => patch({ espacio: { profundidad: v } }) }),
+            h(Campo, { label: 'Distancia de la zona al tótem (cm)', type: 'range', min: 60, max: 400, step: 5, value: m.espacio.distanciaZona, help: 'Dónde se marca el piso para que se pare la persona.', onChange: (v) => patch({ espacio: { distanciaZona: v } }) }),
+            h(Campo, { label: 'Altura de la cámara (cm)', type: 'range', min: 40, max: 320, step: 5, value: m.espacio.camaraAltura, onChange: (v) => patch({ espacio: { camaraAltura: v } }) }),
+            h(Campo, { label: 'Inclinación de la cámara (grados hacia abajo)', type: 'range', min: -20, max: 40, step: 1, value: m.espacio.camaraInclinacion, onChange: (v) => patch({ espacio: { camaraInclinacion: v } }) }),
+            h(Campo, { label: 'Campo de visión horizontal del lente (grados)', type: 'range', min: 40, max: 150, step: 1, value: m.espacio.fovHorizontal, help: 'Dato del fabricante. El diagnóstico lo verifica midiendo a una persona real.', onChange: (v) => patch({ espacio: { fovHorizontal: v } }) }),
+            h(Campo, { label: 'Dibujar la zona en las pantallas de ubicación', type: 'boolean', value: m.espacio.mostrarGuia, onChange: (v) => patch({ espacio: { mostrarGuia: v } }) })),
+          h('div', { className: 'fp-actions' },
+            h(Boton, {
+              variant: 'soft',
+              onClick: () => { patch({ espacio: { alto: 240, ancho: 220, profundidad: 250, distanciaZona: 220, camaraAltura: 145, camaraInclinacion: 5, fovHorizontal: 90 } }); notify('info', 'Espacio recomendado aplicado.'); },
+            }, 'Espacio recomendado (240 × 220 × 250 cm)'),
+            h(Boton, {
+              onClick: () => {
+                const mo = sugerirMontaje(m.espacio, 16 / 9);
+                patch({ espacio: { camaraInclinacion: clamp(mo.inclinacion, -20, 40), distanciaZona: clamp(mo.distancia, 60, num(m.espacio.profundidad, 250)) } });
+                notify('success', 'Inclinación ' + mo.inclinacion + '° y zona a ' + mo.distancia + ' cm.');
+              },
+            }, 'Calcular inclinación y zona para esta cámara'),
+            h(Boton, {
+              onClick: () => { patch({ espacio: { camaraAltura: 175, camaraInclinacion: 12, distanciaZona: 220 } }); notify('info', 'Tótem de 180 cm: cámara arriba, inclinada 12°.'); },
+            }, 'Tótem de 180 cm con cámara arriba (175 cm, 12°)')),
+          h(TablaCamaras, { espacio: m.espacio, aspecto: 16 / 9 })) : null,
 
         tab === 'datos' ? h('div', { className: 'fp-form' },
           h('p', { className: 'fp-lead' }, 'Exporta la configuración para clonar este montaje a otro tótem, o pega una configuración recibida.'),

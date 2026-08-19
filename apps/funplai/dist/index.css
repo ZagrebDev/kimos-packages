@@ -204,6 +204,13 @@
 .kimos-funplai .fp-cam.is-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .kimos-funplai .fp-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .kimos-funplai .fp-video.is-mirror { transform: scaleX(-1); }
+/* Seguimiento digital: el recorte se aplica al contenedor, con el video y sus
+   capas dentro, para que el esqueleto siga alineado con la imagen. */
+.kimos-funplai .fp-cam-track { position: absolute; inset: 0; transform-origin: 50% 50%; }
+.kimos-funplai .fp-cam-track.is-activo { transition: transform .22s cubic-bezier(.22,.61,.36,1); will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .kimos-funplai .fp-cam-track.is-activo { transition: none; }
+}
 .kimos-funplai .fp-video--mini { width: 200px; height: 150px; border-radius: 12px; }
 .kimos-funplai .fp-skeleton,
 .kimos-funplai .fp-silhouette { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -367,6 +374,37 @@
 }
 .kimos-funplai .fp-contorno { filter: drop-shadow(0 0 12px rgba(74, 222, 128, .55)); }
 
+/* ── Espacio de juego y medición corporal ────────────────────────────── */
+.kimos-funplai .fp-espacio-svg { width: 100%; max-width: 720px; height: auto; margin: 8px auto; display: block; }
+.kimos-funplai .fp-esp-cota { font: 600 13px ui-sans-serif, system-ui; fill: rgba(255, 255, 255, .85); }
+.kimos-funplai .fp-esp-cota.is-ok { fill: #7CFFB2; }
+.kimos-funplai .fp-esp-cota.is-mal { fill: #FFD54F; }
+.kimos-funplai .fp-esp-titulo { font: 700 15px ui-sans-serif, system-ui; fill: #fff; }
+.kimos-funplai .fp-espacio-bloque { margin: 8px 0 14px; }
+.kimos-funplai .fp-esp-veredicto {
+  font-size: 14px; line-height: 1.55; text-align: center; max-width: 720px; margin: 0 auto;
+  padding: 10px 14px; border-radius: 12px; background: rgba(255, 255, 255, .07);
+}
+.kimos-funplai .fp-esp-veredicto.is-ok { color: #7CFFB2; }
+.kimos-funplai .fp-esp-veredicto.is-mal { color: #FFD54F; }
+.kimos-funplai .fp-diag-card--ancha { grid-column: 1 / -1; }
+.kimos-funplai .fp-medidas {
+  display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 6px 0;
+}
+.kimos-funplai .fp-medida {
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 12px; padding: 10px 12px; text-align: center;
+}
+.kimos-funplai .fp-medida b { display: block; font-size: 22px; }
+.kimos-funplai .fp-medida span { font-size: 11px; opacity: .7; }
+.kimos-funplai .fp-medida.is-ok { border-color: #4ADE80; }
+.kimos-funplai .fp-medida.is-ok b { color: #7CFFB2; }
+.kimos-funplai .fp-medida.is-mal { border-color: var(--fp-accent); }
+.kimos-funplai .fp-medida.is-mal b { color: #FFB4A8; }
+.kimos-funplai .fp-detalles { margin: 8px 0; }
+.kimos-funplai .fp-detalles summary { cursor: pointer; font-size: 14px; padding: 6px 0; }
+.kimos-funplai .fp-cam--diag { max-width: 320px; aspect-ratio: 4 / 3; margin-top: 8px; }
+
 /* ── Paneles (ranking, editor, diagnóstico) ──────────────────────────── */
 .kimos-funplai .fp-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .kimos-funplai .fp-panel-head {
@@ -410,6 +448,16 @@
   text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .12);
 }
 .kimos-funplai .fp-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+
+/* Comparativa de cámaras: en pantallas angostas la tabla scrollea sola, sin
+   arrastrar la página. */
+.kimos-funplai .fp-camtabla { margin-top: 18px; }
+.kimos-funplai .fp-camtabla h4 { margin: 0 0 4px; font-size: 17px; }
+.kimos-funplai .fp-camtabla .fp-hint { text-align: left; padding: 0 0 10px; }
+.kimos-funplai .fp-tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+.kimos-funplai .fp-tabla { min-width: 640px; }
+.kimos-funplai .fp-tabla tr.is-sel { background: rgba(124, 255, 178, .12); }
+.kimos-funplai .fp-tabla tr.is-sel td { font-weight: 700; }
 
 .kimos-funplai .fp-diag-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .kimos-funplai .fp-diag-card {

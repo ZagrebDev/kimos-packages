@@ -24,10 +24,23 @@ funcionan en espacios reducidos. En la Rayuela la pantalla **es la cancha**:
 primero muestra el área de posicionamiento, calibra por el ancho de hombros y
 luego proyecta dónde cae el tejo dentro del cajón de 1×1 m —o fuera.
 
-Incluye ranking del tótem, editor completo (marca, juegos, hardware, export e
-import de configuración) y una pantalla de **diagnóstico** que mide en el equipo
-real qué cámara hay, cuántos FPS entrega, si detecta el cuerpo y si el puntero
-de la pistola es compatible.
+Los juegos con cámara comparten un **espacio de juego declarado** (240 × 220 ×
+250 cm por defecto) que convierte la cámara RGB en instrumento de medida:
+distancia, estatura, envergadura y largos de segmento en centímetros, más los 33
+puntos de articulación y la separación de la persona del fondo. En **📐 Espacio**
+se declara qué cámara está instalada —integrada, gran angular de 90°, ultra
+ancha de 120°, PTZ con gimbal o de profundidad— y la app compara todas contra el
+montaje real y dice cuál sirve para medio cuerpo y cuál para cuerpo entero.
+
+El seguimiento del participante es **digital**: el lente no se mueve y el
+recorte que sigue a la persona se hace por software, así que se consigue el
+encuadre de una cámara con gimbal sin perder la referencia geométrica que
+permite medir en centímetros.
+
+Incluye ranking del tótem, editor completo (marca, juegos, espacio, hardware,
+export e import de configuración) y una pantalla de **diagnóstico** que mide en
+el equipo real qué cámara hay, cuántos FPS entrega, si detecta el cuerpo, cuánto
+mide la persona que está al frente y si el puntero de la pistola es compatible.
 
 - `multiInstance`: cada tótem o evento es un documento independiente.
 - Permisos: `instance.read`, `instance.write`, `agent.control`.
@@ -41,5 +54,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai     # → funplai-1.3.0.kapp
+node tools/pack.mjs apps/funplai     # → funplai-1.5.0.kapp
 ```
