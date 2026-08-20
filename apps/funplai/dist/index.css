@@ -358,6 +358,9 @@
   border: 2px solid rgba(255, 255, 255, .3); z-index: 2;
 }
 .kimos-funplai .fp-ray-cam .fp-cam-notice { left: 6px; bottom: 6px; font-size: 10px; padding: 3px 8px; }
+/* Durante la intro el <video> tiene que EXISTIR (para poder montarle el
+   stream apenas se abre la cámara) pero no verse. */
+.kimos-funplai .fp-ray-cam.is-hidden { width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .kimos-funplai .fp-ray-marca { font: 800 34px ui-sans-serif, system-ui; fill: #8C2B1E; letter-spacing: .04em; }
 .kimos-funplai .fp-ray-aviso { font: 800 40px ui-sans-serif, system-ui; fill: #fff; }
 .kimos-funplai .fp-ray-quemada {
@@ -448,6 +451,14 @@
 .kimos-funplai .fp-gol-svg {
   flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
   background: linear-gradient(#0B2E5B, #4E86B8 26%, #5EA347 26%);
+}
+
+/* ── Alas de cóndor ──────────────────────────────────────────────────── */
+.kimos-funplai .fp-vuelo-wrap { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-funplai .fp-vuelo-svg,
+.kimos-funplai .fp-vuelo3d-svg {
+  flex: 1; width: 100%; min-height: 0; display: block; touch-action: none;
+  background: var(--fp-cielo);
 }
 
 /* ── Esquiva y gana (2D y 3D) ────────────────────────────────────────── */

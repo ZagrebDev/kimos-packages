@@ -376,6 +376,42 @@ export default function mount(shell) {
       },
     },
     {
+      id: 'vuelo', type: 'vuelo', enabled: true, order: 10,
+      name: 'Alas de cóndor', icon: '🦅',
+      blurb: 'Mueve los brazos como alas para volar, planea y come frutas en el aire.',
+      config: {
+        largoCircuito: 60,       // segundos de circuito
+        velocidad: 0.42,         // qué tan rápido se acercan las frutas
+        gravedad: 0.62,          // cuánto tira hacia abajo
+        empujeAleteo: 0.42,      // cuánto sube cada aleteo
+        frenoPlaneo: 0.72,       // cuánto frena la caída el planeo
+        frutasCada: 1.5,
+        energia: 3,
+        metaPuntos: 400,
+        semilla: 20250918,       // mismo circuito para todos; cámbialo por evento
+      },
+    },
+    {
+      id: 'vuelo3d', type: 'vuelo3d', enabled: true, order: 11,
+      name: 'Alas de cóndor 3D', icon: '🏔️',
+      blurb: 'Vuela hacia el horizonte por la cordillera: inclina el torso para virar, esquiva y come frutas.',
+      config: {
+        largoCircuito: 60,
+        velocidad: 0.40,
+        gravedad: 0.60,
+        empujeAleteo: 0.42,
+        frenoPlaneo: 0.72,
+        frutasCada: 1.6,
+        obstaculosCada: 2.6,     // cada cuánto aparece un peñón o una araucaria
+        puntosEsquivar: 5,
+        giroVelocidad: 1.5,      // qué tan rápido responde el viraje
+        giroFreno: 3.2,          // cuánto se endereza solo
+        energia: 3,
+        metaPuntos: 500,
+        semilla: 20250918,
+      },
+    },
+    {
       id: 'gato', type: 'gato', enabled: true, order: 6,
       name: 'Gato', icon: '⭕',
       blurb: 'Tres en línea: elige rival (tótem o dos jugadores) y si juegas con cruces o círculos.',
@@ -597,6 +633,12 @@ export default function mount(shell) {
     type: 'button',
     className: 'fp-btn' + (p.variant ? ' fp-btn--' + p.variant : '') + (p.className ? ' ' + p.className : ''),
     onClick: p.onClick,
+    // Hay botones que se MANTIENEN apretados (planear en "Alas de cóndor"),
+    // así que los eventos de puntero también se pasan.
+    onPointerDown: p.onPointerDown,
+    onPointerUp: p.onPointerUp,
+    onPointerLeave: p.onPointerLeave,
+    onPointerCancel: p.onPointerCancel,
     disabled: p.disabled,
     style: p.style,
     title: p.title,
@@ -4492,6 +4534,307 @@ export default function mount(shell) {
     };
   }
 
+  /**
+   * Detector de ALETEO y PLANEO (juego "Alas de cóndor").
+   *
+   * Lee la altura de las muñecas respecto de los hombros, en anchos de hombro,
+   * así que funciona igual con una persona de 100 cm que con una de 200 y a
+   * cualquier distancia. Solo necesita el medio cuerpo superior.
+   *
+   * Un aleteo es un ciclo completo: los brazos suben por encima de los hombros
+   * y BAJAN. La fuerza se cuenta en la bajada, que es la que empuja al pájaro
+   * de verdad, y sale de la amplitud del recorrido y de lo rápido que fue.
+   *
+   * El planeo es lo contrario: brazos abiertos, quietos y a la altura de los
+   * hombros. Es la postura que sostiene la altura sin gastar aleteos.
+   */
+  function detectorAleteo(opts) {
+    const o = opts || {};
+    const arriba = num(o.umbralArriba, 0.28);   // anchos de hombro sobre el hombro
+    const abajo = num(o.umbralAbajo, -0.12);    // y bajo el hombro
+    const ampMin = num(o.amplitudMinima, 0.45); // recorrido mínimo para contar
+    const ampRef = num(o.amplitudPlena, 1.15);  // recorrido que da fuerza 1
+    let suave = null, fase = 'abajo', pico = null, valle = null;
+    let quieto = 0, tUlt = 0, historial = [];
+    return {
+      reset() { suave = null; fase = 'abajo'; pico = valle = null; quieto = 0; tUlt = 0; historial = []; },
+      /**
+       * `{ aleteo, fuerza, planeo, altura, cadencia, visible }`.
+       * `altura` va en anchos de hombro: + = muñecas sobre los hombros.
+       */
+      actualizar(L, dt) {
+        const vacio = { aleteo: false, fuerza: 0, planeo: false, altura: 0, cadencia: 0, visible: false };
+        if (!L) return vacio;
+        const escala = escalaCorporal(L, 'superior');
+        const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
+        const mI = L[IDX.munecaI], mD = L[IDX.munecaD];
+        if (!escala || !hI || !hD) return vacio;
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+        const munecas = [];
+        if (ver(mI)) munecas.push(mI);
+        if (ver(mD)) munecas.push(mD);
+        if (!munecas.length) return vacio;
+        const yHombro = (hI.y + hD.y) / 2;
+        const yMuneca = munecas.reduce((a, p) => a + p.y, 0) / munecas.length;
+        // En imagen, `y` crece hacia abajo: se invierte para que + sea arriba.
+        const altura = (yHombro - yMuneca) / escala;
+        const k = clamp(dt * 16, 0, 1);
+        suave = suave == null ? altura : suave + (altura - suave) * k;
+
+        // ── Ciclo del aleteo ──────────────────────────────────────────
+        let aleteo = false, fuerza = 0;
+        if (fase === 'abajo') {
+          if (valle == null || suave < valle) valle = suave;
+          if (suave > arriba) { fase = 'arriba'; pico = suave; }
+        } else {
+          if (pico == null || suave > pico) pico = suave;
+          if (suave < abajo) {
+            const amplitud = pico - suave;
+            if (amplitud >= ampMin) {
+              aleteo = true;
+              fuerza = clamp(amplitud / ampRef, 0.25, 1.4);
+              historial.push(tUlt);
+              if (historial.length > 6) historial.shift();
+            }
+            fase = 'abajo'; valle = suave;
+          }
+        }
+        tUlt += dt;
+
+        // ── Planeo: brazos abiertos, a la altura del hombro y quietos ──
+        const extendido = munecas.every((p) => {
+          const hombro = p === mI ? hI : hD;
+          return Math.abs(p.x - hombro.x) / escala > 0.42;
+        });
+        const nivelado = Math.abs(suave) < 0.34;
+        const cambio = Math.abs(altura - suave);
+        quieto = nivelado && extendido && cambio < 0.09 ? quieto + dt : 0;
+        const planeo = quieto > 0.22;
+
+        // Cadencia: aleteos por segundo en la ventana reciente.
+        let cadencia = 0;
+        if (historial.length >= 2) {
+          const lapso = historial[historial.length - 1] - historial[0];
+          if (lapso > 0.05) cadencia = (historial.length - 1) / lapso;
+        }
+        return { aleteo, fuerza, planeo, altura: suave, cadencia, visible: true };
+      },
+    };
+  }
+
+  /**
+   * Detector de INCLINACIÓN del torso, para virar en el vuelo 3D.
+   *
+   * Combina dos señales que dicen lo mismo y se refuerzan:
+   *   · el desplazamiento lateral de los hombros respecto de las caderas
+   *     (inclinarse de verdad), y
+   *   · el ángulo de la línea de hombros (bajar un hombro para virar).
+   * Las dos van en anchos de hombro, así que no dependen de la estatura ni de
+   * la distancia. Si no se ven las caderas —encuadre de medio cuerpo— se usa
+   * solo el ángulo de hombros, que es lo que siempre está a la vista.
+   *
+   * Hay una zona muerta al centro: sin ella, estar de pie ya haría virar.
+   */
+  function detectorInclinacion(opts) {
+    const o = opts || {};
+    const muerta = clamp(num(o.zonaMuerta, 0.12), 0, 0.5);
+    const plena = clamp(num(o.inclinacionPlena, 0.55), 0.15, 2);
+    let suave = null;
+    return {
+      reset() { suave = null; },
+      /** `{ giro, crudo, visible }`; giro va de −1 (izquierda) a 1 (derecha). */
+      actualizar(L, dt, espejo) {
+        if (!L) return { giro: 0, crudo: 0, visible: false };
+        const escala = escalaCorporal(L, 'superior');
+        const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
+        if (!escala || !hI || !hD) return { giro: 0, crudo: 0, visible: false };
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+        const cI = L[IDX.caderaI], cD = L[IDX.caderaD];
+        const xHombros = (hI.x + hD.x) / 2;
+        // Señal 1: hombros corridos respecto de las caderas.
+        let desplazamiento = 0;
+        if (ver(cI) && ver(cD)) desplazamiento = (xHombros - (cI.x + cD.x) / 2) / escala;
+        // Señal 2: hombro que baja. En imagen `y` crece hacia abajo.
+        const angulo = (hD.y - hI.y) / escala;
+        const crudo = desplazamiento * 1.6 + angulo * 0.9;
+        const k = clamp(dt * 9, 0, 1);
+        suave = suave == null ? crudo : suave + (crudo - suave) * k;
+        const magnitud = Math.max(0, Math.abs(suave) - muerta) / Math.max(0.01, plena - muerta);
+        let giro = clamp(magnitud, 0, 1) * (suave < 0 ? -1 : 1);
+        // Con la imagen en espejo, inclinarse a la derecha se ve a la izquierda.
+        if (espejo) giro = -giro;
+        return { giro, crudo: suave, visible: true };
+      },
+    };
+  }
+
+  /**
+   * Motor de vuelo del circuito.
+   *
+   * El cóndor cae siempre; cada aleteo le da un empujón hacia arriba y el
+   * planeo frena la caída sin darle altura. El circuito avanza solo: el
+   * jugador únicamente decide a qué ALTURA pasa, y de eso depende qué frutas
+   * alcanza. Tocar el suelo o pasarse de altura cuesta energía.
+   *
+   * Las frutas se generan con un generador pseudoaleatorio propio y semilla
+   * fija: el mismo circuito se puede reproducir en una prueba.
+   */
+  function motorVuelo(cfg) {
+    const c = cfg || {};
+    const largo = clamp(num(c.largoCircuito, 60), 10, 600);   // segundos de vuelo
+    const gravedad = clamp(num(c.gravedad, 0.62), 0.05, 3);   // alturas/s²
+    const empuje = clamp(num(c.empujeAleteo, 0.42), 0.05, 2); // salto de velocidad por aleteo
+    const frenoPlaneo = clamp(num(c.frenoPlaneo, 0.72), 0, 1); // cuánto frena la caída
+    const cada = clamp(num(c.frutasCada, 1.5), 0.3, 10);      // segundos entre frutas
+    const energiaMax = Math.max(1, Math.round(num(c.energia, 3)));
+    let semilla = Math.round(num(c.semilla, 20250918)) >>> 0;
+    const azar = () => {
+      // LCG de Numerical Recipes: barato, suficiente y reproducible.
+      semilla = (semilla * 1664525 + 1013904223) >>> 0;
+      return semilla / 4294967296;
+    };
+    // Con `lateral` el vuelo tiene además eje izquierda-derecha: es lo que
+    // usa la versión 3D, donde se esquiva inclinando el torso. La versión
+    // lateral 2D deja `x` en 0 y todo lo demás funciona igual.
+    const lateral = !!c.lateral;
+    const giroVel = clamp(num(c.giroVelocidad, 1.5), 0.1, 6);
+    const giroFreno = clamp(num(c.giroFreno, 3.2), 0.2, 12);
+    const conObstaculos = !!c.obstaculos;
+    const OBSTACULOS = c.tiposObstaculo && c.tiposObstaculo.length ? c.tiposObstaculo : [
+      { id: 'roca', nombre: 'Peñón' },
+      { id: 'arbol', nombre: 'Araucaria' },
+    ];
+    const FRUTAS = c.frutas && c.frutas.length ? c.frutas : [
+      { id: 'uva', nombre: 'Uva', puntos: 10 },
+      { id: 'manzana', nombre: 'Manzana', puntos: 15 },
+      { id: 'sandia', nombre: 'Sandía', puntos: 25 },
+    ];
+    return {
+      // `y` = altura normalizada, 0 = suelo, 1 = techo. Se parte a media altura.
+      y: 0.55, vy: 0, t: 0, recorrido: 0, frutas: [], comidas: 0, puntos: 0,
+      energia: energiaMax, energiaMax, aleteos: 0, planeando: false,
+      proxima: 0.8, fin: false, motivo: '',
+      // Eje lateral: −1 = borde izquierdo de la ruta, 1 = borde derecho.
+      x: 0, vx: 0, obstaculos: [], esquivados: 0, choquesObst: 0, proximoObst: 1.6,
+      largo, FRUTAS, lateral, conObstaculos,
+      /** Progreso del circuito, 0..1. */
+      progreso() { return clamp(this.t / largo, 0, 1); },
+      /**
+       * Avanza el vuelo. `entrada` = { aleteo, fuerza, planeo }.
+       * Devuelve los sucesos del paso.
+       */
+      paso(dt, entrada) {
+        const ev = { comida: null, choque: null, fin: false };
+        if (this.fin) { ev.fin = true; return ev; }
+        const e = entrada || {};
+        this.t += dt;
+        this.recorrido += dt;
+        this.planeando = !!e.planeo;
+
+        // Giro: la inclinación del torso manda una aceleración lateral, y sin
+        // inclinación el cóndor se endereza solo. Sin esa vuelta al centro el
+        // vuelo se siente resbaloso y es imposible apuntar a una fruta.
+        if (lateral) {
+          const giro = clamp(num(e.giro, 0), -1, 1);
+          this.vx += giro * giroVel * dt;
+          this.vx -= this.vx * clamp(giroFreno * dt, 0, 1);
+          this.vx = clamp(this.vx, -1.6, 1.6);
+          this.x = clamp(this.x + this.vx * dt, -1, 1);
+          if (this.x <= -1 || this.x >= 1) this.vx = 0;
+        }
+
+        // Física: gravedad, empuje del aleteo y freno del planeo.
+        if (e.aleteo) {
+          this.vy += empuje * clamp(num(e.fuerza, 1), 0.25, 1.4);
+          this.aleteos++;
+        }
+        let g = gravedad;
+        if (this.planeando && this.vy < 0) g *= 1 - frenoPlaneo;
+        this.vy -= g * dt;
+        this.vy = clamp(this.vy, -1.2, 1.2);
+        this.y += this.vy * dt;
+
+        // Techo y suelo: los dos cuestan, pero el suelo cuesta más.
+        if (this.y >= 1) { this.y = 1; if (this.vy > 0) this.vy = 0; }
+        if (this.y <= 0) {
+          this.y = 0;
+          if (this.vy < 0) {
+            this.vy = 0;
+            this.energia--;
+            ev.choque = 'suelo';
+            this.y = 0.18;               // rebote de cortesía para poder seguir
+            this.vy = 0.25;
+          }
+        }
+
+        // Frutas del circuito: aparecen a la derecha y se acercan.
+        this.proxima -= dt;
+        if (this.proxima <= 0 && this.t < largo - 1.5) {
+          this.proxima = cada * (0.75 + azar() * 0.6);
+          const tipo = FRUTAS[Math.floor(azar() * FRUTAS.length)] || FRUTAS[0];
+          this.frutas.push({
+            id: 'f' + Math.round(this.t * 1000) + '-' + Math.round(azar() * 1e6),
+            d: 1, alto: 0.12 + azar() * 0.76, tipo,
+            lado: lateral ? (azar() * 2 - 1) * 0.8 : 0,
+          });
+        }
+        // Obstáculos de la ruta (solo en la versión con profundidad).
+        if (conObstaculos) {
+          this.proximoObst -= dt;
+          if (this.proximoObst <= 0 && this.t < largo - 2) {
+            this.proximoObst = clamp(num(c.obstaculosCada, 2.6), 0.5, 20) * (0.7 + azar() * 0.7);
+            const tipo = OBSTACULOS[Math.floor(azar() * OBSTACULOS.length)] || OBSTACULOS[0];
+            this.obstaculos.push({
+              id: 'o' + Math.round(this.t * 1000) + '-' + Math.round(azar() * 1e6),
+              d: 1, alto: 0.1 + azar() * 0.7, lado: (azar() * 2 - 1) * 0.75, tipo,
+            });
+          }
+        }
+        const vel = clamp(num(c.velocidad, 0.42), 0.05, 2);
+        for (const f of this.frutas) f.d -= vel * dt;
+        for (const o of this.obstaculos) o.d -= vel * dt;
+        // Se come lo que pasa por la posición del pájaro (d ≈ 0.18). Con eje
+        // lateral hay que coincidir además en el costado.
+        const cerca = (obj, tolAlto, tolLado) =>
+          Math.abs(obj.alto - this.y) < tolAlto && (!lateral || Math.abs(obj.lado - this.x) < tolLado);
+        for (const f of this.frutas) {
+          if (f.comida || f.perdida) continue;
+          if (f.d <= 0.2 && f.d > 0.06 && cerca(f, 0.11, 0.22)) {
+            f.comida = true;
+            this.comidas++;
+            this.puntos += f.tipo.puntos;
+            ev.comida = f;
+          } else if (f.d <= 0.06) {
+            f.perdida = true;
+          }
+        }
+        this.frutas = this.frutas.filter((f) => f.d > -0.15 && !f.comida);
+        // Obstáculos: chocan si coinciden en alto y costado al pasar.
+        for (const o of this.obstaculos) {
+          if (o.resuelto) continue;
+          if (o.d <= 0.18 && o.d > 0.04) {
+            if (cerca(o, 0.13, 0.2)) {
+              o.resuelto = 'choque';
+              this.choquesObst++;
+              this.energia--;
+              ev.choque = 'obstaculo';
+              ev.obstaculo = o;
+            }
+          } else if (o.d <= 0.04) {
+            o.resuelto = 'esquivado';
+            this.esquivados++;
+            this.puntos += Math.round(num(c.puntosEsquivar, 5));
+          }
+        }
+        this.obstaculos = this.obstaculos.filter((o) => o.d > -0.15 && o.resuelto !== 'choque');
+
+        if (this.energia <= 0) { this.fin = true; this.motivo = 'Te quedaste sin energía'; ev.fin = true; }
+        else if (this.t >= largo) { this.fin = true; this.motivo = '¡Circuito completado!'; ev.fin = true; }
+        return ev;
+      },
+    };
+  }
+
   // ══════════════════════════════════════════════════════════════════════
   // 12.f Juego 7 — "Mete gol" (patada leída por cámara, arquero con vida propia)
   // ══════════════════════════════════════════════════════════════════════
@@ -5439,6 +5782,786 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // 12.h Juego 10 — "Alas de cóndor" (aletear con los brazos para volar)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Se vuela moviendo los brazos como alas: cada aleteo completo empuja hacia
+  // arriba, y abrir los brazos quietos a la altura de los hombros hace planear,
+  // que frena la caída sin gastar. El circuito avanza solo; lo único que el
+  // jugador decide es la ALTURA a la que pasa, y de eso depende qué frutas
+  // alcanza. Solo hace falta el medio cuerpo superior.
+
+  // Proporción del cuadro de vuelo. NO se usa `slice`: con recorte, en una
+  // pantalla ancha y baja la banda visible se reduce tanto que el cóndor y el
+  // marcador quedan fuera. Con `meet` entra siempre todo, y las bandas que
+  // sobran se ven como cielo porque el CSS pinta el fondo del mismo color.
+  const VUELO_VB = { w: 1000, h: 700, suelo: 610, techo: 165 };
+
+  /** Fruta del circuito, dibujada con facetas como el resto del arte. */
+  function FrutaVuelo(props) {
+    const t = props.tipo || {};
+    const r = num(props.r, 34);
+    if (t.id === 'uva') {
+      const f = facetas('#8E44AD');
+      return h('g', { transform: props.transform },
+        [[0, -0.5], [-0.5, 0.15], [0.5, 0.15], [0, 0.8]].map((p, i) => h('circle', {
+          key: i, cx: p[0] * r, cy: p[1] * r, r: r * 0.42,
+          fill: i % 2 ? f.base : f.luz, stroke: f.linea, strokeWidth: 3,
+        })),
+        h('path', { d: 'M0 ' + (-r * 0.85) + ' q' + r * 0.4 + ' ' + (-r * 0.3) + ' ' + r * 0.7 + ' ' + (-r * 0.1), stroke: '#4E7A2A', strokeWidth: 5, fill: 'none' }));
+    }
+    if (t.id === 'sandia') {
+      const f = facetas('#E74C3C');
+      return h('g', { transform: props.transform },
+        h('path', { d: 'M' + (-r) + ' 0 A' + r + ' ' + r + ' 0 0 0 ' + r + ' 0 Z', fill: '#3D8B37', stroke: '#245A20', strokeWidth: 4 }),
+        h('path', { d: 'M' + (-r * 0.82) + ' 0 A' + r * 0.82 + ' ' + r * 0.82 + ' 0 0 0 ' + r * 0.82 + ' 0 Z', fill: f.base }),
+        h('path', { d: 'M' + (-r * 0.82) + ' 0 A' + r * 0.82 + ' ' + r * 0.82 + ' 0 0 0 0 ' + r * 0.82 + ' Z', fill: f.luz, opacity: 0.55 }),
+        [[-0.35, 0.3], [0, 0.45], [0.35, 0.3]].map((p, i) => h('ellipse', {
+          key: i, cx: p[0] * r, cy: p[1] * r, rx: r * 0.07, ry: r * 0.11, fill: '#2B1B12',
+        })));
+    }
+    const f = facetas('#E5342A');
+    return h('g', { transform: props.transform },
+      h('circle', { cx: 0, cy: 0, r: r, fill: f.base, stroke: f.linea, strokeWidth: 4 }),
+      h('path', { d: 'M' + (-r) + ' 0 A' + r + ' ' + r + ' 0 0 1 0 ' + (-r) + ' L0 0 Z', fill: f.luz }),
+      h('circle', { cx: -r * 0.32, cy: -r * 0.34, r: r * 0.16, fill: '#fff', opacity: 0.6 }),
+      h('path', { d: 'M0 ' + (-r * 0.95) + ' q' + r * 0.1 + ' ' + (-r * 0.45) + ' ' + r * 0.55 + ' ' + (-r * 0.35), stroke: '#4E7A2A', strokeWidth: 6, fill: 'none', strokeLinecap: 'round' }));
+  }
+
+  /**
+   * El cóndor. `alas` va de −1 (alas abajo) a 1 (alas arriba) y sigue a los
+   * brazos del jugador: ver el propio gesto reflejado en el pájaro es lo que
+   * hace que el control se entienda sin leer instrucciones.
+   */
+  function Condor(props) {
+    const alas = clamp(num(props.alas, 0), -1, 1);
+    const planeo = !!props.planeo;
+    const cuerpo = facetas('#3A4050');
+    const ang = planeo ? -3 : -clamp(alas, -1, 1) * 34;
+    const ala = (lado) => h('g', { transform: 'rotate(' + (lado * ang) + ')' },
+      h('path', {
+        d: 'M0 -6 Q' + lado * 90 + ' ' + (-30 - (planeo ? 0 : alas * 16)) + ' ' + lado * 186 + ' ' + (planeo ? -6 : -alas * 26) +
+           ' Q' + lado * 120 + ' ' + 34 + ' 0 24 Z',
+        fill: cuerpo.base, stroke: cuerpo.linea, strokeWidth: 4, strokeLinejoin: 'round',
+      }),
+      // Plumas primarias: tres cuñas más claras en el borde del ala.
+      [0.62, 0.78, 0.92].map((k, i) => h('path', {
+        key: i,
+        d: 'M' + lado * 186 * k + ' ' + (-4 + i * 8) + ' L' + lado * 186 * (k + 0.09) + ' ' + (10 + i * 9) + ' L' + lado * 186 * (k - 0.02) + ' ' + (14 + i * 8) + ' Z',
+        fill: cuerpo.sombra,
+      })),
+      h('path', { d: 'M0 -4 Q' + lado * 80 + ' -22 ' + lado * 150 + ' -6', stroke: '#fff', strokeWidth: 4, fill: 'none', opacity: 0.22 }));
+    return h('g', { transform: props.transform },
+      ala(-1), ala(1),
+      h('ellipse', { cx: 0, cy: 6, rx: 44, ry: 30, fill: cuerpo.base, stroke: cuerpo.linea, strokeWidth: 4 }),
+      h('path', { d: 'M-40 -2 q40 -22 80 0 q-40 -8 -80 0 Z', fill: '#fff', opacity: 0.25 }),
+      // Golilla blanca del cóndor: es lo que lo hace reconocible.
+      h('ellipse', { cx: 34, cy: -6, rx: 22, ry: 15, fill: '#F2F3F5', stroke: cuerpo.linea, strokeWidth: 3 }),
+      h('circle', { cx: 52, cy: -18, r: 20, fill: cuerpo.sombra, stroke: cuerpo.linea, strokeWidth: 4 }),
+      h('circle', { cx: 58, cy: -22, r: 5, fill: '#fff' }),
+      h('circle', { cx: 59, cy: -22, r: 2.6, fill: '#111' }),
+      h('path', { d: 'M68 -16 l22 6 l-22 8 Z', fill: '#E9A13B', stroke: '#8A5A17', strokeWidth: 3, strokeLinejoin: 'round' }),
+      h('path', { d: 'M-44 12 l-34 10 l30 6 Z', fill: cuerpo.sombra, stroke: cuerpo.linea, strokeWidth: 3, strokeLinejoin: 'round' }));
+  }
+
+  function JuegoVuelo(props) {
+    const cfg = props.game.config || {};
+    const hw = model.hardware;
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const detRef = useRef(detectorAleteo());
+    const vueloRef = useRef(null);
+    const faseRef = useRef('intro');
+    const tactilRef = useRef({ aleteo: false, planeoHasta: 0 });
+    const alasRef = useRef(0);
+
+    const [fase, setFase] = useState('intro');
+    const [error, setError] = useState('');
+    const [modoTactil, setModoTactil] = useState(false);
+    const [hud, setHud] = useState({
+      y: 0.55, alas: 0, planeo: false, puntos: 0, comidas: 0,
+      energia: 3, progreso: 0, cadencia: 0, aviso: '',
+    });
+    const [frutas, setFrutas] = useState([]);
+    const [landmarks, setLandmarks] = useState(null);
+    const [fin, setFin] = useState(null);
+
+    const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+    const soltarTodo = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    }, []);
+    useEffect(() => soltarTodo, [soltarTodo]);
+
+    const iniciar = useCallback(async (modo) => {
+      setError(''); setFin(null);
+      detRef.current.reset();
+      vueloRef.current = motorVuelo(cfg);
+      setFrutas([]);
+      if (modo === 'tactil') { setModoTactil(true); irA('volando'); return; }
+      setModoTactil(false);
+      irA('abriendo');
+      try {
+        const stream = await abrirCamara(hw);
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) throw new Error('No se pudo montar el elemento de video.');
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(hw);
+        await prov.iniciar(v);
+        provRef.current = prov;
+        irA('volando');
+      } catch (e) {
+        soltarTodo();
+        setError(mensajeCamara(e));
+        irA('intro');
+      }
+    }, [cfg, hw, irA, soltarTodo]);
+
+    /** Respaldo sin cámara: un toque es un aleteo, mantener es planear. */
+    const aletearTactil = useCallback(() => { tactilRef.current.aleteo = true; }, []);
+    const planearTactil = useCallback((on) => {
+      tactilRef.current.planeoHasta = on ? nowMs() + 4000 : 0;
+    }, []);
+
+    useEffect(() => {
+      if (fase !== 'volando') return undefined;
+      const abajo = (e) => {
+        if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') { aletearTactil(); e.preventDefault(); }
+        if (e.key === 'Shift' || e.key === 'ArrowDown') planearTactil(true);
+      };
+      const arriba = (e) => { if (e.key === 'Shift' || e.key === 'ArrowDown') planearTactil(false); };
+      window.addEventListener('keydown', abajo);
+      window.addEventListener('keyup', arriba);
+      return () => { window.removeEventListener('keydown', abajo); window.removeEventListener('keyup', arriba); };
+    }, [fase, aletearTactil, planearTactil]);
+
+    useEffect(() => {
+      if (fase !== 'volando') return undefined;
+      let ultimoHud = 0;
+      return loop((dt) => {
+        const V = vueloRef.current;
+        if (!V) return;
+        const t = nowMs();
+        let entrada = { aleteo: false, fuerza: 1, planeo: false };
+        let cadencia = 0, aviso = '', alas = alasRef.current;
+        if (modoTactil) {
+          entrada.aleteo = tactilRef.current.aleteo;
+          entrada.planeo = tactilRef.current.planeoHasta > t;
+          tactilRef.current.aleteo = false;
+          // Las alas del cóndor imitan el gesto aunque se juegue con botones.
+          alas = entrada.planeo ? 0 : Math.sin(V.t * 9) * 0.85;
+        } else {
+          const prov = provRef.current;
+          const lec = prov ? prov.leer() : null;
+          const L = lec && lec.landmarks;
+          const r = detRef.current.actualizar(L, dt);
+          entrada = { aleteo: r.aleteo, fuerza: r.fuerza, planeo: r.planeo };
+          cadencia = r.cadencia;
+          alas = clamp(r.altura, -1, 1);
+          if (!r.visible) aviso = 'No te veo: ponte frente al tótem';
+          // El respaldo táctil sigue activo aunque haya cámara.
+          if (tactilRef.current.aleteo) { entrada.aleteo = true; entrada.fuerza = 1; tactilRef.current.aleteo = false; }
+          if (tactilRef.current.planeoHasta > t) entrada.planeo = true;
+          if (t - ultimoHud > 60) setLandmarks(L);
+        }
+        alasRef.current = alas;
+        const ev = V.paso(dt, entrada);
+        if (ev.choque && navigator.vibrate) { try { navigator.vibrate(70); } catch (e) { /* noop */ } }
+        if (ev.fin) {
+          setFin({
+            puntos: V.puntos, comidas: V.comidas, aleteos: V.aleteos,
+            energia: V.energia, motivo: V.motivo, completado: /completado/.test(V.motivo),
+          });
+          irA('fin');
+          return;
+        }
+        if (t - ultimoHud > 55) {
+          ultimoHud = t;
+          setFrutas(V.frutas.slice());
+          setHud({
+            y: V.y, alas: alas, planeo: V.planeando, puntos: V.puntos, comidas: V.comidas,
+            energia: V.energia, progreso: V.progreso(), cadencia: cadencia, aviso: aviso,
+          });
+        }
+      });
+    }, [fase, modoTactil, irA]);
+
+    const tema = themeOf(model);
+    const escV = escenaDe(tema);
+    const espejo = hw.espejo !== false;
+
+    // El <video> tiene que existir ANTES de pedir la cámara: `abrirCamara`
+    // resuelve y acto seguido necesita un elemento donde montar el stream. Por
+    // eso se arma aquí y se rinde también en la intro, oculto.
+    const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio },
+        landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
+      hw.avisoCamara !== false && streamRef.current
+        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
+
+    // ── Intro ─────────────────────────────────────────────────────────
+    if (fase === 'intro' || fase === 'abriendo') {
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-intro' },
+          h('svg', { viewBox: '0 0 320 200', className: 'fp-intro-svg fp-intro-svg--ancho' },
+            h(LienzoDC, { gid: 'fp-vuelo-intro', w: 320, h: 200 },
+              h(CieloDC, { w: 320, h: 200, horizonte: 150, gid: 'fp-vuelo-i', alto: escV.cielo, bajo: escV.cieloBajo, sol: false }),
+              h(CerrosDC, { w: 320, horizonte: 150, color: escV.cerros, alto: 60 }),
+              h('g', { transform: 'translate(120,86) scale(0.42)' }, h(Condor, { alas: 0.7 })),
+              h('g', { transform: 'translate(250,60) scale(0.7)' }, h(FrutaVuelo, { tipo: { id: 'manzana' }, r: 20 })),
+              h('g', { transform: 'translate(285,110) scale(0.7)' }, h(FrutaVuelo, { tipo: { id: 'uva' }, r: 18 })))),
+          h('h2', null, props.game.blurb || 'Mueve los brazos como alas y surca el cielo'),
+          h('ul', { className: 'fp-steps' },
+            h('li', null, h('b', null, 'Aletea'), ': sube y baja los dos brazos. Cada aleteo completo te empuja hacia arriba; mientras más amplio, más alto.'),
+            h('li', null, h('b', null, 'Planea'), ': abre los brazos en cruz y déjalos quietos. No subes, pero casi no bajas.'),
+            h('li', null, 'Pasa a la altura de las frutas para comerlas y termina el circuito sin quedarte sin energía.')),
+          error ? h('div', { className: 'fp-error' }, '⚠ ' + error) : null,
+          h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => iniciar('camara'), disabled: fase === 'abriendo' },
+              fase === 'abriendo' ? 'Abriendo la cámara…' : '🦅 Volar con los brazos'),
+            h(Boton, { onClick: () => iniciar('tactil') }, '👆 Probar con botones')),
+          h('p', { className: 'fp-fineprint' },
+            '📷 Basta con ver tu torso, brazos y cabeza. El análisis ocurre en este equipo: no se graba ni se envía video.')),
+        videoBox);
+    }
+
+    // ── Resultado ─────────────────────────────────────────────────────
+    if (fase === 'fin' && fin) {
+      const meta = Math.max(1, num(cfg.metaPuntos, 400));
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: () => { soltarTodo(); props.onExit(); }, meta: null },
+        h(Resultado, {
+          puntaje10: clamp((fin.puntos / meta) * 10, 0, 10),
+          juego: props.game.name,
+          titulo: fin.completado ? '¡Circuito completado!' : fin.motivo,
+          detalle: h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, fin.puntos + ' puntos'),
+            h(Chip, null, '🍎 ' + fin.comidas + ' frutas'),
+            h(Chip, null, '🦅 ' + fin.aleteos + ' aleteos')),
+          detalleTexto: fin.puntos + ' pts · ' + fin.comidas + ' frutas · ' + fin.aleteos + ' aleteos',
+          onExit: () => { soltarTodo(); props.onExit(); },
+          onReplay: () => {
+            vueloRef.current = motorVuelo(cfg);
+            detRef.current.reset();
+            setFin(null); setFrutas([]);
+            irA('volando');
+          },
+        }));
+    }
+
+    // ── Vuelo ─────────────────────────────────────────────────────────
+    const W = VUELO_VB.w, H = VUELO_VB.h, suelo = VUELO_VB.suelo;
+    // La altura del motor (0 = suelo, 1 = techo) se lleva a coordenadas SVG.
+    const yDe = (a) => suelo - a * (suelo - VUELO_VB.techo);
+    const xPajaro = 250;
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, { tone: 'accent' }, hud.puntos + ' pts'),
+        h(Chip, null, '🍎 ' + hud.comidas),
+        h(Chip, null, '⚡'.repeat(Math.max(0, hud.energia)) || 'sin energía'),
+        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null),
+    },
+      h('div', { className: 'fp-vuelo-wrap' },
+        h('svg', { className: 'fp-vuelo-svg', viewBox: '0 0 ' + W + ' ' + H },
+          h(LienzoDC, { gid: 'fp-vuelo-vb', w: W, h: H },
+            h(CieloDC, {
+              w: W, h: H, horizonte: suelo, gid: 'fp-vuelo',
+              alto: escV.cielo, bajo: escV.cieloBajo, solX: 800, solColor: escV.sol,
+              nubes: [{ x: 170, y: 130, r: 30 }, { x: 600, y: 78, r: 22 }, { x: 880, y: 200, r: 26 }],
+            }),
+            // Cordillera muy lenta al fondo y otra más rápida delante: el
+            // paralaje es lo que hace sentir que se avanza de verdad.
+            h('g', { transform: 'translate(' + (-(hud.progreso * 900) % 1000) + ',0)', opacity: 0.55 },
+              [0, 1].map((k) => h('g', { key: k, transform: 'translate(' + k * 1000 + ',0)' },
+                h(CerrosDC, { w: 1000, horizonte: suelo, color: facetas(escV.cerros).sombra, alto: 210, picos: [[0.15, 0.9], [0.55, 1], [0.88, 0.8]] })))),
+            h('g', { transform: 'translate(' + (-(hud.progreso * 2400) % 1000) + ',0)' },
+              [0, 1].map((k) => h('g', { key: k, transform: 'translate(' + k * 1000 + ',0)' },
+                h(CerrosDC, { w: 1000, horizonte: suelo, color: escV.cerros, alto: 130, picos: [[0.25, 0.85], [0.7, 1]] })))),
+            h(SueloDC, { w: W, h: H, horizonte: suelo, color: escV.suelo, fugaX: 500, filas: 4, lineas: 9 }),
+            // Frutas del circuito.
+            frutas.map((f) => h('g', {
+              key: f.id,
+              transform: 'translate(' + (xPajaro + f.d * (W - xPajaro + 90)).toFixed(0) + ',' + yDe(f.alto).toFixed(0) + ')',
+            },
+              h(SombraDC, { cx: 0, cy: suelo - yDe(f.alto), rx: 26, ry: 7, opacidad: 0.35 }),
+              h(FrutaVuelo, { tipo: f.tipo, r: 34 }))),
+            // El cóndor, con las alas siguiendo a los brazos del jugador.
+            h('g', { transform: 'translate(' + xPajaro + ',' + yDe(hud.y).toFixed(0) + ') scale(0.5)' },
+              h(Condor, { alas: hud.alas, planeo: hud.planeo })),
+            h(SombraDC, { cx: xPajaro, cy: suelo + 8, rx: 90 * (0.4 + (1 - hud.y) * 0.6), ry: 16, opacidad: 0.3 }),
+            // Barra de progreso del circuito, arriba, como un marcador.
+            h('g', null,
+              h('rect', { x: 160, y: 22, width: 680, height: 24, rx: 5, fill: 'rgba(6,12,26,.72)', stroke: '#fff', strokeWidth: 3 }),
+              h('rect', { x: 164, y: 26, width: Math.max(0, 672 * hud.progreso), height: 16, rx: 3, fill: facetas(tema.accent).luz }),
+              h('text', { x: 500, y: 68, textAnchor: 'middle', className: 'fp-svg-sub' },
+                'CIRCUITO ' + Math.round(hud.progreso * 100) + '%')),
+            hud.aviso
+              ? h('text', { x: 500, y: 150, textAnchor: 'middle', className: 'fp-svg-label' }, hud.aviso)
+              : null)),
+        videoBox,
+        h('div', { className: 'fp-esq-botones' },
+          h(Boton, { variant: 'primary', onClick: aletearTactil }, '🦅 Aletear'),
+          h(Boton, {
+            onPointerDown: () => planearTactil(true), onPointerUp: () => planearTactil(false),
+            onPointerLeave: () => planearTactil(false), onPointerCancel: () => planearTactil(false),
+          }, '🪁 Planear')),
+        h('p', { className: 'fp-hint' },
+          modoTactil
+            ? 'Toca "Aletear" (o la barra espaciadora) para subir y mantén "Planear" para caer despacio.'
+            : 'Sube y baja los brazos para volar; ábrelos en cruz y quédate quieto para planear.')));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 12.i Juego 11 — "Alas de cóndor 3D" (vuelo en profundidad por los Andes)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // La misma física de vuelo, pero la cámara va DETRÁS del cóndor y el valle
+  // se aleja hacia el punto de fuga. Se suma un eje: inclinando el torso se
+  // vira a izquierda y derecha, que es lo que permite seguir la ruta, esquivar
+  // los peñones y alinearse con las frutas.
+  //
+  // La cordillera se dibuja por capas de cresta: verde en la falda y nieve en
+  // los picos, con las caras iluminada y en sombra del motor de arte.
+
+  const VUELO3D_VB = { w: 1000, h: 700, fugaY: 250, suelo: 660 };
+
+  /** Perspectiva del valle: lejos = chico y cerca del punto de fuga. */
+  function proyectarVuelo(d) {
+    const z = clamp(d, 0, 1);
+    const k = (1 - z) * (1 - z);              // cuadrática: la fuga comprime
+    return { escala: 0.16 + (1 - z) * 1.35, k };
+  }
+
+  /**
+   * Cordón montañoso en profundidad. Cada cresta es un perfil de picos con
+   * falda de vegetación y nieve arriba; las lejanas van más pálidas y más
+   * altas en pantalla, que es lo que da la sensación de valle.
+   */
+  function CordonAndes(props) {
+    const w = num(props.w, 1000);
+    const base = num(props.base, 500);
+    const alto = num(props.alto, 200);
+    const desfase = num(props.desfase, 0);
+    const roca = facetas(props.color || '#5B6B86');
+    const verde = facetas(props.vegetacion || '#3E7A46');
+    const picos = props.picos || [0.08, 0.3, 0.55, 0.78, 0.96];
+    return h('g', { opacity: num(props.opacidad, 1) },
+      picos.map((px, i) => {
+        const cx = ((px + desfase) % 1.2 - 0.1) * w;
+        const ah = alto * (0.65 + ((i * 37) % 10) / 22);
+        const an = ah * 1.35;
+        const nieve = ah * 0.34;
+        return h('g', { key: 'p' + i },
+          // Cara en sombra y cara al sol: dos triángulos planos.
+          h('path', { d: 'M' + (cx - an) + ' ' + base + ' L' + cx + ' ' + (base - ah) + ' L' + cx + ' ' + base + ' Z', fill: roca.sombra }),
+          h('path', { d: 'M' + cx + ' ' + (base - ah) + ' L' + (cx + an) + ' ' + base + ' L' + cx + ' ' + base + ' Z', fill: roca.luz }),
+          // Vegetación en la falda: el tercio de abajo se pone verde.
+          h('path', {
+            d: 'M' + (cx - an) + ' ' + base + ' L' + (cx - an * 0.42) + ' ' + (base - ah * 0.42) +
+               ' L' + cx + ' ' + (base - ah * 0.3) + ' L' + (cx + an * 0.42) + ' ' + (base - ah * 0.42) +
+               ' L' + (cx + an) + ' ' + base + ' Z',
+            fill: verde.base,
+          }),
+          h('path', {
+            d: 'M' + cx + ' ' + (base - ah * 0.3) + ' L' + (cx + an * 0.42) + ' ' + (base - ah * 0.42) +
+               ' L' + (cx + an) + ' ' + base + ' L' + cx + ' ' + base + ' Z',
+            fill: verde.luz,
+          }),
+          // Nieve del pico, con el borde quebrado.
+          h('path', {
+            d: 'M' + (cx - nieve * 0.9) + ' ' + (base - ah + nieve) + ' L' + cx + ' ' + (base - ah) +
+               ' L' + (cx + nieve * 0.9) + ' ' + (base - ah + nieve) +
+               ' L' + (cx + nieve * 0.3) + ' ' + (base - ah + nieve * 0.6) +
+               ' L' + (cx - nieve * 0.2) + ' ' + (base - ah + nieve * 1.1) + ' Z',
+            fill: '#F4F8FF',
+          }));
+      }));
+  }
+
+  /**
+   * El cóndor visto DE ESPALDAS, que es como se ve desde la cámara de
+   * persecución del vuelo en profundidad: las alas se abren a los costados,
+   * la cola queda abajo y la cabeza asoma arriba al centro.
+   *
+   * `alas` (−1..1) sube y baja las puntas siguiendo los brazos del jugador,
+   * y con `planeo` quedan tendidas y quietas.
+   */
+  function CondorAtras(props) {
+    const alas = clamp(num(props.alas, 0), -1, 1);
+    const planeo = !!props.planeo;
+    const c = facetas('#3A4050');
+    // Las puntas suben o bajan; planeando quedan casi horizontales.
+    const punta = planeo ? -6 : -alas * 62;
+    const codo = planeo ? -2 : -alas * 26;
+    // El ala se dibuja con CUERDA: borde de ataque, punta y borde de fuga muy
+    // separados. Con los dos bordes juntos el cóndor parece un palo.
+    const ala = (lado) => h('g', null,
+      h('path', {
+        d: 'M' + lado * 24 + ' -14' +
+           ' Q' + lado * 112 + ' ' + (codo - 30) + ' ' + lado * 202 + ' ' + punta +
+           ' L' + lado * 194 + ' ' + (punta + 30) +
+           ' Q' + lado * 116 + ' ' + (codo + 54) + ' ' + lado * 28 + ' 36 Z',
+        fill: lado < 0 ? c.base : c.luz, stroke: c.linea, strokeWidth: 4, strokeLinejoin: 'round',
+      }),
+      // Plumas primarias: cuñas abiertas en la punta, como las del cóndor.
+      [0, 1, 2, 3].map((i) => h('path', {
+        key: i,
+        d: 'M' + lado * (188 - i * 6) + ' ' + (punta + 4 + i * 7) +
+           ' L' + lado * (236 - i * 10) + ' ' + (punta + 16 + i * 12) +
+           ' L' + lado * (184 - i * 6) + ' ' + (punta + 14 + i * 7) + ' Z',
+        fill: c.sombra, stroke: c.linea, strokeWidth: 2, strokeLinejoin: 'round',
+      })),
+      // Banda blanca del borde del ala: la marca del cóndor adulto.
+      h('path', {
+        d: 'M' + lado * 44 + ' -6 Q' + lado * 118 + ' ' + (codo - 20) + ' ' + lado * 180 + ' ' + (punta + 6),
+        stroke: '#EEF1F5', strokeWidth: 11, fill: 'none', opacity: 0.9, strokeLinecap: 'round',
+      }));
+    return h('g', { transform: props.transform },
+      ala(-1), ala(1),
+      // Cuerpo y cola, vistos desde atrás.
+      h('path', { d: 'M-38 -16 Q0 -34 38 -16 L28 56 Q0 72 -28 56 Z', fill: c.base, stroke: c.linea, strokeWidth: 4, strokeLinejoin: 'round' }),
+      h('path', { d: 'M2 -26 L34 -14 L24 58 L2 66 Z', fill: c.sombra, opacity: 0.55 }),
+      h('path', { d: 'M-26 -12 Q-14 -22 -4 -18 L-10 40 L-24 34 Z', fill: '#fff', opacity: 0.14 }),
+      h('path', { d: 'M-20 50 L20 50 L14 96 L-14 96 Z', fill: c.sombra, stroke: c.linea, strokeWidth: 4, strokeLinejoin: 'round' }),
+      // Golilla y cabeza asomando.
+      h('ellipse', { cx: 0, cy: -18, rx: 26, ry: 12, fill: '#F2F3F5', stroke: c.linea, strokeWidth: 3 }),
+      h('circle', { cx: 0, cy: -34, r: 17, fill: c.sombra, stroke: c.linea, strokeWidth: 4 }),
+      h('circle', { cx: -6, cy: -38, r: 3.4, fill: '#fff' }),
+      h('circle', { cx: 6, cy: -38, r: 3.4, fill: '#fff' }));
+  }
+
+  /** Peñón o araucaria que viene de frente por la ruta. */
+  function ObstaculoVuelo(props) {
+    const e = num(props.escala, 1);
+    if (props.tipo === 'arbol') {
+      const t = facetas('#2F6B3A');
+      return h('g', { transform: props.transform },
+        h('rect', { x: -8 * e, y: -10 * e, width: 16 * e, height: 74 * e, fill: '#6B4A28', stroke: '#3B2814', strokeWidth: 3 * e }),
+        [0, 1, 2].map((i) => h('path', {
+          key: i,
+          d: 'M0 ' + (-64 + i * 30) * e + ' L' + (46 - i * 8) * e + ' ' + (-16 + i * 30) * e + ' L' + (-(46 - i * 8)) * e + ' ' + (-16 + i * 30) * e + ' Z',
+          fill: i % 2 ? t.base : t.luz, stroke: t.linea, strokeWidth: 3 * e, strokeLinejoin: 'round',
+        })));
+    }
+    const r = facetas('#6E7789');
+    return h('g', { transform: props.transform },
+      h('path', { d: 'M' + (-52 * e) + ' ' + (40 * e) + ' L' + (-18 * e) + ' ' + (-56 * e) + ' L' + (26 * e) + ' ' + (-34 * e) + ' L' + (54 * e) + ' ' + (40 * e) + ' Z', fill: r.base, stroke: r.linea, strokeWidth: 3 * e, strokeLinejoin: 'round' }),
+      h('path', { d: 'M' + (-18 * e) + ' ' + (-56 * e) + ' L' + (26 * e) + ' ' + (-34 * e) + ' L' + (10 * e) + ' ' + (40 * e) + ' L' + (-6 * e) + ' ' + (40 * e) + ' Z', fill: r.luz }),
+      h('path', { d: 'M' + (-30 * e) + ' ' + (-24 * e) + ' L' + (-14 * e) + ' ' + (-44 * e) + ' L' + (-6 * e) + ' ' + (-26 * e) + ' Z', fill: '#F4F8FF', opacity: 0.85 }));
+  }
+
+  function JuegoVuelo3D(props) {
+    const cfg = props.game.config || {};
+    const hw = model.hardware;
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const alaRef = useRef(detectorAleteo());
+    const incRef = useRef(detectorInclinacion());
+    const vueloRef = useRef(null);
+    const faseRef = useRef('intro');
+    const tactilRef = useRef({ aleteo: false, planeoHasta: 0, giro: 0 });
+    const alasRef = useRef(0);
+
+    const [fase, setFase] = useState('intro');
+    const [error, setError] = useState('');
+    const [modoTactil, setModoTactil] = useState(false);
+    const [hud, setHud] = useState({
+      y: 0.55, x: 0, alas: 0, planeo: false, giro: 0, puntos: 0, comidas: 0,
+      esquivados: 0, energia: 3, progreso: 0, aviso: '',
+    });
+    const [items, setItems] = useState({ frutas: [], obstaculos: [] });
+    const [landmarks, setLandmarks] = useState(null);
+    const [fin, setFin] = useState(null);
+
+    const irA = useCallback((f) => { faseRef.current = f; setFase(f); }, []);
+    const attachVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (!el) return;
+      if (streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+    const soltarTodo = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    }, []);
+    useEffect(() => soltarTodo, [soltarTodo]);
+
+    const nuevoVuelo = useCallback(() => motorVuelo(Object.assign({}, cfg, { lateral: true, obstaculos: true })), [cfg]);
+
+    const iniciar = useCallback(async (modo) => {
+      setError(''); setFin(null);
+      alaRef.current.reset(); incRef.current.reset();
+      vueloRef.current = nuevoVuelo();
+      setItems({ frutas: [], obstaculos: [] });
+      if (modo === 'tactil') { setModoTactil(true); irA('volando'); return; }
+      setModoTactil(false);
+      irA('abriendo');
+      try {
+        const stream = await abrirCamara(hw);
+        streamRef.current = stream;
+        const v = videoRef.current;
+        if (!v) throw new Error('No se pudo montar el elemento de video.');
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(hw);
+        await prov.iniciar(v);
+        provRef.current = prov;
+        irA('volando');
+      } catch (e) {
+        soltarTodo();
+        setError(mensajeCamara(e));
+        irA('intro');
+      }
+    }, [hw, irA, soltarTodo, nuevoVuelo]);
+
+    const aletearTactil = useCallback(() => { tactilRef.current.aleteo = true; }, []);
+    const planearTactil = useCallback((on) => { tactilRef.current.planeoHasta = on ? nowMs() + 4000 : 0; }, []);
+    const girarTactil = useCallback((g) => { tactilRef.current.giro = g; }, []);
+
+    useEffect(() => {
+      if (fase !== 'volando') return undefined;
+      const abajo = (e) => {
+        if (e.key === ' ' || e.key === 'w') { aletearTactil(); e.preventDefault(); }
+        if (e.key === 'ArrowLeft' || e.key === 'a') girarTactil(-1);
+        if (e.key === 'ArrowRight' || e.key === 'd') girarTactil(1);
+        if (e.key === 'Shift' || e.key === 'ArrowDown') planearTactil(true);
+      };
+      const arriba = (e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') girarTactil(0);
+        if (e.key === 'Shift' || e.key === 'ArrowDown') planearTactil(false);
+      };
+      window.addEventListener('keydown', abajo);
+      window.addEventListener('keyup', arriba);
+      return () => { window.removeEventListener('keydown', abajo); window.removeEventListener('keyup', arriba); };
+    }, [fase, aletearTactil, planearTactil, girarTactil]);
+
+    useEffect(() => {
+      if (fase !== 'volando') return undefined;
+      let ultimoHud = 0;
+      const espejo = hw.espejo !== false;
+      return loop((dt) => {
+        const V = vueloRef.current;
+        if (!V) return;
+        const t = nowMs();
+        let entrada = { aleteo: false, fuerza: 1, planeo: false, giro: 0 };
+        let aviso = '', alas = alasRef.current;
+        if (modoTactil) {
+          entrada.aleteo = tactilRef.current.aleteo;
+          entrada.planeo = tactilRef.current.planeoHasta > t;
+          entrada.giro = tactilRef.current.giro;
+          tactilRef.current.aleteo = false;
+          alas = entrada.planeo ? 0 : Math.sin(V.t * 9) * 0.85;
+        } else {
+          const prov = provRef.current;
+          const lec = prov ? prov.leer() : null;
+          const L = lec && lec.landmarks;
+          const a = alaRef.current.actualizar(L, dt);
+          const i = incRef.current.actualizar(L, dt, espejo);
+          entrada = { aleteo: a.aleteo, fuerza: a.fuerza, planeo: a.planeo, giro: i.giro };
+          alas = clamp(a.altura, -1, 1);
+          if (!a.visible) aviso = 'No te veo: ponte frente al tótem';
+          if (tactilRef.current.aleteo) { entrada.aleteo = true; entrada.fuerza = 1; tactilRef.current.aleteo = false; }
+          if (tactilRef.current.planeoHasta > t) entrada.planeo = true;
+          if (tactilRef.current.giro) entrada.giro = tactilRef.current.giro;
+          if (t - ultimoHud > 60) setLandmarks(L);
+        }
+        alasRef.current = alas;
+        const ev = V.paso(dt, entrada);
+        if (ev.choque && navigator.vibrate) { try { navigator.vibrate(80); } catch (e) { /* noop */ } }
+        if (ev.fin) {
+          setFin({
+            puntos: V.puntos, comidas: V.comidas, esquivados: V.esquivados,
+            aleteos: V.aleteos, motivo: V.motivo, completado: /completado/.test(V.motivo),
+          });
+          irA('fin');
+          return;
+        }
+        if (t - ultimoHud > 55) {
+          ultimoHud = t;
+          setItems({ frutas: V.frutas.slice(), obstaculos: V.obstaculos.slice() });
+          setHud({
+            y: V.y, x: V.x, alas: alas, planeo: V.planeando, giro: entrada.giro,
+            puntos: V.puntos, comidas: V.comidas, esquivados: V.esquivados,
+            energia: V.energia, progreso: V.progreso(), aviso: aviso,
+          });
+        }
+      });
+    }, [fase, modoTactil, irA, hw.espejo]);
+
+    const tema = themeOf(model);
+    const escV = escenaDe(tema);
+    const espejo = hw.espejo !== false;
+
+    const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio },
+        landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
+      hw.avisoCamara !== false && streamRef.current
+        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
+
+    if (fase === 'intro' || fase === 'abriendo') {
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h('div', { className: 'fp-intro' },
+          h('svg', { viewBox: '0 0 320 200', className: 'fp-intro-svg fp-intro-svg--ancho' },
+            h(LienzoDC, { gid: 'fp-v3d-intro', w: 320, h: 200 },
+              h(CieloDC, { w: 320, h: 200, horizonte: 190, gid: 'fp-v3d-i', alto: escV.cielo, bajo: escV.cieloBajo, sol: false }),
+              h(CordonAndes, { w: 320, base: 190, alto: 96, color: '#657792', vegetacion: '#3E7A46', picos: [0.1, 0.34, 0.62, 0.88] }),
+              h('g', { transform: 'translate(160,116) scale(0.3)' }, h(CondorAtras, { alas: 0.45 })),
+              h('g', { transform: 'translate(250,70) scale(0.5)' }, h(FrutaVuelo, { tipo: { id: 'sandia' }, r: 22 })))),
+          h('h2', null, props.game.blurb || 'Vuela por la cordillera, inclínate para virar y come frutas'),
+          h('ul', { className: 'fp-steps' },
+            h('li', null, h('b', null, 'Aletea'), ' para subir y ', h('b', null, 'abre los brazos'), ' para planear, igual que en la versión lateral.'),
+            h('li', null, h('b', null, 'Inclina el torso'), ' a un lado o al otro para virar: así sigues la ruta del valle.'),
+            h('li', null, 'Esquiva los peñones y las araucarias, y pasa por encima de las frutas.')),
+          error ? h('div', { className: 'fp-error' }, '⚠ ' + error) : null,
+          h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'primary', onClick: () => iniciar('camara'), disabled: fase === 'abriendo' },
+              fase === 'abriendo' ? 'Abriendo la cámara…' : '🦅 Volar con el cuerpo'),
+            h(Boton, { onClick: () => iniciar('tactil') }, '👆 Probar con botones')),
+          h('p', { className: 'fp-fineprint' },
+            '📷 Basta con ver tu torso, brazos y cabeza. El análisis ocurre en este equipo: no se graba ni se envía video.')),
+        videoBox);
+    }
+
+    if (fase === 'fin' && fin) {
+      const meta = Math.max(1, num(cfg.metaPuntos, 500));
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: () => { soltarTodo(); props.onExit(); }, meta: null },
+        h(Resultado, {
+          puntaje10: clamp((fin.puntos / meta) * 10, 0, 10),
+          juego: props.game.name,
+          titulo: fin.completado ? '¡Cruzaste la cordillera!' : fin.motivo,
+          detalle: h('div', { className: 'fp-chips' },
+            h(Chip, { tone: 'accent' }, fin.puntos + ' puntos'),
+            h(Chip, null, '🍎 ' + fin.comidas + ' frutas'),
+            h(Chip, null, '⛰ ' + fin.esquivados + ' esquivados')),
+          detalleTexto: fin.puntos + ' pts · ' + fin.comidas + ' frutas · ' + fin.esquivados + ' obstáculos esquivados',
+          onExit: () => { soltarTodo(); props.onExit(); },
+          onReplay: () => {
+            vueloRef.current = nuevoVuelo();
+            alaRef.current.reset(); incRef.current.reset();
+            setFin(null); setItems({ frutas: [], obstaculos: [] });
+            irA('volando');
+          },
+        }));
+    }
+
+    // ── Vuelo en profundidad ──────────────────────────────────────────
+    const W = VUELO3D_VB.w, H = VUELO3D_VB.h, fugaY = VUELO3D_VB.fugaY, suelo = VUELO3D_VB.suelo;
+    /** Lleva (lado, alto, profundidad) del motor a coordenadas de pantalla. */
+    const punto = (lado, alto, d) => {
+      const p = proyectarVuelo(d);
+      const cx = 500 + lado * 430 * (0.12 + p.k * 0.88);
+      const base = fugaY + p.k * (suelo - fugaY);
+      return { x: cx, y: base - alto * (60 + p.k * 330), escala: p.escala, k: p.k };
+    };
+    const pj = punto(hud.x, hud.y, 0.16);
+    // El cóndor se ladea al virar: es la lectura visual del control.
+    const ladeo = clamp(hud.giro, -1, 1) * 22;
+    const enOrden = [].concat(
+      items.obstaculos.map((o) => ({ o, tipo: 'obst' })),
+      items.frutas.map((f) => ({ o: f, tipo: 'fruta' })),
+    ).sort((a, b) => b.o.d - a.o.d);   // lo lejano se dibuja primero
+
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name,
+      onExit: () => { soltarTodo(); props.onExit(); },
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, { tone: 'accent' }, hud.puntos + ' pts'),
+        h(Chip, null, '🍎 ' + hud.comidas),
+        h(Chip, null, '⚡'.repeat(Math.max(0, hud.energia)) || 'sin energía'),
+        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null),
+    },
+      h('div', { className: 'fp-vuelo-wrap' },
+        h('svg', { className: 'fp-vuelo3d-svg', viewBox: '0 0 ' + W + ' ' + H },
+          h(LienzoDC, { gid: 'fp-v3d-vb', w: W, h: H },
+            h(CieloDC, {
+              w: W, h: H, horizonte: fugaY + 40, gid: 'fp-v3d',
+              alto: escV.cielo, bajo: escV.cieloBajo, solX: 500, solColor: escV.sol,
+              nubes: [{ x: 190, y: 96, r: 26 }, { x: 810, y: 128, r: 22 }],
+            }),
+            // Tres cordones: el lejano casi pálido, el cercano a los costados.
+            h(CordonAndes, { w: W, base: fugaY + 60, alto: 130, color: '#7C8CA8', vegetacion: '#4C7F52', opacidad: 0.55, desfase: (hud.progreso * 0.4) % 1 }),
+            h(CordonAndes, { w: W, base: fugaY + 150, alto: 210, color: '#65769A', vegetacion: '#3E7A46', opacidad: 0.85, desfase: (hud.progreso * 0.9) % 1, picos: [0.02, 0.24, 0.5, 0.74, 0.99] }),
+            // Suelo del valle en fuga.
+            h(SueloDC, { w: W, h: H, horizonte: fugaY + 150, color: '#4C7F52', fugaX: 500, filas: 6, lineas: 13, bruma: 'rgba(210,235,255,.45)' }),
+            // Paredes del valle: la ruta por la que hay que colarse.
+            h('path', { d: 'M0 ' + H + ' L' + (500 - 60) + ' ' + (fugaY + 130) + ' L0 ' + (fugaY + 190) + ' Z', fill: facetas('#5B6B86').sombra, opacity: 0.9 }),
+            h('path', { d: 'M' + W + ' ' + H + ' L' + (500 + 60) + ' ' + (fugaY + 130) + ' L' + W + ' ' + (fugaY + 190) + ' Z', fill: facetas('#5B6B86').base, opacity: 0.9 }),
+            // Balizas de la ruta: marcan por dónde va el valle.
+            [0.2, 0.45, 0.7, 0.95].map((d, i) => {
+              const izq = punto(-1, 0, d), der = punto(1, 0, d);
+              return h('g', { key: 'b' + i, opacity: 0.35 },
+                h('line', { x1: izq.x, y1: izq.y, x2: der.x, y2: der.y, stroke: '#fff', strokeWidth: 1 + izq.k * 4, strokeDasharray: '10 16' }));
+            }),
+            // Frutas y obstáculos, de lejos a cerca.
+            enOrden.map((it) => {
+              const p = punto(it.o.lado, it.o.alto, it.o.d);
+              const tr = 'translate(' + p.x.toFixed(0) + ',' + p.y.toFixed(0) + ')';
+              if (it.tipo === 'fruta') {
+                return h('g', { key: it.o.id, transform: tr + ' scale(' + p.escala.toFixed(2) + ')' },
+                  h(FrutaVuelo, { tipo: it.o.tipo, r: 30 }));
+              }
+              return h(ObstaculoVuelo, { key: it.o.id, tipo: it.o.tipo.id, escala: p.escala, transform: tr });
+            }),
+            // El cóndor, de espaldas: se ladea hacia donde vira.
+            h('g', { transform: 'translate(' + pj.x.toFixed(0) + ',' + pj.y.toFixed(0) + ') rotate(' + ladeo.toFixed(1) + ') scale(0.42)' },
+              h(CondorAtras, { alas: hud.alas, planeo: hud.planeo })),
+            h('g', null,
+              h('rect', { x: 160, y: 22, width: 680, height: 24, rx: 5, fill: 'rgba(6,12,26,.72)', stroke: '#fff', strokeWidth: 3 }),
+              h('rect', { x: 164, y: 26, width: Math.max(0, 672 * hud.progreso), height: 16, rx: 3, fill: facetas(tema.accent).luz }),
+              h('text', { x: 500, y: 68, textAnchor: 'middle', className: 'fp-svg-sub' },
+                'CORDILLERA ' + Math.round(hud.progreso * 100) + '%')),
+            hud.aviso
+              ? h('text', { x: 500, y: 150, textAnchor: 'middle', className: 'fp-svg-label' }, hud.aviso)
+              : null)),
+        videoBox,
+        h('div', { className: 'fp-esq-botones' },
+          h(Boton, {
+            onPointerDown: () => girarTactil(-1), onPointerUp: () => girarTactil(0),
+            onPointerLeave: () => girarTactil(0), onPointerCancel: () => girarTactil(0),
+          }, '⬅️ Izquierda'),
+          h(Boton, { variant: 'primary', onClick: aletearTactil }, '🦅 Aletear'),
+          h(Boton, {
+            onPointerDown: () => planearTactil(true), onPointerUp: () => planearTactil(false),
+            onPointerLeave: () => planearTactil(false), onPointerCancel: () => planearTactil(false),
+          }, '🪁 Planear'),
+          h(Boton, {
+            onPointerDown: () => girarTactil(1), onPointerUp: () => girarTactil(0),
+            onPointerLeave: () => girarTactil(0), onPointerCancel: () => girarTactil(0),
+          }, 'Derecha ➡️')),
+        h('p', { className: 'fp-hint' },
+          modoTactil
+            ? 'Mantén las flechas para virar, toca "Aletear" para subir y "Planear" para caer despacio.'
+            : 'Aletea para subir, abre los brazos para planear e inclina el torso para virar por el valle.')));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // 13. Portada (lanzador de juegos)
   // ══════════════════════════════════════════════════════════════════════
 
@@ -6062,6 +7185,7 @@ export default function mount(shell) {
     burro: JuegoBurro, baile: JuegoBaile, laser: JuegoLaser,
     rayuela: JuegoRayuela, boxeo: JuegoBoxeo, gato: JuegoGato,
     gol: JuegoGol, esquiva2d: JuegoEsquiva2D, esquiva3d: JuegoEsquiva3D,
+    vuelo: JuegoVuelo, vuelo3d: JuegoVuelo3D,
   };
 
   function Component() {
