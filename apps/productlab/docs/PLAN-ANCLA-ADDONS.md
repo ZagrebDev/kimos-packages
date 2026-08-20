@@ -174,6 +174,19 @@ Nota técnica: Jumpseller no expone API para escribir assets del theme; por eso 
 
 Cobertura offline: `run-faro.mjs` (página -p<id> primero, caída a la agregada, `?product=` en el faro, pubAt válido en agregada vieja) + suite completa verde.
 
+### SIMPLIFICACIÓN v6 (decisión del usuario, 2026-08-20) — kit 6.0.0 / ProductLab 3.49.0 (backend queda en 0.62.0)
+
+**Lectura del kit, sin sistema de versiones**: la ficha lee la página publicada (`-p<id>` primero, agregada después) con `cache: no-store` — publicar se ve en la visita siguiente por construcción. CERO llamadas a KIMOS en la visita (se eliminaron el faro, las copias versionadas del navegador y el `?v=`); KIMOS queda solo como respaldo de ARRANQUE para tiendas que aún no publican su página, con tope de 8 s. Fundamento: los precios cobrados Y mostrados salen de Jumpseller (addons nativos + DOM del theme), así que el catálogo no puede cobrar mal — solo verse como su última publicación.
+
+**Vencimiento local (licencia, opción b del usuario)**: cada publicación sella fecha y plazo (`kitTtlDias`, configurable en Publicación; default 90; 0 = no vence). Pasado el plazo sin publicar, el kit no monta y queda la ficha nativa (que cobra bien). 100% local: una caída de KIMOS no lo gatilla; publicar lo renueva.
+
+**UX de publicar — DOS ideas en vez del trío confuso**:
+- **Guardar** = ProductLab + refresco visual automático de la ficha (el auto-republish ahora solo reescribe lo que CAMBIÓ: comparación sin sello contra lo publicado).
+- **Actualizar en la tienda** (por producto, y "Actualizar TODO" con confirmación) = precios/opciones/variantes (app Productos) y fotos nuevas EN PARALELO, y al final su página. El botón del editor ("Aplicar") ahora es esto. El botón global del header pasó a llamarse "Refrescar fichas" (solo visual).
+- **Mapa persistente de fotos** (`assetMap` en la definición): lo ya alojado se reescribe sin red — publicar sin fotos nuevas no toca el espejo; con pendientes, sí vuelve a recogerlas.
+
+Cobertura: `run-faro.mjs` reescrito al contrato v6 (17 checks: cero-KIMOS, arranque, vencimiento con default/0/fresco, kit viejo) + suite completa verde.
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.

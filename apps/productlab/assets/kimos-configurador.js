@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.37.0';
+  var VERSION = '6.0.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -193,75 +193,25 @@
     // completo —es un solo archivo servido por el CDN de Jumpseller— y se
     // intenta primero, así que esto solo aligera el camino de respaldo.
     var refProd = prod ? String(prod.id || prod.sku || prod.name || '').trim() : '';
-    // CACHÉ DEL CATÁLOGO. Aquí había una marca única por carga (`_t=Date.now()`)
-    // que garantizaba ver siempre lo último — al precio de que NADA pudiera
-    // guardarse: ni el navegador, ni el CDN de la tienda, ni el de KIMOS. Cada
-    // visita a cada ficha era una descarga completa desde el origen.
-    //
-    // Eso no escala: en un día de tráfico alto, cada visitante golpea el
-    // backend en vez de que el CDN absorba la carga. Ahora el catálogo se pide
-    // de forma normal y quien decide cuánto dura la copia es la cabecera que
-    // manda el servidor (unos segundos, con revalidación en segundo plano):
-    // publicar sigue llegando a todos enseguida, pero mil visitantes en el
-    // mismo minuto son UNA petición al origen, no mil.
-    //
-    // Para forzar una recarga inmediata en pruebas, define en custom.js
-    // `window.KIMOS_CATALOG_V = 'loQueSea'` y cámbialo.
-    var ver = String(window.KIMOS_CATALOG_V || '').trim();
-    // FARO DE VERSIÓN: publicar TIENE que verse, sin que nadie limpie cachés.
-    // Antes de pedir el catálogo se pregunta al backend cuál es la versión
-    // vigente (una respuesta de ~40 bytes con caché de 5 s) y esa versión
-    // viaja EN LA URL del catálogo: cada publicación produce una URL nueva,
-    // así que ninguna caché del camino —navegador, proxy, VPN, service
-    // worker, CDN— puede servir un catálogo viejo. Y como la URL identifica
-    // el contenido, el catálogo pesado se cachea largo sin riesgo.
-    // Si el faro no responde (backend caído, red), se sigue por el camino de
-    // siempre: la ficha jamás se queda sin catálogo por culpa del faro.
-    var pedirVersion = function (u) {
-      var base = u.replace(/\/definition(\?.*)?$/, '/definition/version');
-      if (base === u) return Promise.resolve({ v: '', page: '' });
-      // Versión POR PRODUCTO: publicar un producto sella su pubAt y el faro
-      // lo devuelve con ?product= — así publicar uno no invalida las páginas
-      // ni las copias de los demás.
-      if (refProd) base += '?product=' + encodeURIComponent(refProd);
-      return fetch(base, { credentials: 'omit', cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (j) {
-          // `page` es el permalink REAL de la copia en la tienda (lo devuelve
-          // la última publicación): se usa tal cual en vez de adivinarlo.
-          return { v: String((j && j.v) || '').trim(), page: String((j && j.page) || '').trim() };
-        })
-        .catch(function () { return { v: '', page: '' }; });
-    };
-    var conVer = function (u, marca) {
-      var v = String(marca || ver || '').trim();
-      if (!v) return u;
-      return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(v);
-    };
-    // ¿La versión de esta copia sirve? Vale si coincide la versión global
-    // (updatedAt) o la del PRODUCTO de esta ficha (pubAt, sellado al publicar
-    // ese producto): así una página agregada sigue sirviendo aunque después
-    // se haya publicado OTRO producto por separado.
-    var versionSirve = function (def, marca) {
-      if (!marca) return true;
-      if (def.updatedAt && String(def.updatedAt) === String(marca)) return true;
-      var lista = (def.productos || def.equipos) || [];
-      for (var i = 0; i < lista.length; i++) {
-        var e = lista[i] || {};
-        if (refProd && [e.productId, e.sku, e.id, e.name].some(function (c) {
-          return c != null && String(c).toLowerCase() === String(refProd).toLowerCase();
-        })) return e.pubAt && String(e.pubAt) === String(marca);
-      }
-      return false;
-    };
-    var pedirPagina = function (permalink, marca) {
+    // LECTURA SIMPLE (v6, decisión del usuario): la ficha se sirve de la
+    // PÁGINA publicada en la propia tienda, y de nada más. Sin faro, sin
+    // versiones, sin copias en el navegador: publicar = actualizar la página,
+    // y cada visita la lee fresca del MISMO Jumpseller que sirve la ficha
+    // (una petición, mismo origen). Los PRECIOS ni pasan por aquí: los cobra
+    // y los muestra la tienda con sus opciones nativas, así que este catálogo
+    // no puede cobrar mal — solo verse como su última publicación.
+    // KIMOS aparece únicamente como respaldo de ARRANQUE (una tienda que aún
+    // no publica su página), con tope de espera.
+    var pedirPagina = function (permalink) {
       var p = String(permalink || '').trim();
       if (!p) return Promise.reject(new Error('sin permalink'));
       // MISMO ORIGEN y CON COOKIES ('same-origin'): en una tienda protegida
       // con contraseña, pedir la página sin la cookie de sesión choca contra
       // el muro y responde 404 — parecía que la copia local no existía cuando
       // en realidad existía y el visitante (que ya pasó el muro) SÍ podía verla.
-      return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'same-origin' })
+      // 'no-store': publicar se ve en la visita siguiente, garantizado por
+      // construcción — la frescura ya no depende de ningún sistema de versiones.
+      return fetch('/' + p.replace(/^\/+/, ''), { credentials: 'same-origin', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           // Dos envases posibles: el <script> clásico y el <textarea> oculto
@@ -272,32 +222,41 @@
           if (!m) throw new Error('la página existe pero viene SIN el bloque de datos (¿republicar?)');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
-          // La copia de la tienda declara su versión. Si el faro dice que hay
-          // una más nueva, esta copia está desactualizada (caché de página de
-          // la tienda, o falta re-publicar): manda lo fresco.
-          if (!versionSirve(def, marca)) throw new Error('copia local desactualizada');
           return def;
         });
     };
-    var pedirLocal = function (u, marca, pagina) {
+    var pedirLocal = function (u) {
       // PÁGINA POR PRODUCTO primero (permalink derivado: -p<id del producto
-      // de esta ficha>): es la unidad que publica ProductLab en el enfoque
-      // por producto — más chica, más fresca y no depende de nadie más.
-      // Después la página agregada de la instancia (respaldo y compat).
-      var agregada = String(pagina || '').trim() || permalinkLocal(u);
-      var propia = refProd && permalinkLocal(u) ? permalinkLocal(u) + '-p' + refProd : '';
-      if (!propia) return pedirPagina(agregada, marca);
-      return pedirPagina(propia, marca).catch(function (e1) {
-        return pedirPagina(agregada, marca).catch(function (e2) {
+      // de esta ficha>): es la unidad que publica ProductLab. Después la
+      // página agregada de la instancia (respaldo y compat).
+      var agregada = permalinkLocal(u);
+      var propia = refProd && agregada ? agregada + '-p' + refProd : '';
+      if (!propia) return pedirPagina(agregada);
+      return pedirPagina(propia).catch(function (e1) {
+        return pedirPagina(agregada).catch(function (e2) {
           throw new Error('producto: ' + (e1 && e1.message || '?') + ' · instancia: ' + (e2 && e2.message || '?'));
         });
       });
     };
-    var pedirRemoto = function (u, marca) {
+    var pedirRemoto = function (u) {
       if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);
-      return fetch(conVer(u, marca), { credentials: 'omit' })
+      return fetch(u, { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
+    };
+    // VENCIMIENTO LOCAL (licencia, decisión del usuario): cada publicación
+    // sella su fecha (updatedAt) y declara su plazo (kitTtlDias, lo fija el
+    // dueño en ProductLab; 0 = no vence; ausente = 90). Si la última
+    // publicación es más vieja que el plazo, el kit NO monta y queda la ficha
+    // nativa — que cobra bien. Es 100% local: ninguna caída de KIMOS puede
+    // gatillarlo, solo meses sin publicar (una tienda que dejó de operar el
+    // sistema). Publicar de nuevo lo renueva solo.
+    var vencida = function (def) {
+      var dias = def && def.kitTtlDias != null ? Number(def.kitTtlDias) : 90;
+      if (!isFinite(dias) || dias <= 0) return false;
+      var t = Date.parse(String((def && def.updatedAt) || ''));
+      if (!isFinite(t)) return false;   // sin fecha legible no se veta (compat)
+      return (Date.now() - t) > dias * 86400000;
     };
     // Un catálogo que NO EXISTE es el peor caso de todos: una tienda puede
     // quedar con el kit apuntando a una instancia borrada o despublicada, y
@@ -322,9 +281,9 @@
     // Tope de espera para lo que viene de KIMOS. La DISPONIBILIDAD de la
     // tienda no puede depender de que KIMOS responda: un backend colgado o en
     // arranque en frío (30 s) dejaba al comprador mirando el spinner. Con el
-    // tope, KIMOS que no responde A TIEMPO cuenta como KIMOS caído y se sigue
-    // con lo que la tienda tiene (página publicada, copia del navegador).
-    var FARO_MS = 2500, REMOTO_MS = 8000;
+    // tope, KIMOS que no responde A TIEMPO cuenta como KIMOS caído y queda la
+    // ficha nativa.
+    var REMOTO_MS = 8000;
     var conTope = function (p, ms) {
       return Promise.race([p, new Promise(function (_, rj) {
         setTimeout(function () { rj(new Error('sin respuesta en ' + ms + ' ms')); }, ms);
@@ -339,53 +298,29 @@
       // De DÓNDE salió el catálogo, en una línea de consola: es la respuesta
       // verificable a "¿estoy sirviéndome de la tienda o de KIMOS?".
       var cuenta = function (def, origen) {
-        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · versión ' + (def && def.updatedAt || '?'));
+        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · publicado ' + (def && def.updatedAt || '?'));
         return def;
       };
-      // Copia POR URL en localStorage, con su versión: si el faro confirma que
-      // no cambió nada, no se baja ni un byte de catálogo — también en tiendas
-      // con varias instancias (la copia fusionada de defCache no servía ahí).
-      var claveUrl = 'kc-defu::' + u + (refProd ? '::' + refProd : '');
-      var leerUrl = function () {
-        try { var c = JSON.parse(localStorage.getItem(claveUrl) || 'null'); return c && c.def ? c : null; }
-        catch (e) { return null; }
-      };
-      var guardarUrl = function (def) {
-        try { localStorage.setItem(claveUrl, JSON.stringify({ v: String((def && def.updatedAt) || ''), def: def })); } catch (e) {}
-        return def;
-      };
-      return conTope(pedirVersion(u), FARO_MS)
-        .catch(function () { return { v: '', page: '' }; })
-        .then(function (faro) {
-          var marca = faro.v;
-          var enCache = leerUrl();
-          if (marca && enCache && enCache.v === String(marca)) {
-            return cuenta(enCache.def, 'copia del navegador (versión vigente confirmada por el faro)');
-          }
-          // ORDEN DE SUPERVIVENCIA: la fuente primaria es la PÁGINA DE LA
-          // TIENDA (se sirve del mismo Jumpseller que la ficha: si el
-          // comprador ve la ficha, la página está — y la página ES la
-          // publicación, no puede estar "vieja" respecto de lo publicado).
-          // KIMOS va después, solo como respaldo. Sin fuente confirmada no se
-          // monta nada: ficha nativa del theme, precios reales de Jumpseller.
-          return pedirLocal(u, marca, faro.page)
-            .then(guardarUrl)
-            .then(function (def) {
-              return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ')'
-                + (marca ? ' — independiente de KIMOS' : ' — KIMOS no respondió: la tienda se bastó sola'));
-            })
-            .catch(function (eLocal) {
-              // El MOTIVO por el que se descartó la copia local va en la
-              // línea: "respaldo" a secas obligaba a adivinar (¿404?, ¿sin
-              // bloque de datos?, ¿desactualizada?).
-              return conTope(pedirRemoto(u, marca), REMOTO_MS).then(guardarUrl).then(function (def) {
-                return cuenta(def, 'KIMOS (respaldo — copia local: '
-                  + ((eLocal && eLocal.message) || '?') + (marca ? '' : ' · faro sin respuesta') + ')');
-              });
-              // Si tampoco KIMOS responde, AQUÍ TERMINA: nada de revivir
-              // copias sin confirmar (regla de oro) — la ficha nativa del
-              // theme queda al mando, con los precios reales de Jumpseller.
-            });
+      return pedirLocal(u)
+        .then(function (def) {
+          return cuenta(def, 'PÁGINA DE LA TIENDA — sin KIMOS');
+        })
+        .catch(function (eLocal) {
+          // El MOTIVO por el que se descartó la página va en la línea:
+          // "respaldo" a secas obligaba a adivinar (¿404?, ¿sin bloque?).
+          return conTope(pedirRemoto(u), REMOTO_MS).then(function (def) {
+            return cuenta(def, 'KIMOS (respaldo de arranque — página: '
+              + ((eLocal && eLocal.message) || '?') + ')');
+          });
+          // Si tampoco KIMOS responde, AQUÍ TERMINA: la ficha nativa del
+          // theme queda al mando, con los precios reales de Jumpseller.
+        })
+        .then(function (def) {
+          // Vencimiento local (licencia): publicación más vieja que su plazo
+          // → ficha nativa. Ver `vencida`.
+          if (vencida(def)) throw new Error('publicación vencida (más de '
+            + (def.kitTtlDias != null ? def.kitTtlDias : 90) + ' días sin publicar): ficha nativa');
+          return def;
         })
         .catch(function (err) {
           if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);

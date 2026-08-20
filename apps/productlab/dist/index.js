@@ -2392,7 +2392,17 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '5.37.0',
+      kitExpected: '6.0.0',
+      // Vencimiento local del kit (licencia, opción b del usuario): días de
+      // gracia desde la última publicación; pasado el plazo el kit del theme
+      // deja de montar la experiencia y queda la ficha nativa (que cobra
+      // bien). 0 = no vence. Se fija en la pestaña Publicación; publicar
+      // renueva el plazo solo. Es 100% local en el kit: ninguna caída de
+      // KIMOS puede gatillarlo.
+      kitTtlDias: (function () {
+        const v = ((model.def || {}).public || {}).kitTtlDias;
+        return v == null || v === '' ? 90 : Math.max(0, num(v, 90));
+      })(),
       currency: rules().currency,
       store: s((model.def || {}).storeName).trim() || s(instanceId),
       productos: model.productos.filter((eq) => eq.status !== 'inactive').map((eq) => {
@@ -2636,10 +2646,15 @@ export default function mount(shell) {
   // tiempo en el backend — la respuesta con el mapa SIEMPRE vuelve (era el
   // 502 del gateway en las pasadas largas lo que dejaba los archivos subidos
   // pero el catálogo sin reescribir, publicación tras publicación).
-  async function alojarImagenesProducto(p) {
-    const sid = s(p && p.productId).trim();
-    const urls = urlsDeKimos(p);
-    const out = { p, copiadas: 0, pendientes: urls.length, avisos: [], motor: '' };
+  async function alojarImagenesProducto(p, mapaPrevio) {
+    // Lo YA alojado en publicaciones anteriores (mapa persistente foto→URL,
+    // guardado en la definición) se reescribe SIN RED: publicar sin fotos
+    // nuevas no toca el espejo — solo escribe la página. Al espejo van
+    // únicamente las URLs que el mapa no cubre.
+    const nodo = reemplazarUrls(p, mapaPrevio || {});
+    const sid = s(nodo && nodo.productId).trim();
+    const urls = urlsDeKimos(nodo);
+    const out = { p: nodo, copiadas: 0, pendientes: urls.length, avisos: [], motor: '', nuevos: {} };
     if (!shell.authFetch || !sid || !urls.length) {
       if (!sid && urls.length) out.avisos.push('sin enlace a la tienda: sus imágenes no pueden alojarse (aplica el producto primero)');
       if (!urls.length) out.pendientes = 0;
@@ -2663,7 +2678,7 @@ export default function mount(shell) {
         const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
         out.avisos.push(...otros.slice(0, 3), ...diag.slice(0, 1));
       } else if (!r.ok) out.avisos.push(s(d.detail) || ('HTTP ' + r.status));
-      if (n) out.p = reemplazarUrls(p, mapa);
+      if (n) { out.p = reemplazarUrls(nodo, mapa); out.nuevos = mapa; }
     } catch (e) {
       out.avisos.push((e && e.message) || 'error de red');
     }
@@ -2673,8 +2688,8 @@ export default function mount(shell) {
   // (pubAt) y escribe SU página en la tienda (permalink -p<id>). Es la unidad
   // del enfoque por producto: pasadas cortas, con resultado visible por
   // producto, en vez de una carga monolítica de minutos.
-  async function publicarUno(entry0, marco) {
-    const al = await alojarImagenesProducto(entry0);
+  async function publicarUno(entry0, marco, mapaPrevio) {
+    const al = await alojarImagenesProducto(entry0, mapaPrevio);
     const pubAt = nowIso();
     const entry = Object.assign({}, al.p, { pubAt });
     const sid = s(entry.productId).trim();
@@ -2682,7 +2697,7 @@ export default function mount(shell) {
     if (sid) {
       const defProd = {
         version: marco.version, updatedAt: pubAt, kitExpected: marco.kitExpected,
-        currency: marco.currency, store: marco.store, productos: [entry],
+        kitTtlDias: marco.kitTtlDias, currency: marco.currency, store: marco.store, productos: [entry],
       };
       const rp = await pushPaginaTienda(defProd, permalinkProducto(sid),
         'KIMOS ProductLab (datos · ' + (s(entry.sku) || s(entry.name)) + ')');
@@ -2691,7 +2706,15 @@ export default function mount(shell) {
     }
     const avisos = al.avisos.slice();
     if (!page.ok && page.aviso) avisos.push('página del producto: ' + page.aviso);
-    return { entry, copiadas: al.copiadas, pendientes: al.pendientes, avisos, motor: al.motor, page };
+    return { entry, copiadas: al.copiadas, pendientes: al.pendientes, avisos, motor: al.motor, page, nuevos: al.nuevos || {} };
+  }
+  // ¿La entrada del producto cambió respecto de lo YA publicado? (se compara
+  // sin el sello pubAt). Si no cambió, republicar no toca ni el espejo ni su
+  // página: el auto-refresco tras cada guardado deja de escribir de más.
+  function entradaIgualPublicada(entry0, previa, mapaPrevio) {
+    if (!previa) return null;
+    const sinSello = (e) => { const c = Object.assign({}, e); delete c.pubAt; return JSON.stringify(c); };
+    return sinSello(reemplazarUrls(entry0, mapaPrevio || {})) === sinSello(previa) ? previa : null;
   }
   async function publish(enabled) {
     const def = Object.assign({}, model.def || defaultDefinition());
@@ -2707,28 +2730,42 @@ export default function mount(shell) {
       // reescrito en ambos caminos.
       let aPublicar = enabled ? data : null;
       if (enabled && aPublicar) {
-        const porProducto = [];
+        const porProducto = ((antes.assetMirror || {}).porProducto || []).slice();
+        const mapa = Object.assign({}, antes.assetMap || {});
+        const previos = ((antes.data || {}).productos || []);
         const productos = [];
         const avisos = [];
-        let copiadas = 0; let pendientes = 0; let motor = '';
+        let copiadas = 0; let pendientes = 0; let motor = ''; let sinCambios = 0;
         for (const p0 of (aPublicar.productos || [])) {
-          const res = await publicarUno(p0, aPublicar);
+          // Sin cambios respecto de lo ya publicado → ni espejo ni página:
+          // el auto-refresco tras cada guardado solo escribe lo que cambió.
+          const previa = previos.find((e) => (s(p0.sku) && s(e.sku) === s(p0.sku)) || s(e.name) === s(p0.name));
+          const intacta = entradaIgualPublicada(p0, previa, mapa);
+          // "Sin cambios" solo vale si la pasada anterior no dejó fotos
+          // pendientes: si las dejó, hay que volver al espejo a recogerlas.
+          const lineaPrev = porProducto.find((x) => s(x.name) === s(p0.name));
+          if (intacta && !(lineaPrev && num(lineaPrev.pendientes) > 0)) { productos.push(intacta); sinCambios++; continue; }
+          const res = await publicarUno(p0, aPublicar, mapa);
+          Object.assign(mapa, res.nuevos);
           productos.push(res.entry);
           copiadas += res.copiadas; pendientes += res.pendientes;
           if (res.motor) motor = res.motor;
           res.avisos.forEach((a) => avisos.push(s(p0.name) + ': ' + a));
-          porProducto.push({
+          const linea = {
             name: s(p0.name), productId: s(p0.productId), at: res.entry.pubAt,
             copiadas: res.copiadas, pendientes: res.pendientes,
             page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
-          });
+          };
+          const i = porProducto.findIndex((x) => s(x.name) === linea.name);
+          if (i === -1) porProducto.push(linea); else porProducto[i] = linea;
         }
         aPublicar = Object.assign({}, aPublicar, { productos });
         pub.data = aPublicar;
+        pub.assetMap = mapa;
         // Los avisos del alojado se GUARDAN (no solo la notificación pasajera):
         // la pestaña Publicación los muestra como "última publicación" y se
         // pueden leer y copiar con calma después.
-        pub.assetMirror = { at: nowIso(), copiadas, pendientes, motor,
+        pub.assetMirror = { at: nowIso(), copiadas, pendientes, motor, sinCambios,
           porProducto, avisos: avisos.slice(0, 12) };
         if (avisos.length) {
           shell.notify({ level: 'warn', text: 'Publicación con avisos (detalle en la pestaña Publicación): '
@@ -2759,46 +2796,63 @@ export default function mount(shell) {
     // debe arrastrar el resto de la definición de esta copia.
     return saveDefinition(def, ['public']);
   }
-  // Publicar SOLO un producto (botón por producto de la pestaña Publicación):
-  // aloja sus fotos, escribe su página -p<id> y actualiza su entrada dentro
-  // del catálogo guardado — sin tocar los demás productos ni sus páginas.
-  async function publishProductoSolo(eq) {
+  // "ACTUALIZAR EN LA TIENDA" — LA acción por producto (decisión del usuario:
+  // un solo verbo en vez del trío Guardar/Aplicar/Publicar que nadie
+  // entendía). Hace TODO lo de este producto, en paralelo lo independiente:
+  //   · PRECIOS: ancla + addons + variantes → item de la app Productos → Jumpseller
+  //   · FOTOS: las nuevas como adjuntos (lo ya alojado sale del mapa, sin red)
+  // y al final escribe SU página -p<id> con el catálogo reescrito. No toca
+  // los demás productos.
+  async function actualizarProductoEnTienda(eq) {
     const def = Object.assign({}, model.def || defaultDefinition());
     const pub = Object.assign({}, def.public || {});
-    if (pub.enabled !== true) return { success: false, error: 'La publicación está desactivada: activa Publicar primero.' };
-    if (pub.pushPage !== true) return { success: false, error: 'Activa "Copiar el JSON a una página de la tienda" primero.' };
     const data = buildPublicData();
     const match = (e) => (s(eq.sku) && s(e.sku) === s(eq.sku)) || s(e.name) === s(eq.name);
     const entry0 = (data.productos || []).find(match);
     if (!entry0) return { success: false, error: 'El producto no está en el catálogo publicable (¿está inactivo?).' };
-    const res = await publicarUno(entry0, data);
-    // Su entrada se funde en el catálogo YA PUBLICADO: los demás productos
-    // quedan tal cual estaban (sus pubAt, sus fotos, sus páginas).
-    const base = (pub.data && Array.isArray(pub.data.productos)) ? pub.data : data;
-    let visto = false;
-    const productos = (base.productos || []).map((e) => { if (match(e)) { visto = true; return res.entry; } return e; });
-    if (!visto) productos.push(res.entry);
-    pub.data = Object.assign({}, base, { productos, kitExpected: data.kitExpected });
-    const linea = {
-      name: s(entry0.name), productId: s(entry0.productId), at: res.entry.pubAt,
-      copiadas: res.copiadas, pendientes: res.pendientes,
-      page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
-    };
-    const antesPP = ((pub.assetMirror || {}).porProducto || []).filter((x) => s(x.name) !== linea.name);
-    pub.assetMirror = Object.assign({}, pub.assetMirror || {}, {
-      at: nowIso(), motor: res.motor || (pub.assetMirror || {}).motor,
-      porProducto: antesPP.concat([linea]),
-      avisos: res.avisos.map((a) => s(entry0.name) + ': ' + a).slice(0, 12),
-      copiadas: res.copiadas, pendientes: res.pendientes,
-    });
-    def.public = pub;
-    const r = await saveDefinition(def, ['public']);
-    if (r.success === false) return { success: false, error: r.error || 'No se pudo guardar la publicación.' };
+    const conPagina = pub.enabled === true && pub.pushPage === true;
+    const mapa = Object.assign({}, pub.assetMap || {});
+    const [precios, res] = await Promise.all([
+      storeRefOf(eq) ? applyToStore(eq) : Promise.resolve({ success: false, error: 'sin enlace a la tienda (impórtalo o enlázalo primero)' }),
+      conPagina ? publicarUno(entry0, data, mapa)
+        : Promise.resolve({ entry: entry0, copiadas: 0, pendientes: 0, avisos: ['página no escrita: activa Publicar y la copia a página'], motor: '', page: { ok: false, aviso: 'publicación desactivada' }, nuevos: {} }),
+    ]);
+    if (conPagina) {
+      Object.assign(mapa, res.nuevos);
+      // Su entrada se funde en el catálogo YA PUBLICADO: los demás productos
+      // quedan tal cual estaban (sus pubAt, sus fotos, sus páginas).
+      const base = (pub.data && Array.isArray(pub.data.productos)) ? pub.data : data;
+      let visto = false;
+      const productos = (base.productos || []).map((e) => { if (match(e)) { visto = true; return res.entry; } return e; });
+      if (!visto) productos.push(res.entry);
+      pub.data = Object.assign({}, base, { productos, kitExpected: data.kitExpected, kitTtlDias: data.kitTtlDias });
+      pub.assetMap = mapa;
+      const linea = {
+        name: s(entry0.name), productId: s(entry0.productId), at: res.entry.pubAt,
+        copiadas: res.copiadas, pendientes: res.pendientes,
+        page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
+      };
+      const antesPP = ((pub.assetMirror || {}).porProducto || []).filter((x) => s(x.name) !== linea.name);
+      pub.assetMirror = Object.assign({}, pub.assetMirror || {}, {
+        at: nowIso(), motor: res.motor || (pub.assetMirror || {}).motor,
+        porProducto: antesPP.concat([linea]),
+        avisos: res.avisos.map((a) => s(entry0.name) + ': ' + a).slice(0, 12),
+        copiadas: res.copiadas, pendientes: res.pendientes,
+      });
+      def.public = pub;
+      const r = await saveDefinition(def, ['public']);
+      if (r.success === false) return { success: false, error: r.error || 'No se pudo guardar la publicación.' };
+    }
+    const parte = [];
+    parte.push(precios.success ? 'precios y opciones en la tienda ✓' : 'precios: ' + (precios.error || 'no aplicados'));
+    if (conPagina) {
+      parte.push('fotos: ' + num(res.copiadas) + ' alojadas' + (res.pendientes ? ' (' + num(res.pendientes) + ' pendientes, se recogen al repetir)' : ''));
+      parte.push(res.page.ok ? 'página /' + s(res.page.permalink) + ' ✓' : 'página: ' + (res.page.aviso || 'no escrita'));
+    }
     return {
-      success: true, res,
-      message: '"' + s(entry0.name) + '" publicado: ' + num(res.copiadas) + ' imagen(es) alojadas'
-        + (res.pendientes ? ', ' + num(res.pendientes) + ' pendiente(s)' : '')
-        + (res.page.ok ? ' · página /' + res.page.permalink : ' · ' + (res.page.aviso || 'sin página')),
+      success: precios.success || (conPagina && res.page.ok),
+      error: precios.success ? '' : (precios.error || ''),
+      message: '"' + s(entry0.name) + '" — ' + parte.join(' · '),
     };
   }
   // Payload exacto que se escribe en el item de la app products al aplicar
@@ -6158,13 +6212,15 @@ export default function mount(shell) {
           }
         },
         aplicar: async () => {
+          // "Actualizar en la tienda": guarda y luego TODO de una — precios
+          // (app Productos) y fotos en paralelo, y la página del producto.
           setBusy(true);
           const saved = await saveProducto(d);
           if (!saved.success) { setBusy(false); return; }
           if (saved.item) adoptar(saved.item);
-          const r = await applyToStore(saved.item);
+          const r = await actualizarProductoEnTienda(saved.item);
           setBusy(false);
-          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });
+          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error || r.message });
           if (r.success) onDone();
         },
       });
@@ -8204,6 +8260,23 @@ export default function mount(shell) {
                 '/' + s(pub.pagePush.permalink) + ' · ' + Math.round(num(pub.pagePush.bytes) / 1024) + ' KB')
             : h('span', { key: 'st', className: 'gp-chip err', title: s(pub.pagePush.error) }, 'copia falló')) : null,
         ]),
+        // ── Vencimiento local del kit (licencia) ────────────────────────────
+        h('div', { key: 'ttl', className: 'gp-compline' }, [
+          h('span', { key: 'l', className: 'gp-label',
+            title: 'Cada publicación sella su fecha y este plazo. Si la tienda pasa más días que esto SIN publicar, el kit del theme deja de montar la experiencia y queda la ficha nativa (que cobra bien). Es 100% local: una caída de KIMOS no lo gatilla; publicar lo renueva solo. 0 = no vence.' },
+            'la experiencia vence tras (días sin publicar)'),
+          h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, style: { width: 90 },
+            defaultValue: pub.kitTtlDias == null || pub.kitTtlDias === '' ? 90 : num(pub.kitTtlDias, 90),
+            onBlur: async (e) => {
+              const v = e.target.value === '' ? 90 : Math.max(0, num(e.target.value, 90));
+              if (v === (pub.kitTtlDias == null || pub.kitTtlDias === '' ? 90 : num(pub.kitTtlDias, 90))) return;
+              const next = Object.assign({}, state.def || defaultDefinition());
+              next.public = Object.assign({}, next.public || {}, { kitTtlDias: v });
+              const r = await saveDefinition(next, ['public']);
+              if (r.success) shell.notify({ level: 'success', text: v === 0 ? 'La experiencia ya no vence.' : 'Vencimiento fijado en ' + v + ' días sin publicar (se renueva con cada publicación).' });
+            } }),
+          h('span', { key: 'h', className: 'gp-muted', style: { fontSize: 12 } }, '0 = no vence · se renueva con cada publicación'),
+        ]),
         // ── Bitácora de la ÚLTIMA publicación ──────────────────────────────
         // Lo que antes solo pasaba como notificación fugaz queda aquí escrito:
         // cuántas imágenes se alojaron, cuántas quedaron pendientes y cada
@@ -8273,7 +8346,27 @@ export default function mount(shell) {
       h('div', { key: 'plan', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'JUMPSELLER'), 'Opciones y variantes por producto']),
         h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
-          'Al usar "Aplicar a la tienda" se escriben el precio ANCLA (configuración más económica), una opción addon por cada valor de paso (con su recargo) y las variantes del paso de color (van al item de la app Productos y su sync-push las empuja a Jumpseller). Aquí puedes inspeccionar el payload exacto que se generaría ahora.'),
+          'DOS IDEAS, nada más. GUARDAR: queda en ProductLab y la parte visual de la ficha se refresca sola en la tienda (segundos). ACTUALIZAR EN LA TIENDA: además escribe lo que es plata — precio ancla, un addon por valor de paso con su recargo y las variantes de color (via app Productos → Jumpseller) — junto con las fotos nuevas y su página de datos, todo de una. Lo ya alojado no se re-sube jamás.'),
+        h('div', { key: 'todo', className: 'gp-compline' }, [
+          h('button', { key: 'b', className: 'gp-btn gp-btn-primary', disabled: busy,
+            title: 'Ejecuta "Actualizar en la tienda" para CADA producto del catálogo, uno por uno, con resultado por producto en la bitácora.',
+            onClick: async () => {
+              const lista = state.productos.filter((eq) => eq.status !== 'inactive');
+              if (!window.confirm('Esto escribe PRECIOS, fotos y páginas de ' + lista.length + ' producto(s) en la tienda VIVA. ¿Continuar?')) return;
+              setBusy(true);
+              let ok = 0; const malos = [];
+              for (const eq of lista) {
+                const r = await actualizarProductoEnTienda(eq);
+                if (r.success) ok++; else malos.push(eq.name + ': ' + (r.error || r.message));
+              }
+              setBusy(false);
+              shell.notify(malos.length
+                ? { level: 'warn', text: ok + ' producto(s) actualizados; con problemas: ' + malos.slice(0, 2).join(' · ') + ' (detalle en la bitácora)' }
+                : { level: 'success', text: ok + ' producto(s) actualizados en la tienda (precios, fotos y páginas).' });
+            } }, busy ? 'Actualizando…' : 'Actualizar TODO en la tienda'),
+          h('span', { key: 'h', className: 'gp-muted', style: { fontSize: 12 } },
+            'Uno por uno, con resultado por producto en la bitácora. Para un solo producto usa el botón de su fila.'),
+        ]),
         state.productos.length === 0
           ? h('div', { key: 'e', className: 'gp-muted' }, 'Sin productos.')
           : state.productos.map((eq) => h('div', { key: eq.id, className: 'gp-compline' }, [
@@ -8282,15 +8375,15 @@ export default function mount(shell) {
               h('span', { key: 'cnt', className: 'gp-chip gris' }, comboCount(eq) + ' variantes'),
               h('span', { key: 'st' }, h(SyncBadge, { eq })),
               h('span', { key: 'sp', className: 'grow' }),
-              h('button', { key: 'pub1', className: 'gp-btn gp-btn-sm', disabled: busy,
-                title: 'Aloja las fotos de ESTE producto en la tienda y actualiza SU página de datos (kimos-productlab-…-p<id>). No toca los demás productos. Requiere Publicar activado y la copia a página encendida.',
+              h('button', { key: 'pub1', className: 'gp-btn gp-btn-sm gp-btn-primary', disabled: busy,
+                title: 'TODO lo de este producto en la tienda, de una: precios/opciones/variantes (vía app Productos) y fotos en paralelo, y al final su página de datos (kimos-productlab-…-p<id>). No toca los demás productos.',
                 onClick: async () => {
                   setBusy(true);
-                  const r = await publishProductoSolo(eq);
+                  const r = await actualizarProductoEnTienda(eq);
                   setBusy(false);
                   shell.notify(r.success ? { level: 'success', text: r.message }
-                    : { level: 'error', text: 'No se pudo publicar "' + eq.name + '": ' + r.error });
-                } }, 'Publicar este producto'),
+                    : { level: 'error', text: 'No se pudo actualizar "' + eq.name + '": ' + (r.error || r.message) });
+                } }, 'Actualizar en la tienda'),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm', onClick: () => copy(JSON.stringify(storePlan(eq), null, 2)) }, 'Copiar payload JSON'),
             ])),
       ]),
@@ -8578,18 +8671,22 @@ export default function mount(shell) {
           h('button', { key: 'g', className: 'gp-btn' + (extra.conTienda ? '' : ' gp-btn-primary'),
             disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : extra.etiquetaGuardar),
           extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary gp-hd-aplicar', disabled: !extra.puedeAplicar,
-            title: extra.busy ? 'Aplicando…' : 'Aplicar a la tienda (precio, opciones y variantes en Jumpseller)',
-            'aria-label': 'Aplicar a la tienda',
+            title: extra.busy ? 'Actualizando…' : 'Actualizar en la tienda: guarda y escribe TODO lo de este producto — precios/opciones/variantes, fotos nuevas y su página de datos',
+            'aria-label': 'Actualizar en la tienda',
             onClick: extra.aplicar }, extra.busy ? '…' : h(ICONO_TIENDA)) : null,
         ]) : null,
         !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
-          title: 'Publicar el JSON del configurador para la tienda, sin pasar por Parámetros → Publicación',
+          title: 'Refresca en la tienda la parte VISUAL de todos los productos (fichas, fotos nuevas, páginas de datos). Solo escribe lo que cambió desde la última vez. Los PRECIOS se escriben con "Actualizar en la tienda" de cada producto.',
           onClick: async () => {
             setPubBusy(true);
             const r = await publish(true);
             setPubBusy(false);
-            if (r.success) shell.notify({ level: 'success', text: 'Publicado (' + buildPublicData().productos.length + ' productos).' });
-          } }, pubBusy ? 'Publicando…' : 'Publicar') : null,
+            if (r.success) {
+              const am = ((model.def || {}).public || {}).assetMirror || {};
+              shell.notify({ level: 'success', text: 'Fichas al día en la tienda'
+                + (num(am.sinCambios) ? ' (' + num(am.sinCambios) + ' sin cambios, no se reescribieron)' : '') + '.' });
+            }
+          } }, pubBusy ? 'Actualizando…' : 'Refrescar fichas') : null,
         h('button', { key: 'r', className: 'gp-hd-ico', title: 'Actualizar datos',
           onClick: () => { void load(); void loadCatalog(); void loadHermanas(); } }, '⟳'),
       ]),
