@@ -162,6 +162,18 @@ migrar el resto; confirmar contra la tienda real.
 2. Al publicar, el backend sonda `/assets/kimos-configurador(.min).js` de la tienda y devuelve `kitTienda`; la app compara y deja el aviso «⚠ EL THEME CORRE UN KIT VIEJO…» en la notificación y la bitácora. (Tras muro de contraseña la sonda puede no ver el asset: entonces no afirma nada — la vía 1 sigue cubriendo.)
 Nota técnica: Jumpseller no expone API para escribir assets del theme; por eso el paso KIT MANUAL no puede automatizarse del todo, pero ya no puede pasar inadvertido.
 
+### ENFOQUE POR PRODUCTO (exigido por el usuario, 2026-08-20) — kit 5.37.0 / ProductLab 3.48.0 / backend 0.62.0
+
+**Diagnóstico que lo motivó** (con la evidencia del usuario: los adjuntos SÍ están en el panel de Jumpseller): la publicación monolítica hacía UNA pasada larga de espejo por los 5 productos; el gateway cortaba la respuesta (502) DESPUÉS de que los archivos subieran pero ANTES de que el mapa volviera a la app → el catálogo nunca se reescribía (fotos de Ingram/KIMOS eternas), cada publicación re-subía lo mismo (duplicados `_N`) y tardaba minutos.
+
+**La unidad ahora es EL PRODUCTO**:
+1. **Página por producto**: `kimos-productlab-<instancia>-p<id de producto>`, con TODO el contenido de ese producto. El kit deriva el permalink solo (conoce el id de la ficha donde corre) y la pide ANTES que la página agregada; la agregada queda de respaldo/compat.
+2. **Versión por producto**: publicar sella `pubAt` en la entrada del producto; el faro con `?product=` devuelve ESA versión → publicar un producto no invalida páginas ni copias de los demás.
+3. **Publicar por producto**: botón «Publicar este producto» en la pestaña Publicación (aloja SUS fotos + escribe SU página, en segundos). El botón global ahora es un bucle de esa misma unidad, con bitácora POR PRODUCTO (fotos alojadas/pendientes, página, hora) y el `motor` del espejo visible (se VERIFICA qué versión del backend corrió, no se supone).
+4. **Espejo sin churn**: un adjunto que la tienda ya LISTA pero aún sin URL pública NO se re-sube (era la fábrica de duplicados `_1.._11` y de los 7 minutos); se recoge cuando la tienda publique su URL.
+
+Cobertura offline: `run-faro.mjs` (página -p<id> primero, caída a la agregada, `?product=` en el faro, pubAt válido en agregada vieja) + suite completa verde.
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.

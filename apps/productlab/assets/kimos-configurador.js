@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.36.0';
+  var VERSION = '5.37.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -220,6 +220,10 @@
     var pedirVersion = function (u) {
       var base = u.replace(/\/definition(\?.*)?$/, '/definition/version');
       if (base === u) return Promise.resolve({ v: '', page: '' });
+      // Versión POR PRODUCTO: publicar un producto sella su pubAt y el faro
+      // lo devuelve con ?product= — así publicar uno no invalida las páginas
+      // ni las copias de los demás.
+      if (refProd) base += '?product=' + encodeURIComponent(refProd);
       return fetch(base, { credentials: 'omit', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) {
@@ -234,8 +238,24 @@
       if (!v) return u;
       return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(v);
     };
-    var pedirLocal = function (u, marca, pagina) {
-      var p = String(pagina || '').trim() || permalinkLocal(u);
+    // ¿La versión de esta copia sirve? Vale si coincide la versión global
+    // (updatedAt) o la del PRODUCTO de esta ficha (pubAt, sellado al publicar
+    // ese producto): así una página agregada sigue sirviendo aunque después
+    // se haya publicado OTRO producto por separado.
+    var versionSirve = function (def, marca) {
+      if (!marca) return true;
+      if (def.updatedAt && String(def.updatedAt) === String(marca)) return true;
+      var lista = (def.productos || def.equipos) || [];
+      for (var i = 0; i < lista.length; i++) {
+        var e = lista[i] || {};
+        if (refProd && [e.productId, e.sku, e.id, e.name].some(function (c) {
+          return c != null && String(c).toLowerCase() === String(refProd).toLowerCase();
+        })) return e.pubAt && String(e.pubAt) === String(marca);
+      }
+      return false;
+    };
+    var pedirPagina = function (permalink, marca) {
+      var p = String(permalink || '').trim();
       if (!p) return Promise.reject(new Error('sin permalink'));
       // MISMO ORIGEN y CON COOKIES ('same-origin'): en una tienda protegida
       // con contraseña, pedir la página sin la cookie de sesión choca contra
@@ -252,14 +272,26 @@
           if (!m) throw new Error('la página existe pero viene SIN el bloque de datos (¿republicar?)');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
-          // La copia de la tienda declara su versión (updatedAt). Si el faro
-          // dice que hay una más nueva, esta copia está desactualizada (caché
-          // de página de la tienda, o falta re-publicar): manda lo fresco.
-          if (marca && def.updatedAt && String(def.updatedAt) !== String(marca)) {
-            throw new Error('copia local desactualizada');
-          }
+          // La copia de la tienda declara su versión. Si el faro dice que hay
+          // una más nueva, esta copia está desactualizada (caché de página de
+          // la tienda, o falta re-publicar): manda lo fresco.
+          if (!versionSirve(def, marca)) throw new Error('copia local desactualizada');
           return def;
         });
+    };
+    var pedirLocal = function (u, marca, pagina) {
+      // PÁGINA POR PRODUCTO primero (permalink derivado: -p<id del producto
+      // de esta ficha>): es la unidad que publica ProductLab en el enfoque
+      // por producto — más chica, más fresca y no depende de nadie más.
+      // Después la página agregada de la instancia (respaldo y compat).
+      var agregada = String(pagina || '').trim() || permalinkLocal(u);
+      var propia = refProd && permalinkLocal(u) ? permalinkLocal(u) + '-p' + refProd : '';
+      if (!propia) return pedirPagina(agregada, marca);
+      return pedirPagina(propia, marca).catch(function (e1) {
+        return pedirPagina(agregada, marca).catch(function (e2) {
+          throw new Error('producto: ' + (e1 && e1.message || '?') + ' · instancia: ' + (e2 && e2.message || '?'));
+        });
+      });
     };
     var pedirRemoto = function (u, marca) {
       if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);

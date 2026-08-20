@@ -76,10 +76,22 @@ async function montar(opts) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ v: opts.versionFaro }) });
     }
     if (String(url).indexOf('kimos-productlab') !== -1) {
-      if (opts.paginaTienda) {
-        // La copia publicada en la tienda: página con el envase <textarea>.
+      const esPropia = /-p23008278(\?|$)/.test(String(url));
+      // Página POR PRODUCTO (permalink -p<id>): la unidad del enfoque por
+      // producto. Solo responde si el escenario la declara.
+      if (esPropia && opts.paginaProducto) {
+        const defP = { ...defDe(opts.paginaProducto), productos: defDe(opts.paginaProducto).productos.map((p) => ({ ...p, pubAt: opts.paginaProducto })) };
         const html = '<html><body><textarea id="kimos-productlab-datos" style="display:none">'
-          + JSON.stringify(defDe(opts.paginaTienda)) + '</textarea></body></html>';
+          + JSON.stringify(defP) + '</textarea></body></html>';
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(html) });
+      }
+      if (!esPropia && opts.paginaTienda) {
+        // La copia publicada en la tienda: página con el envase <textarea>.
+        // Con pubAtEnAgregada, sus productos llevan el sello por-producto.
+        let defA = defDe(opts.paginaTienda);
+        if (opts.pubAtEnAgregada) defA = { ...defA, productos: defA.productos.map((p) => ({ ...p, pubAt: opts.pubAtEnAgregada })) };
+        const html = '<html><body><textarea id="kimos-productlab-datos" style="display:none">'
+          + JSON.stringify(defA) + '</textarea></body></html>';
         return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(html) });
       }
       return Promise.resolve({ ok: false, status: 404 });   // sin copia local en la tienda
@@ -156,6 +168,34 @@ console.log('— TODO caído y SIN copia guardada → la ficha nativa del theme 
   const { w } = await montar({ faroFalla: true, kimosCaido: true });
   t('el kit no montó (no hay de dónde) y no dejó la página rota',
     !w.document.querySelector('.kimos-cfg'));
+}
+
+console.log('— PÁGINA POR PRODUCTO: se pide -p<id> ANTES que la página de la instancia —');
+{
+  const { w, llamadas } = await montar({ versionFaro: 'V7', paginaProducto: 'V7', paginaTienda: 'V7' });
+  const propia = llamadas.findIndex((x) => /-p23008278/.test(x.url));
+  const agregada = llamadas.findIndex((x) => x.url.indexOf('kimos-productlab') !== -1 && !/-p23008278/.test(x.url));
+  t('pidió la página del producto', propia !== -1);
+  t('no necesitó la página agregada (la propia bastó)', agregada === -1);
+  t('el faro viajó con ?product= (versión por producto)',
+    llamadas.some((x) => x.url.indexOf('/definition/version') !== -1 && x.url.indexOf('product=23008278') !== -1));
+  t('la ficha montó desde la página del producto', !!w.document.querySelector('.kimos-cfg'));
+}
+
+console.log('— producto sin página propia → cae a la página agregada de la instancia —');
+{
+  const { w, llamadas } = await montar({ versionFaro: 'V7', paginaTienda: 'V7' });
+  const propia = llamadas.some((x) => /-p23008278/.test(x.url));
+  t('intentó primero la página del producto', propia);
+  t('la ficha montó desde la agregada', !!w.document.querySelector('.kimos-cfg'));
+}
+
+console.log('— página agregada VIEJA pero el producto de esta ficha conserva su pubAt → sirve igual —');
+{
+  // Publicar OTRO producto mueve la versión global; la página agregada sigue
+  // valiendo para ESTA ficha porque el pubAt de SU producto coincide.
+  const { w } = await montar({ versionFaro: 'PUB-A', paginaTienda: 'X', pubAtEnAgregada: 'PUB-A' });
+  t('la ficha montó (pubAt del producto coincide con el faro)', !!w.document.querySelector('.kimos-cfg'));
 }
 
 console.log('— la publicación declara el kit que espera → un theme viejo GRITA en consola —');
