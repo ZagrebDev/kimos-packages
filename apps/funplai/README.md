@@ -54,5 +54,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai     # → funplai-1.5.1.kapp
+node tools/pack.mjs apps/funplai     # → funplai-1.6.0.kapp
 ```

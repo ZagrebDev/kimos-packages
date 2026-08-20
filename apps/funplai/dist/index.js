@@ -81,6 +81,68 @@ export default function mount(shell) {
     return { x: p.x + Math.sin(rad(deg)) * len, y: p.y + Math.cos(rad(deg)) * len };
   }
 
+  // ── Color: la base del sombreado por facetas ──────────────────────────
+  // El look de los juegos 3D de Dreamcast no viene de degradados suaves sino
+  // de caras planas con saltos duros de luz. Para eso hace falta poder subir
+  // y bajar el brillo de un color manteniendo su tono, así que se pasa por HSL.
+
+  function hexRgb(hex) {
+    let x = s(hex).trim().replace('#', '');
+    if (x.length === 3) x = x[0] + x[0] + x[1] + x[1] + x[2] + x[2];
+    if (!/^[0-9a-fA-F]{6}$/.test(x)) return { r: 128, g: 128, b: 128 };
+    return { r: parseInt(x.slice(0, 2), 16), g: parseInt(x.slice(2, 4), 16), b: parseInt(x.slice(4, 6), 16) };
+  }
+
+  function rgbHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const l = (mx + mn) / 2;
+    if (!d) return { h: 0, s: 0, l };
+    const sa = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let hh;
+    if (mx === r) hh = ((g - b) / d + (g < b ? 6 : 0));
+    else if (mx === g) hh = (b - r) / d + 2;
+    else hh = (r - g) / d + 4;
+    return { h: hh * 60, s: sa, l };
+  }
+
+  function hslHex(hh, sa, l) {
+    hh = ((hh % 360) + 360) % 360; sa = clamp(sa, 0, 1); l = clamp(l, 0, 1);
+    const c = (1 - Math.abs(2 * l - 1)) * sa;
+    const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (hh < 60) { r = c; g = x; } else if (hh < 120) { r = x; g = c; }
+    else if (hh < 180) { g = c; b = x; } else if (hh < 240) { g = x; b = c; }
+    else if (hh < 300) { r = x; b = c; } else { r = c; b = x; }
+    const to = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return '#' + to(r) + to(g) + to(b);
+  }
+
+  /** Aclara/oscurece manteniendo el tono. `d` en puntos de luminosidad. */
+  function tono(hex, d, satD) {
+    const c = hexRgb(hex), q = rgbHsl(c.r, c.g, c.b);
+    return hslHex(q.h, q.s + num(satD, 0), q.l + d);
+  }
+
+  /**
+   * Paleta de facetas de un color base: las cuatro caras que usa el motor.
+   * `luz` = cara iluminada, `base` = frontal, `sombra` = lateral en sombra,
+   * `linea` = contorno duro, `brillo` = reflejo especular quemado.
+   * Se satura al aclarar y se desatura al oscurecer, que es lo que hace que
+   * un objeto plano parezca un volumen y no una mancha.
+   */
+  function facetas(hex) {
+    return {
+      brillo: tono(hex, 0.30, 0.06),
+      luz: tono(hex, 0.16, 0.08),
+      base: hex,
+      sombra: tono(hex, -0.14, -0.04),
+      fondo: tono(hex, -0.26, -0.10),
+      linea: tono(hex, -0.42, -0.06),
+    };
+  }
+
   // Recursos vivos que `unmount()` debe cerrar.
   const timers = new Set();
   const rafs = new Set();
@@ -110,39 +172,53 @@ export default function mount(shell) {
   // 2. Temas y configuración por defecto
   // ══════════════════════════════════════════════════════════════════════
 
+  // Cada tema trae, además de sus colores de marca, la paleta de ESCENA que
+  // usa el motor de arte: cielo, suelo y cerros. Es lo que hace que cada juego
+  // se vea como un nivel del mismo juego y no como nueve pantallas distintas.
   const THEMES = {
     'fiestas-patrias': {
       name: 'Fiestas Patrias de Chile',
-      accent: '#D52B1E',      // rojo bandera
-      accent2: '#0039A6',     // azul bandera
-      bg: '#12213F',
-      bg2: '#0B1730',
-      surface: '#F6F1E4',     // papel / mantel huaso
-      ink: '#1B2436',
+      accent: '#E4322B',      // rojo bandera, subido para el look arcade
+      accent2: '#0B4FD8',     // azul bandera
+      bg: '#152A52',
+      bg2: '#0A1730',
+      surface: '#FFF6E2',     // papel / mantel huaso
+      ink: '#161E30',
       decor: 'banderines',
       emoji: '🇨🇱',
+      // Mediodía de septiembre en la cancha: cielo limpio y pasto seco.
+      cielo: '#2C9BE0', cieloBajo: '#CFF0FF',
+      suelo: '#4FA83F', cerros: '#4C6FA8',
+      sol: '#FFE9A8',
     },
     'neutro': {
       name: 'Neutro Kimos',
-      accent: '#19ACB1',
-      accent2: '#5C6BC0',
-      bg: '#101826',
-      bg2: '#0A101B',
+      accent: '#12C3C9',
+      accent2: '#6C63FF',
+      bg: '#111B2E',
+      bg2: '#080E1A',
       surface: '#F4F7FA',
       ink: '#16202E',
       decor: 'ninguno',
       emoji: '🎮',
+      cielo: '#1E88C7', cieloBajo: '#B9E6F5',
+      suelo: '#2F8E8A', cerros: '#3C5C88',
+      sol: '#EAFBFF',
     },
     'verano': {
       name: 'Verano / playa',
       accent: '#FF7A1A',
-      accent2: '#00A3C4',
-      bg: '#0E2A38',
+      accent2: '#00B4D8',
+      bg: '#123A4C',
       bg2: '#07202C',
       surface: '#FFF6E8',
       ink: '#123',
       decor: 'ninguno',
       emoji: '🏖️',
+      // Atardecer de Crazy Taxi: cielo naranja y arena caliente.
+      cielo: '#FF9E45', cieloBajo: '#FFE7C2',
+      suelo: '#E8C77A', cerros: '#C4643C',
+      sol: '#FFF3C4',
     },
   };
 
@@ -485,6 +561,7 @@ export default function mount(shell) {
   }
 
   function cssVars(t) {
+    const fa = facetas(t.accent), fb = facetas(t.accent2);
     return {
       '--fp-accent': t.accent,
       '--fp-accent2': t.accent2,
@@ -492,6 +569,27 @@ export default function mount(shell) {
       '--fp-bg2': t.bg2,
       '--fp-surface': t.surface,
       '--fp-ink': t.ink,
+      // Facetas de marca: el bisel de botones y tarjetas se construye con
+      // estos tres tonos, igual que las caras de un volumen en la escena.
+      '--fp-accent-luz': fa.luz,
+      '--fp-accent-sombra': fa.sombra,
+      '--fp-accent-linea': fa.linea,
+      '--fp-accent2-luz': fb.luz,
+      '--fp-accent2-sombra': fb.sombra,
+      '--fp-cielo': t.cielo || '#2C9BE0',
+      '--fp-cielo-bajo': t.cieloBajo || '#CFF0FF',
+      '--fp-suelo': t.suelo || '#4FA83F',
+    };
+  }
+
+  /** Paleta de escena del tema activo, para el motor de arte. */
+  function escenaDe(t) {
+    return {
+      cielo: t.cielo || '#2C9BE0',
+      cieloBajo: t.cieloBajo || '#CFF0FF',
+      suelo: t.suelo || '#4FA83F',
+      cerros: t.cerros || '#4C6FA8',
+      sol: t.sol || '#FFE9A8',
     };
   }
 
@@ -535,6 +633,245 @@ export default function mount(shell) {
       h('label', { htmlFor: id }, p.label),
       control,
       p.help ? h('small', null, p.help) : null);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 4.b Motor de arte "arcade 3D" (estética Dreamcast)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Todos los juegos comparten el mismo lenguaje visual, inspirado en los
+  // juegos 3D de Dreamcast (Rival Schools, Crazy Taxi). Cuatro reglas:
+  //
+  //   1. CIELO Y HORIZONTE. El fondo nunca es un color plano: es un degradado
+  //      de cielo con un sol bajo y un suelo en perspectiva que huye hacia un
+  //      punto de fuga. Eso solo ya da sensación de profundidad.
+  //   2. FACETAS, NO DEGRADADOS. Los volúmenes se construyen con caras planas
+  //      de color duro (`facetas()`), como una malla de pocos polígonos con
+  //      sombreado plano. Nada de degradados suaves dentro de un objeto.
+  //   3. CONTORNO Y CONTACTO. Línea oscura gruesa alrededor de cada pieza y
+  //      una elipse de sombra en el suelo: sin eso los objetos flotan.
+  //   4. TIPOGRAFÍA DE MÁQUINA. Números y avisos en cursiva, con contorno
+  //      grueso y sombra dura desplazada, como los marcadores de arcade.
+  //
+  // Todo es SVG embebido: la app sigue sin descargar una sola imagen.
+
+  /** Punto de fuga y horizonte estándar para un viewBox de alto `alto`. */
+  const HORIZONTE = (alto) => alto * 0.42;
+
+  /**
+   * Suelo en perspectiva: franjas que se estrechan hacia el horizonte y
+   * líneas de fuga. Es la firma visual de la época.
+   */
+  function SueloDC(props) {
+    const w = num(props.w, 1000), hh = num(props.h, 600);
+    const hz = num(props.horizonte, HORIZONTE(hh));
+    const f = facetas(props.color || '#3FA34D');
+    const fx = num(props.fugaX, w / 2);
+    const filas = [];
+    const n = num(props.filas, 9);
+    // Las franjas se calculan con progresión geométrica: cerca son altas y
+    // lejos se comprimen contra el horizonte, que es como se ve un plano.
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 1) / n;
+      const y0 = hz + (hh - hz) * (t0 * t0), y1 = hz + (hh - hz) * (t1 * t1);
+      filas.push(h('rect', {
+        key: 'f' + i, x: 0, y: y0, width: w, height: Math.max(0.5, y1 - y0),
+        fill: i % 2 ? f.base : f.luz,
+      }));
+    }
+    const lineas = [];
+    const m = num(props.lineas, 11);
+    for (let i = 0; i <= m; i++) {
+      const x = (i / m) * w * 3 - w;         // se extiende fuera del cuadro
+      lineas.push(h('path', {
+        key: 'l' + i, d: 'M' + fx + ' ' + hz + ' L' + x + ' ' + hh,
+        stroke: 'rgba(255,255,255,.16)', strokeWidth: 2, fill: 'none',
+      }));
+    }
+    return h('g', null,
+      h('rect', { x: 0, y: hz, width: w, height: hh - hz, fill: f.fondo }),
+      filas, lineas,
+      // Bruma en el horizonte: separa suelo y cielo sin una línea dura.
+      h('rect', { x: 0, y: hz, width: w, height: Math.max(8, hh * 0.06), fill: props.bruma || 'rgba(255,255,255,.25)', opacity: 0.5 }));
+  }
+
+  /** Cielo con sol bajo y nubes chatas de la época. */
+  function CieloDC(props) {
+    const w = num(props.w, 1000), hh = num(props.h, 600);
+    const hz = num(props.horizonte, HORIZONTE(hh));
+    const id = props.gid || 'dc';
+    const alto = props.alto || '#2FA9E8';
+    const bajo = props.bajo || '#BFEBFF';
+    return h('g', null,
+      h('defs', null,
+        h('linearGradient', { id: id + '-cielo', x1: 0, y1: 0, x2: 0, y2: 1 },
+          h('stop', { offset: '0%', stopColor: alto }),
+          h('stop', { offset: '100%', stopColor: bajo }))),
+      h('rect', { x: 0, y: 0, width: w, height: hz + 2, fill: 'url(#' + id + '-cielo)' }),
+      // El sol se dimensiona con la franja de CIELO, no con el alto total: en
+      // un viewBox alto y horizonte bajo, escalarlo al alto lo vuelve un muro.
+      (function () {
+        if (props.sol === false) return null;
+        const r = Math.min(hh, hz * 1.6) * 0.11;
+        const cx = num(props.solX, w * 0.74), cy = hz - r * 1.5;
+        return h('g', null,
+          h('circle', { cx: cx, cy: cy, r: r, fill: props.solColor || '#FFE9A8', opacity: 0.9 }),
+          h('circle', { cx: cx, cy: cy, r: r * 0.64, fill: '#FFFDF0' }));
+      })(),
+      (props.nubes || []).map((n, i) => h('g', { key: 'n' + i, opacity: 0.92 },
+        h('ellipse', { cx: n.x, cy: n.y, rx: n.r * 1.7, ry: n.r * 0.62, fill: '#fff' }),
+        h('ellipse', { cx: n.x - n.r, cy: n.y + n.r * 0.2, rx: n.r, ry: n.r * 0.5, fill: '#fff' }),
+        h('ellipse', { cx: n.x + n.r * 1.1, cy: n.y + n.r * 0.18, rx: n.r * 0.9, ry: n.r * 0.46, fill: '#fff' }))));
+  }
+
+  /** Cerros facetados al fondo: dan escala y tapan el corte del horizonte. */
+  function CerrosDC(props) {
+    const w = num(props.w, 1000);
+    const hz = num(props.horizonte, 250);
+    const f = facetas(props.color || '#4A6FA5');
+    const picos = props.picos || [[0.10, 0.55], [0.30, 0.9], [0.52, 0.62], [0.72, 1.0], [0.92, 0.7]];
+    const altoMax = num(props.alto, 110);
+    return h('g', { opacity: num(props.opacidad, 1) },
+      picos.map((p, i) => {
+        const cx = p[0] * w, ah = p[1] * altoMax, an = ah * 1.9;
+        return h('g', { key: 'c' + i },
+          // Cara en sombra y cara iluminada: dos triángulos, sin degradado.
+          h('path', { d: 'M' + (cx - an) + ' ' + hz + ' L' + cx + ' ' + (hz - ah) + ' L' + cx + ' ' + hz + ' Z', fill: f.sombra }),
+          h('path', { d: 'M' + cx + ' ' + (hz - ah) + ' L' + (cx + an) + ' ' + hz + ' L' + cx + ' ' + hz + ' Z', fill: f.luz }),
+          // Nieve en la cumbre, como los cerros de fondo de la época.
+          ah > altoMax * 0.75 ? h('path', {
+            d: 'M' + (cx - an * 0.22) + ' ' + (hz - ah * 0.76) + ' L' + cx + ' ' + (hz - ah) +
+               ' L' + (cx + an * 0.22) + ' ' + (hz - ah * 0.76) + ' L' + (cx + an * 0.07) + ' ' + (hz - ah * 0.82) +
+               ' L' + (cx - an * 0.08) + ' ' + (hz - ah * 0.7) + ' Z',
+            fill: '#F2F7FF',
+          }) : null);
+      }));
+  }
+
+  /**
+   * Lienzo recortado al viewBox. Un `<svg>` recorta a la caja del elemento,
+   * no al viewBox: si la caja es más ancha que el arte, todo lo que se dibuje
+   * fuera del viewBox —un blanco que entra volando, las líneas de fuga— se ve
+   * flotando en las bandas laterales. Esto lo evita.
+   */
+  function LienzoDC(props) {
+    const gid = props.gid || 'lienzo';
+    return h('g', { clipPath: 'url(#' + gid + '-vb)' },
+      h('defs', null, h('clipPath', { id: gid + '-vb' },
+        h('rect', { x: 0, y: 0, width: num(props.w, 1000), height: num(props.h, 1000) }))),
+      props.children);
+  }
+
+  /**
+   * Escena completa: cielo + cerros + suelo, recortada al viewBox.
+   *
+   * El recorte no es un detalle: un `<svg>` con viewBox recorta a la caja del
+   * elemento, no al viewBox, así que las líneas de fuga y los cerros —que se
+   * dibujan a propósito más anchos que el cuadro— se verían desbordando por
+   * los costados cuando la caja es más ancha que el arte.
+   */
+  function EscenaDC(props) {
+    const W = num(props.w, 1000), H = num(props.h, 600);
+    const hz = num(props.horizonte, HORIZONTE(H));
+    const e = props.escena || {};
+    const gid = props.gid || 'esc';
+    return h('g', { clipPath: 'url(#' + gid + '-clip)' },
+      h('defs', null, h('clipPath', { id: gid + '-clip' }, h('rect', { x: 0, y: 0, width: W, height: H }))),
+      h(CieloDC, {
+        w: W, h: H, horizonte: hz, gid: gid, alto: e.cielo, bajo: e.cieloBajo,
+        solX: props.solX, solColor: e.sol, sol: props.sol, nubes: props.nubes,
+      }),
+      props.cerros === false ? null : h(CerrosDC, {
+        w: W, horizonte: hz, color: e.cerros, alto: num(props.altoCerros, H * 0.2),
+        opacidad: num(props.opacidadCerros, 1), picos: props.picos,
+      }),
+      h(SueloDC, {
+        w: W, h: H, horizonte: hz, color: props.suelo || e.suelo,
+        fugaX: num(props.fugaX, W / 2), filas: props.filas, lineas: props.lineas, bruma: props.bruma,
+      }),
+      props.children);
+  }
+
+  /** Sombra de contacto en el suelo. Sin esto, todo flota. */
+  const SombraDC = (p) => h('ellipse', {
+    cx: p.cx, cy: p.cy, rx: p.rx, ry: num(p.ry, p.rx * 0.3),
+    fill: 'rgba(0,0,0,.32)', opacity: num(p.opacidad, 1),
+  });
+
+  /**
+   * Caja en proyección oblicua: cara frontal, tapa y lateral, cada una plana.
+   * `p` es la profundidad aparente en px (el desplazamiento del volumen).
+   */
+  function CajaDC(props) {
+    const x = num(props.x, 0), y = num(props.y, 0);
+    const w = num(props.w, 100), hh = num(props.h, 60), p = num(props.p, 18);
+    const f = facetas(props.color || '#D52B1E');
+    const lw = num(props.linea, 3);
+    return h('g', null,
+      h('path', { d: 'M' + x + ' ' + y + ' L' + (x + p) + ' ' + (y - p) + ' L' + (x + w + p) + ' ' + (y - p) + ' L' + (x + w) + ' ' + y + ' Z', fill: f.luz, stroke: f.linea, strokeWidth: lw, strokeLinejoin: 'round' }),
+      h('path', { d: 'M' + (x + w) + ' ' + y + ' L' + (x + w + p) + ' ' + (y - p) + ' L' + (x + w + p) + ' ' + (y + hh - p) + ' L' + (x + w) + ' ' + (y + hh) + ' Z', fill: f.sombra, stroke: f.linea, strokeWidth: lw, strokeLinejoin: 'round' }),
+      h('rect', { x: x, y: y, width: w, height: hh, fill: f.base, stroke: f.linea, strokeWidth: lw }),
+      props.brillo === false ? null : h('path', {
+        d: 'M' + (x + w * 0.08) + ' ' + (y + hh * 0.12) + ' L' + (x + w * 0.34) + ' ' + (y + hh * 0.12) + ' L' + (x + w * 0.2) + ' ' + (y + hh * 0.42) + ' L' + (x + w * 0.06) + ' ' + (y + hh * 0.42) + ' Z',
+        fill: '#fff', opacity: 0.18,
+      }));
+  }
+
+  /** Cilindro facetado (postes, tarros, tejos vistos de canto). */
+  function CilindroDC(props) {
+    const cx = num(props.cx, 0), cy = num(props.cy, 0);
+    const r = num(props.r, 30), hh = num(props.h, 60), ry = num(props.ry, r * 0.34);
+    const f = facetas(props.color || '#19ACB1');
+    const lw = num(props.linea, 3);
+    return h('g', null,
+      h('path', {
+        d: 'M' + (cx - r) + ' ' + cy + ' L' + (cx - r) + ' ' + (cy - hh) +
+           ' A' + r + ' ' + ry + ' 0 0 1 ' + (cx + r) + ' ' + (cy - hh) +
+           ' L' + (cx + r) + ' ' + cy + ' A' + r + ' ' + ry + ' 0 0 1 ' + (cx - r) + ' ' + cy + ' Z',
+        fill: f.base, stroke: f.linea, strokeWidth: lw,
+      }),
+      // Faceta lateral en sombra: un rectángulo del lado derecho, plano.
+      h('path', {
+        d: 'M' + (cx + r * 0.35) + ' ' + (cy - hh + ry * 0.6) + ' L' + (cx + r) + ' ' + (cy - hh) +
+           ' L' + (cx + r) + ' ' + cy + ' L' + (cx + r * 0.35) + ' ' + (cy + ry * 0.5) + ' Z',
+        fill: f.sombra, opacity: 0.85,
+      }),
+      h('ellipse', { cx: cx, cy: cy - hh, rx: r, ry: ry, fill: f.luz, stroke: f.linea, strokeWidth: lw }),
+      h('path', { d: 'M' + (cx - r * 0.72) + ' ' + (cy - hh * 0.86) + ' L' + (cx - r * 0.4) + ' ' + (cy - hh * 0.9) + ' L' + (cx - r * 0.46) + ' ' + (cy - hh * 0.2) + ' L' + (cx - r * 0.78) + ' ' + (cy - hh * 0.16) + ' Z', fill: '#fff', opacity: 0.2 }));
+  }
+
+  /** Panel de HUD inclinado, con bisel y contorno, como los marcadores arcade. */
+  function PanelDC(props) {
+    const x = num(props.x, 0), y = num(props.y, 0);
+    const w = num(props.w, 260), hh = num(props.h, 64);
+    const sk = num(props.sesgo, 12);                 // inclinación del paralelogramo
+    const f = facetas(props.color || '#141B2E');
+    const d = 'M' + (x + sk) + ' ' + y + ' L' + (x + w + sk) + ' ' + y + ' L' + (x + w) + ' ' + (y + hh) + ' L' + x + ' ' + (y + hh) + ' Z';
+    return h('g', null,
+      h('path', { d: d, transform: 'translate(5,6)', fill: 'rgba(0,0,0,.35)' }),
+      h('path', { d: d, fill: f.base, stroke: props.borde || '#fff', strokeWidth: num(props.linea, 3) }),
+      h('path', {
+        d: 'M' + (x + sk) + ' ' + y + ' L' + (x + w + sk) + ' ' + y + ' L' + (x + w + sk - 3) + ' ' + (y + 7) + ' L' + (x + sk - 3) + ' ' + (y + 7) + ' Z',
+        fill: '#fff', opacity: 0.28,
+      }),
+      props.children);
+  }
+
+  /** Rayos de velocidad / estallido: el "¡pum!" de la época. */
+  function EstallidoDC(props) {
+    const cx = num(props.cx, 0), cy = num(props.cy, 0);
+    const r = num(props.r, 90), n = num(props.puntas, 12);
+    const pts = [];
+    for (let i = 0; i < n * 2; i++) {
+      const a = (i / (n * 2)) * Math.PI * 2;
+      const rr = i % 2 ? r * num(props.interior, 0.52) : r;
+      pts.push((cx + Math.cos(a) * rr).toFixed(1) + ',' + (cy + Math.sin(a) * rr).toFixed(1));
+    }
+    return h('polygon', {
+      points: pts.join(' '), fill: props.color || '#FFD54F',
+      stroke: props.borde || '#B8410E', strokeWidth: num(props.linea, 4),
+      opacity: num(props.opacidad, 1), transform: props.transform,
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -648,18 +985,32 @@ export default function mount(shell) {
       h('path', { d: 'M-26 -4 L26 -4', stroke: '#F4D03F', strokeWidth: 4 }));
   }
 
-  /** Fondo de escenario: cordillera + cielo + guirnaldas. */
+  /**
+   * Fondo de escenario: el mundo donde ocurre todo. Cielo con sol, cordillera
+   * facetada y cancha en perspectiva que huye al horizonte. Es la misma
+   * escena que usan los juegos, para que la portada no se sienta un menú de
+   * web sino la pantalla de selección de un juego.
+   */
   function Escenario(props) {
     const t = props.theme;
+    const e = escenaDe(t);
+    const W = 1000, H = 600, hz = 268;
     return h('div', { className: 'fp-stage-bg' },
-      h('svg', { viewBox: '0 0 1000 600', preserveAspectRatio: 'xMidYMid slice', className: 'fp-stage-svg' },
+      h('svg', { viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid slice', className: 'fp-stage-svg' },
+        h(EscenaDC, {
+          w: W, h: H, horizonte: hz, gid: 'fp-home', escena: e,
+          solX: W * 0.76, altoCerros: 128, filas: 10, lineas: 13,
+          nubes: [{ x: 170, y: 96, r: 26 }, { x: 430, y: 62, r: 19 }, { x: 800, y: 118, r: 23 }],
+        }),
+        // Velo en degradado: el cielo se deja ver casi limpio y el suelo se
+        // apaga, porque es sobre el suelo donde van las fichas de los juegos.
         h('defs', null,
-          h('linearGradient', { id: 'fp-sky', x1: 0, y1: 0, x2: 0, y2: 1 },
-            h('stop', { offset: '0%', stopColor: t.bg }),
-            h('stop', { offset: '100%', stopColor: t.bg2 }))),
-        h('rect', { width: 1000, height: 600, fill: 'url(#fp-sky)' }),
-        h('path', { d: 'M0 430 L120 320 L200 380 L300 250 L420 400 L520 300 L640 420 L760 330 L880 420 L1000 360 L1000 600 L0 600 Z', fill: 'rgba(255,255,255,.07)' }),
-        h('path', { d: 'M0 470 L140 400 L260 460 L380 380 L520 470 L660 400 L800 470 L1000 420 L1000 600 L0 600 Z', fill: 'rgba(255,255,255,.05)' })),
+          h('linearGradient', { id: 'fp-home-velo', x1: 0, y1: 0, x2: 0, y2: 1 },
+            h('stop', { offset: '0%', stopColor: t.bg2, stopOpacity: 0.32 }),
+            h('stop', { offset: '42%', stopColor: t.bg2, stopOpacity: 0.42 }),
+            h('stop', { offset: '52%', stopColor: t.bg2, stopOpacity: 0.74 }),
+            h('stop', { offset: '100%', stopColor: t.bg2, stopOpacity: 0.9 }))),
+        h('rect', { x: 0, y: 0, width: W, height: H, fill: 'url(#fp-home-velo)' })),
       props.decor === false ? null : h('div', { className: 'fp-garland-wrap' }, h(Banderines, { n: 16, w: 1000, sag: 40 })));
   }
 
@@ -671,7 +1022,10 @@ export default function mount(shell) {
   const ANCA = { x: 648, y: 640 };   // centro del blanco (coordenadas SVG)
 
   function Burro(props) {
-    const g = '#9CA3AF', gD = '#6B7280', gL = '#C4C9D0';
+    // Facetas del pelaje: base, contorno duro y cara iluminada. El contorno
+    // grueso y oscuro es lo que separa al personaje del fondo en esta estética.
+    const f = facetas('#A2A9B4');
+    const g = f.base, gD = f.linea, gL = f.luz;
     return h('g', null,
       // patas traseras y delanteras
       h('g', { fill: g, stroke: gD, strokeWidth: 3 },
@@ -689,14 +1043,26 @@ export default function mount(shell) {
         d: 'M250 640 q0 -150 150 -170 q120 -16 220 0 q160 24 160 180 q0 150 -140 168 q-160 20 -280 4 q-110 -16 -110 -182 Z',
         fill: g, stroke: gD, strokeWidth: 4,
       }),
+      // Faceta en sombra: la panza y el costado que no reciben el sol.
+      h('path', {
+        d: 'M262 700 q10 118 108 132 q160 20 280 -6 q86 -18 108 -96 q-40 96 -196 104 q-180 10 -300 -134 Z',
+        fill: f.sombra, opacity: 0.9,
+      }),
+      // Brillo especular duro en el lomo, sin degradado.
+      h('path', {
+        d: 'M330 500 q120 -44 250 -20 q-130 4 -234 44 Z',
+        fill: '#fff', opacity: 0.34,
+      }),
       // anca (grupa): queda descubierta, es la zona de juego
-      h('ellipse', { cx: 646, cy: 648, rx: 140, ry: 186, fill: gL, opacity: 0.9 }),
+      h('ellipse', { cx: 646, cy: 648, rx: 140, ry: 186, fill: gL, opacity: 0.95 }),
+      h('path', { d: 'M700 520 q86 58 86 132 q0 96 -76 148', stroke: f.sombra, strokeWidth: 34, fill: 'none', opacity: 0.5, strokeLinecap: 'round' }),
       h('path', { d: 'M614 476 q118 54 118 172 q0 116 -96 172', stroke: gD, strokeWidth: 4, fill: 'none', opacity: 0.45 }),
       // manta / poncho con franja tricolor (cubre el lomo, no el anca)
       h('path', {
         d: 'M312 468 q130 -42 262 -10 q46 10 48 62 l10 200 q4 52 -48 60 q-140 22 -266 -2 q-46 -8 -42 -60 l16 -196 q4 -46 20 -54 Z',
-        fill: '#4B5563', stroke: '#374151', strokeWidth: 4,
+        fill: '#4B5563', stroke: '#232B36', strokeWidth: 5,
       }),
+      h('path', { d: 'M330 476 q120 -32 236 -6 l-6 34 q-118 -26 -236 4 Z', fill: '#fff', opacity: 0.16 }),
       h('path', { d: 'M280 690 q150 30 316 4 l5 32 q-170 30 -325 -4 Z', fill: '#0039A6' }),
       h('path', { d: 'M279 722 q152 32 320 4 l4 30 q-172 32 -328 -4 Z', fill: '#fff' }),
       h('path', { d: 'M278 752 q154 34 322 4 l4 30 q-174 34 -330 -4 Z', fill: '#D52B1E' }),
@@ -895,6 +1261,9 @@ export default function mount(shell) {
         }));
     }
 
+    const tema = themeOf(model);
+    const esc = escenaDe(tema);
+    const fAz = facetas(tema.accent2), fRo = facetas(tema.accent);
     return h(Marco, {
       icon: props.game.icon, title: props.game.name, onExit: props.onExit,
       meta: h('div', { className: 'fp-meta-row' },
@@ -906,11 +1275,14 @@ export default function mount(shell) {
           ref: svgRef, className: 'fp-burro-svg', viewBox: '0 0 1000 1150',
           onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp,
         },
-          h('defs', null,
-            h('radialGradient', { id: 'fp-wall', cx: '50%', cy: '35%', r: '75%' },
-              h('stop', { offset: '0%', stopColor: '#D9BE8E' }),
-              h('stop', { offset: '100%', stopColor: '#B08A56' }))),
-          h('rect', { width: 1000, height: 1150, fill: 'url(#fp-wall)' }),
+          // Escenario: patio de fonda al aire libre, con cerros al fondo y la
+          // tierra huyendo hacia el horizonte.
+          h(EscenaDC, {
+            w: 1000, h: 1150, horizonte: 560, gid: 'fp-burro', escena: esc,
+            solX: 205, altoCerros: 190, opacidadCerros: 0.9,
+            suelo: '#C8A264', filas: 8, lineas: 11, bruma: 'rgba(255,240,210,.5)',
+            nubes: [{ x: 700, y: 190, r: 34 }, { x: 380, y: 120, r: 24 }],
+          }),
           // guirnalda de banderines (paths dentro del mismo SVG)
           h('g', { opacity: 0.95 },
             h('path', { d: 'M-10 60 Q250 150 520 70', stroke: '#fff', strokeWidth: 4, fill: 'none', opacity: 0.7 }),
@@ -924,16 +1296,19 @@ export default function mount(shell) {
                 h('path', { d: estrella(0, 15, 11, 4.5), fill: '#fff' }),
                 h('path', { d: 'M-20 32 L20 32 L0 76 Z', fill: i % 2 ? '#0039A6' : '#D52B1E' }));
             })),
-          // suelo
-          h('path', { d: 'M0 1010 q500 -60 1000 0 L1000 1150 L0 1150 Z', fill: '#C8A264' }),
-          h('path', { d: 'M120 1060 q20 -26 40 0 M300 1090 q20 -26 40 0 M700 1070 q20 -26 40 0 M880 1100 q20 -26 40 0', stroke: '#8E6B3A', strokeWidth: 5, fill: 'none' }),
+          // Sombra de contacto: sin esto el burro flota sobre la tierra.
+          h(SombraDC, { cx: 500, cy: 1000, rx: 330, ry: 54 }),
           // burro
           h(Burro, null,
             // Blanco fijo en el anca (círculo blanco + anillos, como el afiche)
             h('g', null,
-              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 104, fill: '#fff', stroke: '#4B5563', strokeWidth: 5 }),
-              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 66, fill: 'none', stroke: '#0039A6', strokeWidth: 10 }),
-              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 26, fill: '#D52B1E' }))),
+              h('circle', { cx: ANCA.x + 6, cy: ANCA.y + 8, r: 104, fill: 'rgba(0,0,0,.28)' }),
+              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 104, fill: '#fff', stroke: '#2B3442', strokeWidth: 6 }),
+              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 104, fill: 'none', stroke: 'rgba(255,255,255,.85)', strokeWidth: 2, transform: 'translate(-3,-4)' }),
+              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 66, fill: 'none', stroke: fAz.base, strokeWidth: 12 }),
+              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 66, fill: 'none', stroke: fAz.luz, strokeWidth: 4 }),
+              h('circle', { cx: ANCA.x, cy: ANCA.y, r: 26, fill: fRo.base, stroke: fRo.linea, strokeWidth: 4 }),
+              h('circle', { cx: ANCA.x - 8, cy: ANCA.y - 9, r: 8, fill: '#fff', opacity: 0.55 }))),
           // Mira móvil
           h('g', { transform: 'translate(' + mira.x.toFixed(1) + ',' + mira.y.toFixed(1) + ')', className: 'fp-mira' },
             h('circle', { r: 58, fill: 'rgba(255,255,255,.18)', stroke: '#111827', strokeWidth: 3, strokeDasharray: '10 8' }),
@@ -2211,6 +2586,7 @@ export default function mount(shell) {
     }
 
     const objetivo = vista.objetivo || (choreo.steps[0] && choreo.steps[0].pose);
+    const escB = escenaDe(themeOf(model));
     return h(Marco, {
       icon: props.game.icon, title: props.game.name,
       onExit: () => { soltarTodo(); props.onExit(); },
@@ -2220,9 +2596,15 @@ export default function mount(shell) {
     },
       h('div', { className: 'fp-dance' },
         h('div', { className: 'fp-dance-avatar' },
+          // El avatar a imitar baila en un escenario, no sobre un rectángulo
+          // gris: tablas iluminadas y foco, como una fonda de verdad.
           h('svg', { viewBox: '0 0 340 420', className: 'fp-avatar-svg' },
-            h('rect', { width: 340, height: 420, rx: 22, fill: 'rgba(255,255,255,.06)' }),
-            h(Avatar, { transform: 'translate(170,178) scale(0.86)', pose: objetivo })),
+            h(LienzoDC, { gid: 'fp-baile-vb', w: 340, h: 420 },
+              h(CieloDC, { w: 340, h: 420, horizonte: 250, gid: 'fp-baile', alto: escB.cielo, bajo: escB.cieloBajo, sol: false }),
+              h('path', { d: 'M170 0 L300 250 L40 250 Z', fill: '#FFF3C4', opacity: 0.14 }),
+              h(SueloDC, { w: 340, h: 420, horizonte: 250, color: '#8A5C2A', fugaX: 170, filas: 6, lineas: 9, bruma: 'rgba(255,230,190,.35)' }),
+              h(SombraDC, { cx: 170, cy: 322, rx: 92, ry: 20 }),
+              h(Avatar, { transform: 'translate(170,178) scale(0.86)', pose: objetivo }))),
           h('div', { className: 'fp-dance-step' },
             h('b', null, hud.paso || choreo.name),
             h('span', null, hud.tip || choreo.musicHint || '')),
@@ -2403,6 +2785,8 @@ export default function mount(shell) {
     }
 
     const flashVivo = flash && nowMs() - flash.t < 260 ? flash : null;
+    const temaL = themeOf(model);
+    const escL = escenaDe(temaL), fLa = facetas(temaL.accent);
     return h(Marco, {
       icon: props.game.icon, title: props.game.name, onExit: props.onExit,
       meta: h('div', { className: 'fp-meta-row' },
@@ -2420,15 +2804,13 @@ export default function mount(shell) {
           },
           onPointerLeave: () => setMira(null),
         },
-          h('defs', null,
-            h('linearGradient', { id: 'fp-cielo3', x1: 0, y1: 0, x2: 0, y2: 1 },
-              h('stop', { offset: '0%', stopColor: '#0B2E5B' }),
-              h('stop', { offset: '60%', stopColor: '#3E86C4' }),
-              h('stop', { offset: '100%', stopColor: '#9BC7E4' }))),
-          h('rect', { width: 1000, height: 1400, fill: 'url(#fp-cielo3)' }),
-          h('circle', { cx: 830, cy: 190, r: 70, fill: '#FFD54F', opacity: 0.9 }),
-          h('path', { d: 'M0 980 L150 850 L300 950 L470 800 L650 960 L820 860 L1000 980 L1000 1400 L0 1400 Z', fill: '#3F6B34' }),
-          h('path', { d: 'M0 1090 q250 -60 500 0 q250 60 500 0 L1000 1400 L0 1400 Z', fill: '#5E8C3A' }),
+          h(LienzoDC, { gid: 'fp-laser-vb', w: 1000, h: 1400 },
+          // Cerro y cancha al atardecer: los blancos vuelan contra el cielo.
+          h(EscenaDC, {
+            w: 1000, h: 1400, horizonte: 900, gid: 'fp-laser', escena: escL,
+            solX: 830, altoCerros: 220, filas: 8, lineas: 13,
+            nubes: [{ x: 240, y: 210, r: 36 }, { x: 760, y: 330, r: 27 }],
+          }),
           // objetivos
           objs.map((o) => {
             const tr = 'translate(' + o.x.toFixed(1) + ',' + o.y.toFixed(1) + ') scale(' + o.escala.toFixed(2) + ')';
@@ -2441,11 +2823,13 @@ export default function mount(shell) {
               h('circle', { cx: 34, cy: -34, r: 17, fill: 'rgba(213,43,30,.9)' }),
               h('path', { d: 'M26 -42 L42 -26 M42 -42 L26 -26', stroke: '#fff', strokeWidth: 5, strokeLinecap: 'round' }));
           }),
-          // barra de recarga
+          // Barra de recarga: panel de máquina, con bisel y luz superior.
           h('g', null,
-            h('rect', { x: 0, y: LASER_VB.h - 150, width: 1000, height: 150, fill: 'rgba(10,16,27,.82)' }),
+            h('rect', { x: 0, y: LASER_VB.h - 150, width: 1000, height: 150, fill: '#0C1424' }),
+            h('rect', { x: 0, y: LASER_VB.h - 150, width: 1000, height: 7, fill: fLa.luz }),
+            h('rect', { x: 0, y: LASER_VB.h - 143, width: 1000, height: 4, fill: 'rgba(255,255,255,.3)' }),
             h('text', { x: 500, y: LASER_VB.h - 84, textAnchor: 'middle', className: 'fp-svg-label' },
-              cfg.recargaAuto ? 'Munición infinita' : 'DISPARA AQUÍ PARA RECARGAR'),
+              cfg.recargaAuto ? 'MUNICIÓN INFINITA' : 'DISPARA AQUÍ PARA RECARGAR'),
             h('text', { x: 500, y: LASER_VB.h - 40, textAnchor: 'middle', className: 'fp-svg-sub' },
               'Empanada +20 · Choripán +15 · Volantín +10 · Ají y schop −' + Math.abs(num(cfg.penalizacion, 5)))),
           // mira de la pistola
@@ -2455,8 +2839,10 @@ export default function mount(shell) {
             h('circle', { r: 4, fill: '#D52B1E' })) : null,
           // fogonazo
           flashVivo ? h('g', { transform: 'translate(' + flashVivo.x + ',' + flashVivo.y + ')' },
-            h('circle', { r: flashVivo.recarga ? 40 : 26, fill: flashVivo.vacio ? 'rgba(255,255,255,.25)' : 'rgba(255,214,79,.75)' }),
-            flashVivo.vacio ? h('text', { y: -40, textAnchor: 'middle', className: 'fp-svg-warn' }, 'SIN BALAS') : null) : null),
+            flashVivo.vacio
+              ? h('circle', { r: 26, fill: 'rgba(255,255,255,.25)' })
+              : h(EstallidoDC, { cx: 0, cy: 0, r: flashVivo.recarga ? 56 : 40, puntas: 10, color: '#FFE066', borde: '#C2410C', linea: 5 }),
+            flashVivo.vacio ? h('text', { y: -40, textAnchor: 'middle', className: 'fp-svg-warn' }, 'SIN BALAS') : null) : null)),
         h('p', { className: 'fp-hint' },
           'Dispara a las empanadas, los choripanes y los volantines. Los ajíes y los schops te restan puntos.')));
   }
@@ -3001,6 +3387,7 @@ export default function mount(shell) {
     }
 
     // ── La cancha (la pantalla ES el cajón de rayuela) ────────────────
+    const escR = escenaDe(themeOf(model));
     const tejoActual = Math.min(tiros.length + 1, totalTiros);
     const equipoActual = equipos === 1 ? 0 : tiros.length % equipos;
     const cajonPath = 'M' + CAJON.TL.x + ' ' + CAJON.TL.y + ' L' + CAJON.TR.x + ' ' + CAJON.TR.y +
@@ -3038,8 +3425,13 @@ export default function mount(shell) {
             h('linearGradient', { id: 'fp-madera', x1: 0, y1: 0, x2: 0, y2: 1 },
               h('stop', { offset: '0%', stopColor: '#C08B4A' }),
               h('stop', { offset: '100%', stopColor: '#8A5C2A' }))),
-          h('rect', { width: 1000, height: 1400, fill: 'url(#fp-muro)' }),
-          h('path', { d: 'M0 980 L1000 980 L1000 1400 L0 1400 Z', fill: '#2C3242' }),
+          // Cancha de rayuela al aire libre: cielo, cerros y tierra en fuga.
+          h(EscenaDC, {
+            w: 1000, h: 1400, horizonte: 300, gid: 'fp-ray', escena: escR,
+            solX: 300, altoCerros: 120, filas: 9, lineas: 13,
+            suelo: '#7A5A34', bruma: 'rgba(255,236,200,.4)',
+            nubes: [{ x: 220, y: 96, r: 28 }, { x: 640, y: 150, r: 21 }],
+          }),
           // guirnalda dieciochera sobre el muro
           h('path', {
             d: 'M0 40 Q250 130 500 60 Q750 -10 1000 70', fill: 'none',
@@ -3087,10 +3479,15 @@ export default function mount(shell) {
             h('ellipse', { rx: 40, ry: 16, fill: '#DDE1E6', stroke: '#5A6068', strokeWidth: 4 }),
             h('ellipse', { rx: 17, ry: 6, fill: 'rgba(255,255,255,.7)' })) : null,
           // vista superior de apoyo
-          cfg.vistaSuperior === false ? null : h('g', { transform: 'translate(828,296)' },
-            h('rect', { x: -110, y: -110, width: 220, height: 220, rx: 10, fill: 'rgba(0,0,0,.45)', stroke: 'rgba(255,255,255,.35)', strokeWidth: 3 }),
+          cfg.vistaSuperior === false ? null : h('g', { transform: 'translate(828,320)' },
+            h('rect', { x: -106, y: -104, width: 220, height: 220, rx: 8, fill: 'rgba(0,0,0,.3)' }),
+            h('rect', { x: -110, y: -110, width: 220, height: 220, rx: 8, fill: 'rgba(8,14,26,.82)', stroke: '#fff', strokeWidth: 4 }),
+            h('rect', { x: -110, y: -110, width: 220, height: 8, fill: 'rgba(255,255,255,.35)' }),
             h('line', { x1: -110, y1: 0, x2: 110, y2: 0, stroke: '#fff', strokeWidth: 4 }),
-            h('text', { y: -122, textAnchor: 'middle', className: 'fp-svg-sub' }, 'vista superior'),
+            // El rótulo va sobre su propia placa: encima del cielo claro,
+            // el texto blanco solo no se lee.
+            h('rect', { x: -96, y: -152, width: 192, height: 38, rx: 5, fill: '#0B1424', stroke: '#fff', strokeWidth: 3 }),
+            h('text', { y: -124, textAnchor: 'middle', className: 'fp-svg-sub' }, 'VISTA SUPERIOR'),
             tiros.filter((t) => t.dentro).map((t) => h('circle', {
               key: 'v' + t.id, cx: t.cx * 220, cy: t.cy * 220, r: 11,
               fill: t.equipo ? '#B08D57' : '#C9CDD2', stroke: t.quemada ? '#4ADE80' : '#5A6068', strokeWidth: 3,
@@ -3575,6 +3972,7 @@ export default function mount(shell) {
     const manoI = (manos && manos.i) || { x: 300, y: 1180 };
     const manoD = (manos && manos.d) || { x: 700, y: 1180 };
 
+    const fBo = facetas(themeOf(model).accent);
     return h(Marco, {
       icon: props.game.icon, title: props.game.name,
       onExit: () => { soltarTodo(); props.onExit(); },
@@ -3588,15 +3986,26 @@ export default function mount(shell) {
           h('div', null, h('small', null, 'TÚ'), barra(hud.vidaJ, '#4ADE80')),
           h('div', null, h('small', null, RIVALES[rival].nombre.toUpperCase()), barra(hud.vidaR, 'var(--fp-accent)', true))),
         h('svg', { className: 'fp-box-svg', viewBox: '0 0 1000 1400' },
+          h(LienzoDC, { gid: 'fp-box-vb', w: 1000, h: 1400 },
           h('defs', null,
-            h('radialGradient', { id: 'fp-ring', cx: '50%', cy: '40%', r: '75%' },
-              h('stop', { offset: '0%', stopColor: '#2E3A55' }),
-              h('stop', { offset: '100%', stopColor: '#141B2B' }))),
+            h('radialGradient', { id: 'fp-ring', cx: '50%', cy: '18%', r: '82%' },
+              h('stop', { offset: '0%', stopColor: '#3A4A6E' }),
+              h('stop', { offset: '100%', stopColor: '#0C1220' }))),
           h('rect', { width: 1000, height: 1400, fill: 'url(#fp-ring)' }),
-          // cuerdas del ring
+          // Foco cenital: el cono de luz que cae sobre la lona.
+          h('path', { d: 'M500 0 L860 980 L140 980 Z', fill: '#FFF3C4', opacity: 0.1 }),
+          // Público en la sombra: cabezas sin detalle, solo siluetas.
+          h('g', { opacity: 0.5 }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((i) => h('circle', {
+            key: 'p' + i, cx: 26 + i * 74, cy: 150 + ((i * 7) % 3) * 30, r: 22 + (i % 3) * 4, fill: '#070C16',
+          }))),
+          // Lona en fuga: el ring es un plano que se aleja, no un fondo plano.
+          h(SueloDC, { w: 1000, h: 1400, horizonte: 900, color: '#8C9AAE', fugaX: 500, filas: 7, lineas: 11, bruma: 'rgba(255,255,255,.12)' }),
+          // Cuerdas del ring, con brillo arriba y sombra abajo.
           [0, 1, 2].map((i) => h('g', { key: 'c' + i },
-            h('line', { x1: 0, y1: 250 + i * 90, x2: 1000, y2: 250 + i * 90, stroke: '#D52B1E', strokeWidth: 10, opacity: 0.55 }))),
-          h('rect', { x: 0, y: 980, width: 1000, height: 420, fill: '#8C9AAE', opacity: 0.35 }),
+            h('line', { x1: 0, y1: 254 + i * 90, x2: 1000, y2: 254 + i * 90, stroke: fBo.linea, strokeWidth: 12 }),
+            h('line', { x1: 0, y1: 250 + i * 90, x2: 1000, y2: 250 + i * 90, stroke: fBo.base, strokeWidth: 10 }),
+            h('line', { x1: 0, y1: 247 + i * 90, x2: 1000, y2: 247 + i * 90, stroke: fBo.luz, strokeWidth: 3 }))),
+          h(SombraDC, { cx: 500, cy: 1010, rx: 240, ry: 44 }),
           // contrincante
           h('g', { transform: 'translate(500,520) scale(1.05)' },
             h(RivalBoxeo, { tipo: rival, estado: hud.estadoRival, brazo: hud.brazoRival, t: hud.reloj })),
@@ -3604,7 +4013,7 @@ export default function mount(shell) {
           efectos.map((e) => h('text', {
             key: e.id, x: e.x, y: e.y, textAnchor: 'middle',
             className: 'fp-box-fx' + (e.tipo === 'recibe' ? ' is-mal' : e.tipo === 'ko' ? ' is-ko' : ''),
-          }, e.texto)),
+          }, e.texto))),
           // guantes del jugador
           h(GuanteJugador, { x: manoI.x, y: manoI.y, color: '#D52B1E' }),
           h(GuanteJugador, { x: manoD.x, y: manoD.y, color: '#D52B1E' }),
@@ -3841,6 +4250,7 @@ export default function mount(shell) {
     }
 
     // ── Tablero ───────────────────────────────────────────────────────
+    const fGa = facetas(themeOf(model).accent);
     const puedeTocar = !res && !pensando && !(contraMaquina && turno === fichaJ2);
     const celda = (i) => {
       const cx = 170 + (i % 3) * 250, cy = 170 + Math.floor(i / 3) * 250;
@@ -3850,11 +4260,16 @@ export default function mount(shell) {
         onPointerDown: () => { if (puedeTocar && !tablero[i]) jugar(i, turno); },
         style: { cursor: puedeTocar && !tablero[i] ? 'pointer' : 'default' },
       },
+        // Cada casilla es una tecla de máquina: cara superior clara, canto
+        // en sombra y hueco oscuro debajo.
+        h('rect', { x: -106, y: -102, width: 220, height: 220, rx: 12, fill: 'rgba(0,0,0,.3)' }),
         h('rect', {
-          x: -110, y: -110, width: 220, height: 220, rx: 18,
-          fill: ganadora ? '#FFF6D8' : '#F7F5EF',
-          stroke: ganadora ? '#F5871F' : '#D8D2C4', strokeWidth: ganadora ? 8 : 5,
+          x: -110, y: -110, width: 220, height: 220, rx: 12,
+          fill: ganadora ? '#FFF0BE' : '#F7F5EF',
+          stroke: ganadora ? '#C2610A' : '#8E8878', strokeWidth: ganadora ? 8 : 5,
         }),
+        h('rect', { x: -110, y: -110, width: 220, height: 12, rx: 4, fill: '#fff', opacity: 0.9 }),
+        h('rect', { x: -110, y: 92, width: 220, height: 18, fill: '#000', opacity: 0.12 }),
         h(FichaGato, { valor: tablero[i] }));
     };
 
@@ -3867,13 +4282,23 @@ export default function mount(shell) {
     },
       h('div', { className: 'fp-gato-wrap' },
         h('svg', { className: 'fp-gato-svg', viewBox: '0 0 840 840' },
-          h('rect', { width: 840, height: 840, rx: 24, fill: '#EDE7D9' }),
+          // El tablero es un mueble: base oscura, superficie y bisel.
+          h('rect', { x: 6, y: 10, width: 834, height: 830, rx: 20, fill: 'rgba(0,0,0,.35)' }),
+          h('rect', { width: 840, height: 840, rx: 20, fill: '#3A3326' }),
+          h('rect', { x: 10, y: 10, width: 820, height: 820, rx: 16, fill: '#EDE7D9' }),
+          h('rect', { x: 10, y: 10, width: 820, height: 14, rx: 6, fill: '#fff', opacity: 0.7 }),
           [0, 1, 2, 3, 4, 5, 6, 7, 8].map(celda),
-          res && res.linea ? h('line', {
-            x1: 170 + (res.linea[0] % 3) * 250, y1: 170 + Math.floor(res.linea[0] / 3) * 250,
-            x2: 170 + (res.linea[2] % 3) * 250, y2: 170 + Math.floor(res.linea[2] / 3) * 250,
-            stroke: '#D52B1E', strokeWidth: 16, strokeLinecap: 'round', opacity: 0.85,
-          }) : null),
+          res && res.linea ? h('g', null,
+            h('line', {
+              x1: 170 + (res.linea[0] % 3) * 250, y1: 174 + Math.floor(res.linea[0] / 3) * 250,
+              x2: 170 + (res.linea[2] % 3) * 250, y2: 174 + Math.floor(res.linea[2] / 3) * 250,
+              stroke: fGa.linea, strokeWidth: 22, strokeLinecap: 'round',
+            }),
+            h('line', {
+              x1: 170 + (res.linea[0] % 3) * 250, y1: 170 + Math.floor(res.linea[0] / 3) * 250,
+              x2: 170 + (res.linea[2] % 3) * 250, y2: 170 + Math.floor(res.linea[2] / 3) * 250,
+              stroke: fGa.base, strokeWidth: 16, strokeLinecap: 'round',
+            })) : null),
         h('div', { className: 'fp-gato-pie' },
           res
             ? h('div', { className: 'fp-gato-fin' },
@@ -4335,6 +4760,8 @@ export default function mount(shell) {
     }
 
     const arqueroPos = puntoEnArco(arq.x, 0);
+    const temaG = themeOf(model);
+    const escG = escenaDe(temaG), fGo = facetas(temaG.accent), fGo2 = facetas(temaG.accent2);
     return h(Marco, {
       icon: props.game.icon, title: props.game.name,
       onExit: () => { soltarTodo(); props.onExit(); },
@@ -4348,20 +4775,23 @@ export default function mount(shell) {
           ref: svgRef, className: 'fp-gol-svg', viewBox: '0 0 1000 1400',
           onPointerDown: onDown, onPointerUp: onUp, onPointerCancel: onUp,
         },
-          h('defs', null,
-            h('linearGradient', { id: 'fp-cielo4', x1: 0, y1: 0, x2: 0, y2: 1 },
-              h('stop', { offset: '0%', stopColor: '#0B2E5B' }),
-              h('stop', { offset: '100%', stopColor: '#4E86B8' })),
-            h('linearGradient', { id: 'fp-pasto', x1: 0, y1: 0, x2: 0, y2: 1 },
-              h('stop', { offset: '0%', stopColor: '#3F7A34' }),
-              h('stop', { offset: '100%', stopColor: '#5EA347' }))),
-          h('rect', { width: 1000, height: 1400, fill: 'url(#fp-cielo4)' }),
-          // público
-          h('rect', { y: 180, width: 1000, height: 190, fill: '#243049' }),
+          h(LienzoDC, { gid: 'fp-gol-vb', w: 1000, h: 1400 },
+          // Estadio: cielo, galería con público y cancha rayada en fuga.
+          h(CieloDC, {
+            w: 1000, h: 1400, horizonte: 360, gid: 'fp-gol',
+            alto: escG.cielo, bajo: escG.cieloBajo, solX: 810, solColor: escG.sol,
+            nubes: [{ x: 700, y: 120, r: 30 }],
+          }),
+          // Galería: bloque con bisel arriba y su marea de camisetas.
+          h('rect', { y: 176, width: 1000, height: 190, fill: '#1B2438' }),
+          h('rect', { y: 176, width: 1000, height: 10, fill: 'rgba(255,255,255,.28)' }),
+          h('rect', { y: 356, width: 1000, height: 10, fill: 'rgba(0,0,0,.45)' }),
           [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((i) => h('g', { key: 'p' + i },
-            h('circle', { cx: 40 + i * 84, cy: 250 + (i % 3) * 34, r: 16, fill: i % 2 ? '#D52B1E' : '#0039A6', opacity: 0.75 }))),
-          h('rect', { y: 360, width: 1000, height: 1040, fill: 'url(#fp-pasto)' }),
-          [0, 1, 2, 3, 4].map((i) => h('rect', { key: 'r' + i, y: 420 + i * 200, width: 1000, height: 100, fill: 'rgba(255,255,255,.04)' })),
+            h('circle', { cx: 40 + i * 84, cy: 250 + (i % 3) * 34, r: 16, fill: i % 2 ? fGo.base : fGo2.base, opacity: 0.85 }),
+            h('circle', { cx: 34 + i * 84, cy: 244 + (i % 3) * 34, r: 5, fill: '#fff', opacity: 0.3 }))),
+          // La cancha huye hacia el arco: es lo que da la sensación de patear
+          // hacia adentro de la pantalla y no hacia un telón.
+          h(SueloDC, { w: 1000, h: 1400, horizonte: 366, color: '#4E9B3E', fugaX: 500, filas: 9, lineas: 13, bruma: 'rgba(255,255,255,.2)' }),
           // área
           h('path', { d: 'M120 700 L880 700 L960 1000 L40 1000 Z', fill: 'none', stroke: 'rgba(255,255,255,.6)', strokeWidth: 6 }),
           // arco
@@ -4399,8 +4829,10 @@ export default function mount(shell) {
                 h('circle', { r: 40, fill: '#fff', stroke: '#111827', strokeWidth: 5 }),
                 h('path', { d: 'M0 -21 L19 -7 L12 17 L-12 17 L-19 -7 Z', fill: '#111827' })),
           ultimo && !balon ? h('g', { transform: 'translate(500,1075)' },
-            h('rect', { x: -300, y: -46, width: 600, height: 92, rx: 46, fill: 'rgba(0,0,0,.55)' }),
-            h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' }, ultimo.motivo)) : null),
+            h('rect', { x: -296, y: -42, width: 600, height: 92, rx: 8, fill: 'rgba(0,0,0,.4)' }),
+            h('rect', { x: -300, y: -46, width: 600, height: 92, rx: 8, fill: '#0C1424', stroke: '#fff', strokeWidth: 4 }),
+            h('rect', { x: -300, y: -46, width: 600, height: 8, fill: 'rgba(255,255,255,.34)' }),
+            h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' }, ultimo.motivo)) : null)),
         !modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
           hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
@@ -4748,6 +5180,9 @@ export default function mount(shell) {
     if (comun) return comun;
 
     const suelo = 760;
+    const temaE = themeOf(model);
+    const escE = escenaDe(temaE);
+    const fCe = facetas(escE.cerros), fPa = facetas(escE.suelo);
     const accion = E.hud.accion;
     // El avatar se dibuja con los pies 120 unidades bajo su origen (60 si va
     // agachado, porque se comprime): así queda siempre parado en el suelo.
@@ -4763,32 +5198,40 @@ export default function mount(shell) {
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
-          h('rect', { width: 1000, height: 1000, fill: '#7EC0EE' }),
-          // parallax: cerros y nubes
-          h('g', { transform: 'translate(' + (-(E.hud.t * 40) % 1000) + ',0)' },
+          h(CieloDC, {
+            w: 1000, h: 1000, horizonte: 700, gid: 'fp-esq2d',
+            alto: escE.cielo, bajo: escE.cieloBajo, sol: false,
+          }),
+          // Parallax de dos capas: los cerros lejanos se mueven despacio y los
+          // cercanos más rápido. Es lo que da profundidad en una vista lateral.
+          h('g', { transform: 'translate(' + (-(E.hud.t * 26) % 1000) + ',0)', opacity: 0.75 },
             [0, 1].map((k) => h('g', { key: k, transform: 'translate(' + k * 1000 + ',0)' },
-              h('path', { d: 'M0 700 L180 470 L340 700 Z', fill: '#4E8FBF' }),
-              h('path', { d: 'M260 700 L470 430 L680 700 Z', fill: '#457FAC' }),
-              h('path', { d: 'M600 700 L820 480 L1000 700 Z', fill: '#4E8FBF' }),
+              h(CerrosDC, { w: 1000, horizonte: 700, color: fCe.sombra, alto: 250, picos: [[0.2, 0.9], [0.6, 1], [0.9, 0.75]] })))),
+          h('g', { transform: 'translate(' + (-(E.hud.t * 55) % 1000) + ',0)' },
+            [0, 1].map((k) => h('g', { key: k, transform: 'translate(' + k * 1000 + ',0)' },
+              h(CerrosDC, { w: 1000, horizonte: 700, color: escE.cerros, alto: 165, picos: [[0.1, 0.8], [0.45, 1], [0.8, 0.85]] }),
               h('ellipse', { cx: 180, cy: 190, rx: 90, ry: 40, fill: 'rgba(255,255,255,.85)' }),
               h('ellipse', { cx: 640, cy: 130, rx: 110, ry: 44, fill: 'rgba(255,255,255,.8)' })))),
-          h('rect', { y: 700, width: 1000, height: 300, fill: '#5EA347' }),
-          h('rect', { y: 700, width: 1000, height: 26, fill: '#3F7A34' }),
-          // suelo con textura en movimiento
+          // Pasto: cara superior clara y frente en sombra, como un bloque.
+          h('rect', { y: 700, width: 1000, height: 300, fill: fPa.sombra }),
+          h('rect', { y: 700, width: 1000, height: 40, fill: fPa.luz }),
+          h('rect', { y: 740, width: 1000, height: 10, fill: fPa.linea }),
+          // Textura del suelo en movimiento: marca la velocidad de la carrera.
           h('g', { transform: 'translate(' + (-(E.hud.t * 320) % 200) + ',0)' },
             [0, 1, 2, 3, 4, 5, 6].map((i) => h('rect', {
-              key: i, x: i * 200, y: 726, width: 120, height: 12, rx: 6, fill: 'rgba(0,0,0,.12)',
+              key: i, x: i * 200, y: 762, width: 120, height: 12, rx: 6, fill: 'rgba(0,0,0,.18)',
             }))),
           // obstáculos: los bajos en el suelo, los altos colgando
           E.obstaculos.map((o) => {
             const x = 260 + o.d * 900;
             return o.tipo === 'bajo'
               ? h('g', { key: o.id, transform: 'translate(' + x.toFixed(0) + ',' + suelo + ')' },
-                  h('rect', { x: -46, y: -108, width: 92, height: 108, rx: 8, fill: '#8B5E34', stroke: '#5E3B18', strokeWidth: 6 }),
-                  h('path', { d: 'M-46 -70 L46 -70 M-46 -36 L46 -36', stroke: '#5E3B18', strokeWidth: 4 }))
+                  h(SombraDC, { cx: 0, cy: 6, rx: 54, ry: 12 }),
+                  h(CajaDC, { x: -46, y: -108, w: 92, h: 108, p: 22, color: '#9A6A3C', linea: 6 }),
+                  h('path', { d: 'M-46 -70 L46 -70 M-46 -36 L46 -36', stroke: '#4E2E12', strokeWidth: 4 }))
               // El obstáculo alto cuelga desde arriba: se pasa agachándose.
               : h('g', { key: o.id, transform: 'translate(' + x.toFixed(0) + ',' + (suelo - 250) + ')' },
-                  h('rect', { x: -56, y: -(suelo - 250), width: 112, height: suelo - 250 + 12, rx: 8, fill: '#7A4A22', stroke: '#4E2E12', strokeWidth: 6 }),
+                  h(CajaDC, { x: -56, y: -(suelo - 250), w: 112, h: suelo - 250 + 12, p: 24, color: '#8A5528', linea: 6 }),
                   h('path', { d: 'M-56 -60 L56 -60 M-56 -160 L56 -160', stroke: '#4E2E12', strokeWidth: 5 }));
           }),
           // avatar
@@ -4840,32 +5283,51 @@ export default function mount(shell) {
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq3d-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
+          h(LienzoDC, { gid: 'fp-esq3d-vb', w: 1000, h: 1000 },
           h('defs', null,
             h('linearGradient', { id: 'fp-tunel', x1: 0, y1: 0, x2: 0, y2: 1 },
-              h('stop', { offset: '0%', stopColor: '#0A1120' }),
-              h('stop', { offset: '100%', stopColor: '#1B2946' }))),
+              h('stop', { offset: '0%', stopColor: '#07101F' }),
+              h('stop', { offset: '62%', stopColor: '#16294D' }),
+              h('stop', { offset: '100%', stopColor: '#28477A' }))),
           h('rect', { width: 1000, height: 1000, fill: 'url(#fp-tunel)' }),
-          // punto de fuga y pista
+          // Resplandor en el punto de fuga: el túnel tiene un fondo hacia el
+          // que se corre, no un vacío.
+          h('circle', { cx: 500, cy: 300, r: 210, fill: '#7CFFB2', opacity: 0.1 }),
+          h('circle', { cx: 500, cy: 300, r: 95, fill: '#7CFFB2', opacity: 0.14 }),
+          // Pista con dos caras: el piso claro y las paredes laterales.
           h('path', { d: 'M500 300 L-120 1000 L1120 1000 Z', fill: '#16223C' }),
-          h('g', { stroke: 'rgba(124,255,178,.25)', strokeWidth: 3 },
-            [0, 1, 2, 3, 4, 5].map((i) => {
-              const k = ((E.hud.t * 0.55 + i / 6) % 1);
+          h('path', { d: 'M500 300 L-120 1000 L-420 1000 Z', fill: '#0D1730' }),
+          h('path', { d: 'M500 300 L1120 1000 L1420 1000 Z', fill: '#0D1730' }),
+          // Travesaños que huyen: son los que dan la velocidad de avance.
+          h('g', { stroke: 'rgba(124,255,178,.3)', strokeWidth: 3 },
+            [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+              const k = ((E.hud.t * 0.55 + i / 8) % 1);
               const p = proyectar(1 - k);
-              const ancho = 40 + (1 - k) * 0 + k * 1100;
-              return h('line', { key: 'l' + i, x1: 500 - ancho / 2, y1: p.y, x2: 500 + ancho / 2, y2: p.y });
+              const ancho = 40 + k * 1100;
+              return h('line', { key: 'l' + i, x1: 500 - ancho / 2, y1: p.y, x2: 500 + ancho / 2, y2: p.y, strokeWidth: 2 + k * 5 });
             })),
-          h('path', { d: 'M500 300 L-120 1000 M500 300 L1120 1000', stroke: 'rgba(124,255,178,.4)', strokeWidth: 4 }),
+          h('path', { d: 'M500 300 L-120 1000 M500 300 L1120 1000', stroke: '#7CFFB2', strokeWidth: 5, opacity: 0.55 }),
           // obstáculos que se acercan
           E.obstaculos.slice().sort((a, b) => b.d - a.d).map((o) => {
             const p = proyectar(o.d);
             const w = 620 * p.escala, hh = 150 * p.escala;
             const y = o.tipo === 'bajo' ? p.y : p.y - 300 * p.escala;
             const col = o.tipo === 'bajo' ? '#D52B1E' : '#F4B400';
+            const fO = facetas(col);
+            const pr = Math.max(4, 26 * p.escala);
             return h('g', { key: o.id, transform: 'translate(500,' + y.toFixed(0) + ')', opacity: clamp(1.15 - o.d, 0.25, 1) },
-              h('rect', {
-                x: -w / 2, y: -hh / 2, width: w, height: hh, rx: 10,
-                fill: col, opacity: 0.28, stroke: col, strokeWidth: Math.max(3, 8 * p.escala),
+              // Cara superior y frontal: la barra es un bloque que se acerca,
+              // y el frente queda translúcido para no tapar la silueta.
+              h('path', {
+                d: 'M' + (-w / 2) + ' ' + (-hh / 2) + ' L' + (-w / 2 + pr) + ' ' + (-hh / 2 - pr) +
+                   ' L' + (w / 2 + pr) + ' ' + (-hh / 2 - pr) + ' L' + (w / 2) + ' ' + (-hh / 2) + ' Z',
+                fill: fO.luz,
               }),
+              h('rect', {
+                x: -w / 2, y: -hh / 2, width: w, height: hh, rx: 6,
+                fill: col, opacity: 0.34, stroke: col, strokeWidth: Math.max(3, 8 * p.escala),
+              }),
+              h('rect', { x: -w / 2, y: -hh / 2, width: w, height: Math.max(3, 7 * p.escala), fill: fO.brillo }),
               p.escala > 0.6 ? h('text', {
                 y: -hh / 2 - 16, textAnchor: 'middle', className: 'fp-esq-aviso',
                 fontSize: Math.round(46 * p.escala),
@@ -4893,7 +5355,7 @@ export default function mount(shell) {
                   }))),
           E.hud.aviso
             ? h('text', { x: 500, y: 210, textAnchor: 'middle', className: 'fp-svg-label' }, E.hud.aviso)
-            : null),
+            : null)),
         !E.modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: E.attachVideo, className: 'fp-video is-mirror', autoPlay: true, playsInline: true, muted: true }),
           h('div', { className: 'fp-cam-notice' }, '● Cámara activa')) : null,

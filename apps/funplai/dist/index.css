@@ -7,14 +7,30 @@
   --fp-bg2: #0B1730;
   --fp-surface: #F6F1E4;
   --fp-ink: #1B2436;
-  --fp-radius: 18px;
+  --fp-radius: 14px;
+  /* Facetas de marca (las calcula el JS con el color del cliente). */
+  --fp-accent-luz: #ff5a4e;
+  --fp-accent-sombra: #b02018;
+  --fp-accent-linea: #5e0f0a;
+  --fp-accent2-luz: #2f74ff;
+  --fp-accent2-sombra: #073aa0;
+  --fp-cielo: #2C9BE0;
+  --fp-cielo-bajo: #CFF0FF;
+  --fp-suelo: #4FA83F;
+  /* Tipografía de marcador de arcade: condensada, con mucho peso. */
+  --fp-display: "Arial Black", "Arial Bold", "Helvetica Neue", Impact, ui-sans-serif, system-ui, sans-serif;
   position: relative;
   height: 100%;
   width: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(160deg, var(--fp-bg), var(--fp-bg2));
+  /* El fondo del shell es el cielo del motor de arte, para que las pantallas
+     de menú y las de juego se sientan el mismo mundo. */
+  background: linear-gradient(170deg, var(--fp-bg) 0%, var(--fp-bg2) 100%);
+  background:
+    radial-gradient(125% 72% at 50% 119%, color-mix(in srgb, var(--fp-suelo) 60%, transparent) 0%, transparent 62%),
+    linear-gradient(170deg, var(--fp-bg) 0%, var(--fp-bg2) 100%);
   color: #fff;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
@@ -35,30 +51,48 @@
 /* ── Botones ─────────────────────────────────────────────────────────── */
 .kimos-funplai .fp-btn {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, .22);
-  background: rgba(255, 255, 255, .1);
+  border: 2px solid rgba(255, 255, 255, .3);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .2) 0%, rgba(255, 255, 255, .2) 46%, rgba(255, 255, 255, .07) 47%, rgba(255, 255, 255, .07) 100%);
   color: #fff;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 12px 20px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: .01em;
   cursor: pointer;
-  transition: transform .12s ease, background .12s ease, opacity .12s ease;
+  /* Bisel: una línea clara arriba, una oscura abajo y sombra dura desplazada.
+     Es el botón de menú de un juego de esta época, no un botón de web. */
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, .35),
+    inset 0 -3px 0 rgba(0, 0, 0, .3),
+    3px 4px 0 rgba(0, 0, 0, .38);
+  transition: transform .1s ease, filter .1s ease, box-shadow .1s ease;
   min-height: 46px;
 }
-.kimos-funplai .fp-btn:hover { background: rgba(255, 255, 255, .18); }
-.kimos-funplai .fp-btn:active { transform: scale(.97); }
-.kimos-funplai .fp-btn:disabled { opacity: .5; cursor: default; }
-.kimos-funplai .fp-btn--primary {
-  background: var(--fp-accent);
-  border-color: transparent;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
-  font-size: 17px;
-  padding: 14px 26px;
+.kimos-funplai .fp-btn:hover { filter: brightness(1.14); }
+.kimos-funplai .fp-btn:active {
+  transform: translate(3px, 4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .25), inset 0 -3px 0 rgba(0, 0, 0, .3);
 }
-.kimos-funplai .fp-btn--soft { background: rgba(255, 255, 255, .16); }
-.kimos-funplai .fp-btn--ghost { background: transparent; border-color: rgba(255, 255, 255, .28); }
-.kimos-funplai .fp-btn--danger { background: #7f1d1d; border-color: transparent; }
+.kimos-funplai .fp-btn:disabled { opacity: .45; cursor: default; box-shadow: none; }
+.kimos-funplai .fp-btn--primary {
+  background: linear-gradient(180deg, var(--fp-accent-luz) 0%, var(--fp-accent-luz) 46%, var(--fp-accent) 47%, var(--fp-accent-sombra) 100%);
+  border-color: var(--fp-accent-linea);
+  font-size: 18px;
+  padding: 15px 30px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.kimos-funplai .fp-btn--soft {
+  background: linear-gradient(180deg, var(--fp-accent2-luz) 0%, var(--fp-accent2-luz) 46%, var(--fp-accent2) 47%, var(--fp-accent2-sombra) 100%);
+  border-color: rgba(0, 0, 0, .35);
+}
+.kimos-funplai .fp-btn--ghost { background: rgba(0, 0, 0, .25); border-color: rgba(255, 255, 255, .34); }
+.kimos-funplai .fp-btn--danger {
+  background: linear-gradient(180deg, #b3312b 0%, #b3312b 46%, #7f1d1d 47%, #571010 100%);
+  border-color: #3d0a0a;
+}
 .kimos-funplai .fp-linkbtn {
   background: none; border: 0; color: #9fd0ff; cursor: pointer;
   text-decoration: underline; font-size: 13px; padding: 0 6px;
@@ -66,11 +100,16 @@
 
 .kimos-funplai .fp-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 999px;
-  background: rgba(255, 255, 255, .12);
-  border: 1px solid rgba(255, 255, 255, .18);
-  font-size: 13px; font-weight: 600; color: #fff; cursor: default;
+  padding: 6px 14px 6px 12px; border-radius: 4px;
+  background: rgba(0, 0, 0, .42);
+  border: 2px solid rgba(255, 255, 255, .3);
+  /* Ficha de HUD: paralelogramo inclinado, como los marcadores de la época. */
+  transform: skewX(-9deg);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .22), 2px 3px 0 rgba(0, 0, 0, .35);
+  font-size: 13px; font-weight: 800; font-style: italic; color: #fff; cursor: default;
+  text-transform: uppercase; letter-spacing: .02em;
 }
+.kimos-funplai .fp-chip > * { transform: skewX(9deg); }
 .kimos-funplai button.fp-chip { cursor: pointer; }
 .kimos-funplai .fp-chip--accent { background: var(--fp-accent); border-color: transparent; }
 .kimos-funplai .fp-chip--ok { background: #15803d; border-color: transparent; }
@@ -98,13 +137,27 @@
 }
 .kimos-funplai .fp-brand { display: flex; align-items: center; gap: 14px; }
 .kimos-funplai .fp-brand-logo { font-size: 40px; }
-.kimos-funplai .fp-brand h1 { font-size: 26px; letter-spacing: -.02em; }
+.kimos-funplai .fp-brand h1 {
+  font-family: var(--fp-display); font-size: 30px; font-style: italic;
+  letter-spacing: -.01em; text-transform: uppercase;
+  /* Título de portada: contorno grueso y sombra dura, sin desenfoque. */
+  text-shadow: 3px 4px 0 rgba(0, 0, 0, .55), -2px -1px 0 rgba(255, 255, 255, .18);
+}
 .kimos-funplai .fp-brand p { font-size: 14px; opacity: .75; }
 .kimos-funplai .fp-home-tools { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .kimos-funplai .fp-hero { text-align: center; padding: 18px 22px 8px; }
 .kimos-funplai .fp-hero-rosette { filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .45)); }
-.kimos-funplai .fp-hero h2 { font-size: 34px; margin-top: 10px; letter-spacing: -.02em; }
+.kimos-funplai .fp-hero h2 {
+  font-family: var(--fp-display); font-size: 40px; margin-top: 10px;
+  font-style: italic; text-transform: uppercase; letter-spacing: -.01em;
+  color: #fff;
+  text-shadow: 0 0 1px var(--fp-accent-linea), 4px 5px 0 rgba(0, 0, 0, .5);
+  text-shadow:
+    0 0 1px var(--fp-accent-linea),
+    4px 5px 0 rgba(0, 0, 0, .5),
+    0 0 26px color-mix(in srgb, var(--fp-accent) 55%, transparent);
+}
 .kimos-funplai .fp-hero p { opacity: .8; margin-top: 6px; font-size: 16px; }
 
 .kimos-funplai .fp-cards {
@@ -112,22 +165,42 @@
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 .kimos-funplai .fp-card {
+  position: relative; overflow: hidden;
   display: flex; flex-direction: column; gap: 8px; text-align: left;
-  padding: 22px; border-radius: var(--fp-radius); cursor: pointer;
-  background: rgba(255, 255, 255, .1);
-  border: 1px solid rgba(255, 255, 255, .2);
-  backdrop-filter: blur(6px);
-  color: #fff; transition: transform .14s ease, background .14s ease;
+  padding: 20px; border-radius: var(--fp-radius); cursor: pointer;
+  background: linear-gradient(165deg, rgba(16, 24, 44, .78) 0%, rgba(12, 20, 38, .84) 48%, rgba(6, 12, 26, .9) 100%);
+  border: 2px solid rgba(255, 255, 255, .3);
+  /* Ficha de selección de personaje: bisel arriba, peso abajo, sombra dura. */
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, .3),
+    inset 0 -4px 0 rgba(0, 0, 0, .28),
+    5px 6px 0 rgba(0, 0, 0, .34);
+  color: #fff; transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
   min-height: 180px;
 }
-.kimos-funplai .fp-card:hover { background: rgba(255, 255, 255, .17); transform: translateY(-3px); }
-.kimos-funplai .fp-card:active { transform: scale(.985); }
-.kimos-funplai .fp-card-icon { font-size: 42px; }
-.kimos-funplai .fp-card-name { font-size: 21px; font-weight: 700; }
-.kimos-funplai .fp-card-blurb { font-size: 14px; opacity: .78; flex: 1; }
+/* Barra diagonal de color: la cinta que cruza las fichas de la época. */
+.kimos-funplai .fp-card::before {
+  content: ""; position: absolute; top: -30%; right: -22%;
+  width: 46%; height: 170%; transform: rotate(24deg);
+  background: linear-gradient(180deg, var(--fp-accent-luz), var(--fp-accent-sombra));
+  opacity: .34; pointer-events: none;
+}
+.kimos-funplai .fp-card:hover { transform: translate(-2px, -4px); filter: brightness(1.1); box-shadow: inset 0 3px 0 rgba(255, 255, 255, .3), inset 0 -4px 0 rgba(0, 0, 0, .28), 8px 10px 0 rgba(0, 0, 0, .34); }
+.kimos-funplai .fp-card:active { transform: translate(3px, 4px); box-shadow: inset 0 3px 0 rgba(255, 255, 255, .2), inset 0 -4px 0 rgba(0, 0, 0, .28); }
+.kimos-funplai .fp-card-icon { font-size: 46px; filter: drop-shadow(3px 4px 0 rgba(0, 0, 0, .4)); }
+.kimos-funplai .fp-card-name {
+  font-family: var(--fp-display); font-size: 22px; font-style: italic;
+  text-transform: uppercase; letter-spacing: -.01em; line-height: 1.05;
+  text-shadow: 2px 3px 0 rgba(0, 0, 0, .5);
+}
+.kimos-funplai .fp-card-blurb { font-size: 14px; opacity: .82; flex: 1; position: relative; }
 .kimos-funplai .fp-card-tag {
-  align-self: flex-start; font-size: 12px; font-weight: 700;
-  padding: 5px 12px; border-radius: 999px; background: var(--fp-accent2);
+  align-self: flex-start; font-size: 11px; font-weight: 800; font-style: italic;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 5px 12px; border-radius: 3px; transform: skewX(-9deg);
+  background: linear-gradient(180deg, var(--fp-accent2-luz), var(--fp-accent2-sombra));
+  border: 2px solid rgba(0, 0, 0, .35);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, .3);
 }
 .kimos-funplai .fp-home-foot {
   display: flex; align-items: center; justify-content: center; gap: 16px;
@@ -140,9 +213,18 @@
 .kimos-funplai .fp-game { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .kimos-funplai .fp-game-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 18px; background: rgba(0, 0, 0, .28); flex-wrap: wrap;
+  padding: 11px 18px; flex-wrap: wrap;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, .34) 100%);
+  border-bottom: 3px solid rgba(255, 255, 255, .22);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, .3);
+  position: relative; z-index: 2;
 }
-.kimos-funplai .fp-game-title { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 700; }
+.kimos-funplai .fp-game-title {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--fp-display); font-size: 21px; font-style: italic;
+  text-transform: uppercase; letter-spacing: -.01em;
+  text-shadow: 2px 3px 0 rgba(0, 0, 0, .5);
+}
 .kimos-funplai .fp-game-icon { font-size: 24px; }
 .kimos-funplai .fp-meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .kimos-funplai .fp-game-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
@@ -168,8 +250,19 @@
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; padding: 26px; text-align: center;
 }
-.kimos-funplai .fp-result h2 { font-size: 30px; }
-.kimos-funplai .fp-result-score { font-size: 78px; font-weight: 800; line-height: 1; color: var(--fp-accent); }
+.kimos-funplai .fp-result h2 {
+  font-family: var(--fp-display); font-size: 34px; font-style: italic;
+  text-transform: uppercase; text-shadow: 3px 4px 0 rgba(0, 0, 0, .5);
+}
+.kimos-funplai .fp-result-score {
+  font-family: var(--fp-display); font-size: 92px; font-style: italic;
+  line-height: 1; color: #fff;
+  /* Número de puntaje: relleno claro, contorno de marca, sombra dura. */
+  text-shadow:
+    3px 0 0 var(--fp-accent-linea), -3px 0 0 var(--fp-accent-linea),
+    0 3px 0 var(--fp-accent-linea), 0 -3px 0 var(--fp-accent-linea),
+    6px 8px 0 rgba(0, 0, 0, .45);
+}
 .kimos-funplai .fp-result-score small { font-size: 26px; opacity: .6; color: #fff; }
 .kimos-funplai .fp-result-stars { font-size: 34px; letter-spacing: 6px; color: #FFD54F; }
 .kimos-funplai .fp-result-msg { font-size: 17px; opacity: .9; max-width: 620px; }
