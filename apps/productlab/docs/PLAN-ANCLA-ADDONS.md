@@ -197,7 +197,25 @@ El botón único "Actualizar en la tienda" amarraba la carga pesada (fotos/pági
 
 Ambas acciones guardan primero y notifican "Guardado ✓" al tiro — lo lento es la tienda, no KIMOS. Confirmación antes de las acciones globales.
 
-**Diagnóstico pendiente con el usuario**: su publicación reportó "HTTP 502" con backend supuestamente 0.62.0 — verificar en la bitácora la marca `espejo v2 · presupuesto 18s`; si no aparece, el backend desplegado es viejo (healthz). El adjunto `mrt2lqat-111f-8.png` lleva días "aceptado sin URL" (atascado en Jumpseller): si persiste, borrarlo a mano del producto y rearmar.
+### CAUSA RAÍZ DE «LAS FOTOS SIGUEN SIENDO DEL PROVEEDOR» — backend 0.62.3 (2026-08-20)
+
+El DIAG que pidió el usuario mostró el registro REAL de un adjunto de Jumpseller:
+
+```json
+{"id": 80248173, "customer_url": "https://images.jumpseller.com/store/hubpro1/34881864/attachments/8c6f…/mru2jmlj-wp44-5.png?1787200515"}
+```
+
+**La URL viene en `customer_url`, no en `url`.** El espejo leía `att.get("url")` → vacío → declaraba «aceptado pero aún sin URL» para TODOS los adjuntos, que en realidad subían perfectamente (el usuario los vio listados en el panel). Cadena de consecuencias, toda explicada por este único campo:
+
+- «N pendientes, se recogerán en la próxima publicación», publicación tras publicación, para siempre.
+- Duplicados `_1.._11`: se re-subía lo que no se sabía reconocer.
+- **El catálogo nunca se reescribía**: sin URL de destino no hay sustitución, así que la ficha siguió pidiendo las fotos a KIMOS y al proveedor — el síntoma que arrastramos toda la semana.
+
+Fix: `_url_adjunto(att)` lee la URL sea cual sea el campo (`customer_url`, `url`, `public_url`, `file_url`, `attachment_url`), prefiriendo la del CDN de la tienda; se usa al listar y al leer cada subida. Probado contra el registro real del DIAG.
+
+**Lección**: el DIAG con el registro CRUDO fue lo que resolvió una semana de hipótesis. Ante «la API no devuelve lo que espero», volcar la respuesta literal antes de teorizar.
+
+**Nota histórica**: los 502/503 y la lentitud eran un problema REAL y distinto (event loop bloqueado, 0.62.1; presupuesto incompleto, 0.62.2), pero no eran la causa de las fotos — se resolvieron por el camino.
 
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
