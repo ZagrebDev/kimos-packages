@@ -217,18 +217,19 @@ Fix: `_url_adjunto(att)` lee la URL sea cual sea el campo (`customer_url`, `url`
 
 **Nota histórica**: los 502/503 y la lentitud eran un problema REAL y distinto (event loop bloqueado, 0.62.1; presupuesto incompleto, 0.62.2), pero no eran la causa de las fotos — se resolvieron por el camino.
 
-### ESPEJO v4 — RASTREO POR ID (raíz del «0 alojadas · 13 pendientes» eterno, 2026-08-20) — ProductLab 3.51.0 / backend 0.63.0
+### ESPEJO v4 — RASTREO POR ID + SANACIÓN DEL MAPA (2026-08-20) — ProductLab 3.51.0 / backend 0.63.0
 
-**Diagnóstico (por fin la raíz, con la evidencia del piloto: 13 fotos pendientes en cada publicación, los archivos VISIBLES en el panel, y el DIAG mostrando un adjunto viejo CON URL)**: la API de Jumpseller lista los adjuntos como `{id, url}` — **SIN `filename`** — y `url` queda vacía mientras la tienda descarga el archivo. Es decir: un adjunto aún en proceso es **ANÓNIMO** en el listado, y casarlo por nombre (todo el espejo v3) era imposible por construcción. Consecuencia en cadena: cada publicación re-subía los mismos archivos → la re-subida re-encolaba el procesamiento en la tienda → las URLs no salían NUNCA (el atasco «aceptado sin URL» del caso `mrt2lqat` no era un capricho de Jumpseller: lo alimentábamos nosotros cada 18 s).
+Se FUSIONA con el hallazgo `customer_url` de arriba (dos sesiones llegaron a la misma escena por caminos distintos): el 0.62.3 arregló la lectura del campo; el v4 cierra lo que ese fix deja abierto. Porque incluso leyendo `customer_url`, la fila del listado **sigue sin traer `filename`** y su URL **sigue vacía mientras la tienda procesa el archivo**: un adjunto recién subido es **ANÓNIMO** — la publicación siguiente no puede reconocerlo, lo re-sube, y la re-subida re-encola el procesamiento (la fábrica de duplicados `_N` y del atasco «aceptado sin URL» del caso `mrt2lqat` seguía armada, solo que con ventana más corta).
 
 **El arreglo (espejo v4)**: el POST de subida SÍ devuelve el `id` del adjunto — ese es el hilo.
 1. **`pending` persistente** (`assetPend` en la definición, junto a `assetMap`): `{url_original: {id, intentos}}` viaja al backend en cada pasada y vuelve actualizado.
 2. **Recogida por id**: cada pendiente se consulta con `GET /attachments/{id}`; con URL → al mapa; sin URL → sigue rastreado, **sin re-subir** (cero re-encolado).
 3. **Desatasco automático**: 3 pasadas sin URL = atascado de verdad → se BORRA y se re-sube (el remedio manual documentado, automatizado).
-4. **Limpieza de huérfanos**: las filas sin URL que dejó el v3 (irreconocibles para siempre) se borran antes de re-subir con rastreo.
-5. **Fallos de listado visibles**: un listado que responde no-200 ya no se confunde con «no hay adjuntos» (aviso explícito), y la URL de una fila se extrae tolerando formas anidadas — pero solo del CDN de Jumpseller (una fila que eco-ara la URL de origen «mapearía» cada foto a sí misma).
+4. **Limpieza de huérfanos**: las filas sin URL sin rastreo que dejó el v3 (irreconocibles para siempre) se borran antes de re-subir con rastreo.
+5. **Fallos de listado visibles**: un listado que responde no-200 ya no se confunde con «no hay adjuntos» (aviso explícito). El extractor de URL es UNO solo: campos conocidos primero (`customer_url` a la cabeza) + red anidada/por dominio del CDN — nunca una URL ajena (una fila que eco-ara la URL de origen «mapearía» cada foto a sí misma).
+6. **Sanación del mapa muerto** (consecuencia directa del «borrón y cuenta nueva» del piloto): el mapa persistente se aplica sin red y el espejo excluye las URLs de Jumpseller, así que un adjunto BORRADO de la tienda dejaba su foto rota en la ficha PARA SIEMPRE — Rearmar no la recuperaba, al contrario de lo que se supuso. Ahora cada URL ya alojada del producto se verifica con una lectura barata al CDN: solo el 404/410 inequívoco la declara muerta (`dead`), la app la olvida del mapa y el original se re-aloja en la misma pasada. Un fallo transitorio no mata nada.
 
-La bitácora ahora distingue «en proceso en la tienda: N (rastreadas por id)» de «pendientes» a secas, y el motor se declara `espejo v4`. Cobertura: `backend/test_jumpseller_espejo.py` reproduce el estado exacto del piloto (13 anónimos atascados + 1 viejo con URL) contra una tienda simulada con la semántica real de la API y verifica la convergencia en dos pasadas con CERO re-subidas.
+La bitácora distingue «en proceso en la tienda: N (rastreadas por id)» de «pendientes» a secas, y el motor se declara `espejo v4`. Cobertura: `backend/test_jumpseller_espejo.py` simula la tienda con la forma REAL de la API (`customer_url`, verificada contra el registro del DIAG) y reproduce el estado exacto del piloto — atascados anónimos, viejo con URL, mapeo muerto tras el borrón — verificando convergencia en dos pasadas con CERO re-subidas y re-alojado de lo borrado.
 
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).

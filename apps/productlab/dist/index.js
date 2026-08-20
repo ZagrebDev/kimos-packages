@@ -2652,19 +2652,25 @@ export default function mount(shell) {
   // 502 del gateway en las pasadas largas lo que dejaba los archivos subidos
   // pero el catálogo sin reescribir, publicación tras publicación).
   async function alojarImagenesProducto(p, mapaPrevio, pendPrevio) {
-    // Lo YA alojado en publicaciones anteriores (mapa persistente foto→URL,
-    // guardado en la definición) se reescribe SIN RED: publicar sin fotos
-    // nuevas no toca el espejo — solo escribe la página. Al espejo van
-    // únicamente las URLs que el mapa no cubre.
-    const nodo = reemplazarUrls(p, mapaPrevio || {});
+    // Del nodo CRUDO salen las fotos alojables; las que el mapa persistente
+    // ya cubre viajan como `alojadas` para VERIFICARSE (¿el adjunto sigue en
+    // la tienda?) y solo las demás van a subida. Sin la verificación, un
+    // adjunto borrado de la tienda (el "borrón y cuenta nueva") dejaba la
+    // ficha con la foto ROTA para siempre: el mapa se aplicaba sin red y el
+    // espejo excluye las URLs de Jumpseller — Rearmar jamás la recuperaba.
+    const mapa0 = mapaPrevio || {};
+    const urlsRaw = urlsDeKimos(p);
+    const alojadas = {};
+    const urls = [];
+    urlsRaw.forEach((u) => { if (mapa0[u]) alojadas[u] = mapa0[u]; else urls.push(u); });
+    const nodo = reemplazarUrls(p, mapa0);
     const sid = s(nodo && nodo.productId).trim();
-    const urls = urlsDeKimos(nodo);
     // `urlsEspejo` son las URLs cuyo rastreo (assetPend) queda a cargo de ESTA
     // llamada: el caller borra sus entradas y adopta las devueltas en `pend`.
     // Si el espejo NO llegó a correr (sin enlace, sin red, HTTP no-ok), se
     // devuelve vacío para NO borrar un rastreo que nadie actualizó.
-    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, urlsEspejo: [] };
-    if (!shell.authFetch || !sid || !urls.length) {
+    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, muertas: [], urlsEspejo: [] };
+    if (!shell.authFetch || !sid || (!urls.length && !Object.keys(alojadas).length)) {
       if (!sid && urls.length) out.avisos.push('sin enlace a la tienda: sus imágenes no pueden alojarse (aplica el producto primero)');
       if (!urls.length) out.pendientes = 0;
       return out;
@@ -2679,17 +2685,18 @@ export default function mount(shell) {
     try {
       const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-product-assets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId: sid, urls, pending }),
+        body: JSON.stringify({ sourceId: sid, urls, pending, alojadas }),
       }, 2);
       const d = await r.json().catch(() => ({}));
-      const mapa = (d && d.map) || {};
-      const n = Object.keys(mapa).length;
-      out.copiadas = n; out.pendientes = urls.length - n;
+      const mapaNuevo = (d && d.map) || {};
+      const n = Object.keys(mapaNuevo).length;
+      out.muertas = (d && Array.isArray(d.dead)) ? d.dead : [];
+      out.copiadas = n; out.pendientes = Math.max(0, urls.length + out.muertas.length - n);
       // Solo una respuesta REAL del espejo asume el rastreo de estas URLs;
       // un HTTP no-ok conserva el rastreo previo tal cual.
       if (r.ok) {
         out.pend = (d && d.pending) || {};
-        out.urlsEspejo = urls;
+        out.urlsEspejo = urls.concat(out.muertas);
       }
       out.enProceso = Object.keys(out.pend).length;
       out.motor = s(d && d.motor);
@@ -2701,7 +2708,16 @@ export default function mount(shell) {
         const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
         out.avisos.push(...otros.slice(0, 3), ...diag.slice(0, 1));
       } else if (!r.ok) out.avisos.push(s(d.detail) || ('HTTP ' + r.status));
-      if (n) { out.p = reemplazarUrls(nodo, mapa); out.nuevos = mapa; }
+      if (n || out.muertas.length) {
+        // Mapa efectivo de ESTA entrada: lo vivo verificado + lo recién
+        // alojado. Lo muerto sin reemplazo queda SIN mapear: la foto vuelve a
+        // servirse desde su origen (KIMOS/proveedor) hasta que el re-alojado
+        // la recoja — rota jamás.
+        const efectivo = Object.assign({}, alojadas, mapaNuevo);
+        out.muertas.forEach((u) => { if (!mapaNuevo[u]) delete efectivo[u]; });
+        out.p = reemplazarUrls(p, efectivo);
+        out.nuevos = mapaNuevo;
+      }
     } catch (e) {
       out.avisos.push((e && e.message) || 'error de red');
     }
@@ -2730,7 +2746,8 @@ export default function mount(shell) {
     const avisos = al.avisos.slice();
     if (!page.ok && page.aviso) avisos.push('página del producto: ' + page.aviso);
     return { entry, copiadas: al.copiadas, pendientes: al.pendientes, enProceso: al.enProceso,
-      avisos, motor: al.motor, page, nuevos: al.nuevos || {}, pend: al.pend || {}, urlsEspejo: al.urlsEspejo || [] };
+      avisos, motor: al.motor, page, nuevos: al.nuevos || {}, pend: al.pend || {},
+      muertas: al.muertas || [], urlsEspejo: al.urlsEspejo || [] };
   }
   // ¿La entrada del producto cambió respecto de lo YA publicado? (se compara
   // sin el sello pubAt). Si no cambió, republicar no toca ni el espejo ni su
@@ -2787,6 +2804,9 @@ export default function mount(shell) {
           const lineaPrev = porProducto.find((x) => s(x.name) === s(p0.name));
           if (intacta && !(lineaPrev && num(lineaPrev.pendientes) > 0)) { productos.push(intacta); sinCambios++; continue; }
           const res = await publicarUno(p0, aPublicar, mapa, pendMap);
+          // Mapeos cuyo adjunto ya no existe en la tienda: se olvidan (si su
+          // re-alojado ya salió, vuelve enseguida vía `nuevos`).
+          (res.muertas || []).forEach((u) => { delete mapa[u]; });
           Object.assign(mapa, res.nuevos);
           // El rastreo de SUS fotos se reemplaza entero por lo que devolvió
           // el backend: lo mapeado sale, lo aún en proceso entra con su id.
@@ -2871,6 +2891,7 @@ export default function mount(shell) {
     const mapa = Object.assign({}, pub.assetMap || {});
     const pendMap = Object.assign({}, pub.assetPend || {});
     const res = await publicarUno(entry0, data, mapa, pendMap);
+    (res.muertas || []).forEach((u) => { delete mapa[u]; });
     Object.assign(mapa, res.nuevos);
     (res.urlsEspejo || []).forEach((u) => { delete pendMap[u]; });
     Object.assign(pendMap, res.pend || {});
