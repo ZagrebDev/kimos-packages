@@ -1598,7 +1598,50 @@ export default function mount(shell) {
     };
   }
 
-  /** Abre la cámara respetando la configuración del tótem. */
+  /**
+   * Traduce el fallo de `getUserMedia` a algo accionable.
+   *
+   * Los DOMException de cámara suelen venir con `message` vacío, así que sin
+   * esto en pantalla aparece "OverconstrainedError" y nadie sabe qué hacer.
+   */
+  function mensajeCamara(e) {
+    const nombre = s(e && (e.name || e.constructor && e.constructor.name));
+    const detalle = s(e && e.message);
+    const restriccion = s(e && e.constraint);
+    switch (nombre) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'Permiso de cámara denegado. Acéptalo en el candado de la barra de direcciones y vuelve a intentarlo.';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'No hay ninguna cámara conectada a este equipo.';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'La cámara está ocupada por otro programa (Zoom, Meet, otra pestaña). Ciérralo y reintenta.';
+      case 'OverconstrainedError':
+      case 'ConstraintNotSatisfiedError':
+        return 'Esta cámara no acepta la configuración pedida' +
+          (restriccion ? ' (' + restriccion + ')' : '') +
+          '. Si elegiste una cámara concreta en 🎥 Diagnóstico, puede que ya no esté conectada: deja el campo vacío para usar la predeterminada.';
+      case 'SecurityError':
+        return 'La cámara requiere HTTPS o localhost (contexto seguro).';
+      case 'AbortError':
+        return 'El sistema interrumpió la apertura de la cámara. Reintenta.';
+      default:
+        return detalle || nombre || 'No se pudo abrir la cámara.';
+    }
+  }
+
+  /**
+   * Abre la cámara respetando la configuración del tótem.
+   *
+   * Se prueban varios juegos de restricciones, de más específico a más
+   * permisivo. La razón: `deviceId: {exact}` y `facingMode` son restricciones
+   * DURAS, y fallan con OverconstrainedError si la cámara elegida se
+   * desconectó, si el navegador rotó los identificadores o si es una webcam
+   * de escritorio que no declara hacia dónde mira. Vale más abrir con la
+   * cámara predeterminada que dejar el juego sin imagen.
+   */
   async function abrirCamara(hw) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Este navegador no expone cámaras (getUserMedia no disponible).');
@@ -1606,10 +1649,41 @@ export default function mount(shell) {
     if (typeof window !== 'undefined' && window.isSecureContext === false) {
       throw new Error('La cámara requiere HTTPS o localhost (contexto seguro).');
     }
-    const video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-    if (hw.camaraDeviceId) video.deviceId = { exact: hw.camaraDeviceId };
-    else video.facingMode = 'user';
-    return navigator.mediaDevices.getUserMedia({ video, audio: false });
+    const tam = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+    const intentos = [];
+    if (hw && hw.camaraDeviceId) {
+      // 1. La cámara elegida, con resolución preferida.
+      intentos.push(Object.assign({ deviceId: { exact: hw.camaraDeviceId } }, tam));
+      // 2. La misma cámara, sin pedirle resolución.
+      intentos.push({ deviceId: { exact: hw.camaraDeviceId } });
+    }
+    // 3. Cualquier cámara con la resolución preferida.
+    intentos.push(Object.assign({}, tam));
+    // 4. Lo que haya. Este intento solo falla si de verdad no hay cámara o
+    //    no hay permiso.
+    intentos.push(true);
+
+    let ultimo = null;
+    for (let i = 0; i < intentos.length; i++) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: intentos[i], audio: false });
+        // Si hubo que soltar la cámara elegida, conviene decirlo: el operador
+        // creyó haber fijado una y está jugando con otra.
+        if (i > 1 && hw && hw.camaraDeviceId) {
+          notify('info', 'La cámara elegida en el Diagnóstico no está disponible; se abrió la predeterminada.');
+        }
+        return stream;
+      } catch (e) {
+        ultimo = e;
+        const nombre = s(e && e.name);
+        // Ni el permiso ni la ausencia de cámara mejoran aflojando: cortar acá
+        // evita tres diálogos de permiso seguidos.
+        if (nombre === 'NotAllowedError' || nombre === 'PermissionDeniedError' || nombre === 'SecurityError') break;
+      }
+    }
+    const err = new Error(mensajeCamara(ultimo));
+    err.causa = ultimo;
+    throw err;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -2417,9 +2491,9 @@ export default function mount(shell) {
         t0Ref.current = nowMs();
       } catch (e) {
         soltarTodo();
-        setError(s(e && e.message ? e.message : e));
+        setError(mensajeCamara(e));
         irA('intro');
-        notify('warn', 'No se pudo iniciar la cámara: ' + s(e && e.message ? e.message : e));
+        notify('warn', 'No se pudo iniciar la cámara: ' + mensajeCamara(e));
       }
     }, [hw, cfg.exigirCalibracion, irA, soltarTodo]);
 
@@ -3179,7 +3253,7 @@ export default function mount(shell) {
         irA('posicion');
       } catch (e) {
         soltarTodo();
-        setError(s(e && e.message ? e.message : e));
+        setError(mensajeCamara(e));
         irA('intro');
       }
     }, [hw, irA, soltarTodo]);
@@ -3792,7 +3866,7 @@ export default function mount(shell) {
         irA('posicion');
       } catch (e) {
         soltarTodo();
-        setError(s(e && e.message ? e.message : e));
+        setError(mensajeCamara(e));
         irA('intro');
       }
     }, [hw, irA, soltarTodo]);
@@ -4613,7 +4687,7 @@ export default function mount(shell) {
         irA('posicion');
       } catch (e) {
         soltarTodo();
-        setError(s(e && e.message ? e.message : e));
+        setError(mensajeCamara(e));
         irA('intro');
       }
     }, [hw, irA, soltarTodo]);
@@ -5037,7 +5111,7 @@ export default function mount(shell) {
         irA('juego');
       } catch (e) {
         soltarTodo();
-        setError(s(e && e.message ? e.message : e));
+        setError(mensajeCamara(e));
         irA('intro');
       }
     }, [cfg, hw, irA, soltarTodo]);
@@ -5516,7 +5590,7 @@ export default function mount(shell) {
         });
       } catch (e) {
         setCargando('');
-        setCuerpo({ ok: false, motivo: s(e && e.message ? e.message : e) });
+        setCuerpo({ ok: false, motivo: mensajeCamara(e) });
       }
     };
 
@@ -5531,7 +5605,7 @@ export default function mount(shell) {
         if (stream) stream.getTracks().forEach((t) => t.stop());
       } catch (e) {
         setCams([]);
-        notify('warn', 'No se pudieron listar cámaras: ' + s(e && e.message));
+        notify('warn', 'No se pudieron listar cámaras: ' + mensajeCamara(e));
       }
       setCargando('');
     };
@@ -5570,7 +5644,7 @@ export default function mount(shell) {
           declarado: st.frameRate || null, etiqueta: stream.getVideoTracks()[0].label,
         });
       } catch (e) {
-        setPrueba({ error: s(e && e.message ? e.message : e) });
+        setPrueba({ error: mensajeCamara(e) });
       } finally {
         if (stream) stream.getTracks().forEach((t) => t.stop());
         if (videoRef.current) videoRef.current.srcObject = null;
@@ -5600,7 +5674,7 @@ export default function mount(shell) {
         prov.detener();
         setPose({ ok, ms: Math.round(nowMs() - t0) });
       } catch (e) {
-        setPose({ ok: false, error: s(e && e.message ? e.message : e), ms: Math.round(nowMs() - t0) });
+        setPose({ ok: false, error: mensajeCamara(e), ms: Math.round(nowMs() - t0) });
       } finally {
         if (stream) stream.getTracks().forEach((t) => t.stop());
         if (videoRef.current) videoRef.current.srcObject = null;
