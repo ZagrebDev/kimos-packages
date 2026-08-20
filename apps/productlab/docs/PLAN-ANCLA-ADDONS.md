@@ -187,6 +187,18 @@ Cobertura offline: `run-faro.mjs` (página -p<id> primero, caída a la agregada,
 
 Cobertura: `run-faro.mjs` reescrito al contrato v6 (17 checks: cero-KIMOS, arranque, vencimiento con default/0/fresco, kit viejo) + suite completa verde.
 
+### TRES VELOCIDADES (UX definida por el usuario, 2026-08-20) — ProductLab 3.50.0 (kit sigue 6.0.0, backend 0.62.0)
+
+El botón único "Actualizar en la tienda" amarraba la carga pesada (fotos/página) a la lenta (precios vía app Productos: ~12 opciones + variantes contra la API de Jumpseller) — publicar se sentía eterno y sin señales. Modelo nuevo, igual por producto y global:
+
+1. **GUARDAR** — solo KIMOS, instantáneo. El auto-republish tras guardar ya NO toca Jumpseller (solo refresca la copia barata en Firestore para el agente/arranque).
+2. **ACTUALIZAR PRECIOS** (`$ Precios` en el editor / fila / "Actualizar precios de TODO") — ancla + recargos + variantes vía app Productos. Informa su duración.
+3. **REARMAR** ("Rearmar" / "Rearmar producto" / "Rearmar TODO" / "Rearmar tienda" en el header) — paso a paso + fotos QUE FALTEN (assetMap: lo alojado nunca se re-sube) + página `-p<id>`. Repetirlo sin cambios = solo la página, segundos. "Rearmar TODO" salta lo que no cambió.
+
+Ambas acciones guardan primero y notifican "Guardado ✓" al tiro — lo lento es la tienda, no KIMOS. Confirmación antes de las acciones globales.
+
+**Diagnóstico pendiente con el usuario**: su publicación reportó "HTTP 502" con backend supuestamente 0.62.0 — verificar en la bitácora la marca `espejo v2 · presupuesto 18s`; si no aparece, el backend desplegado es viejo (healthz). El adjunto `mrt2lqat-111f-8.png` lleva días "aceptado sin URL" (atascado en Jumpseller): si persiste, borrarlo a mano del producto y rearmar.
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.
