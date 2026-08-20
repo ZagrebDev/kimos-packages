@@ -21,6 +21,9 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const APP_ID = 'miorg.encuestas';
+  // Mantener en sincronía con manifest.json (regla §7.a de APP-SPEC.md): es la
+  // única forma de saber, al probar, qué build tomó el host.
+  const APP_VERSION = '1.1.0';
   const instanceId = shell.app && shell.app.instanceId;
 
   function apiBase() {
@@ -249,6 +252,7 @@ export default function mount(shell) {
           key: id, className: 'enc-tab' + (tab === id ? ' enc-tab-active' : ''), onClick: () => setTab(id),
         }, label)).concat([
           h('button', { key: 'r', className: 'enc-tab enc-tab-right', title: 'Actualizar', onClick: () => void refresh() }, '⟳'),
+          h('span', { key: 'v', className: 'enc-ver', title: 'Encuesta Rápida v' + APP_VERSION }, 'v' + APP_VERSION),
         ])),
       h('div', { key: 'body', className: 'enc-body' },
         tab === 'results' ? h(ResultsTab, { state }) : tab === 'design' ? h(DesignTab, { state }) : h(EmbedTab, { state })),

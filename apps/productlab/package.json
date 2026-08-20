@@ -7,7 +7,7 @@
   "scripts": {
     "build:engine": "esbuild engine-src/engine3d.js --bundle --format=esm --minify --target=es2020 --outfile=assets/engine3d.js",
     "test": "node test/test-app.mjs",
-    "pack": "node ../../kimos-packages/tools/pack.mjs .",
+    "pack": "node ../../tools/pack.mjs .",
     "verify:hanoi": "node packs/mesa-hanoi/verify.mjs",
     "build:pack2": "node packs/mesa-hanoi/build-pack2.mjs",
     "build:engine:theme": "esbuild engine-src/engine3d.js --bundle --format=iife --global-name=KimosEngine3D --minify --target=es2019 --outfile=theme/kimos-engine3d.js",

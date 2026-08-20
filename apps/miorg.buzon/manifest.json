@@ -1,7 +1,7 @@
 {
   "id": "miorg.buzon",
   "name": "Buzón de Sugerencias (ejemplo 3ros)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "App de EJEMPLO de terceros con la superficie mínima: buzón anónimo incrustable que solo usa public.submit del gateway genérico (ni siquiera expone lectura pública). Sin backend a medida.",
   "icon": "📮",
   "author": "miorg (ejemplo de terceros)",

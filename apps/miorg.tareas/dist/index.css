@@ -1,0 +1,49 @@
+/* Tareas del Equipo (ejemplo 3ros) — scope .miorg-tareas, tema-consciente.
+ *
+ * Sistema visual de KIMOS (APP-SPEC.md §9): ni un color propio cableado —
+ * todo sale de los tokens del tema del host (shadcn/HSL) con fallback al tema
+ * claro. La raíz NO pinta fondo: debajo está el fondo de pantalla del
+ * escritorio; las superficies son "vidrio" (card translúcida + blur). */
+.miorg-tareas {
+  --ta-fg: hsl(var(--foreground, 220 25% 6%));
+  --ta-muted: hsl(var(--muted-foreground, 215 20% 32%) / 0.75);
+  --ta-border: hsl(var(--border, 214 18% 82%) / 0.6);
+  --ta-glass: hsl(var(--card, 0 0% 100%) / 0.6);
+  --ta-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
+  --ta-accent: var(--ta-accent-user, hsl(var(--primary, 182 75% 40%)));
+  --ta-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --ta-radius: var(--radius, 0.5rem);
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--ta-fg);
+  background: transparent;
+  overflow: hidden;
+}
+.miorg-tareas .ta-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--ta-border); flex-shrink: 0; background: var(--ta-glass); backdrop-filter: blur(10px); }
+.miorg-tareas .ta-title { font-weight: 700; font-size: 14px; flex: 1; }
+.miorg-tareas .ta-ver { font-size: 10px; font-weight: 500; color: var(--ta-muted); }
+.miorg-tareas .ta-count { color: var(--ta-muted); font-size: 12px; flex-shrink: 0; }
+.miorg-tareas .ta-tabs { display: flex; gap: 2px; background: var(--ta-surface); border-radius: var(--ta-radius); padding: 2px; }
+.miorg-tareas .ta-tab { border: none; background: transparent; padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--ta-muted); cursor: pointer; border-radius: calc(var(--ta-radius) - 2px); font-family: inherit; }
+.miorg-tareas .ta-tab-active { background: var(--ta-glass); color: var(--ta-fg); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08)); }
+.miorg-tareas .ta-body { flex: 1; overflow-y: auto; padding: 14px; }
+.miorg-tareas .ta-empty { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 160px; font-size: 14px; text-align: center; padding: 20px; }
+.miorg-tareas .ta-muted { color: var(--ta-muted); font-size: 13px; }
+.miorg-tareas .ta-new { display: flex; gap: 8px; margin-bottom: 12px; }
+.miorg-tareas .ta-input { flex: 1; border: 1px solid hsl(var(--input, 214 18% 82%)); border-radius: var(--ta-radius); padding: 8px 12px; font-size: 13px; font-family: inherit; color: var(--ta-fg); background: var(--ta-glass); }
+.miorg-tareas .ta-input:focus { outline: 2px solid var(--ta-accent); outline-offset: -1px; }
+.miorg-tareas .ta-btn { border: none; border-radius: var(--ta-radius); padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.miorg-tareas .ta-btn-primary { background: var(--ta-accent); color: var(--ta-accent-fg); }
+.miorg-tareas .ta-btn-danger { background: transparent; color: var(--ta-muted); padding: 4px 8px; }
+.miorg-tareas .ta-btn-danger:hover { color: #ef4444; }
+.miorg-tareas .ta-list { display: flex; flex-direction: column; }
+.miorg-tareas .ta-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--ta-border); border-radius: var(--ta-radius); margin-bottom: 6px; background: var(--ta-glass); backdrop-filter: blur(10px); }
+.miorg-tareas .ta-item-label { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; min-width: 0; }
+.miorg-tareas .ta-item-text { font-size: 13px; word-break: break-word; }
+.miorg-tareas .ta-item-done .ta-item-text { text-decoration: line-through; color: var(--ta-muted); }
+
+/* Modo noche: solo se retocan los colores semánticos ilegibles sobre oscuro. */
+.dark .miorg-tareas .ta-btn-danger:hover { color: #f87171; }

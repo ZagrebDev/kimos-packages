@@ -3,11 +3,12 @@
 Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y apps plugin que el backend descarga e instala bajo demanda.
 
 > **¿Quieres crear tu propia app?** Empieza por **[`CREA-TU-APP.md`](CREA-TU-APP.md)**
-> (guía paso a paso, sin necesidad de backend). La referencia técnica completa
+> (guía paso a paso, sin necesidad de backend) o genera el esqueleto directo con
+> `node tools/create-app.mjs miorg.mi-app`. La referencia técnica completa
 > del contrato está en [`APP-SPEC.md`](APP-SPEC.md). Para terceros SIN acceso a
-> este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
-> descargable desde la Tienda de KIMOS o regenerable con
-> `node tools/build-creator-pack.mjs`.
+> este repo existe **`kimos-creator-pack.zip`** (guía + scaffolder + verificador
+> + empaquetador + 3 ejemplos), descargable desde la Tienda de KIMOS o
+> regenerable con `node tools/build-creator-pack.mjs`.
 
 ## Modelo de apps (v0.22)
 

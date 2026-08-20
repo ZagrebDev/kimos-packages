@@ -21,3 +21,12 @@ plataforma, habilitado por los `permissions` del manifest.
    respuestas individuales).
 
 Empaquetar: `node tools/pack.mjs apps/miorg.encuestas`
+
+## Versionado
+
+Versión actual: **1.1.0**
+
+| Versión | Qué trae |
+|---|---|
+| 1.1.0 | `APP_VERSION` visible en la barra de pestañas (regla §7.a de `APP-SPEC.md`). |
+| 1.0.0 | Versión inicial del ejemplo. |

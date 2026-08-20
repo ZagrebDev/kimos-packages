@@ -26,6 +26,9 @@ const INCLUDE = [
   ['CREA-TU-APP.md', 'CREA-TU-APP.md'],
   ['APP-SPEC.md', 'APP-SPEC.md'],
   ['tools/pack.mjs', 'tools/pack.mjs'],
+  ['tools/create-app.mjs', 'tools/create-app.mjs'],
+  ['tools/verify-app.mjs', 'tools/verify-app.mjs'],
+  ['apps/miorg.tareas', 'ejemplos/miorg.tareas'],
   ['apps/miorg.encuestas', 'ejemplos/miorg.encuestas'],
   ['apps/miorg.buzon', 'ejemplos/miorg.buzon'],
 ];
@@ -36,20 +39,29 @@ Kit completo para crear apps instalables de KIMOS.
 
 ## Contenido
 
-- CREA-TU-APP.md      → EMPIEZA AQUÍ: guía paso a paso (quickstart de 10 min).
-- APP-SPEC.md         → referencia técnica del contrato AppShell.
-- tools/pack.mjs      → empaquetador: node tools/pack.mjs <carpeta-de-tu-app>
-                        genera el archivo .kapp listo para instalar.
-- ejemplos/           → dos apps de terceros completas y comentadas:
-    miorg.encuestas   → encuesta incrustable (gateway público, sin backend).
-    miorg.buzon       → buzón de mensajes (además lee datos de otras apps).
+- CREA-TU-APP.md        → EMPIEZA AQUÍ: guía paso a paso (quickstart de 10 min).
+- APP-SPEC.md           → referencia técnica del contrato AppShell.
+- tools/create-app.mjs  → scaffolder: genera el esqueleto de tu app con las
+                          capacidades ya cableadas (persistencia, agente IA,
+                          config ⚙️, versiones 🗂️, gateway público, shell.data).
+- tools/verify-app.mjs  → verificador: chequea manifest, bundle, APP_VERSION,
+                          permisos vs. uso real y CSS antes de empaquetar.
+- tools/pack.mjs        → empaquetador: node tools/pack.mjs <carpeta-de-tu-app>
+                          genera el archivo .kapp listo para instalar.
+- ejemplos/             → tres apps de terceros completas y comentadas:
+    miorg.tareas        → superficie COMPLETA: saveData, ⚙️ config, 🗂️ versiones,
+                          agente IA y lectura de datos de otra app.
+    miorg.encuestas     → encuesta incrustable (gateway público, sin backend).
+    miorg.buzon         → buzón de mensajes (superficie mínima).
 
 ## Flujo resumido
 
-1. Copia un ejemplo y renómbralo con tu namespace (tuorg.mi-app).
-2. Edita manifest.json y dist/index.js según la guía.
-3. node tools/pack.mjs tuorg.mi-app   →   tuorg.mi-app-1.0.0.kapp
-4. En KIMOS: Tienda → "Instalar desde archivo" (lo hace un superadmin).
+1. node tools/create-app.mjs tuorg.mi-app --name "Mi App"
+   (o copia un ejemplo y renómbralo con tu namespace).
+2. Edita dist/index.js según la guía.
+3. node tools/verify-app.mjs tuorg.mi-app
+4. node tools/pack.mjs tuorg.mi-app   →   tuorg.mi-app-1.0.0.kapp
+5. En KIMOS: Tienda → "Instalar desde archivo" (lo hace un superadmin).
 
 Requisito: Node.js 18 o superior (solo para empaquetar; la app en sí no
 necesita build salvo que uses TypeScript/JSX, en cuyo caso compila tú a un

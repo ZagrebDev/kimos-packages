@@ -17,6 +17,7 @@
 }
 .kimos-buzon .buz-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--buz-border); flex-shrink: 0; }
 .kimos-buzon .buz-title { font-weight: 700; font-size: 14px; flex: 1; }
+.kimos-buzon .buz-ver { font-size: 10px; font-weight: 500; color: var(--buz-muted); }
 .kimos-buzon .buz-switch { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .kimos-buzon .buz-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
 .kimos-buzon .buz-empty { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 160px; font-size: 14px; text-align: center; padding: 20px; }

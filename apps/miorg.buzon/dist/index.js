@@ -15,6 +15,9 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const APP_ID = 'miorg.buzon';
+  // Mantener en sincronía con manifest.json (regla §7.a de APP-SPEC.md): es la
+  // única forma de saber, al probar, qué build tomó el host.
+  const APP_VERSION = '1.1.0';
   const instanceId = shell.app && shell.app.instanceId;
 
   function apiBase() {
@@ -117,7 +120,10 @@ export default function mount(shell) {
 
     return h('div', { className: 'kimos-buzon' }, [
       h('div', { key: 'head', className: 'buz-head' }, [
-        h('div', { key: 't', className: 'buz-title' }, '📮 Buzón de Sugerencias'),
+        h('div', { key: 't', className: 'buz-title' }, [
+          '📮 Buzón de Sugerencias ',
+          h('span', { key: 'v', className: 'buz-ver', title: 'Buzón de Sugerencias v' + APP_VERSION }, 'v' + APP_VERSION),
+        ]),
         h('label', { key: 'en', className: 'buz-switch' }, [
           h('input', { key: 'c', type: 'checkbox', checked: pub.enabled === true, onChange: (e) => void setEnabled(e.target.checked) }),
           h('span', { key: 's' }, pub.enabled === true ? 'Publicado' : 'Despublicado'),

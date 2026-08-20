@@ -37,6 +37,18 @@ función `mount`.
 
 ## 2. Quickstart — tu primera app en 10 minutos
 
+> **Atajo:** el scaffolder genera todo esto por ti, con las capacidades ya
+> cableadas y el CSS del tema de KIMOS:
+>
+> ```bash
+> node tools/create-app.mjs miorg.mi-app --name "Mi App" --icon 🧩
+> # features opcionales: --features savedata,items,config,documents,agent,public,data:<app>
+> node tools/verify-app.mjs miorg.mi-app   # chequeos antes de empaquetar
+> node tools/pack.mjs miorg.mi-app         # → miorg.mi-app-1.0.0.kapp
+> ```
+>
+> Las secciones que siguen explican qué contiene cada pieza generada.
+
 ### 2.1 Estructura mínima
 
 ```
@@ -145,6 +157,7 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.agent.register({...})` | Exponer herramientas al agente IA (ver §5). |
 | `shell.assetUrl('ruta')` | URL pública de un archivo de tu carpeta `assets/`. |
 | `shell.data.listInstances/listItems` | Leer datos de otras apps (ver §7). |
+| `shell.authFetch(url, init?)` | `fetch` autenticado contra la API interna del tenant (`/api/identity/me`, `/api/v2/files`, …) con el RBAC del usuario. Úsalo solo para lo que el resto del `shell` no cubre — ver `APP-SPEC.md` §7.d. |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -281,24 +294,29 @@ lectura.
 
 ---
 
-## 8. Tutorial guiado: `miorg.encuestas`
+## 8. Tutorial guiado: los ejemplos del pack
 
-Este repo incluye dos apps de ejemplo escritas exactamente como las escribiría
-un tercero — sin backend, solo manifest + bundle + embed:
+Este repo incluye tres apps de ejemplo escritas exactamente como las
+escribiría un tercero — sin backend, sin minificar y comentadas:
 
+- **`apps/miorg.tareas`** — la referencia de **superficie completa**:
+  persistencia por documento (`saveData`/`loadData` con debounce), parámetros
+  ⚙️ (`configSchema` + `shell.config`), versiones 🗂️ (`shell.documents`),
+  agente IA con validación de inputs, y `shell.data` leyendo las encuestas de
+  `miorg.encuestas` (con degradación si no hay acceso). Empieza por aquí si tu
+  app **guarda datos**.
 - **`apps/miorg.encuestas`** — encuesta de una pregunta incrustable en cualquier
   web. Demuestra: `public.read`/`public.submit`, el bloque `public` en
   `definition`, el widget `assets/embed.js`, y la lectura de respuestas con
-  `shell.items` (pestaña Resultados).
-- **`apps/miorg.buzon`** — buzón de mensajes/sugerencias incrustable, con
-  lectura de envíos y marcado de leídos. Además demuestra `shell.data` leyendo
-  datos de otra app.
+  `shell.items` (pestaña Resultados). Empieza por aquí si tu app **recibe datos
+  desde fuera**.
+- **`apps/miorg.buzon`** — la superficie **mínima**: buzón de sugerencias
+  incrustable que solo usa `public.submit` + `shell.items`.
 
-Recorrido sugerido: lee su `manifest.json` → `dist/index.js` (está escrito sin
-minificar, con comentarios) → `assets/embed.js` → empaqueta con
-`node tools/pack.mjs apps/miorg.encuestas` → instala el `.kapp` → crea una
-encuesta → pega el snippet en una página HTML local → responde → mira la
-pestaña Resultados.
+Recorrido sugerido: lee su `manifest.json` → `dist/index.js` → (encuestas)
+`assets/embed.js` → verifica con `node tools/verify-app.mjs apps/miorg.tareas`
+→ empaqueta con `node tools/pack.mjs apps/miorg.tareas` → instala el `.kapp` →
+crea un documento → pídele una tarea al agente IA → prueba 🗂️ Guardar versión.
 
 ---
 
@@ -316,6 +334,8 @@ pestaña Resultados.
 - [ ] Si hay agente: inputs validados y `getSnapshot` útil.
 - [ ] Si hay endpoints públicos: `public.enabled` es opt-in por instancia y el
       widget funciona desde una página externa.
+- [ ] `node tools/verify-app.mjs <carpeta>` en verde (manifest, import del
+      bundle, `APP_VERSION`, permisos vs. uso real, CSS con scope).
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.
 
 ## 10. Preguntas frecuentes

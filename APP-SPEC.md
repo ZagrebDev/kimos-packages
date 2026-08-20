@@ -5,10 +5,11 @@ Guía de referencia para crear una **app instalable** de Kimos. Las apps viven e
 `kimos-enterprice`. Ejemplos reales en este repo: `kanban`, `notas-equipo`,
 `fossflow`.
 
-> Estado del contrato: **AppShell v1** (vigente). Las capacidades de **AppShell
-> v2** (botones ⚙️ Configurar / 🗂️ Documentos, assets, sideload `.kapp`) están
-> planificadas en `kimos-enterprice/PLAN-apps-gestion-v2.md`; este documento
-> marca con 🔭 lo que pertenece a v2.
+> Estado del contrato: **AppShell v1** (vigente), con el *chrome enriquecido*
+> ya **en producción**: ⚙️ Configurar (`shell.config`), 🗂️ Documentos
+> (`shell.documents`), assets (`shell.assetUrl` + carpeta `assets/`) y sideload
+> `.kapp` funcionan hoy. Lo único todavía futuro se marca con 🔭 (p. ej.
+> `shell.files`; su equivalente actual es `shell.authFetch('/api/v2/files')`).
 
 ---
 
@@ -43,7 +44,8 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`. |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit` (§7.b) y `data.read:{templateId}` / `data.read:*` (§7.c). |
+| `assets` | string[] | – | **Solo catálogo raíz** (apps oficiales por registry): rutas relativas bajo `assets/` que el install descarga y sirve en `/api/apps/{id}/asset/{ruta}` (ej.: ProductLab → `["engine3d.js", …]`). En sideload no hace falta: el `.kapp` empaqueta `assets/` entero. |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
 
@@ -140,7 +142,12 @@ export default function mount(shell) {
 | `shell.loadData(scope?)` | Carga la config guardada. |
 | `shell.items` | CRUD de subcolección por instancia: `list/create/update/remove`. |
 | `shell.agent.register({...})` | Control por agente autorizado (ver §6). |
-| 🔭 `shell.config` / `shell.documents` / `shell.files` | Capacidades v2 (ver plan). |
+| `shell.config` | Parámetros del formulario ⚙️: `get()` / `onChange(fn)` (ver §3.1). |
+| `shell.documents` | Integración con 🗂️ Guardar versión / Historial: `onSerialize/onLoad` (§3.1). |
+| `shell.assetUrl(path)` | URL pública de un archivo de `assets/` (ver §7). |
+| `shell.data` | Lectura de datos de otras apps: `listInstances/listItems` (ver §7.c). |
+| `shell.authFetch(url, init?)` | `fetch` autenticado contra `/api/*` del tenant, con el RBAC del usuario (ver §7.d). |
+| 🔭 `shell.files` | Futuro; hoy: `shell.authFetch('/api/v2/files')` (§7.d). |
 
 ### Reglas de oro
 
@@ -400,6 +407,48 @@ Reglas:
 
 ---
 
+## 7.d La puerta ancha: `shell.authFetch` (API interna del tenant)
+
+`shell.authFetch(url, init?)` es un `fetch` **autenticado como el usuario**
+contra la API del propio KIMOS (`/api/*`). Lo usan hoy la mayoría de las apps
+oficiales (9 de 15) para todo lo que el resto del `shell` no cubre. El techo es
+siempre el RBAC del usuario: la app no puede hacer nada que el usuario no
+pueda hacer a mano.
+
+```js
+const me = await (await shell.authFetch('/api/identity/me')).json();
+```
+
+Endpoints estables más usados por las apps del repo:
+
+| Endpoint | Para qué |
+|---|---|
+| `GET /api/identity/me` | El usuario actual (nombre, correo, foto). |
+| `GET /api/identity/actors` | Personas y agentes de la organización (ej.: `kimos.tarjetas` genera tarjetas de visita desde aquí; `notas-equipo` arma las @menciones). |
+| `GET /api/identity/agents` | Solo los agentes IA. |
+| `GET/POST /api/app-instances` · `GET/PUT /api/app-instances/{id}` | Listar/crear instancias y leer/escribir **otra** instancia (la propia ya la cubren `saveData`/`items`). |
+| `POST /api/v2/files` (FormData) | Subida de archivos al gestor de Archivos del tenant. |
+
+Criterio de la casa:
+
+1. **Prefiere la superficie gobernada.** Si existe una vía con permiso
+   declarable, úsala: leer datos de otras apps es `shell.data` +
+   `data.read:{id}` (§7.c) — el instalador lo ve y queda auditado. `authFetch`
+   para eso funciona, pero esquiva el consentimiento del manifest; resérvalo
+   para lo que no tiene equivalente (`identity`, `files`, escribir otra
+   instancia propia).
+2. **Degrada con gracia.** Los endpoints internos pueden cambiar entre
+   versiones de KIMOS o responder 403 según el rol del usuario: envuelve cada
+   uso en try/catch y muestra un estado vacío explicativo, no un crash.
+3. **No expongas lo interno al exterior.** Nada de reenviar respuestas de
+   `authFetch` por el gateway público (§7.b) sin filtrarlas: publicas datos
+   del tenant.
+
+> `tools/verify-app.mjs` avisa cuando tu bundle usa `authFetch`, como
+> recordatorio de este criterio.
+
+---
+
 ## 8. Checklist antes de publicar
 
 - [ ] **Versión subida en los cuatro lugares** (§7.a) y `node tools/check-versions.mjs` en verde.
@@ -411,7 +460,9 @@ Reglas:
 - [ ] Persistencia probada (`multiInstance` si guardas datos).
 - [ ] Si hay agente: `getSnapshot` útil + validación de inputs + dedupe.
 - [ ] Carga sin red en runtime (recursos embebidos o por URL explícita del usuario).
-- [ ] Verificación: `node --input-type=module -e "import('./apps/{id}/dist/index.js')…"`.
+- [ ] Verificación: `node tools/verify-app.mjs apps/{id}` en verde (valida
+      manifest, import del bundle, `APP_VERSION`, permisos vs. uso real y CSS
+      con scope — funciona también fuera de este repo, desde el creator pack).
 
 ---
 
@@ -454,6 +505,10 @@ alineadas. Copia su hoja de estilos como plantilla. Reglas:
 
 ## 10. Ejemplos en este repo
 
+- **`apps/miorg.tareas`** — el ejemplo de **superficie completa** para
+  terceros (sin minificar, comentado): `saveData/loadData` con debounce,
+  `configSchema` + `shell.config`, `shell.documents`, agente con validación de
+  inputs, `shell.data` con degradación, `APP_VERSION` a la vista y CSS §9.
 - **`apps/kanban`** — `saveData/loadData`, drag&drop nativo, sin agente.
 - **`apps/notas-equipo`** — `shell.items` + agente, edición en la propia tarjeta,
   redactor con formato (marcas tipo markdown pintadas como elementos React) y

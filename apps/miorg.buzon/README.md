@@ -17,3 +17,12 @@ Contrasta con `miorg.encuestas`, que además usa `public.read` para que su
 widget lea la configuración de la encuesta.
 
 Empaquetar: `node tools/pack.mjs apps/miorg.buzon`
+
+## Versionado
+
+Versión actual: **1.1.0**
+
+| Versión | Qué trae |
+|---|---|
+| 1.1.0 | `APP_VERSION` visible en la cabecera (regla §7.a de `APP-SPEC.md`). |
+| 1.0.0 | Versión inicial del ejemplo. |

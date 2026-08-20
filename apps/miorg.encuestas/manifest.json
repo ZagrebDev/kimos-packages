@@ -1,7 +1,7 @@
 {
   "id": "miorg.encuestas",
   "name": "Encuesta Rápida (ejemplo 3ros)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "App de EJEMPLO de terceros: encuesta de una pregunta incrustable en cualquier web, construida SOLO con el gateway público genérico (permissions public.read + public.submit) — sin backend a medida.",
   "icon": "📊",
   "author": "miorg (ejemplo de terceros)",
