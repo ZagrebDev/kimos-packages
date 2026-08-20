@@ -8725,10 +8725,22 @@ export default function mount(shell) {
   const ICONO_ATRAS = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     [h('path', { key: 'p', d: 'M15 5l-7 7 7 7' })]);
   void ICONO_ATRAS;
-  // Bolsa de tienda: el icono de "Aplicar a la tienda".
+  // Bolsa de tienda: el icono de "Rearmar" (la ficha se re-arma EN LA TIENDA).
   const ICONO_TIENDA = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
     h('path', { key: 'b', d: 'M6 7h12l1.2 13H4.8L6 7z' }),
     h('path', { key: 'a', d: 'M9 10V6a3 3 0 0 1 6 0v4' }),
+  ]);
+  // Las acciones del header van SOLO CON ICONO (pedido del usuario: con texto
+  // eran demasiado anchas y se peleaban el espacio con la miga y las
+  // pestañas). El nombre y la explicación viven en el title/aria-label.
+  const ICONO_GUARDAR = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
+    h('path', { key: 'c', d: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z' }),
+    h('path', { key: 'i', d: 'M17 21v-8H7v8' }),
+    h('path', { key: 's', d: 'M7 3v5h8' }),
+  ]);
+  const ICONO_PRECIOS = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
+    h('path', { key: 'v', d: 'M12 2v20' }),
+    h('path', { key: 's', d: 'M17 5.5H9.5a3.25 3.25 0 0 0 0 6.5h5a3.25 3.25 0 0 1 0 6.5H6' }),
   ]);
   function Header({ state }) {
     const n = useNav();
@@ -8778,17 +8790,25 @@ export default function mount(shell) {
             h('span', { key: 'p', className: 'gp-hd-precio-n' }, extra.precio),
             h('span', { key: 's', className: 'gp-hd-precio-s' }, extra.sub),
           ]),
-          h('button', { key: 'g', className: 'gp-btn' + (extra.conTienda ? '' : ' gp-btn-primary'),
-            disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : extra.etiquetaGuardar),
-          extra.conTienda && extra.precios ? h('button', { key: 'pr', className: 'gp-btn gp-btn-primary', disabled: !extra.puedeAplicar,
-            title: 'Guarda y escribe SOLO los precios en la tienda: ancla, recargos de cada valor y variantes de color (vía app Productos). Rápido; no toca fotos ni páginas.',
-            onClick: extra.precios }, extra.busy ? '…' : '$ Precios') : null,
-          extra.conTienda && extra.rearmar ? h('button', { key: 're', className: 'gp-btn gp-btn-primary gp-hd-aplicar', disabled: !extra.puedeAplicar,
-            title: 'Guarda y REARMA la ficha en la tienda: paso a paso, fotos (solo las que falten — lo ya alojado no se re-sube) y su página de datos. Es la carga pesada; hazla cuando cambies fotos o estructura.',
-            onClick: extra.rearmar }, extra.busy ? '…' : 'Rearmar') : null,
+          // Solo iconos: con texto, tres botones no cabían junto a la miga y
+          // las pestañas. El nombre viaja en title/aria-label; el busy se ve
+          // en el propio botón ('…') y en el disabled.
+          h('button', { key: 'g', className: 'gp-btn gp-btn-ico' + (extra.conTienda ? '' : ' gp-btn-primary'),
+            disabled: !extra.puedeGuardar, title: extra.etiquetaGuardar + ' (solo KIMOS, instantáneo)',
+            'aria-label': extra.etiquetaGuardar,
+            onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : h(ICONO_GUARDAR)),
+          extra.conTienda && extra.precios ? h('button', { key: 'pr', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: !extra.puedeAplicar,
+            title: 'Actualizar precios: guarda y escribe SOLO los precios en la tienda (ancla, recargos y variantes de color, vía app Productos). Rápido; no toca fotos ni páginas.',
+            'aria-label': 'Actualizar precios en la tienda',
+            onClick: extra.precios }, extra.busy ? '…' : h(ICONO_PRECIOS)) : null,
+          extra.conTienda && extra.rearmar ? h('button', { key: 're', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: !extra.puedeAplicar,
+            title: 'Rearmar: guarda y REARMA la ficha en la tienda — paso a paso, fotos (solo las que falten; lo alojado no se re-sube) y su página de datos. Es la carga pesada; hazla cuando cambies fotos o estructura.',
+            'aria-label': 'Rearmar producto en la tienda',
+            onClick: extra.rearmar }, extra.busy ? '…' : h(ICONO_TIENDA)) : null,
         ]) : null,
-        !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
-          title: 'REARMA en la tienda las fichas de todos los productos que hayan cambiado desde su último rearmado (fotos que falten + páginas de datos). Lo que no cambió no se toca. Los PRECIOS van aparte: "$ Precios" en cada producto o "Actualizar precios de TODO" en Publicación.',
+        !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: pubBusy,
+          title: 'Rearmar tienda: REARMA las fichas de todos los productos que hayan cambiado desde su último rearmado (fotos que falten + páginas de datos). Lo que no cambió no se toca. Los PRECIOS van aparte: en cada producto o "Actualizar precios de TODO" en Publicación.',
+          'aria-label': 'Rearmar tienda',
           onClick: async () => {
             setPubBusy(true);
             const r = await publish(true);
@@ -8798,7 +8818,7 @@ export default function mount(shell) {
               shell.notify({ level: 'success', text: 'Fichas rearmadas en la tienda'
                 + (num(am.sinCambios) ? ' (' + num(am.sinCambios) + ' sin cambios, no se tocaron)' : '') + '.' });
             }
-          } }, pubBusy ? 'Rearmando…' : 'Rearmar tienda') : null,
+          } }, pubBusy ? '…' : h(ICONO_TIENDA)) : null,
         h('button', { key: 'r', className: 'gp-hd-ico', title: 'Actualizar datos',
           onClick: () => { void load(); void loadCatalog(); void loadHermanas(); } }, '⟳'),
       ]),
