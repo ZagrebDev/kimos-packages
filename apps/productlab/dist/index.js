@@ -2651,7 +2651,7 @@ export default function mount(shell) {
   // tiempo en el backend — la respuesta con el mapa SIEMPRE vuelve (era el
   // 502 del gateway en las pasadas largas lo que dejaba los archivos subidos
   // pero el catálogo sin reescribir, publicación tras publicación).
-  async function alojarImagenesProducto(p, mapaPrevio) {
+  async function alojarImagenesProducto(p, mapaPrevio, pendPrevio) {
     // Lo YA alojado en publicaciones anteriores (mapa persistente foto→URL,
     // guardado en la definición) se reescribe SIN RED: publicar sin fotos
     // nuevas no toca el espejo — solo escribe la página. Al espejo van
@@ -2659,21 +2659,39 @@ export default function mount(shell) {
     const nodo = reemplazarUrls(p, mapaPrevio || {});
     const sid = s(nodo && nodo.productId).trim();
     const urls = urlsDeKimos(nodo);
-    const out = { p: nodo, copiadas: 0, pendientes: urls.length, avisos: [], motor: '', nuevos: {} };
+    // `urlsEspejo` son las URLs cuyo rastreo (assetPend) queda a cargo de ESTA
+    // llamada: el caller borra sus entradas y adopta las devueltas en `pend`.
+    // Si el espejo NO llegó a correr (sin enlace, sin red, HTTP no-ok), se
+    // devuelve vacío para NO borrar un rastreo que nadie actualizó.
+    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, urlsEspejo: [] };
     if (!shell.authFetch || !sid || !urls.length) {
       if (!sid && urls.length) out.avisos.push('sin enlace a la tienda: sus imágenes no pueden alojarse (aplica el producto primero)');
       if (!urls.length) out.pendientes = 0;
       return out;
     }
+    // Rastreo POR ID de lo aún en proceso (assetPend, persistido junto al
+    // mapa): el listado de adjuntos de la tienda no trae nombre de archivo,
+    // así que un adjunto sin URL es anónimo — solo con el id que devolvió su
+    // subida el backend puede recogerlo después SIN re-subirlo (re-subir
+    // re-encolaba el procesado y las URLs no salían nunca).
+    const pending = {};
+    urls.forEach((u) => { if (pendPrevio && pendPrevio[u]) pending[u] = pendPrevio[u]; });
     try {
       const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-product-assets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId: sid, urls }),
+        body: JSON.stringify({ sourceId: sid, urls, pending }),
       }, 2);
       const d = await r.json().catch(() => ({}));
       const mapa = (d && d.map) || {};
       const n = Object.keys(mapa).length;
       out.copiadas = n; out.pendientes = urls.length - n;
+      // Solo una respuesta REAL del espejo asume el rastreo de estas URLs;
+      // un HTTP no-ok conserva el rastreo previo tal cual.
+      if (r.ok) {
+        out.pend = (d && d.pending) || {};
+        out.urlsEspejo = urls;
+      }
+      out.enProceso = Object.keys(out.pend).length;
       out.motor = s(d && d.motor);
       // El DIAG del backend (la forma real del listado de adjuntos) se
       // muestra SIEMPRE: recortar a los 2 primeros errores lo dejaba fuera
@@ -2693,8 +2711,8 @@ export default function mount(shell) {
   // (pubAt) y escribe SU página en la tienda (permalink -p<id>). Es la unidad
   // del enfoque por producto: pasadas cortas, con resultado visible por
   // producto, en vez de una carga monolítica de minutos.
-  async function publicarUno(entry0, marco, mapaPrevio) {
-    const al = await alojarImagenesProducto(entry0, mapaPrevio);
+  async function publicarUno(entry0, marco, mapaPrevio, pendPrevio) {
+    const al = await alojarImagenesProducto(entry0, mapaPrevio, pendPrevio);
     const pubAt = nowIso();
     const entry = Object.assign({}, al.p, { pubAt });
     const sid = s(entry.productId).trim();
@@ -2711,7 +2729,8 @@ export default function mount(shell) {
     }
     const avisos = al.avisos.slice();
     if (!page.ok && page.aviso) avisos.push('página del producto: ' + page.aviso);
-    return { entry, copiadas: al.copiadas, pendientes: al.pendientes, avisos, motor: al.motor, page, nuevos: al.nuevos || {} };
+    return { entry, copiadas: al.copiadas, pendientes: al.pendientes, enProceso: al.enProceso,
+      avisos, motor: al.motor, page, nuevos: al.nuevos || {}, pend: al.pend || {}, urlsEspejo: al.urlsEspejo || [] };
   }
   // ¿La entrada del producto cambió respecto de lo YA publicado? (se compara
   // sin el sello pubAt). Si no cambió, republicar no toca ni el espejo ni su
@@ -2750,10 +2769,14 @@ export default function mount(shell) {
       if (enabled && aPublicar) {
         const porProducto = ((antes.assetMirror || {}).porProducto || []).slice();
         const mapa = Object.assign({}, antes.assetMap || {});
+        // Rastreo por id de los adjuntos aún en proceso (assetPend): viaja al
+        // backend en cada pasada y vuelve actualizado — es lo que permite
+        // recoger sus URLs después SIN re-subirlos.
+        const pendMap = Object.assign({}, antes.assetPend || {});
         const previos = ((antes.data || {}).productos || []);
         const productos = [];
         const avisos = [];
-        let copiadas = 0; let pendientes = 0; let motor = ''; let sinCambios = 0;
+        let copiadas = 0; let pendientes = 0; let enProceso = 0; let motor = ''; let sinCambios = 0;
         for (const p0 of (aPublicar.productos || [])) {
           // Sin cambios respecto de lo ya publicado → ni espejo ni página:
           // el auto-refresco tras cada guardado solo escribe lo que cambió.
@@ -2763,15 +2786,19 @@ export default function mount(shell) {
           // pendientes: si las dejó, hay que volver al espejo a recogerlas.
           const lineaPrev = porProducto.find((x) => s(x.name) === s(p0.name));
           if (intacta && !(lineaPrev && num(lineaPrev.pendientes) > 0)) { productos.push(intacta); sinCambios++; continue; }
-          const res = await publicarUno(p0, aPublicar, mapa);
+          const res = await publicarUno(p0, aPublicar, mapa, pendMap);
           Object.assign(mapa, res.nuevos);
+          // El rastreo de SUS fotos se reemplaza entero por lo que devolvió
+          // el backend: lo mapeado sale, lo aún en proceso entra con su id.
+          (res.urlsEspejo || []).forEach((u) => { delete pendMap[u]; });
+          Object.assign(pendMap, res.pend || {});
           productos.push(res.entry);
-          copiadas += res.copiadas; pendientes += res.pendientes;
+          copiadas += res.copiadas; pendientes += res.pendientes; enProceso += num(res.enProceso);
           if (res.motor) motor = res.motor;
           res.avisos.forEach((a) => avisos.push(s(p0.name) + ': ' + a));
           const linea = {
             name: s(p0.name), productId: s(p0.productId), at: res.entry.pubAt,
-            copiadas: res.copiadas, pendientes: res.pendientes,
+            copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
             page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
           };
           const i = porProducto.findIndex((x) => s(x.name) === linea.name);
@@ -2780,10 +2807,11 @@ export default function mount(shell) {
         aPublicar = Object.assign({}, aPublicar, { productos });
         pub.data = aPublicar;
         pub.assetMap = mapa;
+        pub.assetPend = pendMap;
         // Los avisos del alojado se GUARDAN (no solo la notificación pasajera):
         // la pestaña Publicación los muestra como "última publicación" y se
         // pueden leer y copiar con calma después.
-        pub.assetMirror = { at: nowIso(), copiadas, pendientes, motor, sinCambios,
+        pub.assetMirror = { at: nowIso(), copiadas, pendientes, enProceso, motor, sinCambios,
           porProducto, avisos: avisos.slice(0, 12) };
         if (avisos.length) {
           shell.notify({ level: 'warn', text: 'Publicación con avisos (detalle en la pestaña Publicación): '
@@ -2841,8 +2869,11 @@ export default function mount(shell) {
     const entry0 = (data.productos || []).find(match);
     if (!entry0) return { success: false, error: 'El producto no está en el catálogo publicable (¿está inactivo?).' };
     const mapa = Object.assign({}, pub.assetMap || {});
-    const res = await publicarUno(entry0, data, mapa);
+    const pendMap = Object.assign({}, pub.assetPend || {});
+    const res = await publicarUno(entry0, data, mapa, pendMap);
     Object.assign(mapa, res.nuevos);
+    (res.urlsEspejo || []).forEach((u) => { delete pendMap[u]; });
+    Object.assign(pendMap, res.pend || {});
     // Su entrada se funde en el catálogo YA PUBLICADO: los demás productos
     // quedan tal cual estaban (sus pubAt, sus fotos, sus páginas).
     const base = (pub.data && Array.isArray(pub.data.productos)) ? pub.data : data;
@@ -2851,9 +2882,10 @@ export default function mount(shell) {
     if (!visto) productos.push(res.entry);
     pub.data = Object.assign({}, base, { productos, kitExpected: data.kitExpected, kitTtlDias: data.kitTtlDias });
     pub.assetMap = mapa;
+    pub.assetPend = pendMap;
     const linea = {
       name: s(entry0.name), productId: s(entry0.productId), at: res.entry.pubAt,
-      copiadas: res.copiadas, pendientes: res.pendientes,
+      copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
       page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
     };
     const antesPP = ((pub.assetMirror || {}).porProducto || []).filter((x) => s(x.name) !== linea.name);
@@ -2861,7 +2893,7 @@ export default function mount(shell) {
       at: nowIso(), motor: res.motor || (pub.assetMirror || {}).motor,
       porProducto: antesPP.concat([linea]),
       avisos: res.avisos.map((a) => s(entry0.name) + ': ' + a).slice(0, 12),
-      copiadas: res.copiadas, pendientes: res.pendientes,
+      copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
     });
     def.public = pub;
     const r = await saveDefinition(def, ['public']);
@@ -2871,7 +2903,8 @@ export default function mount(shell) {
       success: res.page.ok,
       error: res.page.ok ? '' : (res.page.aviso || 'página no escrita'),
       message: '"' + s(entry0.name) + '" rearmado en ' + seg + ' s — fotos: ' + num(res.copiadas) + ' subidas'
-        + (res.pendientes ? ' (' + num(res.pendientes) + ' pendientes: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
+        + (num(res.enProceso) ? ' (' + num(res.enProceso) + ' en proceso en la tienda, rastreadas por id: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
+        + (res.pendientes - num(res.enProceso) > 0 ? ' (' + (res.pendientes - num(res.enProceso)) + ' pendientes: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
         + ' · ' + (res.page.ok ? 'página /' + s(res.page.permalink) + ' ✓' : 'página: ' + (res.page.aviso || 'no escrita')),
     };
   }
@@ -8316,6 +8349,7 @@ export default function mount(shell) {
           h('div', { key: 't', className: 'gp-muted', style: { fontSize: 12, fontWeight: 600 } },
             'Última publicación' + (pub.assetMirror ? ' · ' + fmtDateTime(pub.assetMirror.at)
               + ' — imágenes alojadas en la tienda: ' + num(pub.assetMirror.copiadas)
+              + (num(pub.assetMirror.enProceso) ? ' · en proceso en la tienda: ' + num(pub.assetMirror.enProceso) + ' (rastreadas por id, se recogen al republicar sin re-subir)' : '')
               + (num(pub.assetMirror.pendientes) ? ' · pendientes: ' + num(pub.assetMirror.pendientes) + ' (se retoman al republicar)' : '')
               + (s(pub.assetMirror.motor) ? ' · ' + s(pub.assetMirror.motor) : '') : '')),
           // Una línea por producto: qué se alojó y en qué página quedó su
@@ -8323,6 +8357,7 @@ export default function mount(shell) {
           ...(((pub.assetMirror || {}).porProducto || []).map((pp, i) =>
             h('div', { key: 'pp' + i, className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } },
               '· ' + s(pp.name) + ' — fotos: ' + num(pp.copiadas) + ' alojadas'
+              + (num(pp.enProceso) ? ', ' + num(pp.enProceso) + ' en proceso' : '')
               + (num(pp.pendientes) ? ', ' + num(pp.pendientes) + ' pendientes' : '')
               + ' · página: ' + s(pp.page) + (pp.at ? ' · ' + fmtDateTime(pp.at) : '')))),
           ...(((pub.assetMirror || {}).avisos || []).map((a, i) =>

@@ -199,6 +199,19 @@ Ambas acciones guardan primero y notifican "Guardado ✓" al tiro — lo lento e
 
 **Diagnóstico pendiente con el usuario**: su publicación reportó "HTTP 502" con backend supuestamente 0.62.0 — verificar en la bitácora la marca `espejo v2 · presupuesto 18s`; si no aparece, el backend desplegado es viejo (healthz). El adjunto `mrt2lqat-111f-8.png` lleva días "aceptado sin URL" (atascado en Jumpseller): si persiste, borrarlo a mano del producto y rearmar.
 
+### ESPEJO v4 — RASTREO POR ID (raíz del «0 alojadas · 13 pendientes» eterno, 2026-08-20) — ProductLab 3.51.0 / backend 0.63.0
+
+**Diagnóstico (por fin la raíz, con la evidencia del piloto: 13 fotos pendientes en cada publicación, los archivos VISIBLES en el panel, y el DIAG mostrando un adjunto viejo CON URL)**: la API de Jumpseller lista los adjuntos como `{id, url}` — **SIN `filename`** — y `url` queda vacía mientras la tienda descarga el archivo. Es decir: un adjunto aún en proceso es **ANÓNIMO** en el listado, y casarlo por nombre (todo el espejo v3) era imposible por construcción. Consecuencia en cadena: cada publicación re-subía los mismos archivos → la re-subida re-encolaba el procesamiento en la tienda → las URLs no salían NUNCA (el atasco «aceptado sin URL» del caso `mrt2lqat` no era un capricho de Jumpseller: lo alimentábamos nosotros cada 18 s).
+
+**El arreglo (espejo v4)**: el POST de subida SÍ devuelve el `id` del adjunto — ese es el hilo.
+1. **`pending` persistente** (`assetPend` en la definición, junto a `assetMap`): `{url_original: {id, intentos}}` viaja al backend en cada pasada y vuelve actualizado.
+2. **Recogida por id**: cada pendiente se consulta con `GET /attachments/{id}`; con URL → al mapa; sin URL → sigue rastreado, **sin re-subir** (cero re-encolado).
+3. **Desatasco automático**: 3 pasadas sin URL = atascado de verdad → se BORRA y se re-sube (el remedio manual documentado, automatizado).
+4. **Limpieza de huérfanos**: las filas sin URL que dejó el v3 (irreconocibles para siempre) se borran antes de re-subir con rastreo.
+5. **Fallos de listado visibles**: un listado que responde no-200 ya no se confunde con «no hay adjuntos» (aviso explícito), y la URL de una fila se extrae tolerando formas anidadas — pero solo del CDN de Jumpseller (una fila que eco-ara la URL de origen «mapearía» cada foto a sí misma).
+
+La bitácora ahora distingue «en proceso en la tienda: N (rastreadas por id)» de «pendientes» a secas, y el motor se declara `espejo v4`. Cobertura: `backend/test_jumpseller_espejo.py` reproduce el estado exacto del piloto (13 anónimos atascados + 1 viejo con URL) contra una tienda simulada con la semántica real de la API y verifica la convergencia en dos pasadas con CERO re-subidas.
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.
