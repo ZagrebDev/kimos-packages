@@ -2177,7 +2177,10 @@ export default function mount(shell) {
     } catch (e) { return { success: false }; }
   }
 
-  async function applyToStore(eq) {
+  async function applyToStore(eq, opts) {
+    // `conStock: true` = el usuario PIDIÓ escribir el stock en la tienda
+    // (botón dedicado). Por defecto NO se escribe: ver el comentario del PUT.
+    const conStock = !!(opts && opts.conStock);
     const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
     if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
@@ -2239,16 +2242,20 @@ export default function mount(shell) {
         // El backend asegura el custom field en
         // Jumpseller tras el push — activa la vista personalizada del theme
         // sin pasos manuales.
-        // STOCK: calculado de los componentes base — ∞ (nadie controla) se
-        // publica como stock ilimitado en la tienda; con control, el mínimo.
-        // Sin componentes base no se toca (manda lo que gestione la tienda).
+        // STOCK: NO viaja al aplicar. Su verdad la lleva la tienda, que lo
+        // baja con CADA VENTA; escribirlo de rebote al cambiar un precio
+        // "des-vendía" lo vendido y era la misma pérdida de datos que la de
+        // la descripción. Se escribe SOLO cuando alguien lo pide (opción
+        // `conStock`, botón "Escribir stock en la tienda"), viendo antes las
+        // dos cifras. Gestionar pedidos/ventas será otra app; esto solo evita
+        // perder el dato mientras tanto.
         // NOMBRE: el de ProductLab manda — renombrar aquí renombra en la
         // tienda al aplicar (antes solo viajaban precio/opciones y el nombre
         // viejo se quedaba en Jumpseller para siempre).
         body: JSON.stringify(Object.assign(
           s(eq.name).trim() ? { name: s(eq.name).trim() } : {},
           { price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' },
-          ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true))
+          (conStock && ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true)))
             ? (productoStock(eq) == null
                 ? { stockUnlimited: true }
                 : { stock: productoStock(eq), stockUnlimited: false })
@@ -6847,19 +6854,48 @@ export default function mount(shell) {
                   : 'Escribe el precio fijo aquí arriba.')),
           ]);
         })(),
-        // ── Stock vendible (informativo): sale de los componentes base y se
-        // publica en la tienda al Aplicar (∞ = venta sin control de stock).
+        // ── Stock: DOS cifras, y la de la tienda manda ──────────────────
+        // Aquí se calcula desde los componentes en bodega; allá lo baja cada
+        // venta. Aplicar NO lo escribe (pisaría lo vendido): se muestran
+        // ambas y se escribe solo si tú lo pides, viendo la diferencia.
         (function () {
           const stk = productoStock(d);
           const conBase = (d.baseComponentIds || []).length || (d.groups || []).some((g) => g && g.baseStep === true);
           if (!conBase) return null;
-          return h('div', { key: 'stk', className: 'gp-compline', style: { borderBottom: 0 } }, [
-            h('span', { key: 'l', className: 'gp-label' }, 'STOCK VENDIBLE'),
+          const itemT = productItemFor(d) || {};
+          const enTienda = itemT.stockUnlimited === true ? null
+            : (itemT.stock == null || itemT.stock === '' ? undefined : num(itemT.stock));
+          const difiere = enTienda !== undefined && !(stk == null && enTienda == null) && num(stk) !== num(enTienda);
+          return h('div', { key: 'stk', className: 'gp-compline', style: { flexWrap: 'wrap', gap: 8 } }, [
+            h('span', { key: 'l', className: 'gp-label' }, 'STOCK'),
             stk == null
-              ? h('span', { key: 'v', className: 'gp-chip gris', title: 'Ningún componente base controla stock: al Aplicar, la tienda queda en venta sin control de stock.' }, '∞ sin control')
-              : h('span', { key: 'v', className: 'gp-chip ' + (stk > 0 ? 'ok' : 'err'), title: 'El mínimo entre los componentes base. Se escribe en la tienda al Aplicar. Para cambiarlo, edita el stock de los componentes.' }, stk + ' unidad(es)'),
-            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-              stk == null ? 'se publica como stock ilimitado al Aplicar' : 'mínimo de los componentes base — se publica al Aplicar'),
+              ? h('span', { key: 'v', className: 'gp-chip gris', title: 'Ningún componente base controla stock: en KIMOS este producto se considera de venta sin control.' }, 'aquí: ∞ sin control')
+              : h('span', { key: 'v', className: 'gp-chip ' + (stk > 0 ? 'ok' : 'err'), title: 'El mínimo entre los componentes base (lo que hay en bodega). Para cambiarlo, edita el stock de los componentes.' }, 'aquí: ' + stk),
+            enTienda === undefined
+              ? h('span', { key: 't', className: 'gp-chip gris', title: 'Usa "Traer de la tienda" para leerlo.' }, 'tienda: ?')
+              : h('span', { key: 't', className: 'gp-chip ' + (difiere ? 'warn' : 'gris'),
+                  title: 'Lo que la tienda tiene AHORA. Baja con cada venta; esa cifra manda.' },
+                  'tienda: ' + (enTienda == null ? '∞' : enTienda)),
+            difiere ? h('span', { key: 'd', className: 'gp-muted', style: { fontSize: 12 } },
+              'difieren — puede ser que se haya vendido. Revisa antes de escribir.') : null,
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'w', className: 'gp-btn gp-btn-sm', disabled: busy,
+              title: 'Escribe en la tienda el stock calculado aquí. Pide confirmación: aplicar precios o pasos NUNCA lo toca.',
+              onClick: async () => {
+                const actual = enTienda === undefined ? '(sin leer)' : (enTienda == null ? '∞' : enTienda);
+                if (!window.confirm('La tienda tiene ' + actual + ' y aquí se calcula '
+                  + (stk == null ? '∞ (sin control)' : stk) + '.\n\nEscribir el valor de KIMOS reemplaza el de la tienda — si hubo ventas, se perderá ese descuento.\n\n¿Escribir de todas formas?')) return;
+                setBusy(true);
+                const saved = await saveProducto(d);
+                if (saved.success && saved.item) adoptar(saved.item);
+                const r = await applyToStore(saved.item || d, { conStock: true });
+                setBusy(false);
+                shell.notify(r.success
+                  ? { level: 'success', text: 'Stock escrito en la tienda. ' + r.message }
+                  : { level: 'error', text: r.error });
+              } }, 'Escribir stock en la tienda'),
+            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12, flexBasis: '100%' } },
+              'Aplicar precios o pasos NO toca el stock de la tienda: lo baja cada venta y ese dato manda. Usa "Traer de la tienda" para ver el actual.'),
           ]);
         })(),
         // ── Descripción del producto EN LA TIENDA: editable aquí mismo (al

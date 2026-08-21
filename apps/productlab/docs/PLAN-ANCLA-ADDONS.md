@@ -244,3 +244,39 @@ La bitácora distingue «en proceso en la tienda: N (rastreadas por id)» de «p
 | Correo de confirmación fuera de nuestro control | Fase 3.3, compra de prueba |
 | Migración rompe el producto vivo (tienda por lanzar) | Piloto en Plasma; poda reversible (los datos maestros viven en KIMOS) |
 | Sandbox sin salida a hubpro.cl | Verificaciones vía snippets en el navegador del usuario; zip del theme como fuente de verdad |
+
+---
+
+## CONTRATO DE PROPIEDAD DEL DATO (2026-08-20) — backend 0.63.0 / ProductLab 3.54.0
+
+Nació de una pérdida real: el usuario editó la descripción de un producto en
+Jumpseller, aplicó unos pasos desde ProductLab —que solo quería cambiar el
+precio— y el texto se perdió. La causa fue estructural, no un descuido: el
+push mandaba el item COMPLETO, así que cualquier escritura arrastraba TODOS
+los campos con la copia envejecida de KIMOS.
+
+**Cada dato tiene UN dueño, y el que no es dueño no escribe sin permiso.**
+
+| Dato | Dueño | Cómo se comporta |
+|---|---|---|
+| Precio, opciones, variantes, nombre | **ProductLab** | Los calcula y los escribe al aplicar. |
+| Descripción de la ficha | **La tienda** | Solo lectura en ProductLab (renderizada). Se edita en la app Productos / panel. Escribirla desde KIMOS exige pedirlo (SET_DESCRIPCION_TIENDA). |
+| Stock | **La tienda** | Baja con cada venta: ESE dato manda. ProductLab calcula el suyo desde los componentes en bodega y muestra AMBAS cifras; escribir el de KIMOS es un botón aparte con confirmación que advierte que se pierde lo vendido. |
+| Galería de fotos | **La tienda** | Ya era así (se gestiona en la app). |
+
+Mecánica que lo sostiene:
+
+1. **Intención explícita** (`campos` en `push_product_to_jumpseller`): solo viaja lo que el llamador vino a cambiar. Sin lista, `CAMPOS_DE_LA_TIENDA` (description/stock/stockUnlimited) se omiten siempre.
+2. **Pull** (`POST /{instancia}/items/{item}/pull-from-store`): trae el estado real de la tienda a KIMOS. Lo ejecuta el botón «Traer de la tienda» y también, automáticamente, antes de aplicar.
+3. **Auditoría** (`audit_log`): cada push y cada pull deja el valor ANTERIOR y el nuevo, con quién y de dónde. Un dato pisado se puede recuperar.
+
+**Decisión explícita del usuario (no reabrir)**: ProductLab **no** gestiona
+pedidos ni automatiza descuentos de stock — eso será otra app. Lo que se hizo
+aquí es que el diseño sea escalable a eso y, mientras tanto, **no haga perder
+datos**. Cuando exista la app de pedidos, el camino natural es que ella
+descuente el stock de los componentes (los que están en bodega; los que se
+compran al proveedor quedan sin control, como hoy) y que ProductLab siga sin
+escribir stock por su cuenta.
+
+**Pendiente útil**: vista de la auditoría dentro de KIMOS (hoy el registro se
+escribe pero solo se lee en Firestore).
