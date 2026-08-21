@@ -2101,6 +2101,30 @@ export default function mount(shell) {
   // La descripción del producto vive EN LA TIENDA (item de la app Productos):
   // editarla desde ProductLab la escribe allí y la empuja a Jumpseller —
   // sin abrir la app Productos.
+  // PULL: la tienda manda en descripción y stock. Trae a KIMOS lo que hay
+  // allá ahora mismo — sin escribir nada en la tienda. Es la dirección que
+  // faltaba: sin ella la copia local envejecía con cada edición de la ficha
+  // y con cada venta.
+  async function traerDeLaTienda(eq) {
+    const ref = storeRefOf(eq);
+    if (!ref) return { success: false, error: 'El producto no está enlazado a la tienda.' };
+    if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
+    try {
+      const r = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId + '/pull-from-store', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }, 2);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return { success: false, error: s(d.detail) || ('HTTP ' + r.status) };
+      const campos = Object.keys((d && d.cambios) || {});
+      await loadCatalog();   // el item vive en la app Productos: recargar para verlo
+      return {
+        success: true, cambios: campos.length,
+        message: campos.length
+          ? 'Traído de la tienda: ' + campos.join(', ') + ' (lo anterior quedó registrado en la auditoría).'
+          : 'Ya estaba al día con la tienda.',
+      };
+    } catch (e) { return { success: false, error: (e && e.message) || 'error de red' }; }
+  }
   async function pushDescripcionTienda(eq, html) {
     const ref = storeRefOf(eq);
     if (!ref || !shell.authFetch) return { success: false };
@@ -2164,6 +2188,12 @@ export default function mount(shell) {
     const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
+    // PRIMERO LEER LA TIENDA. Escribir sobre una copia envejecida es cómo se
+    // pierde trabajo: quien editó la ficha en el ecommerce (o vendió una
+    // unidad) tiene la verdad. El pull refresca descripción/stock/nombre en
+    // el item ANTES de calcular nada. Best-effort: si la tienda no responde
+    // se sigue con lo que hay (aplicar no puede quedar bloqueado por esto).
+    await traerDeLaTienda(eq).catch(() => null);
     const existing = await fetchProductItem(ref);
     // Sin el estado actual del item NO se aplica: se regenerarían opciones y
     // variantes sin sourceIds y el push las recrearía en Jumpseller (ids
@@ -6084,7 +6114,7 @@ export default function mount(shell) {
     const [picking, setPicking] = useState(false);
     const [skuLibre, setSkuLibre] = useState(false);   // candado del SKU (heredado de la tienda)
     const [editUrl, setEditUrl] = useState(false);     // editor manual de la URL de tienda
-    const [descTienda, setDescTienda] = useState(null); // descripción editada (null = sin tocar)
+    // (La descripción ya no se edita aquí: es de la tienda. Ver la card TIENDA.)
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
@@ -6270,14 +6300,9 @@ export default function mount(shell) {
               ? { level: 'success', text: 'Nombre actualizado también en el producto de la tienda.' }
               : { level: 'warn', text: 'El nombre se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
           }
-          // Descripción de la tienda editada aquí → al item + push a Jumpseller.
-          if (r.success && ref && descTienda != null && descTienda !== s((productItemFor(d) || {}).description)) {
-            const rd = await pushDescripcionTienda(d, descTienda);
-            shell.notify(rd.success
-              ? { level: 'success', text: 'Descripción actualizada en el producto de la tienda.' }
-              : { level: 'warn', text: 'No se pudo escribir la descripción en la tienda.' });
-            if (rd.success) setDescTienda(null);
-          }
+          // La DESCRIPCIÓN ya no se escribe desde aquí: es de la tienda (se
+          // edita en la app Productos / el panel). Guardar en ProductLab no
+          // puede pisarla — así se perdió un texto el 2026-08-20.
           setBusy(false);
           if (r.success) {
             if (r.item) adoptar(r.item);
@@ -6839,13 +6864,36 @@ export default function mount(shell) {
         })(),
         // ── Descripción del producto EN LA TIENDA: editable aquí mismo (al
         // guardar se escribe en el item y se empuja a Jumpseller). ──
+        // ── Descripción del producto EN LA TIENDA: SOLO LECTURA ──
+        // Su dueña es la tienda (se edita en la app Productos / el panel de
+        // Jumpseller). Aquí se muestra RENDERIZADA —era un textarea con HTML
+        // crudo, ilegible— y con un botón para traer lo que hay allá ahora
+        // mismo: la copia de KIMOS envejece cada vez que alguien edita la
+        // ficha en el ecommerce.
         ref ? h('div', { key: 'desct', className: 'gp-card' }, [
-          h(Row, { key: 'r', label: 'Descripción del producto en la tienda (HTML permitido' + (descTienda != null ? ' · sin guardar' : '') + ')' },
-            h('textarea', { className: 'gp-textarea gp-mono', rows: 5,
-              value: descTienda != null ? descTienda : s((productItemFor(d) || {}).description),
-              placeholder: 'La descripción que muestra la ficha de la tienda…',
-              onChange: (e) => setDescTienda(e.target.value) })),
-          h('div', { key: 'h', className: 'gp-muted' }, 'Se guarda con el botón Guardar del header: escribe en el producto de la tienda (no hace falta abrir la app Productos). El bloque "descripción" de la Experiencia la muestra renderizada.'),
+          h('div', { key: 't', className: 'gp-card-title' }, [
+            h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Descripción del producto',
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'pull', className: 'gp-btn gp-btn-sm', disabled: busy,
+              title: 'Lee el producto en la tienda AHORA y actualiza aquí su descripción y stock. No escribe nada en la tienda.',
+              onClick: async () => {
+                setBusy(true);
+                const r = await traerDeLaTienda(d);
+                setBusy(false);
+                shell.notify(r.success
+                  ? { level: r.cambios ? 'success' : 'info', text: r.message }
+                  : { level: 'error', text: r.error });
+              } }, 'Traer de la tienda'),
+          ]),
+          (function () {
+            const html = s((productItemFor(d) || {}).description).trim();
+            if (!html) return h('div', { key: 'v', className: 'gp-muted' }, 'Sin descripción en la tienda.');
+            return h('div', { key: 'v', className: 'gp-desc-render',
+              style: { border: '1px solid var(--gp-linea)', padding: '10px 12px', maxHeight: 260, overflowY: 'auto', background: 'var(--gp-blanco)' },
+              dangerouslySetInnerHTML: { __html: html } });
+          })(),
+          h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 8 } },
+            'Se edita en la app Productos o en el panel de la tienda — no aquí: así ProductLab nunca pisa lo que escribiste allá. Aplicar pasos o precios NO la toca.'),
         ]) : null,
         h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
