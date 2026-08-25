@@ -6116,7 +6116,21 @@ export default function mount(shell) {
                           : img
                             ? h('img', { key: 'i', src: img, alt: '', style: asList ? { width: 40, height: 40, objectFit: 'cover' } : { width: '100%', height: compact ? 44 : 64, objectFit: 'cover' } })
                             : (asList || compact ? null : h('div', { key: 'i', style: { width: '100%', height: 44, background: 'var(--gp-plata)' } })),
-                        h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label + (valueQty(v) > 1 ? ' (×' + valueQty(v) + ')' : '')),
+                        // Contrato 6.1: el NOMBRE va tal cual (nada de "(×2)"
+                        // pegado — "16GB" con qty 2 se leía como 32GB); la
+                        // cantidad vive en el DETALLE bajo el nombre, igual
+                        // que en la tienda.
+                        h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label),
+                        (function () {
+                          if (compact) return null;
+                          const det = s(v.detalle).trim() || (function () {
+                            const q = valueQty(v);
+                            const alt = valueChosen(v);
+                            const base = alt ? s(alt.specs).trim() || s(alt.name).trim() : '';
+                            return base ? (q > 1 ? q + '× ' : '') + base : (q > 1 ? q + '×' : '');
+                          })();
+                          return det ? h('div', { key: 'dd', style: { fontSize: 9.5, opacity: .7, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, det) : null;
+                        })(),
                         deltaTxt ? h('div', { key: 'd', style: { fontSize: 10, opacity: .8, marginLeft: asList ? 'auto' : 0, whiteSpace: 'nowrap' } }, deltaTxt) : null,
                       ]);
                     }).concat(edit ? [h('button', { key: '__addv', className: 'gp-vivo-addval',
