@@ -138,7 +138,8 @@ la pestaña no se ve— y **fusión, no reemplazo**:
   potencia) y `^` asociativa por la derecha.
 - **Tipos**: número, texto, booleano, fecha (`{__d}` días desde 1970) y error
   (`{e}`). Fecha ± número sigue siendo fecha; fecha − fecha son días.
-- **~60 funciones** con nombre en español e inglés.
+- **56 funciones**, invocables por 112 nombres: cada una responde a su nombre
+  en español y en inglés.
 
 Convención decimal: en fórmulas el punto es decimal y `;` separa argumentos; la
 coma se acepta como decimal **solo entre dígitos** (`2,5`), y en cualquier otra

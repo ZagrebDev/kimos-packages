@@ -26,7 +26,7 @@ pisan y el explorador puede listar sin abrir nada.
 |---|---|
 | 🏠 **Inicio** | Recientes, favoritos, papelera y **búsqueda dentro del contenido** de todos los archivos |
 | 📄 **Documentos** | Editor por bloques (títulos, listas, tareas, cita, código), formato con marcas, índice navegable, exportación a Markdown, impresión/PDF y **combinación de correspondencia con Clientes** |
-| 📊 **Hojas de cálculo** | Grilla virtualizada, ~60 funciones en español e inglés, varias hojas por archivo, formatos (moneda, %, fecha), deshacer, CSV, y **datos de Productos / Clientes / Pedidos** |
+| 📊 **Hojas de cálculo** | Grilla virtualizada, 56 funciones (112 nombres, en español e inglés), varias hojas por archivo, formatos (moneda, %, fecha), deshacer, CSV, y **datos de Productos / Clientes / Pedidos** |
 | 🖼️ **Presentaciones** | Seis plantillas, notas del orador y **modo presentación** a pantalla completa con reloj |
 | 🗒️ **Notas** | Tablero con colores, fijado y `#etiquetas`; pestaña de solo lectura con las **Notas de Equipo** |
 | 📅 **Calendario** | Mes, semana y agenda; superpone las tareas de **Planificación** en solo lectura |
