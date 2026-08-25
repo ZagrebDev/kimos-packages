@@ -1,0 +1,17 @@
+{
+  "id": "lidaria",
+  "name": "LiDARia",
+  "version": "1.0.0",
+  "description": "Consola de captura 3D de KIMOS: qué puede escanear cada equipo (LiDAR, ToF, profundidad por movimiento), qué módulos quedan cubiertos con el parque real de la organización, cuánto cuesta construir cada módulo y en cuánto se paga, y qué bibliotecas pueden entrar al producto sin problema legal. Incluye diagnóstico del equipo donde corre, matriz de 18 familias de equipos contra 11 módulos, inventario con recomendación de compra, calculadora de negocio con supuestos editables, plan por fases y política de licencias y cadena de suministro. Control por agente IA.",
+  "icon": "🛰️",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ]
+}

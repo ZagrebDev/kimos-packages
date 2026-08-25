@@ -1,0 +1,196 @@
+/* LiDARia — sistema visual.
+   Regla de la casa (APP-SPEC §9): ni un color propio cableado. Todo sale de los
+   tokens del tema del shell, con fallback al tema claro, así la app sigue el
+   día/noche y el acento de KIMOS sin escuchar nada. El fondo es transparente:
+   debajo está el escritorio. */
+
+.kimos-lidaria {
+  --l-fg: hsl(var(--foreground, 220 25% 6%));
+  --l-mut: hsl(var(--muted-foreground, 220 9% 46%));
+  --l-glass: hsl(var(--card, 0 0% 100%) / .62);
+  --l-glass2: hsl(var(--card, 0 0% 100%) / .38);
+  --l-line: hsl(var(--border, 214 18% 72%) / .45);
+  --l-pri: hsl(var(--primary, 182 75% 39%));
+  --l-pri-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --l-soft: hsl(var(--primary, 182 75% 39%) / .12);
+  --l-r: var(--radius, 12px);
+  --l-ok: #16a34a;
+  --l-warn: #b45309;
+  --l-bad: #dc2626;
+  --l-info: #2563eb;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  color: var(--l-fg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* En modo noche solo se retocan los colores semánticos que quedan ilegibles. */
+.dark .kimos-lidaria { --l-ok: #34d399; --l-warn: #fbbf24; --l-bad: #f87171; --l-info: #60a5fa; }
+
+.kimos-lidaria * { box-sizing: border-box; }
+/* El host puede traer reglas globales de tipo `h2 { color:#000 }`. :where() no
+   aporta especificidad: fuerza la herencia sin pisar las clases propias. */
+.kimos-lidaria :where(h1, h2, h3, h4, p, li, ul, ol, div, span, b, strong, em, small,
+  td, th, tr, table, thead, tbody, label, section, article, header, nav, main) { color: inherit; }
+.kimos-lidaria :where(button, input, select, textarea) { font-family: inherit; }
+.kimos-lidaria h1, .kimos-lidaria h2, .kimos-lidaria h3, .kimos-lidaria h4 { margin: 0; letter-spacing: -.3px; }
+.kimos-lidaria p { margin: 0 0 6px; }
+.kimos-lidaria ul, .kimos-lidaria ol { margin: 0; }
+
+/* -------------------------------- cabecera -------------------------------- */
+
+.kimos-lidaria .ld-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--l-line);
+  background: var(--l-glass2);
+  backdrop-filter: blur(10px);
+}
+.kimos-lidaria .ld-brand { display: flex; align-items: center; gap: 8px; }
+.kimos-lidaria .ld-logo { font-size: 20px; }
+.kimos-lidaria .ld-brand h1 { font-size: 15px; }
+.kimos-lidaria .ld-ver {
+  font-size: 10px; color: var(--l-mut); border: 1px solid var(--l-line);
+  border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+}
+.kimos-lidaria .ld-tabs { display: flex; gap: 4px; justify-content: center; overflow-x: auto; scrollbar-width: none; }
+.kimos-lidaria .ld-tabs::-webkit-scrollbar { display: none; }
+.kimos-lidaria .ld-tab {
+  flex: 0 0 auto; border: 1px solid transparent; background: transparent; color: var(--l-mut);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.kimos-lidaria .ld-tab:hover { background: var(--l-soft); color: var(--l-fg); }
+.kimos-lidaria .ld-tab.on { background: var(--l-glass); border-color: var(--l-line); color: var(--l-fg); font-weight: 600; box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.06)); }
+.kimos-lidaria .ld-tools { text-align: right; white-space: nowrap; }
+
+/* --------------------------------- cuerpo --------------------------------- */
+
+.kimos-lidaria .ld-main { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
+
+.kimos-lidaria .ld-card {
+  background: var(--l-glass); border: 1px solid var(--l-line); border-radius: var(--l-r);
+  padding: 14px; margin-bottom: 12px; backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, .05));
+}
+.kimos-lidaria .ld-card h2 { font-size: 15px; margin-bottom: 6px; }
+.kimos-lidaria .ld-card h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--l-mut); margin: 12px 0 4px; }
+.kimos-lidaria .ld-hint, .kimos-lidaria .ld-mini { color: var(--l-mut); font-size: 11.5px; }
+.kimos-lidaria .ld-gap { margin-bottom: 8px; }
+.kimos-lidaria .ld-detalle { border-color: var(--l-pri); }
+
+.kimos-lidaria .ld-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
+.kimos-lidaria .ld-kpi { border-left: 3px solid var(--l-pri); padding-left: 10px; }
+.kimos-lidaria .ld-kpi-k { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--l-mut); }
+.kimos-lidaria .ld-kpi-v { font-size: 20px; font-weight: 700; line-height: 1.15; }
+.kimos-lidaria .ld-kpi-n { font-size: 11px; color: var(--l-mut); }
+
+.kimos-lidaria .ld-kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 14px; margin: 8px 0; }
+.kimos-lidaria .ld-kv { display: flex; flex-direction: column; border-top: 1px solid var(--l-line); padding-top: 4px; }
+.kimos-lidaria .ld-kv span { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--l-mut); }
+
+.kimos-lidaria .ld-lista { padding-left: 18px; }
+.kimos-lidaria .ld-lista li { margin-bottom: 4px; }
+.kimos-lidaria .ld-lista i { font-style: normal; color: var(--l-mut); }
+
+.kimos-lidaria .ld-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.kimos-lidaria .ld-cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+/* --------------------------------- chips ---------------------------------- */
+
+.kimos-lidaria .ld-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.kimos-lidaria .ld-chip {
+  font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--l-line); background: var(--l-glass2); white-space: nowrap;
+}
+.kimos-lidaria .ld-chip.req { border-color: var(--l-pri); background: var(--l-soft); }
+.kimos-lidaria .ld-chip.pref { border-style: dashed; }
+.kimos-lidaria .ld-chip.kimos { background: hsl(var(--muted, 210 20% 94%)); }
+
+.kimos-lidaria .ld-est { font-size: 11px; white-space: nowrap; margin-left: auto; }
+.kimos-lidaria .ld-e-completo { color: var(--l-ok); }
+.kimos-lidaria .ld-e-degradado { color: var(--l-warn); }
+.kimos-lidaria .ld-e-potencial { color: var(--l-info); }
+.kimos-lidaria .ld-e-visor, .kimos-lidaria .ld-e-no-disponible { color: var(--l-mut); }
+
+/* -------------------------------- módulos --------------------------------- */
+
+.kimos-lidaria .ld-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.kimos-lidaria .ld-mod {
+  background: var(--l-glass); border: 1px solid var(--l-line); border-left: 3px solid var(--l-line);
+  border-radius: var(--l-r); padding: 11px; cursor: pointer; transition: border-color .15s, transform .1s;
+}
+.kimos-lidaria .ld-mod:hover { transform: translateY(-1px); border-color: var(--l-pri); }
+.kimos-lidaria .ld-mod.on { border-color: var(--l-pri); box-shadow: 0 0 0 1px var(--l-pri) inset; }
+.kimos-lidaria .ld-mod header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.kimos-lidaria .ld-mod h3 { font-size: 13px; }
+.kimos-lidaria .ld-mod-ico { font-size: 18px; }
+.kimos-lidaria .ld-b-completo { border-left-color: var(--l-ok); }
+.kimos-lidaria .ld-b-degradado { border-left-color: var(--l-warn); }
+.kimos-lidaria .ld-b-potencial { border-left-color: var(--l-info); }
+.kimos-lidaria .ld-b-visor, .kimos-lidaria .ld-b-no-disponible { border-left-color: var(--l-line); }
+
+/* ------------------------------- controles -------------------------------- */
+
+.kimos-lidaria .ld-fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.kimos-lidaria .ld-btn {
+  border: 1px solid var(--l-line); background: var(--l-glass); color: var(--l-fg);
+  border-radius: calc(var(--l-r) - 4px); padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.kimos-lidaria .ld-btn:hover { border-color: var(--l-pri); }
+.kimos-lidaria .ld-pri { background: var(--l-pri); border-color: transparent; color: var(--l-pri-fg); font-weight: 600; }
+.kimos-lidaria .ld-mini-btn { padding: 2px 8px; font-size: 11px; }
+.kimos-lidaria .ld-input {
+  flex: 1; min-width: 140px; padding: 6px 10px; font: inherit; font-size: 12px;
+  border: 1px solid hsl(var(--input, 214 18% 72%)); border-radius: calc(var(--l-r) - 4px);
+  background: hsl(var(--background, 0 0% 100%) / .7); color: var(--l-fg);
+}
+.kimos-lidaria .ld-num-input { width: 70px; flex: none; text-align: right; }
+
+.kimos-lidaria .ld-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 10px 0; }
+.kimos-lidaria .ld-campo { display: flex; flex-direction: column; gap: 3px; }
+.kimos-lidaria .ld-campo > span { font-size: 11px; font-weight: 600; }
+.kimos-lidaria .ld-campo input {
+  padding: 6px 10px; font: inherit; font-size: 12px; border-radius: calc(var(--l-r) - 4px);
+  border: 1px solid hsl(var(--input, 214 18% 72%)); background: hsl(var(--background, 0 0% 100%) / .7); color: var(--l-fg);
+}
+.kimos-lidaria .ld-campo small { color: var(--l-mut); font-size: 10.5px; }
+
+/* --------------------------------- tablas --------------------------------- */
+
+.kimos-lidaria .ld-tbl-wrap { overflow-x: auto; }
+.kimos-lidaria .ld-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kimos-lidaria .ld-tbl th, .kimos-lidaria .ld-tbl td {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--l-line); vertical-align: top;
+}
+.kimos-lidaria .ld-tbl th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--l-mut); white-space: nowrap; }
+.kimos-lidaria .ld-tbl .ld-num { text-align: right; }
+.kimos-lidaria .ld-tbl tbody tr:hover { background: var(--l-soft); }
+.kimos-lidaria .ld-ok { color: var(--l-ok); font-weight: 600; }
+.kimos-lidaria .ld-cond { color: var(--l-warn); font-weight: 600; }
+.kimos-lidaria .ld-no { color: var(--l-bad); font-weight: 600; }
+.kimos-lidaria .ld-ver-bueno { color: var(--l-ok); }
+.kimos-lidaria .ld-ver-medio { color: var(--l-warn); }
+.kimos-lidaria .ld-ver-malo { color: var(--l-bad); }
+.kimos-lidaria .ld-ver-base { color: var(--l-mut); }
+
+/* --------------------------------- angosto -------------------------------- */
+
+@media (max-width: 860px) {
+  .kimos-lidaria .ld-head { grid-template-columns: 1fr; gap: 8px; }
+  .kimos-lidaria .ld-tabs { justify-content: flex-start; }
+  .kimos-lidaria .ld-tools { text-align: left; }
+  .kimos-lidaria .ld-cols, .kimos-lidaria .ld-cols3 { grid-template-columns: 1fr; }
+}
