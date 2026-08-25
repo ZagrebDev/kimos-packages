@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.0.0';
+  var VERSION = '6.1.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1166,6 +1166,11 @@
         ctx.refresh();
       });
       sec.appendChild(head);
+      // Comentario del paso (escrito por el dueño en ProductLab): bajo el
+      // título, solo cuando el paso está abierto.
+      if (abierto && kg && String(kg.nota || '').trim()) {
+        sec.appendChild(el('div', 'kc-step-note', String(kg.nota).trim()));
+      }
 
       var cards = el('div', 'kc-cards');
       // Paso de COLOR: si sus valores traen swatch y ninguno foto, las cards
@@ -1190,16 +1195,21 @@
           sw.style.background = kv.swatchColor;
           c.appendChild(sw);
         }
-        // Cantidad: "2× Kingston 8GB". Si el nombre YA dice la cantidad
-        // ("16GB (2×8)"), no se repite nada — "16GB (2×8) ×2" era leerlo dos
-        // veces y entender cuatro módulos.
+        // El NOMBRE de la card es del dueño y va TAL CUAL: anteponerle la
+        // cantidad lo rompía — un valor "16GB DDR5" (2×8GB) salía como
+        // "2× 16GB DDR5", que se lee como 32GB. La cantidad vive en el
+        // DETALLE: los catálogos nuevos ya la traen en `desc` ("2× 8GB…");
+        // a los viejos (desc = specs a secas) se les antepone aquí, salvo
+        // que el nombre o el detalle ya la digan.
         var q = kv ? Math.round(Number(kv.qty) || 1) : 1;
-        var dice = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i').test(v.name || '');
         var nombre = el('span', 'kc-card-n');
-        if (q > 1 && !dice) nombre.appendChild(el('span', 'kc-card-qty', q + '× '));
         nombre.appendChild(document.createTextNode(v.name));
         c.appendChild(nombre);
-        if (kv && kv.desc) c.appendChild(el('span', 'kc-card-d', kv.desc));
+        var det = kv ? String(kv.desc || '').trim() : '';
+        var diceQ = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i')
+          .test(det + ' ' + (v.name || ''));
+        if (q > 1 && !diceQ) det = (q + '× ' + det).trim();
+        if (det) c.appendChild(el('span', 'kc-card-d', det));
         // Recargo REAL de esta card según la tienda: addons por su
         // data-addon-price; color por la diferencia de precio entre variantes.
         var dltTienda = null;

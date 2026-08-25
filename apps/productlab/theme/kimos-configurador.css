@@ -569,6 +569,11 @@
   color: var(--kc-gris); font-size: 12px;
 }
 .kimos-cfg .kc-step-car { font-size: 11px; color: var(--kc-gris); }
+/* Comentario del paso (nota del dueño, bajo el título) */
+.kimos-cfg .kc-step-note {
+  margin: -6px 0 12px; font-size: 12px; line-height: 1.45;
+  color: var(--kc-gris); max-width: 62ch;
+}
 .kimos-cfg .kc-step.kc-closed { padding-bottom: 12px; }
 .kimos-cfg .kc-step.kc-closed .kc-cards { display: none; }
 

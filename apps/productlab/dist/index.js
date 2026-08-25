@@ -605,13 +605,19 @@ export default function mount(shell) {
     const bc = bundleComps(v);
     return bc ? bc[0] : null;
   }
-  // Foto del valor: la propia y, si no tiene, la del primer componente DEL
-  // CONJUNTO que tenga foto. Antes solo se miraba el primer componente a
-  // secas: un valor "CPU + placa" cuya CPU no tiene foto salía en blanco
-  // aunque la placa sí tuviera.
-  function valueImage(v) {
+  // Foto del valor: la propia y, si no tiene, la de un componente del TIPO
+  // DEL PASO (pasando el grupo). Los componentes de OTROS tipos que el valor
+  // suma (una fuente de poder colgando de un paso de GPU) NO prestan su foto:
+  // el valor "Integrada" (GPU sin foto + fuente asociada) salía con la foto
+  // de la fuente — comportamiento explícitamente no deseado (2026-08-22). Si
+  // el componente del tipo propio no tiene foto, la card va SIN imagen; la
+  // escotilla es v.imageUrl (foto manual del valor), que siempre manda.
+  // Sin grupo (llamadas viejas) se conserva el barrido por todo el conjunto.
+  function valueImage(v, g) {
     if (s(v && v.imageUrl).trim()) return s(v.imageUrl).trim();
-    const con = valueComps(v).find((c) => s(c.imageUrl).trim());
+    const comps = valueComps(v);
+    const pool = g ? comps.filter((c) => c.type === g.typeId) : comps;
+    const con = pool.find((c) => s(c.imageUrl).trim());
     return con ? s(con.imageUrl).trim() : '';
   }
   /** Componentes que este valor INCLUYE de verdad: uno por tipo, sumados. */
@@ -2045,7 +2051,7 @@ export default function mount(shell) {
           else { vv.stock = st; vv.stockUnlimited = false; }
           // Foto del color: el backend la asegura como imagen del producto y
           // la asocia a la variante (image_id) — es la miniatura del carro.
-          const img = v.sintetico ? '' : valueImage(v);
+          const img = v.sintetico ? '' : valueImage(v, x.g);
           if (img) vv.imageUrl = img;
           const ex = exBySig.get(sig(opts));
           if (ex && ex.sourceVariantId) vv.sourceVariantId = ex.sourceVariantId;
@@ -2429,7 +2435,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.0.0',
+      kitExpected: '6.1.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -2532,6 +2538,10 @@ export default function mount(shell) {
             return {
               id: g.id,
               label: g.label || typeLabel(g.typeId),
+              // Comentario del paso, escrito a mano: el kit lo muestra bajo
+              // el título — es la voz del dueño en el paso a paso (aclarar
+              // criterios, compatibilidades, recomendaciones).
+              nota: s(g.nota).trim(),
               type: g.typeId,
               affectsPhoto: g.photoStep === true,
               // Dependencia: el theme oculta este paso salvo que el paso
@@ -2546,14 +2556,24 @@ export default function mount(shell) {
               // (la más económica disponible) al momento de publicar.
               values: groupValues(g).filter(valueAvailable).map((v) => {
                 const alt = valueChosen(v);
+                // Detalle bajo el nombre de la card. El NOMBRE es del dueño
+                // (verbatim, el kit ya no le antepone nada); la transparencia
+                // de qué lleva el valor va AQUÍ: "2× <componente/specs>". El
+                // detalle manual (v.detalle) manda tal cual si existe.
+                const q = valueQty(v);
+                const detalleAuto = (function () {
+                  const base = alt ? s(alt.specs).trim() || s(alt.name).trim() : '';
+                  if (!base) return q > 1 ? q + '×' : '';
+                  return (q > 1 ? q + '× ' : '') + base;
+                })();
                 return {
                   id: v.id,
                   name: v.label,
-                  // Cantidad informativa (el nombre ya debería decirlo: "2×8GB").
-                  qty: valueQty(v),
-                  desc: alt ? alt.specs || '' : '',
+                  // Cantidad informativa (el detalle ya la dice: "2× 8GB…").
+                  qty: q,
+                  desc: s(v.detalle).trim() || detalleAuto,
                   swatchColor: v.swatchColor || '',
-                  imageUrl: valueImage(v),
+                  imageUrl: valueImage(v, g),
                   delta: deltaFor(g, v, eq),
                   deliveryDays: valueDeliveryDays(v),
                   tags: alt ? alt.tags || [] : [],
@@ -2659,9 +2679,14 @@ export default function mount(shell) {
   function urlsDeKimos(nodo, out) {
     out = out || [];
     if (typeof nodo === 'string') {
-      const esKimos = nodo.indexOf(API + '/api/public/') === 0;
-      const esImagenExterna = /^https?:\/\//i.test(nodo)
-        && /\.(jpe?g|png|webp|gif|avif)([?#]|$)/i.test(nodo)
+      // SOLO strings con pinta de IMAGEN — también para las de KIMOS: sin el
+      // filtro, un .glb (o cualquier archivo servido por /api/public/)
+      // entraba al espejo, el backend lo descartaba en silencio y la app lo
+      // contaba como "pendiente" para siempre (caso real: 4 pendientes
+      // eternas e inexplicables, 2026-08-22).
+      const esImagen = /\.(jpe?g|png|webp|gif|avif|svg|jfif|bmp)([?#]|$)/i.test(nodo);
+      const esKimos = nodo.indexOf(API + '/api/public/') === 0 && esImagen;
+      const esImagenExterna = /^https?:\/\//i.test(nodo) && esImagen
         && !/^https?:\/\/[^/]*jumpseller\.(com|cl)\//i.test(nodo);
       if ((esKimos || esImagenExterna) && out.indexOf(nodo) === -1) out.push(nodo);
     } else if (Array.isArray(nodo)) {
@@ -2706,7 +2731,7 @@ export default function mount(shell) {
     // llamada: el caller borra sus entradas y adopta las devueltas en `pend`.
     // Si el espejo NO llegó a correr (sin enlace, sin red, HTTP no-ok), se
     // devuelve vacío para NO borrar un rastreo que nadie actualizó.
-    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, muertas: [], urlsEspejo: [] };
+    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, muertas: [], sinMapear: [], urlsEspejo: [] };
     if (!shell.authFetch || !sid || (!urls.length && !Object.keys(alojadas).length)) {
       if (!sid && urls.length) out.avisos.push('sin enlace a la tienda: sus imágenes no pueden alojarse (aplica el producto primero)');
       if (!urls.length) out.pendientes = 0;
@@ -2745,6 +2770,10 @@ export default function mount(shell) {
         const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
         out.avisos.push(...otros.slice(0, 3), ...diag.slice(0, 1));
       } else if (!r.ok) out.avisos.push(s(d.detail) || ('HTTP ' + r.status));
+      // Nombres de lo que quedó SIN alojar y SIN rastreo: la diferencia entre
+      // "13 pendientes" a secas y saber QUÉ archivos son (y poder actuar).
+      out.sinMapear = urls.filter((u) => !mapaNuevo[u] && !out.pend[u])
+        .map((u) => u.split('?')[0].split('#')[0].split('/').pop());
       if (n || out.muertas.length) {
         // Mapa efectivo de ESTA entrada: lo vivo verificado + lo recién
         // alojado. Lo muerto sin reemplazo queda SIN mapear: la foto vuelve a
@@ -2784,7 +2813,7 @@ export default function mount(shell) {
     if (!page.ok && page.aviso) avisos.push('página del producto: ' + page.aviso);
     return { entry, copiadas: al.copiadas, pendientes: al.pendientes, enProceso: al.enProceso,
       avisos, motor: al.motor, page, nuevos: al.nuevos || {}, pend: al.pend || {},
-      muertas: al.muertas || [], urlsEspejo: al.urlsEspejo || [] };
+      muertas: al.muertas || [], sinMapear: al.sinMapear || [], urlsEspejo: al.urlsEspejo || [] };
   }
   // ¿La entrada del producto cambió respecto de lo YA publicado? (se compara
   // sin el sello pubAt). Si no cambió, republicar no toca ni el espejo ni su
@@ -2962,7 +2991,8 @@ export default function mount(shell) {
       error: res.page.ok ? '' : (res.page.aviso || 'página no escrita'),
       message: '"' + s(entry0.name) + '" rearmado en ' + seg + ' s — fotos: ' + num(res.copiadas) + ' subidas'
         + (num(res.enProceso) ? ' (' + num(res.enProceso) + ' en proceso en la tienda, rastreadas por id: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
-        + (res.pendientes - num(res.enProceso) > 0 ? ' (' + (res.pendientes - num(res.enProceso)) + ' pendientes: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
+        + ((res.sinMapear || []).length ? ' (sin alojar: ' + res.sinMapear.slice(0, 4).join(', ')
+            + (res.sinMapear.length > 4 ? '…' : '') + ' — el detalle está en la pestaña Publicación)' : '')
         + ' · ' + (res.page.ok ? 'página /' + s(res.page.permalink) + ' ✓' : 'página: ' + (res.page.aviso || 'no escrita')),
     };
   }
@@ -3403,6 +3433,12 @@ export default function mount(shell) {
         return {
           id: (exv && exv.id) || newId('val'),
           label: vLabel,
+          // Detalle manual bajo el nombre (vacío = automático: cantidad +
+          // specs del componente). Si no viene, se conserva el existente.
+          detalle: (function () {
+            const dt = pick(vo, ['detalle', 'detail', 'desc', 'descripcion']);
+            return dt === undefined ? s(exv && exv.detalle).trim() : s(dt).trim();
+          })(),
           imageUrl: s(pick(vo, ['imageUrl', 'imagen', 'foto'])).trim(),
           swatchColor: s(pick(vo, ['swatchColor', 'color'])).trim(),
           qty: Math.max(1, Math.round(num(pick(vo, ['qty', 'cantidad']), exv ? num(exv.qty, 1) : 1)) || 1),
@@ -3432,6 +3468,12 @@ export default function mount(shell) {
         id: (ex && ex.id) || newId('grp'),
         typeId,
         label,
+        // Comentario del paso (bajo el título en la tienda); si no viene,
+        // se conserva el existente.
+        nota: (function () {
+          const nt = pick(st, ['nota', 'comentario', 'note', 'comment']);
+          return nt === undefined ? s(ex && ex.nota).trim() : s(nt).trim();
+        })(),
         photoStep: st.photoStep === true,
         values,
         defaultValueId: defVal ? defVal.id : null,
@@ -3598,7 +3640,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. LEY ÚNICA DEL PASO A PASO: se construye SOBRE el catálogo. CADA valor lleva `components` con 1 o más componentes EXISTENTES (id o nombre, snapshot.components) — el enlace es lo que da precio, foto y stock. Un valor puede llevar VARIOS componentes: de TIPOS DISTINTOS se SUMAN (ej. "Ryzen 5 7600 + Placa B650M" incluye ambos) y del MISMO tipo son alternativas (gana la más económica disponible). Un valor sin campo `components` se enlaza solo si su label ES un componente del catálogo. Un valor que quede sin componentes RECHAZA toda la llamada (el error trae candidatos); para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. EXCEPCIÓN ÚNICA: los valores con efectos `model3d` (acabados del visor 3D) no llevan componentes — su elección es visual y se cobra con `priceDelta`. `priceDelta` es un recargo ADICIONAL sobre el costo de los componentes. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, nota? (comentario bajo el título del paso en la tienda), type?, photoStep?, default?, dependsOn?, values: [{label, detalle? (texto bajo el nombre en la card; vacío = automático: cantidad + specs del componente), qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. LEY ÚNICA DEL PASO A PASO: se construye SOBRE el catálogo. CADA valor lleva `components` con 1 o más componentes EXISTENTES (id o nombre, snapshot.components) — el enlace es lo que da precio, foto y stock. Un valor puede llevar VARIOS componentes: de TIPOS DISTINTOS se SUMAN (ej. "Ryzen 5 7600 + Placa B650M" incluye ambos) y del MISMO tipo son alternativas (gana la más económica disponible). Un valor sin campo `components` se enlaza solo si su label ES un componente del catálogo. Un valor que quede sin componentes RECHAZA toda la llamada (el error trae candidatos); para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. EXCEPCIÓN ÚNICA: los valores con efectos `model3d` (acabados del visor 3D) no llevan componentes — su elección es visual y se cobra con `priceDelta`. `priceDelta` es un recargo ADICIONAL sobre el costo de los componentes. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -3803,7 +3845,7 @@ export default function mount(shell) {
               };
             })(),
             values: groupValues(g).map((v) => ({
-              label: v.label, isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
+              label: v.label, detalle: s(v.detalle).trim(), isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
               delta: deltaFor(g, v, eq), alternatives: valueAlts(v).map((c) => c.name), priceDelta: num(v.priceDelta, 0),
               // Conjunto/relleno y precio de venta del valor, para razonar sin recalcular.
               bundle: v.bundle === true, fallback: v.fallback === true, salePrice: valueSale(v),
@@ -6051,10 +6093,13 @@ export default function mount(shell) {
                       h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
                       btnCfg,
                     ]),
+                    // Comentario del paso: el previsualizador muestra lo mismo
+                    // que verá la tienda.
+                    s(g.nota).trim() ? h('div', { key: 'nota', className: 'gp-muted', style: { fontSize: 12, margin: '-2px 0 6px' } }, s(g.nota).trim()) : null,
                     h('div', { key: 'vals', style: asList ? { display: 'flex', flexDirection: 'column', gap: 6 } : { display: 'flex', flexWrap: 'wrap', gap: 8 } }, vals.map((v) => {
                       const on = selMap[g.id] === v.id;
                       const dlt = deltaVs(g, v);
-                      const img = valueImage(v);
+                      const img = valueImage(v, g);
                       const deltaTxt = st.showDeltas === 'none' || on ? '' : st.showDeltas === 'total' ? fmtMoney(fixed ? Math.round(gross + dlt) : roundFinal(gross + dlt)) : (dlt === 0 ? '' : fmtDelta(dlt));
                       return h('div', {
                         key: v.id,
@@ -6437,6 +6482,16 @@ export default function mount(shell) {
             h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
           ]),
           h('div', { key: 'b', className: 'gp-group-body' }, [
+            // Comentario del paso: texto del dueño bajo el título en la
+            // tienda (criterios de elección, compatibilidades, lo que sea).
+            h('div', { key: 'nota', className: 'gp-compline', style: { borderBottom: 0 } }, [
+              h('span', { key: 'l', className: 'gp-label',
+                title: 'Se muestra bajo el título del paso en el paso a paso de la tienda. Vacío = no se muestra nada.' }, 'comentario del paso'),
+              h(TextInput, { key: 'i', style: { flex: 1, minWidth: 260 },
+                value: g.nota == null ? '' : g.nota,
+                placeholder: 'Ej: Elige según tus programas: 16GB para ofimática, 32GB para edición…',
+                onChange: (e) => upGroup(g.id, { nota: e.target.value }) }),
+            ]),
             // Editor de la condición del paso dependiente
             (function () {
               const dep = groupDependsOn(g);
@@ -6521,6 +6576,23 @@ export default function mount(shell) {
                     h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
                     h('span', { key: 's' }, 'conjunto (suman)'),
                   ]) : null,
+                ]),
+                // Detalle bajo el nombre en la card de la tienda. El NOMBRE
+                // del valor es tuyo y va tal cual; el detalle automático es
+                // "«cantidad»× «specs/nombre del componente elegido»" — este
+                // campo lo reemplaza por lo que tú quieras mostrar.
+                det && h('div', { key: 'ldesc', className: 'gp-compline', style: { borderBottom: 0, paddingLeft: 26 } }, [
+                  h('span', { key: 'dl', className: 'gp-label',
+                    title: 'Texto bajo el nombre en la card del paso a paso. Vacío = automático: la cantidad (si es >1) y las specs del componente elegido — ej. "2× 8GB DDR5 DIMM 5600 MT/s".' }, 'detalle en la tienda'),
+                  h(TextInput, { key: 'dv', style: { width: 360 },
+                    value: v.detalle == null ? '' : v.detalle,
+                    placeholder: (function () {
+                      const q = valueQty(v);
+                      const base = chosen ? s(chosen.specs).trim() || s(chosen.name).trim() : '';
+                      const auto = base ? (q > 1 ? q + '× ' : '') + base : (q > 1 ? q + '×' : '');
+                      return auto ? 'auto: ' + auto : 'texto bajo el nombre (vacío = automático)';
+                    })(),
+                    onChange: (e) => upValue(v.id, { detalle: e.target.value }) }),
                 ]),
                 det && h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ImgField, { value: v.imageUrl || '', gallery: productoGallery, onChange: (u) => upValue(v.id, { imageUrl: u }), placeholder: g.photoStep ? 'Foto del producto en este color' : 'Foto propia del valor (si no, usa la de la alternativa elegida)' })),

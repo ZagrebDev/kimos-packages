@@ -231,6 +231,19 @@ Se FUSIONA con el hallazgo `customer_url` de arriba (dos sesiones llegaron a la 
 
 La bitácora distingue «en proceso en la tienda: N (rastreadas por id)» de «pendientes» a secas, y el motor se declara `espejo v4`. Cobertura: `backend/test_jumpseller_espejo.py` simula la tienda con la forma REAL de la API (`customer_url`, verificada contra el registro del DIAG) y reproduce el estado exacto del piloto — atascados anónimos, viejo con URL, mapeo muerto tras el borrón — verificando convergencia en dos pasadas con CERO re-subidas y re-alojado de lo borrado.
 
+### TRES FRENTES DEL PILOTO (2026-08-22) — ProductLab 3.55.0 / kit 6.1.0 / backend 0.64.0
+
+**1. «Name has already been taken» al aplicar el paso "Garantía y Soporte"** (fallaba en todos los productos menos el primero): `fetch_product_options` leía UNA página sin paginar; con ancla+addons (una opción por valor de paso) los PCs superan las ~20 opciones y las del final —el último paso agregado— eran INVISIBLES para la adopción por nombre → cada apply intentaba re-crearlas contra la unicidad de la tienda. El mismo bug de raíz que el listado de adjuntos. Fix: paginado real (y `_fetch_all_pages` ya no corta por `len < limit` — hay endpoints que topan la página por su cuenta: termina en página vacía o sin filas nuevas), más adopción ante el conflicto (si el POST choca, se relee y se enlaza por nombre). Cobertura: `backend/test_jumpseller_opciones.py` con tienda simulada de paginación tozuda.
+
+**2. Fotos "pendientes" eternas e inexplicables** (4 en Banshee Mini que jamás subían): el recolector de la app metía al espejo CUALQUIER archivo servido por `/api/public/` (un .glb, por ejemplo) y el backend lo descartaba EN SILENCIO por extensión → la app lo contaba como pendiente para siempre sin decir cuál era. Fix: el recolector solo toma strings con pinta de imagen (mismo filtro que las externas), el backend NOMBRA lo que descarta (`skipped` + aviso), `_EXT_IMAGEN` suma .jfif/.bmp, y el mensaje de Rearmar lista los archivos sin alojar («sin alojar: a.png, b.glb…»).
+
+**3. Transparencia y editabilidad del paso a paso** (contrato 6.1):
+- El NOMBRE de la card es del dueño y va TAL CUAL — el kit ya no le antepone la cantidad («16GB DDR5» con qty 2 salía «2× 16GB DDR5», que se lee 32GB). La cantidad vive en el DETALLE bajo el nombre: automático «2× ‹specs/nombre del componente elegido›», o manual con el campo `detalle` del valor (⚙ del valor → "detalle en la tienda").
+- `nota` por paso (editor del paso → "comentario del paso"): texto del dueño bajo el título del paso en la tienda y en el previsualizador.
+- La foto de una card sale SOLO de componentes del TIPO del paso (o la manual del valor): un valor «Integrada» (GPU sin foto + fuente de poder asociada) mostraba la foto de la fuente — ya no; sin foto propia ni de su tipo, la card va sin imagen.
+- SET_PRODUCTO_STEPS acepta y conserva `nota` y `detalle`.
+- Kit 6.1.0 (subir a los Assets del theme, como siempre); `kitExpected: '6.1.0'` hace que las tiendas con kit viejo lo griten. Test de contrato actualizado (`run-contrato-v2.mjs`).
+
 **Ideas del usuario aceptadas para después del QA (no bloquean Fase 4)**:
 - Publicación POR PRODUCTO en tiempo real desde la app (además del botón global).
 - Portabilidad: el modelo página-con-datos + kit en assets + fotos espejadas no depende de nada exclusivo de Jumpseller; documentarlo como contrato para otros ecommerce.
