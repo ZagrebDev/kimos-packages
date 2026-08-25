@@ -50,6 +50,7 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
+ok(agente && agente.tools.length === 9, 'nueve herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
@@ -58,8 +59,8 @@ ok(snap0.catalogoEquipos.length >= 15, 'catálogo de equipos embebido', snap0.ca
 ok(snap0.modulos.length === 11, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
 ok(!!snap0.nucleo, 'versión del núcleo a la vista', snap0.nucleo);
 
-console.log('\nRender de las siete pestañas');
-const TABS = ['panel', 'modulos', 'inventario', 'equipos', 'negocio', 'plan', 'licencias'];
+console.log('\nRender de las diez pestañas');
+const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'ecosistema', 'negocio', 'plan', 'licencias'];
 for (const t of TABS) {
   const r = await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
   let arbol = null;
@@ -98,6 +99,43 @@ ok(f1.paybackMeses < f3.paybackMeses, 'la fase 1 se paga antes que la fase 3',
   f1.paybackMeses.toFixed(1) + ' m vs ' + f3.paybackMeses.toFixed(1) + ' m');
 r = await agente.dispatchAction({ type: 'SET_SUPUESTO', payload: { clave: 'inventado', valor: 1 } });
 ok(!r.success, 'rechaza un supuesto que no existe', r.error);
+
+console.log('\nRubros: la base de conocimiento por industria');
+await agente.dispatchAction({ type: 'AGREGAR_EQUIPO', payload: { equipo: 'apple.iphone.pro.12-17', cantidad: 1 } });
+r = await agente.dispatchAction({ type: 'SET_RUBRO', payload: { rubro: 'construccion' } });
+ok(r.success && /Escaneo de espacios/.test(r.message), 'el agente abre el plan de un rubro', r.message.slice(0, 90) + '…');
+r = await agente.dispatchAction({ type: 'SET_RUBRO', payload: { rubro: 'no-existe' } });
+ok(!r.success && /Disponibles/.test(r.error), 'un rubro inexistente devuelve las opciones reales');
+snap = agente.getSnapshot();
+ok(snap.rubros.length >= 12, 'el snapshot lista los rubros con su viabilidad', snap.rubros.length + ' rubros');
+const construccion = snap.rubros.find((x) => x.id === 'construccion');
+ok(construccion.toleranciaCumple === true, 'con un iPhone Pro, construcción cumple su tolerancia', construccion.toleranciaMargen);
+const manufactura = snap.rubros.find((x) => x.id === 'manufactura');
+ok(manufactura.toleranciaMargen === 'justo', 'fabricación cumple JUSTO: el matiz no se pierde en el bundle');
+
+console.log('\nProspección: el parque del prospecto decide qué se le ofrece');
+r = await agente.dispatchAction({
+  type: 'FICHA_PROSPECTO',
+  payload: { nombre: 'Mueblería Demo', rubro: 'retail-mobiliario', usuariosCampo: 4, equipos: ['apple.iphone.pro.12-17'], appsKimos: ['productlab', 'productos'] },
+});
+ok(r.success && /Calificación/.test(r.message), 'el agente arma la ficha del prospecto', r.message.slice(0, 100) + '…');
+ok(/Demostración/.test(r.message), 'y trae la demostración que se hace en la visita');
+snap = agente.getSnapshot();
+ok(snap.prospecto && snap.prospecto.fuente === 'kimos-LiDARia', 'el registro para el CRM viaja en el snapshot');
+ok(typeof snap.prospecto.propuestaMensualUSD === 'number' && snap.prospecto.propuestaMensualUSD > 0, 'con una propuesta en dólares', snap.prospecto.propuestaMensualUSD);
+r = await agente.dispatchAction({ type: 'FICHA_PROSPECTO', payload: { rubro: 'construccion', equipos: ['equipo.inventado'] } });
+ok(r.success && /ignorados/.test(r.message), 'un equipo fuera del catálogo se ignora y se avisa');
+
+console.log('\nEcosistema KIMOS');
+r = await agente.dispatchAction({ type: 'VER_INTEGRACION', payload: { app: 'productlab' } });
+ok(r.success && /realSizeCm/.test(r.message), 'la integración ancla nombra el campo real que hoy falta');
+r = await agente.dispatchAction({ type: 'VER_INTEGRACION', payload: { app: 'escritorio' } });
+ok(r.success, 'los alias de app resuelven', r.message.slice(0, 60) + '…');
+r = await agente.dispatchAction({ type: 'VER_INTEGRACION', payload: { app: 'inexistente' } });
+ok(!r.success, 'una app desconocida se rechaza');
+snap = agente.getSnapshot();
+ok(snap.ecosistema.anclas.length >= 4, 'el snapshot conoce las anclas', snap.ecosistema.anclas.join(', '));
+ok(snap.ecosistema.descartadas.length >= 3, 'y también lo descartado', snap.ecosistema.descartadas.join(', '));
 
 console.log('\nLicencias');
 r = await agente.dispatchAction({ type: 'EVALUAR_LICENCIA', payload: { licencia: 'AGPL-3.0' } });

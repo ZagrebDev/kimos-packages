@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.0.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.1.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -244,10 +244,27 @@ const CONTRATO_NATIVO = {
 
 const noop = () => undefined;
 
+/**
+ * Ninguna sonda puede colgar la app. Algunas APIs (adaptador de GPU, listado de
+ * dispositivos) se quedan pendientes para siempre en ciertos navegadores y
+ * modos sin GPU: si no responden a tiempo, se da por ausente la capacidad y se
+ * sigue. Un diagnóstico incompleto es recuperable; una pantalla congelada, no.
+ */
+function conTiempo(promesa, ms, porDefecto) {
+  return new Promise((resolver) => {
+    let listo = false;
+    const t = setTimeout(() => { if (!listo) { listo = true; resolver(porDefecto); } }, ms);
+    Promise.resolve(promesa).then(
+      (v) => { if (!listo) { listo = true; clearTimeout(t); resolver(v); } },
+      () => { if (!listo) { listo = true; clearTimeout(t); resolver(porDefecto); } },
+    );
+  });
+}
+
 /** Prueba si una sesión WebXR de un tipo está soportada, sin lanzar. */
 async function soportaSesion(xr, tipo) {
   if (!xr || typeof xr.isSessionSupported !== 'function') return false;
-  try { return !!(await xr.isSessionSupported(tipo)); } catch (e) { return false; }
+  try { return !!(await conTiempo(xr.isSessionSupported(tipo), 2500, false)); } catch (e) { return false; }
 }
 
 /**
@@ -308,7 +325,7 @@ async function detectarCamaras(nav) {
   const md = nav && nav.mediaDevices;
   if (!md || typeof md.enumerateDevices !== 'function') return { disponible: false, n: 0, etiquetas: false };
   try {
-    const ds = await md.enumerateDevices();
+    const ds = await conTiempo(md.enumerateDevices(), 2500, []);
     const vid = ds.filter((d) => d.kind === 'videoinput');
     return { disponible: vid.length > 0, n: vid.length, etiquetas: vid.some((d) => !!d.label) };
   } catch (e) {
@@ -320,9 +337,9 @@ async function detectarCamaras(nav) {
 async function detectarWebGPU(nav) {
   if (!nav || !nav.gpu || typeof nav.gpu.requestAdapter !== 'function') return { disponible: false, adaptador: null };
   try {
-    const a = await nav.gpu.requestAdapter();
+    const a = await conTiempo(nav.gpu.requestAdapter(), 2500, null);
     if (!a) return { disponible: false, adaptador: null };
-    const info = (typeof a.requestAdapterInfo === 'function' ? await a.requestAdapterInfo() : a.info) || {};
+    const info = (typeof a.requestAdapterInfo === 'function' ? await conTiempo(a.requestAdapterInfo(), 1500, {}) : a.info) || {};
     return { disponible: true, adaptador: info.description || info.vendor || info.architecture || 'sin detalle' };
   } catch (e) {
     return { disponible: false, adaptador: null };
@@ -380,7 +397,7 @@ async function detectarClientHints(nav) {
   const base = { plataforma: uad.platform || null, movil: !!uad.mobile, modelo: null, sistemaVersion: null };
   if (typeof uad.getHighEntropyValues !== 'function') return base;
   try {
-    const alta = await uad.getHighEntropyValues(['model', 'platformVersion', 'architecture']);
+    const alta = await conTiempo(uad.getHighEntropyValues(['model', 'platformVersion', 'architecture']), 2000, {});
     base.modelo = alta.model || null;
     base.sistemaVersion = alta.platformVersion || null;
   } catch (e) { noop(); }
@@ -1122,3 +1139,681 @@ function alternativaPara(nombre, politica) {
   const m = /Alternativa[^:]*:\s*([^.]+)\./.exec(b.nota || '');
   return m ? m[1].trim() : null;
 }
+
+/* ===== src/core/rubros.js ===== */
+/**
+ * rubros.js — la base de conocimiento por industria, y cómo se amplía.
+ *
+ * El motor de capacidades responde "qué puede este equipo". Este módulo responde
+ * la pregunta siguiente, que es la que hace la venta: **"y para lo que YO hago,
+ * ¿qué significa eso?"**. Un contratista y un museo tienen el mismo iPhone y
+ * necesitan cosas distintas: distinta tolerancia, distinto flujo, distinto
+ * entregable y distinto KPI.
+ *
+ * Lo importante no es el contenido que trae de fábrica: es que **crece sin tocar
+ * código**. Un rubro nuevo —o la variante propia de un cliente— entra como un
+ * *pack* JSON validado. Ese es el requisito de "ampliar su base de conocimiento
+ * e implementaciones según el rubro y sus necesidades".
+ */
+
+
+/**
+ * Contrato del pack de rubro, alineado con el Creator Pack de kimos-packages.
+ * Se declara como `rubroPackApi: "1.x"` igual que las apps declaran
+ * `appShellApi`: el cargador rechaza un desajuste MAYOR y tolera el menor.
+ */
+const RUBRO_PACK_API = '1.x';
+
+/** Campos que todo rubro nuevo debe traer. Un rubro que `extiende` otro no. */
+const CAMPOS_OBLIGATORIOS = ['id', 'nombre', 'cliente', 'dolor', 'tolerancia', 'modulos'];
+
+/** Mismo criterio que el loader de apps del shell: solo importa el mayor. */
+function apiCompatible(declarada) {
+  const d = String(declarada == null ? RUBRO_PACK_API : declarada);
+  const mayor = (v) => String(v).split('.')[0];
+  return mayor(d) === mayor(RUBRO_PACK_API);
+}
+
+/**
+ * Valida un pack antes de dejarlo entrar. Un pack malo no rompe la app: la
+ * degrada en silencio, que es peor. Por eso esto es estricto y explícito.
+ *
+ * @param pack       { version, esquema, rubros: [...] }
+ * @param catalogos  { modulos: Set|Array, equipos: Set|Array } ids válidos
+ */
+function validarPack(pack, catalogos) {
+  const errores = [];
+  const avisos = [];
+  const cat = catalogos || {};
+  const setDe = (x) => (x instanceof Set ? x : new Set(x || []));
+  const modulos = setDe(cat.modulos);
+  const equipos = setDe(cat.equipos);
+
+  if (!pack || typeof pack !== 'object') return { ok: false, errores: ['El pack no es un objeto JSON.'], avisos, rubros: 0 };
+
+  // Cabecera con las mismas convenciones que un .kapp: id con namespace,
+  // versión semver, autor y contrato declarado.
+  const declarada = pack.rubroPackApi != null ? pack.rubroPackApi : pack.esquema;
+  if (!apiCompatible(declarada)) {
+    errores.push('rubroPackApi "' + declarada + '" incompatible: esta versión lee ' + RUBRO_PACK_API + '.');
+  }
+  if (!pack.id) errores.push('El pack no declara id.');
+  else if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(pack.id)) errores.push('El id del pack solo admite minúsculas, números, punto, guion y guion bajo.');
+  else if (pack.id.indexOf('.') < 0) avisos.push('El id del pack no usa namespace (recomendado: tuorg.mi-pack) y podría chocar con otro.');
+  if (!pack.version) errores.push('El pack no declara version.');
+  else if (!/^\d+(\.\d+){0,2}([-.][0-9A-Za-z-]+)*$/.test(String(pack.version))) errores.push('La version del pack no es semver.');
+  if (!pack.autor) avisos.push('El pack no declara autor: quien lo instale no sabrá de quién es.');
+  if (!Array.isArray(pack.rubros) || !pack.rubros.length) {
+    errores.push('El pack no trae rubros.');
+    return { ok: false, errores, avisos, rubros: 0 };
+  }
+
+  const vistos = new Set();
+  for (const r of pack.rubros) {
+    const donde = 'rubro "' + ((r && r.id) || '¿sin id?') + '"';
+    // Una extensión solo añade piezas a un rubro que ya existe: exigirle la
+    // ficha completa obligaría a copiar el rubro entero para añadir un flujo.
+    const esExtension = !!(r && r.extiende);
+    if (!esExtension) {
+      for (const campo of CAMPOS_OBLIGATORIOS) {
+        if (r[campo] == null || (Array.isArray(r[campo]) && !r[campo].length)) errores.push(donde + ': falta ' + campo + '.');
+      }
+    } else if (!r.id) {
+      errores.push(donde + ': una extensión necesita el id del rubro que extiende.');
+    }
+    if (r.id) {
+      if (!/^[a-z0-9][a-z0-9.\-]*$/.test(r.id)) errores.push(donde + ': el id solo admite minúsculas, números, punto y guion.');
+      if (vistos.has(r.id)) errores.push(donde + ': id repetido dentro del pack.');
+      vistos.add(r.id);
+    }
+    const t = r.tolerancia;
+    if (t && (!(t.m > 0) || !(t.aDistancia > 0))) errores.push(donde + ': la tolerancia necesita m y aDistancia mayores que cero.');
+    for (const m of r.modulos || []) {
+      if (!m || !m.id) { errores.push(donde + ': un módulo sin id.'); continue; }
+      if (modulos.size && !modulos.has(m.id)) errores.push(donde + ': el módulo "' + m.id + '" no existe en el catálogo.');
+      if (!m.para) avisos.push(donde + ': el módulo "' + m.id + '" no dice para qué sirve en este rubro.');
+    }
+    for (const e of r.equiposRecomendados || []) {
+      if (equipos.size && !equipos.has(e)) errores.push(donde + ': el equipo recomendado "' + e + '" no existe en el catálogo.');
+    }
+    if (!esExtension) {
+      if (!r.flujos || !r.flujos.length) avisos.push(donde + ': sin flujos, el rubro no dice cómo se trabaja.');
+      if (!r.kpis || !r.kpis.length) avisos.push(donde + ': sin KPI, no hay forma de saber si sirvió.');
+      if (!r.prospeccion) avisos.push(donde + ': sin material de prospección, no ayuda a vender.');
+    }
+  }
+
+  return { ok: !errores.length, errores, avisos, rubros: pack.rubros.length };
+}
+
+/**
+ * Carga el catálogo base y le suma packs externos.
+ *
+ * Reglas de convivencia, pensadas para que un pack de un cliente no pueda
+ * romper lo que trae el producto:
+ *  - Un pack solo puede AÑADIR rubros o EXTENDER uno existente (`extiende`).
+ *  - No puede borrar nada.
+ *  - Cada rubro queda marcado con su `origen`, y eso se ve en pantalla.
+ */
+function cargarPacks(base, packs, catalogos) {
+  const rubros = [];
+  const errores = [];
+  const avisos = [];
+  const origenes = [{ id: 'base', nombre: 'Catálogo del producto', rubros: (base.rubros || []).length, version: base.version }];
+
+  for (const r of base.rubros || []) rubros.push(Object.assign({}, r, { origen: 'base' }));
+
+  for (const pack of packs || []) {
+    const idPack = pack.id || pack.nombre || 'pack-sin-id';
+    const v = validarPack(pack, catalogos);
+    v.errores.forEach((e) => errores.push(idPack + ': ' + e));
+    v.avisos.forEach((a) => avisos.push(idPack + ': ' + a));
+    if (!v.ok) continue;
+
+    let añadidos = 0;
+    for (const r of pack.rubros) {
+      const i = rubros.findIndex((x) => x.id === r.id);
+      if (i >= 0) {
+        if (r.extiende) {
+          // Extender fusiona listas y pisa textos: sirve para que un cliente
+          // añada su flujo o su guion sin perder lo que trae el producto.
+          const previo = rubros[i];
+          rubros[i] = Object.assign({}, previo, r, {
+            origen: previo.origen + ' + ' + idPack,
+            modulos: fusionarPorId(previo.modulos, r.modulos),
+            flujos: fusionarPorId(previo.flujos, r.flujos),
+            kpis: fusionarPorId(previo.kpis, r.kpis),
+            normativa: (previo.normativa || []).concat(r.normativa || []),
+            equiposRecomendados: unicos((previo.equiposRecomendados || []).concat(r.equiposRecomendados || [])),
+            kimos: unicos((previo.kimos || []).concat(r.kimos || [])),
+          });
+          añadidos++;
+        } else {
+          errores.push(idPack + ': el rubro "' + r.id + '" ya existe. Usa otro id (con tu prefijo) o declara extiende: true.');
+        }
+      } else {
+        rubros.push(Object.assign({}, r, { origen: idPack }));
+        añadidos++;
+      }
+    }
+    origenes.push({ id: idPack, nombre: pack.nombre || idPack, rubros: añadidos, version: pack.version || null });
+  }
+
+  return { rubros, origenes, errores, avisos };
+}
+
+const unicos = (a) => [...new Set(a)];
+
+function fusionarPorId(previos, nuevos) {
+  const out = (previos || []).slice();
+  for (const n of nuevos || []) {
+    const i = out.findIndex((x) => x.id === n.id);
+    if (i >= 0) out[i] = Object.assign({}, out[i], n);
+    else out.push(n);
+  }
+  return out;
+}
+
+/**
+ * ¿El sensor activo alcanza la tolerancia que exige el rubro?
+ * Es el cruce que convierte una ficha de industria en una decisión de compra.
+ */
+function cumpleTolerancia(sensorId, tolerancia) {
+  if (!tolerancia || !(tolerancia.m > 0)) return { cumple: null, motivo: 'El rubro no declara tolerancia.' };
+  if (!sensorId) return { cumple: false, error: null, motivo: 'Sin sensor de profundidad activo no hay medida con escala fiable.' };
+  const err = errorEsperado(sensorId, tolerancia.aDistancia);
+  const rango = (PERFIL_SENSOR[sensorId] || {}).rango;
+  const fueraDeRango = !!(rango && tolerancia.aDistancia > rango[1]);
+  const cumple = !fueraDeRango && err <= tolerancia.m;
+
+  // Un "sí" pelado engaña cuando el error esperado es exactamente la tolerancia:
+  // en terreno, con el pulso del operador y una superficie mala, ese caso falla.
+  // Por eso hay tres grados y no dos: holgado, justo e insuficiente.
+  const margen = !cumple ? 'insuficiente' : (err <= tolerancia.m * 0.6 ? 'holgado' : 'justo');
+  const cm = (m) => (m * 100).toFixed(1) + ' cm';
+
+  const motivo = fueraDeRango
+    ? 'La distancia de trabajo del rubro (' + tolerancia.aDistancia + ' m) supera el rango útil del sensor.'
+    : margen === 'holgado'
+      ? 'El error esperado (±' + cm(err) + ') cabe con margen en la tolerancia del rubro (±' + cm(tolerancia.m) + ').'
+      : margen === 'justo'
+        ? 'El error esperado (±' + cm(err) + ') cabe JUSTO en la tolerancia del rubro (±' + cm(tolerancia.m) + '): en terreno, sin margen para una superficie mala o un pulso poco firme.'
+        : 'El error esperado (±' + cm(err) + ') supera la tolerancia del rubro (±' + cm(tolerancia.m) + ').';
+
+  return {
+    cumple,
+    margen,
+    error: err,
+    exigido: tolerancia.m,
+    aDistancia: tolerancia.aDistancia,
+    holgura: tolerancia.m - err,
+    fueraDeRango,
+    motivo,
+  };
+}
+
+/**
+ * Plan de implementación para un rubro con los medios que hay.
+ *
+ * @param rubro    entrada del catálogo
+ * @param ctx      { estadoModulo(id) -> estado, sensorId, modulos (catálogo), equipos (catálogo), inventario? }
+ */
+function planDeRubro(rubro, ctx) {
+  const c = ctx || {};
+  const estadoDe = typeof c.estadoModulo === 'function' ? c.estadoModulo : () => 'no-disponible';
+  const catModulos = new Map(((c.modulos && c.modulos.modulos) || []).map((m) => [m.id, m]));
+  const catEquipos = new Map(((c.equipos && c.equipos.equipos) || []).map((e) => [e.id, e]));
+
+  const tolerancia = cumpleTolerancia(c.sensorId, rubro.tolerancia);
+
+  const modulos = (rubro.modulos || [])
+    .slice()
+    .sort((a, b) => (a.prioridad || 9) - (b.prioridad || 9))
+    .map((m) => {
+      const meta = catModulos.get(m.id) || {};
+      const estado = estadoDe(m.id);
+      return {
+        id: m.id,
+        nombre: meta.nombre || m.id,
+        icon: meta.icon || '•',
+        prioridad: m.prioridad || 9,
+        para: m.para || meta.resumen || '',
+        estado,
+        listo: estado === 'completo',
+      };
+    });
+
+  const brechas = modulos.filter((m) => !m.listo);
+  const listoParaEmpezar = modulos.length > 0 && modulos[0].listo && tolerancia.cumple !== false;
+
+  const acciones = [];
+  if (tolerancia.cumple === false) {
+    const rec = (rubro.equiposRecomendados || []).map((id) => (catEquipos.get(id) || {}).nombre).filter(Boolean);
+    acciones.push('La tolerancia de este rubro no se alcanza con el sensor actual. ' + tolerancia.motivo
+      + (rec.length ? ' Equipos que sí la alcanzan: ' + rec.join(', ') + '.' : ''));
+  } else if (tolerancia.margen === 'justo') {
+    acciones.push('Se cumple justo: ' + tolerancia.motivo
+      + (rubro.toleranciaNota ? ' ' + rubro.toleranciaNota : ''));
+  }
+  for (const m of brechas.slice(0, 3)) {
+    acciones.push('Módulo "' + m.nombre + '" (prioridad ' + m.prioridad + ') está en estado "' + m.estado + '": ' + m.para);
+  }
+  if (listoParaEmpezar) {
+    const f = (rubro.flujos || [])[0];
+    acciones.push('Se puede empezar hoy por el flujo "' + (f ? f.nombre : modulos[0].nombre) + '".');
+  }
+
+  return {
+    rubro: { id: rubro.id, nombre: rubro.nombre, icon: rubro.icon, origen: rubro.origen || 'base' },
+    cliente: rubro.cliente,
+    dolor: rubro.dolor,
+    tolerancia,
+    toleranciaNota: rubro.toleranciaNota || null,
+    modulos,
+    brechas: brechas.map((m) => m.id),
+    listoParaEmpezar,
+    flujos: rubro.flujos || [],
+    kpis: rubro.kpis || [],
+    normativa: rubro.normativa || [],
+    equiposRecomendados: (rubro.equiposRecomendados || []).map((id) => {
+      const e = catEquipos.get(id);
+      return e ? { id: e.id, nombre: e.nombre, clase: e.clase } : { id, nombre: id };
+    }),
+    kimos: rubro.kimos || [],
+    acciones,
+  };
+}
+
+/** Rubros ordenados por lo cerca que están de poder ejecutarse con estos medios. */
+function rubrosViables(rubros, ctx) {
+  return (rubros || [])
+    .map((r) => {
+      const p = planDeRubro(r, ctx);
+      const listos = p.modulos.filter((m) => m.listo).length;
+      const puntaje = (p.tolerancia.cumple === true ? 50 : p.tolerancia.cumple === null ? 25 : 0)
+        + (p.modulos.length ? (listos / p.modulos.length) * 50 : 0);
+      return { plan: p, listos, total: p.modulos.length, puntaje: Math.round(puntaje) };
+    })
+    .sort((a, b) => b.puntaje - a.puntaje);
+}
+
+/** Qué rubros usan un módulo dado (para justificar su construcción). */
+function rubrosPorModulo(rubros, moduloId) {
+  return (rubros || [])
+    .filter((r) => (r.modulos || []).some((m) => m.id === moduloId))
+    .map((r) => ({ id: r.id, nombre: r.nombre, icon: r.icon, prioridad: (r.modulos.find((m) => m.id === moduloId) || {}).prioridad || 9 }))
+    .sort((a, b) => a.prioridad - b.prioridad);
+}
+
+/**
+ * Lee un `.krub` (el pack empaquetado) y devuelve su `pack.json`.
+ *
+ * El empaquetador escribe con método "store" —igual que `tools/pack.mjs` de
+ * kimos-packages con los `.kapp`—, así que leerlo no necesita ninguna
+ * biblioteca de descompresión. Si alguien recomprime el archivo por su cuenta,
+ * se dice en vez de fallar con un error incomprensible.
+ *
+ * @param buffer ArrayBuffer del archivo
+ */
+function leerKrub(buffer) {
+  const dv = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const texto = new TextDecoder();
+
+  // Fin del directorio central: se busca desde el final (puede haber comentario).
+  let fin = -1;
+  for (let i = bytes.length - 22; i >= 0 && i > bytes.length - 65558; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { fin = i; break; }
+  }
+  if (fin < 0) throw new Error('No parece un archivo .krub válido.');
+
+  const n = dv.getUint16(fin + 10, true);
+  let p = dv.getUint32(fin + 16, true);
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('Directorio del .krub ilegible.');
+    const metodo = dv.getUint16(p + 10, true);
+    const tam = dv.getUint32(p + 20, true);
+    const largoNombre = dv.getUint16(p + 28, true);
+    const largoExtra = dv.getUint16(p + 30, true);
+    const largoComentario = dv.getUint16(p + 32, true);
+    const offset = dv.getUint32(p + 42, true);
+    const nombre = texto.decode(bytes.subarray(p + 46, p + 46 + largoNombre));
+    if (nombre === 'pack.json') {
+      if (metodo !== 0) throw new Error('El .krub viene comprimido; este lector solo abre los que genera tools/pack-rubro.mjs.');
+      const ln = dv.getUint16(offset + 26, true);
+      const le = dv.getUint16(offset + 28, true);
+      const inicio = offset + 30 + ln + le;
+      return JSON.parse(texto.decode(bytes.subarray(inicio, inicio + tam)));
+    }
+    p += 46 + largoNombre + largoExtra + largoComentario;
+  }
+  throw new Error('El .krub no contiene pack.json.');
+}
+
+/* ===== src/core/prospeccion.js ===== */
+/**
+ * prospeccion.js — LiDARia como herramienta comercial, no solo como producto.
+ *
+ * La idea que vale la pena defender: **el diagnóstico es un dato de calificación
+ * que ningún CRM tiene hoy**. Saber que los ocho vendedores de un prospecto usan
+ * Android de gama media cambia lo que se le puede ofrecer, cuánto va a pagar y
+ * qué demostración conviene hacerle. Eso hoy se descubre en la tercera reunión,
+ * cuando ya se prometió algo que no se puede cumplir.
+ *
+ * Y la segunda: **el escaneo es la demostración**. En una primera visita se
+ * escanea el propio local del prospecto y se le muestra su espacio medido antes
+ * de que se enfríe el café. No hay lámina que compita con eso.
+ *
+ * Este módulo produce lo que se adjunta a la oportunidad en Prospección
+ * Comercial: qué venderle, con qué argumento, qué demostrar y qué preguntar.
+ */
+
+
+const cifra = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+
+/**
+ * Califica un prospecto cruzando su rubro, su parque de equipos y las apps de
+ * KIMOS que ya usa. Devuelve puntaje con motivos: un puntaje sin motivos no
+ * sirve para conversar con nadie.
+ */
+function calificar(prospecto, ctx) {
+  const p = prospecto || {};
+  const c = ctx || {};
+  const motivos = [];
+  let puntaje = 0;
+
+  // 1. Encaje de rubro (30): sin rubro conocido, se vende a ciegas.
+  const rubro = c.rubro || null;
+  if (rubro) { puntaje += 30; motivos.push({ signo: '+', peso: 30, texto: 'Rubro reconocido: ' + rubro.nombre + '. Hay flujo, tolerancia y KPI definidos.' }); }
+  else motivos.push({ signo: '−', peso: 30, texto: 'Rubro sin pack de conocimiento: la propuesta sale genérica. Considera crear un pack para este rubro.' });
+
+  // 2. Parque de equipos (35): es el dato que nadie más tiene.
+  const capaces = (p.equipos || []).filter((e) => c.equipoSirve ? c.equipoSirve(e) : false);
+  if (capaces.length) {
+    puntaje += 35;
+    motivos.push({ signo: '+', peso: 35, texto: 'Ya tiene equipos capaces de capturar (' + capaces.join(', ') + '): se puede empezar sin comprar nada.' });
+  } else if ((p.equipos || []).length) {
+    puntaje += 12;
+    motivos.push({ signo: '~', peso: 12, texto: 'Tiene equipos, pero ninguno alcanza lo que su rubro exige: la venta incluye una compra o un equipo compartido.' });
+  } else {
+    motivos.push({ signo: '−', peso: 35, texto: 'No sabemos qué equipos tiene. Es la primera pregunta de la reunión, y define todo lo demás.' });
+  }
+
+  // 3. Apps de KIMOS que ya usa (25): el CAC ya está pagado.
+  const integrables = (p.appsKimos || []).filter((a) => (c.appsAncla || []).indexOf(a) >= 0);
+  if (integrables.length) {
+    puntaje += 25;
+    motivos.push({ signo: '+', peso: 25, texto: 'Ya usa ' + integrables.join(', ') + ': la captura entra donde ya trabaja, no como herramienta suelta.' });
+  } else if ((p.appsKimos || []).length) {
+    puntaje += 10;
+    motivos.push({ signo: '~', peso: 10, texto: 'Es cliente de KIMOS, pero no de los módulos con los que LiDARia se integra mejor.' });
+  } else {
+    motivos.push({ signo: '−', peso: 25, texto: 'No es cliente de KIMOS todavía: la venta es de la suite, no de un módulo.' });
+  }
+
+  // 4. Tamaño (10): sin volumen, ningún módulo se paga.
+  const usuarios = cifra(p.usuariosCampo, 0);
+  if (usuarios >= 3) { puntaje += 10; motivos.push({ signo: '+', peso: 10, texto: usuarios + ' personas en terreno: hay volumen para que el módulo se pague.' }); }
+  else motivos.push({ signo: '−', peso: 10, texto: 'Menos de tres personas en terreno: el retorno depende de que el ahorro por visita sea alto.' });
+
+  const nivel = puntaje >= 70 ? 'caliente' : puntaje >= 45 ? 'tibio' : 'frío';
+  return { puntaje, nivel, motivos };
+}
+
+/**
+ * Qué se le puede vender HOY a este prospecto y qué exige comprar equipo.
+ * Se apoya en la prioridad que el rubro le da a cada módulo.
+ */
+function queVenderle(rubro, ctx) {
+  const c = ctx || {};
+  const plan = planDeRubro(rubro, c);
+  const catModulos = new Map(((c.modulos && c.modulos.modulos) || []).map((m) => [m.id, m]));
+
+  const clasificar = (m) => {
+    if (m.estado === 'completo') return 'hoy';
+    if (m.estado === 'degradado') return 'hoy-con-limites';
+    if (m.estado === 'potencial') return 'hoy-con-app';
+    return 'requiere-equipo';
+  };
+
+  const items = plan.modulos.map((m) => {
+    const meta = catModulos.get(m.id) || {};
+    const n = meta.negocio || {};
+    return {
+      id: m.id, nombre: m.nombre, icon: m.icon, prioridad: m.prioridad, para: m.para,
+      cuando: clasificar(m),
+      precioMensual: cifra(n.precioMensualUSD, 0),
+      modelo: n.modelo || null,
+      valorMensualCliente: cifra(n.valorClienteUSD, 0),
+    };
+  });
+
+  return { plan, items };
+}
+
+/**
+ * Argumento cuantificado. No inventa: suma el beneficio mensual declarado de los
+ * módulos que el rubro pone primero y lo contrasta con lo que costaría. La
+ * fórmula específica del rubro se entrega como texto para completarla con los
+ * números del propio prospecto en la reunión.
+ */
+function argumentoEconomico(rubro, venta, prospecto) {
+  const p = prospecto || {};
+  const usuarios = Math.max(1, cifra(p.usuariosCampo, 1));
+  const vendibles = venta.items.filter((i) => i.cuando !== 'requiere-equipo');
+
+  const costoMensual = vendibles.reduce((a, i) => a + i.precioMensual * (i.modelo === 'por-usuario' ? usuarios : 1), 0);
+  const beneficioMensual = vendibles.reduce((a, i) => a + i.valorMensualCliente, 0);
+  const multiplo = costoMensual > 0 ? beneficioMensual / costoMensual : 0;
+
+  return {
+    costoMensual,
+    beneficioMensual,
+    beneficioAnual: beneficioMensual * 12,
+    multiplo,
+    supuesto: (rubro.prospeccion && rubro.prospeccion.ahorro && rubro.prospeccion.ahorro.supuesto) || null,
+    formula: (rubro.prospeccion && rubro.prospeccion.ahorro && rubro.prospeccion.ahorro.formula) || null,
+    advertencia: 'El beneficio es la estimación declarada del catálogo para una cuenta tipo del rubro, no una medición de este prospecto. En la reunión se reemplaza por sus números con la fórmula de arriba.',
+  };
+}
+
+/**
+ * Ficha completa de prospecto: lo que se lleva a la reunión y lo que queda
+ * adjunto en la oportunidad del CRM.
+ */
+function fichaProspecto(prospecto, ctx) {
+  const c = ctx || {};
+  const rubro = c.rubro;
+  if (!rubro) {
+    return {
+      error: 'Sin rubro no hay ficha útil. Elige el rubro del prospecto o carga un pack para su industria.',
+      calificacion: calificar(prospecto, c),
+    };
+  }
+
+  const venta = queVenderle(rubro, c);
+  const economia = argumentoEconomico(rubro, venta, prospecto);
+  const calificacion = calificar(prospecto, c);
+  const pros = rubro.prospeccion || {};
+
+  const tolerancia = venta.plan.tolerancia;
+  const advertencias = [];
+  if (tolerancia.cumple === false) {
+    advertencias.push('No prometer precisión de este rubro con el parque actual del prospecto: ' + tolerancia.motivo);
+  }
+  (rubro.normativa || []).forEach((n) => advertencias.push(n));
+
+  return {
+    generado: new Date().toISOString(),
+    prospecto: {
+      nombre: prospecto.nombre || null,
+      rubro: rubro.id,
+      usuariosCampo: cifra(prospecto.usuariosCampo, null),
+      equipos: prospecto.equipos || [],
+      appsKimos: prospecto.appsKimos || [],
+    },
+    calificacion,
+    demo: pros.demo || null,
+    preguntas: pros.preguntas || [],
+    senales: pros.senales || [],
+    objeciones: pros.objeciones || [],
+    venderHoy: venta.items.filter((i) => i.cuando === 'hoy' || i.cuando === 'hoy-con-app'),
+    venderConLimites: venta.items.filter((i) => i.cuando === 'hoy-con-limites'),
+    requiereEquipo: venta.items.filter((i) => i.cuando === 'requiere-equipo'),
+    equiposSugeridos: venta.plan.equiposRecomendados,
+    economia,
+    kpis: rubro.kpis || [],
+    flujoInicial: (rubro.flujos || [])[0] || null,
+    advertencias,
+    siguientePaso: siguientePaso(calificacion, venta),
+  };
+}
+
+function siguientePaso(calificacion, venta) {
+  const hoy = venta.items.filter((i) => i.cuando === 'hoy' || i.cuando === 'hoy-con-app');
+  if (calificacion.nivel === 'frío') return 'Antes de proponer nada: averiguar qué equipos usan en terreno y qué módulos de KIMOS ya tienen. Sin eso, cualquier propuesta es adivinanza.';
+  if (!hoy.length) return 'Proponer una prueba con un equipo prestado o comprado para el piloto: hoy su parque no sostiene el módulo principal del rubro.';
+  return 'Agendar la visita con el equipo capaz, escanear su propio espacio en la reunión y dejar el resultado adjunto a la oportunidad.';
+}
+
+/**
+ * El registro que se adjunta a la oportunidad en Prospección Comercial.
+ *
+ * Es deliberadamente plano y corto: viaja por el agente o como adjunto, y tiene
+ * que poder leerse en la ficha del prospecto sin abrir LiDARia.
+ */
+function registroParaCRM(ficha) {
+  if (!ficha || ficha.error) return null;
+  return {
+    fuente: 'kimos-LiDARia',
+    fecha: ficha.generado,
+    rubro: ficha.prospecto.rubro,
+    calificacion: ficha.calificacion.puntaje,
+    nivel: ficha.calificacion.nivel,
+    parqueCapaz: ficha.venderHoy.length > 0,
+    moduloPrincipal: (ficha.venderHoy[0] || ficha.venderConLimites[0] || ficha.requiereEquipo[0] || {}).nombre || null,
+    propuestaMensualUSD: Math.round(ficha.economia.costoMensual),
+    beneficioEstimadoMensualUSD: Math.round(ficha.economia.beneficioMensual),
+    multiploValor: Number(ficha.economia.multiplo.toFixed(1)),
+    siguientePaso: ficha.siguientePaso,
+    advertencias: ficha.advertencias,
+  };
+}
+
+/** Guion de la visita: el orden en que conviene hacer las cosas en la reunión. */
+function guionVisita(rubro, ficha) {
+  const pros = rubro.prospeccion || {};
+  return [
+    { momento: 'Antes de entrar', hacer: 'Confirmar qué equipos tienen en terreno. Es lo que decide qué se puede prometer.' },
+    { momento: 'Primeros 5 minutos', hacer: 'Preguntar, no presentar: ' + (pros.preguntas || []).slice(0, 2).join(' / ') },
+    { momento: 'La demostración', hacer: pros.demo || 'Escanear el propio espacio del prospecto y mostrar el resultado en su teléfono.' },
+    { momento: 'El número', hacer: ficha && ficha.economia && ficha.economia.supuesto ? 'Calcular con sus datos: ' + ficha.economia.supuesto : 'Calcular el ahorro con sus propios números, delante de ellos.' },
+    { momento: 'Las objeciones', hacer: (pros.objeciones || []).map((o) => o.objecion).join(' · ') || 'Escuchar la objeción real antes de responder.' },
+    { momento: 'Al salir', hacer: 'Dejar el escaneo de la reunión adjunto a la oportunidad, con la propuesta y el siguiente paso.' },
+  ];
+}
+
+/* ===== src/core/integraciones.js ===== */
+/**
+ * integraciones.js — qué se puede conectar de verdad con el resto de KIMOS.
+ *
+ * El criterio de este módulo es incómodo a propósito: separa lo que se puede
+ * construir HOY con el contrato AppShell v1 de lo que necesita que la
+ * plataforma crezca, y marca como "marginal" o "no" lo que quedaría bien en una
+ * lámina y no resuelve nada que alguien pague. Una lista de integraciones donde
+ * todo es verde no informa: solo tranquiliza.
+ */
+
+const ORDEN_VEREDICTO = { ancla: 0, util: 1, marginal: 2, no: 3 };
+const ORDEN_DISPONIBILIDAD = { hoy: 0, agente: 1, 'requiere-plataforma': 2, 'no-aplica': 3 };
+
+/** Resuelve un id de app admitiendo alias ('escritorio' → 'agentes'). */
+function integracionDe(catalogo, appId) {
+  const lista = (catalogo && catalogo.integraciones) || [];
+  return lista.filter((i) => i.app === appId || (i.alias || []).indexOf(appId) >= 0)[0] || null;
+}
+
+/** Todas las integraciones ordenadas por veredicto y luego por valor. */
+function ordenadas(catalogo) {
+  return ((catalogo && catalogo.integraciones) || []).slice().sort((a, b) =>
+    (ORDEN_VEREDICTO[a.veredicto] - ORDEN_VEREDICTO[b.veredicto])
+    || (ORDEN_DISPONIBILIDAD[a.disponibilidad] - ORDEN_DISPONIBILIDAD[b.disponibilidad])
+    || (b.valor - a.valor));
+}
+
+/** Resumen para decidir: cuánto cuesta lo que de verdad hay que construir. */
+function resumen(catalogo) {
+  const lista = (catalogo && catalogo.integraciones) || [];
+  const por = (campo) => lista.reduce((a, i) => { a[i[campo]] = (a[i[campo]] || 0) + 1; return a; }, {});
+  const construibles = lista.filter((i) => i.veredicto === 'ancla' || i.veredicto === 'util');
+  const anclas = lista.filter((i) => i.veredicto === 'ancla');
+  return {
+    total: lista.length,
+    porVeredicto: por('veredicto'),
+    porDisponibilidad: por('disponibilidad'),
+    esfuerzoAnclas: anclas.reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    esfuerzoConstruibles: construibles.reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    esfuerzoDescartado: lista.filter((i) => i.veredicto === 'marginal' || i.veredicto === 'no')
+      .reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    disponiblesHoy: lista.filter((i) => i.disponibilidad === 'hoy' || i.disponibilidad === 'agente').length,
+  };
+}
+
+/**
+ * Las integraciones que exige un módulo o un rubro concretos: sirve para saber
+ * qué hay que conectar ANTES de que ese módulo tenga sentido.
+ */
+function integracionesDe(catalogo, ids) {
+  return (ids || [])
+    .map((id) => integracionDe(catalogo, id))
+    .filter(Boolean)
+    .sort((a, b) => ORDEN_VEREDICTO[a.veredicto] - ORDEN_VEREDICTO[b.veredicto]);
+}
+
+/**
+ * Ruta de conexión recomendada: primero lo que se puede hoy y vale mucho.
+ * Devuelve tres tramos, no una lista plana, porque el orden es la decisión.
+ */
+function rutaDeConexion(catalogo) {
+  const lista = ordenadas(catalogo).filter((i) => i.veredicto === 'ancla' || i.veredicto === 'util');
+  const tramo = (filtro) => lista.filter(filtro).map((i) => ({
+    app: i.app, nombre: i.nombre, icon: i.icon, valor: i.valor,
+    esfuerzoSemanas: i.esfuerzoSemanas, disponibilidad: i.disponibilidad, porque: i.porque,
+  }));
+  return [
+    {
+      tramo: 1,
+      titulo: 'Se conecta hoy y cambia el producto',
+      criterio: 'Anclas que funcionan con el contrato actual, incluido el puente por agente.',
+      items: tramo((i) => i.veredicto === 'ancla' && i.disponibilidad !== 'requiere-plataforma'),
+    },
+    {
+      tramo: 2,
+      titulo: 'Se conecta hoy y suma',
+      criterio: 'Útiles sin cambios de plataforma: se hacen cuando el tramo 1 está vendiendo.',
+      items: tramo((i) => i.veredicto === 'util' && i.disponibilidad !== 'requiere-plataforma'),
+    },
+    {
+      tramo: 3,
+      titulo: 'Espera a que la plataforma crezca',
+      criterio: 'Necesitan escritura entre apps, suscripción a cambios o módulo backend propio.',
+      items: tramo((i) => i.disponibilidad === 'requiere-plataforma'),
+    },
+  ];
+}
+
+/**
+ * Coherencia: toda app referida desde los catálogos de módulos y rubros tiene
+ * que existir aquí. Si no, hay una integración prometida que nadie evaluó.
+ */
+function verificarCoherencia(catalogo, modules, rubros) {
+  const usados = new Set();
+  ((modules && modules.modulos) || []).forEach((m) => (m.kimos || []).forEach((k) => usados.add(k)));
+  ((rubros && rubros.rubros) || rubros || []).forEach((r) => (r.kimos || []).forEach((k) => usados.add(k)));
+  const faltantes = [...usados].filter((id) => !integracionDe(catalogo, id));
+  return { ok: !faltantes.length, faltantes, usados: [...usados] };
+}
+
+/* Exportaciones para uso como módulo (las herramientas lo importan;
+   el bundle de la app de KIMOS quita este bloque al incrustarlo). */
+export { validarPack, cargarPacks, leerKrub, planDeRubro, rubrosViables, cumpleTolerancia, apiCompatible, RUBRO_PACK_API, fichaProspecto, registroParaCRM, guionVisita, calificar, integracionDe, ordenadas, resumen, rutaDeConexion, verificarCoherencia, diagnosticar, identificar, resolver, detectar, economiaCartera, economiaModulo, SUPUESTOS_BASE, evaluar, auditar, CAP_POR_ID };

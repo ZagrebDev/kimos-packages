@@ -1,7 +1,7 @@
-/* LiDARia 1.0.0 — bundle generado por apps/lidaria/build.mjs.
+/* LiDARia 1.1.0 — bundle generado por apps/lidaria/build.mjs.
    No editar a mano: se regenera desde src/app.js + src/nucleo.js + src/payload.json. */
 
-/* kimos-LiDARia · núcleo 1.0.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.1.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -247,10 +247,27 @@ const CONTRATO_NATIVO = {
 
 const noop = () => undefined;
 
+/**
+ * Ninguna sonda puede colgar la app. Algunas APIs (adaptador de GPU, listado de
+ * dispositivos) se quedan pendientes para siempre en ciertos navegadores y
+ * modos sin GPU: si no responden a tiempo, se da por ausente la capacidad y se
+ * sigue. Un diagnóstico incompleto es recuperable; una pantalla congelada, no.
+ */
+function conTiempo(promesa, ms, porDefecto) {
+  return new Promise((resolver) => {
+    let listo = false;
+    const t = setTimeout(() => { if (!listo) { listo = true; resolver(porDefecto); } }, ms);
+    Promise.resolve(promesa).then(
+      (v) => { if (!listo) { listo = true; clearTimeout(t); resolver(v); } },
+      () => { if (!listo) { listo = true; clearTimeout(t); resolver(porDefecto); } },
+    );
+  });
+}
+
 /** Prueba si una sesión WebXR de un tipo está soportada, sin lanzar. */
 async function soportaSesion(xr, tipo) {
   if (!xr || typeof xr.isSessionSupported !== 'function') return false;
-  try { return !!(await xr.isSessionSupported(tipo)); } catch (e) { return false; }
+  try { return !!(await conTiempo(xr.isSessionSupported(tipo), 2500, false)); } catch (e) { return false; }
 }
 
 /**
@@ -311,7 +328,7 @@ async function detectarCamaras(nav) {
   const md = nav && nav.mediaDevices;
   if (!md || typeof md.enumerateDevices !== 'function') return { disponible: false, n: 0, etiquetas: false };
   try {
-    const ds = await md.enumerateDevices();
+    const ds = await conTiempo(md.enumerateDevices(), 2500, []);
     const vid = ds.filter((d) => d.kind === 'videoinput');
     return { disponible: vid.length > 0, n: vid.length, etiquetas: vid.some((d) => !!d.label) };
   } catch (e) {
@@ -323,9 +340,9 @@ async function detectarCamaras(nav) {
 async function detectarWebGPU(nav) {
   if (!nav || !nav.gpu || typeof nav.gpu.requestAdapter !== 'function') return { disponible: false, adaptador: null };
   try {
-    const a = await nav.gpu.requestAdapter();
+    const a = await conTiempo(nav.gpu.requestAdapter(), 2500, null);
     if (!a) return { disponible: false, adaptador: null };
-    const info = (typeof a.requestAdapterInfo === 'function' ? await a.requestAdapterInfo() : a.info) || {};
+    const info = (typeof a.requestAdapterInfo === 'function' ? await conTiempo(a.requestAdapterInfo(), 1500, {}) : a.info) || {};
     return { disponible: true, adaptador: info.description || info.vendor || info.architecture || 'sin detalle' };
   } catch (e) {
     return { disponible: false, adaptador: null };
@@ -383,7 +400,7 @@ async function detectarClientHints(nav) {
   const base = { plataforma: uad.platform || null, movil: !!uad.mobile, modelo: null, sistemaVersion: null };
   if (typeof uad.getHighEntropyValues !== 'function') return base;
   try {
-    const alta = await uad.getHighEntropyValues(['model', 'platformVersion', 'architecture']);
+    const alta = await conTiempo(uad.getHighEntropyValues(['model', 'platformVersion', 'architecture']), 2000, {});
     base.modelo = alta.model || null;
     base.sistemaVersion = alta.platformVersion || null;
   } catch (e) { noop(); }
@@ -1126,6 +1143,683 @@ function alternativaPara(nombre, politica) {
   return m ? m[1].trim() : null;
 }
 
+/* ===== src/core/rubros.js ===== */
+/**
+ * rubros.js — la base de conocimiento por industria, y cómo se amplía.
+ *
+ * El motor de capacidades responde "qué puede este equipo". Este módulo responde
+ * la pregunta siguiente, que es la que hace la venta: **"y para lo que YO hago,
+ * ¿qué significa eso?"**. Un contratista y un museo tienen el mismo iPhone y
+ * necesitan cosas distintas: distinta tolerancia, distinto flujo, distinto
+ * entregable y distinto KPI.
+ *
+ * Lo importante no es el contenido que trae de fábrica: es que **crece sin tocar
+ * código**. Un rubro nuevo —o la variante propia de un cliente— entra como un
+ * *pack* JSON validado. Ese es el requisito de "ampliar su base de conocimiento
+ * e implementaciones según el rubro y sus necesidades".
+ */
+
+
+/**
+ * Contrato del pack de rubro, alineado con el Creator Pack de kimos-packages.
+ * Se declara como `rubroPackApi: "1.x"` igual que las apps declaran
+ * `appShellApi`: el cargador rechaza un desajuste MAYOR y tolera el menor.
+ */
+const RUBRO_PACK_API = '1.x';
+
+/** Campos que todo rubro nuevo debe traer. Un rubro que `extiende` otro no. */
+const CAMPOS_OBLIGATORIOS = ['id', 'nombre', 'cliente', 'dolor', 'tolerancia', 'modulos'];
+
+/** Mismo criterio que el loader de apps del shell: solo importa el mayor. */
+function apiCompatible(declarada) {
+  const d = String(declarada == null ? RUBRO_PACK_API : declarada);
+  const mayor = (v) => String(v).split('.')[0];
+  return mayor(d) === mayor(RUBRO_PACK_API);
+}
+
+/**
+ * Valida un pack antes de dejarlo entrar. Un pack malo no rompe la app: la
+ * degrada en silencio, que es peor. Por eso esto es estricto y explícito.
+ *
+ * @param pack       { version, esquema, rubros: [...] }
+ * @param catalogos  { modulos: Set|Array, equipos: Set|Array } ids válidos
+ */
+function validarPack(pack, catalogos) {
+  const errores = [];
+  const avisos = [];
+  const cat = catalogos || {};
+  const setDe = (x) => (x instanceof Set ? x : new Set(x || []));
+  const modulos = setDe(cat.modulos);
+  const equipos = setDe(cat.equipos);
+
+  if (!pack || typeof pack !== 'object') return { ok: false, errores: ['El pack no es un objeto JSON.'], avisos, rubros: 0 };
+
+  // Cabecera con las mismas convenciones que un .kapp: id con namespace,
+  // versión semver, autor y contrato declarado.
+  const declarada = pack.rubroPackApi != null ? pack.rubroPackApi : pack.esquema;
+  if (!apiCompatible(declarada)) {
+    errores.push('rubroPackApi "' + declarada + '" incompatible: esta versión lee ' + RUBRO_PACK_API + '.');
+  }
+  if (!pack.id) errores.push('El pack no declara id.');
+  else if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(pack.id)) errores.push('El id del pack solo admite minúsculas, números, punto, guion y guion bajo.');
+  else if (pack.id.indexOf('.') < 0) avisos.push('El id del pack no usa namespace (recomendado: tuorg.mi-pack) y podría chocar con otro.');
+  if (!pack.version) errores.push('El pack no declara version.');
+  else if (!/^\d+(\.\d+){0,2}([-.][0-9A-Za-z-]+)*$/.test(String(pack.version))) errores.push('La version del pack no es semver.');
+  if (!pack.autor) avisos.push('El pack no declara autor: quien lo instale no sabrá de quién es.');
+  if (!Array.isArray(pack.rubros) || !pack.rubros.length) {
+    errores.push('El pack no trae rubros.');
+    return { ok: false, errores, avisos, rubros: 0 };
+  }
+
+  const vistos = new Set();
+  for (const r of pack.rubros) {
+    const donde = 'rubro "' + ((r && r.id) || '¿sin id?') + '"';
+    // Una extensión solo añade piezas a un rubro que ya existe: exigirle la
+    // ficha completa obligaría a copiar el rubro entero para añadir un flujo.
+    const esExtension = !!(r && r.extiende);
+    if (!esExtension) {
+      for (const campo of CAMPOS_OBLIGATORIOS) {
+        if (r[campo] == null || (Array.isArray(r[campo]) && !r[campo].length)) errores.push(donde + ': falta ' + campo + '.');
+      }
+    } else if (!r.id) {
+      errores.push(donde + ': una extensión necesita el id del rubro que extiende.');
+    }
+    if (r.id) {
+      if (!/^[a-z0-9][a-z0-9.\-]*$/.test(r.id)) errores.push(donde + ': el id solo admite minúsculas, números, punto y guion.');
+      if (vistos.has(r.id)) errores.push(donde + ': id repetido dentro del pack.');
+      vistos.add(r.id);
+    }
+    const t = r.tolerancia;
+    if (t && (!(t.m > 0) || !(t.aDistancia > 0))) errores.push(donde + ': la tolerancia necesita m y aDistancia mayores que cero.');
+    for (const m of r.modulos || []) {
+      if (!m || !m.id) { errores.push(donde + ': un módulo sin id.'); continue; }
+      if (modulos.size && !modulos.has(m.id)) errores.push(donde + ': el módulo "' + m.id + '" no existe en el catálogo.');
+      if (!m.para) avisos.push(donde + ': el módulo "' + m.id + '" no dice para qué sirve en este rubro.');
+    }
+    for (const e of r.equiposRecomendados || []) {
+      if (equipos.size && !equipos.has(e)) errores.push(donde + ': el equipo recomendado "' + e + '" no existe en el catálogo.');
+    }
+    if (!esExtension) {
+      if (!r.flujos || !r.flujos.length) avisos.push(donde + ': sin flujos, el rubro no dice cómo se trabaja.');
+      if (!r.kpis || !r.kpis.length) avisos.push(donde + ': sin KPI, no hay forma de saber si sirvió.');
+      if (!r.prospeccion) avisos.push(donde + ': sin material de prospección, no ayuda a vender.');
+    }
+  }
+
+  return { ok: !errores.length, errores, avisos, rubros: pack.rubros.length };
+}
+
+/**
+ * Carga el catálogo base y le suma packs externos.
+ *
+ * Reglas de convivencia, pensadas para que un pack de un cliente no pueda
+ * romper lo que trae el producto:
+ *  - Un pack solo puede AÑADIR rubros o EXTENDER uno existente (`extiende`).
+ *  - No puede borrar nada.
+ *  - Cada rubro queda marcado con su `origen`, y eso se ve en pantalla.
+ */
+function cargarPacks(base, packs, catalogos) {
+  const rubros = [];
+  const errores = [];
+  const avisos = [];
+  const origenes = [{ id: 'base', nombre: 'Catálogo del producto', rubros: (base.rubros || []).length, version: base.version }];
+
+  for (const r of base.rubros || []) rubros.push(Object.assign({}, r, { origen: 'base' }));
+
+  for (const pack of packs || []) {
+    const idPack = pack.id || pack.nombre || 'pack-sin-id';
+    const v = validarPack(pack, catalogos);
+    v.errores.forEach((e) => errores.push(idPack + ': ' + e));
+    v.avisos.forEach((a) => avisos.push(idPack + ': ' + a));
+    if (!v.ok) continue;
+
+    let añadidos = 0;
+    for (const r of pack.rubros) {
+      const i = rubros.findIndex((x) => x.id === r.id);
+      if (i >= 0) {
+        if (r.extiende) {
+          // Extender fusiona listas y pisa textos: sirve para que un cliente
+          // añada su flujo o su guion sin perder lo que trae el producto.
+          const previo = rubros[i];
+          rubros[i] = Object.assign({}, previo, r, {
+            origen: previo.origen + ' + ' + idPack,
+            modulos: fusionarPorId(previo.modulos, r.modulos),
+            flujos: fusionarPorId(previo.flujos, r.flujos),
+            kpis: fusionarPorId(previo.kpis, r.kpis),
+            normativa: (previo.normativa || []).concat(r.normativa || []),
+            equiposRecomendados: unicos((previo.equiposRecomendados || []).concat(r.equiposRecomendados || [])),
+            kimos: unicos((previo.kimos || []).concat(r.kimos || [])),
+          });
+          añadidos++;
+        } else {
+          errores.push(idPack + ': el rubro "' + r.id + '" ya existe. Usa otro id (con tu prefijo) o declara extiende: true.');
+        }
+      } else {
+        rubros.push(Object.assign({}, r, { origen: idPack }));
+        añadidos++;
+      }
+    }
+    origenes.push({ id: idPack, nombre: pack.nombre || idPack, rubros: añadidos, version: pack.version || null });
+  }
+
+  return { rubros, origenes, errores, avisos };
+}
+
+const unicos = (a) => [...new Set(a)];
+
+function fusionarPorId(previos, nuevos) {
+  const out = (previos || []).slice();
+  for (const n of nuevos || []) {
+    const i = out.findIndex((x) => x.id === n.id);
+    if (i >= 0) out[i] = Object.assign({}, out[i], n);
+    else out.push(n);
+  }
+  return out;
+}
+
+/**
+ * ¿El sensor activo alcanza la tolerancia que exige el rubro?
+ * Es el cruce que convierte una ficha de industria en una decisión de compra.
+ */
+function cumpleTolerancia(sensorId, tolerancia) {
+  if (!tolerancia || !(tolerancia.m > 0)) return { cumple: null, motivo: 'El rubro no declara tolerancia.' };
+  if (!sensorId) return { cumple: false, error: null, motivo: 'Sin sensor de profundidad activo no hay medida con escala fiable.' };
+  const err = errorEsperado(sensorId, tolerancia.aDistancia);
+  const rango = (PERFIL_SENSOR[sensorId] || {}).rango;
+  const fueraDeRango = !!(rango && tolerancia.aDistancia > rango[1]);
+  const cumple = !fueraDeRango && err <= tolerancia.m;
+
+  // Un "sí" pelado engaña cuando el error esperado es exactamente la tolerancia:
+  // en terreno, con el pulso del operador y una superficie mala, ese caso falla.
+  // Por eso hay tres grados y no dos: holgado, justo e insuficiente.
+  const margen = !cumple ? 'insuficiente' : (err <= tolerancia.m * 0.6 ? 'holgado' : 'justo');
+  const cm = (m) => (m * 100).toFixed(1) + ' cm';
+
+  const motivo = fueraDeRango
+    ? 'La distancia de trabajo del rubro (' + tolerancia.aDistancia + ' m) supera el rango útil del sensor.'
+    : margen === 'holgado'
+      ? 'El error esperado (±' + cm(err) + ') cabe con margen en la tolerancia del rubro (±' + cm(tolerancia.m) + ').'
+      : margen === 'justo'
+        ? 'El error esperado (±' + cm(err) + ') cabe JUSTO en la tolerancia del rubro (±' + cm(tolerancia.m) + '): en terreno, sin margen para una superficie mala o un pulso poco firme.'
+        : 'El error esperado (±' + cm(err) + ') supera la tolerancia del rubro (±' + cm(tolerancia.m) + ').';
+
+  return {
+    cumple,
+    margen,
+    error: err,
+    exigido: tolerancia.m,
+    aDistancia: tolerancia.aDistancia,
+    holgura: tolerancia.m - err,
+    fueraDeRango,
+    motivo,
+  };
+}
+
+/**
+ * Plan de implementación para un rubro con los medios que hay.
+ *
+ * @param rubro    entrada del catálogo
+ * @param ctx      { estadoModulo(id) -> estado, sensorId, modulos (catálogo), equipos (catálogo), inventario? }
+ */
+function planDeRubro(rubro, ctx) {
+  const c = ctx || {};
+  const estadoDe = typeof c.estadoModulo === 'function' ? c.estadoModulo : () => 'no-disponible';
+  const catModulos = new Map(((c.modulos && c.modulos.modulos) || []).map((m) => [m.id, m]));
+  const catEquipos = new Map(((c.equipos && c.equipos.equipos) || []).map((e) => [e.id, e]));
+
+  const tolerancia = cumpleTolerancia(c.sensorId, rubro.tolerancia);
+
+  const modulos = (rubro.modulos || [])
+    .slice()
+    .sort((a, b) => (a.prioridad || 9) - (b.prioridad || 9))
+    .map((m) => {
+      const meta = catModulos.get(m.id) || {};
+      const estado = estadoDe(m.id);
+      return {
+        id: m.id,
+        nombre: meta.nombre || m.id,
+        icon: meta.icon || '•',
+        prioridad: m.prioridad || 9,
+        para: m.para || meta.resumen || '',
+        estado,
+        listo: estado === 'completo',
+      };
+    });
+
+  const brechas = modulos.filter((m) => !m.listo);
+  const listoParaEmpezar = modulos.length > 0 && modulos[0].listo && tolerancia.cumple !== false;
+
+  const acciones = [];
+  if (tolerancia.cumple === false) {
+    const rec = (rubro.equiposRecomendados || []).map((id) => (catEquipos.get(id) || {}).nombre).filter(Boolean);
+    acciones.push('La tolerancia de este rubro no se alcanza con el sensor actual. ' + tolerancia.motivo
+      + (rec.length ? ' Equipos que sí la alcanzan: ' + rec.join(', ') + '.' : ''));
+  } else if (tolerancia.margen === 'justo') {
+    acciones.push('Se cumple justo: ' + tolerancia.motivo
+      + (rubro.toleranciaNota ? ' ' + rubro.toleranciaNota : ''));
+  }
+  for (const m of brechas.slice(0, 3)) {
+    acciones.push('Módulo "' + m.nombre + '" (prioridad ' + m.prioridad + ') está en estado "' + m.estado + '": ' + m.para);
+  }
+  if (listoParaEmpezar) {
+    const f = (rubro.flujos || [])[0];
+    acciones.push('Se puede empezar hoy por el flujo "' + (f ? f.nombre : modulos[0].nombre) + '".');
+  }
+
+  return {
+    rubro: { id: rubro.id, nombre: rubro.nombre, icon: rubro.icon, origen: rubro.origen || 'base' },
+    cliente: rubro.cliente,
+    dolor: rubro.dolor,
+    tolerancia,
+    toleranciaNota: rubro.toleranciaNota || null,
+    modulos,
+    brechas: brechas.map((m) => m.id),
+    listoParaEmpezar,
+    flujos: rubro.flujos || [],
+    kpis: rubro.kpis || [],
+    normativa: rubro.normativa || [],
+    equiposRecomendados: (rubro.equiposRecomendados || []).map((id) => {
+      const e = catEquipos.get(id);
+      return e ? { id: e.id, nombre: e.nombre, clase: e.clase } : { id, nombre: id };
+    }),
+    kimos: rubro.kimos || [],
+    acciones,
+  };
+}
+
+/** Rubros ordenados por lo cerca que están de poder ejecutarse con estos medios. */
+function rubrosViables(rubros, ctx) {
+  return (rubros || [])
+    .map((r) => {
+      const p = planDeRubro(r, ctx);
+      const listos = p.modulos.filter((m) => m.listo).length;
+      const puntaje = (p.tolerancia.cumple === true ? 50 : p.tolerancia.cumple === null ? 25 : 0)
+        + (p.modulos.length ? (listos / p.modulos.length) * 50 : 0);
+      return { plan: p, listos, total: p.modulos.length, puntaje: Math.round(puntaje) };
+    })
+    .sort((a, b) => b.puntaje - a.puntaje);
+}
+
+/** Qué rubros usan un módulo dado (para justificar su construcción). */
+function rubrosPorModulo(rubros, moduloId) {
+  return (rubros || [])
+    .filter((r) => (r.modulos || []).some((m) => m.id === moduloId))
+    .map((r) => ({ id: r.id, nombre: r.nombre, icon: r.icon, prioridad: (r.modulos.find((m) => m.id === moduloId) || {}).prioridad || 9 }))
+    .sort((a, b) => a.prioridad - b.prioridad);
+}
+
+/**
+ * Lee un `.krub` (el pack empaquetado) y devuelve su `pack.json`.
+ *
+ * El empaquetador escribe con método "store" —igual que `tools/pack.mjs` de
+ * kimos-packages con los `.kapp`—, así que leerlo no necesita ninguna
+ * biblioteca de descompresión. Si alguien recomprime el archivo por su cuenta,
+ * se dice en vez de fallar con un error incomprensible.
+ *
+ * @param buffer ArrayBuffer del archivo
+ */
+function leerKrub(buffer) {
+  const dv = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const texto = new TextDecoder();
+
+  // Fin del directorio central: se busca desde el final (puede haber comentario).
+  let fin = -1;
+  for (let i = bytes.length - 22; i >= 0 && i > bytes.length - 65558; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { fin = i; break; }
+  }
+  if (fin < 0) throw new Error('No parece un archivo .krub válido.');
+
+  const n = dv.getUint16(fin + 10, true);
+  let p = dv.getUint32(fin + 16, true);
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('Directorio del .krub ilegible.');
+    const metodo = dv.getUint16(p + 10, true);
+    const tam = dv.getUint32(p + 20, true);
+    const largoNombre = dv.getUint16(p + 28, true);
+    const largoExtra = dv.getUint16(p + 30, true);
+    const largoComentario = dv.getUint16(p + 32, true);
+    const offset = dv.getUint32(p + 42, true);
+    const nombre = texto.decode(bytes.subarray(p + 46, p + 46 + largoNombre));
+    if (nombre === 'pack.json') {
+      if (metodo !== 0) throw new Error('El .krub viene comprimido; este lector solo abre los que genera tools/pack-rubro.mjs.');
+      const ln = dv.getUint16(offset + 26, true);
+      const le = dv.getUint16(offset + 28, true);
+      const inicio = offset + 30 + ln + le;
+      return JSON.parse(texto.decode(bytes.subarray(inicio, inicio + tam)));
+    }
+    p += 46 + largoNombre + largoExtra + largoComentario;
+  }
+  throw new Error('El .krub no contiene pack.json.');
+}
+
+/* ===== src/core/prospeccion.js ===== */
+/**
+ * prospeccion.js — LiDARia como herramienta comercial, no solo como producto.
+ *
+ * La idea que vale la pena defender: **el diagnóstico es un dato de calificación
+ * que ningún CRM tiene hoy**. Saber que los ocho vendedores de un prospecto usan
+ * Android de gama media cambia lo que se le puede ofrecer, cuánto va a pagar y
+ * qué demostración conviene hacerle. Eso hoy se descubre en la tercera reunión,
+ * cuando ya se prometió algo que no se puede cumplir.
+ *
+ * Y la segunda: **el escaneo es la demostración**. En una primera visita se
+ * escanea el propio local del prospecto y se le muestra su espacio medido antes
+ * de que se enfríe el café. No hay lámina que compita con eso.
+ *
+ * Este módulo produce lo que se adjunta a la oportunidad en Prospección
+ * Comercial: qué venderle, con qué argumento, qué demostrar y qué preguntar.
+ */
+
+
+const cifra = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+
+/**
+ * Califica un prospecto cruzando su rubro, su parque de equipos y las apps de
+ * KIMOS que ya usa. Devuelve puntaje con motivos: un puntaje sin motivos no
+ * sirve para conversar con nadie.
+ */
+function calificar(prospecto, ctx) {
+  const p = prospecto || {};
+  const c = ctx || {};
+  const motivos = [];
+  let puntaje = 0;
+
+  // 1. Encaje de rubro (30): sin rubro conocido, se vende a ciegas.
+  const rubro = c.rubro || null;
+  if (rubro) { puntaje += 30; motivos.push({ signo: '+', peso: 30, texto: 'Rubro reconocido: ' + rubro.nombre + '. Hay flujo, tolerancia y KPI definidos.' }); }
+  else motivos.push({ signo: '−', peso: 30, texto: 'Rubro sin pack de conocimiento: la propuesta sale genérica. Considera crear un pack para este rubro.' });
+
+  // 2. Parque de equipos (35): es el dato que nadie más tiene.
+  const capaces = (p.equipos || []).filter((e) => c.equipoSirve ? c.equipoSirve(e) : false);
+  if (capaces.length) {
+    puntaje += 35;
+    motivos.push({ signo: '+', peso: 35, texto: 'Ya tiene equipos capaces de capturar (' + capaces.join(', ') + '): se puede empezar sin comprar nada.' });
+  } else if ((p.equipos || []).length) {
+    puntaje += 12;
+    motivos.push({ signo: '~', peso: 12, texto: 'Tiene equipos, pero ninguno alcanza lo que su rubro exige: la venta incluye una compra o un equipo compartido.' });
+  } else {
+    motivos.push({ signo: '−', peso: 35, texto: 'No sabemos qué equipos tiene. Es la primera pregunta de la reunión, y define todo lo demás.' });
+  }
+
+  // 3. Apps de KIMOS que ya usa (25): el CAC ya está pagado.
+  const integrables = (p.appsKimos || []).filter((a) => (c.appsAncla || []).indexOf(a) >= 0);
+  if (integrables.length) {
+    puntaje += 25;
+    motivos.push({ signo: '+', peso: 25, texto: 'Ya usa ' + integrables.join(', ') + ': la captura entra donde ya trabaja, no como herramienta suelta.' });
+  } else if ((p.appsKimos || []).length) {
+    puntaje += 10;
+    motivos.push({ signo: '~', peso: 10, texto: 'Es cliente de KIMOS, pero no de los módulos con los que LiDARia se integra mejor.' });
+  } else {
+    motivos.push({ signo: '−', peso: 25, texto: 'No es cliente de KIMOS todavía: la venta es de la suite, no de un módulo.' });
+  }
+
+  // 4. Tamaño (10): sin volumen, ningún módulo se paga.
+  const usuarios = cifra(p.usuariosCampo, 0);
+  if (usuarios >= 3) { puntaje += 10; motivos.push({ signo: '+', peso: 10, texto: usuarios + ' personas en terreno: hay volumen para que el módulo se pague.' }); }
+  else motivos.push({ signo: '−', peso: 10, texto: 'Menos de tres personas en terreno: el retorno depende de que el ahorro por visita sea alto.' });
+
+  const nivel = puntaje >= 70 ? 'caliente' : puntaje >= 45 ? 'tibio' : 'frío';
+  return { puntaje, nivel, motivos };
+}
+
+/**
+ * Qué se le puede vender HOY a este prospecto y qué exige comprar equipo.
+ * Se apoya en la prioridad que el rubro le da a cada módulo.
+ */
+function queVenderle(rubro, ctx) {
+  const c = ctx || {};
+  const plan = planDeRubro(rubro, c);
+  const catModulos = new Map(((c.modulos && c.modulos.modulos) || []).map((m) => [m.id, m]));
+
+  const clasificar = (m) => {
+    if (m.estado === 'completo') return 'hoy';
+    if (m.estado === 'degradado') return 'hoy-con-limites';
+    if (m.estado === 'potencial') return 'hoy-con-app';
+    return 'requiere-equipo';
+  };
+
+  const items = plan.modulos.map((m) => {
+    const meta = catModulos.get(m.id) || {};
+    const n = meta.negocio || {};
+    return {
+      id: m.id, nombre: m.nombre, icon: m.icon, prioridad: m.prioridad, para: m.para,
+      cuando: clasificar(m),
+      precioMensual: cifra(n.precioMensualUSD, 0),
+      modelo: n.modelo || null,
+      valorMensualCliente: cifra(n.valorClienteUSD, 0),
+    };
+  });
+
+  return { plan, items };
+}
+
+/**
+ * Argumento cuantificado. No inventa: suma el beneficio mensual declarado de los
+ * módulos que el rubro pone primero y lo contrasta con lo que costaría. La
+ * fórmula específica del rubro se entrega como texto para completarla con los
+ * números del propio prospecto en la reunión.
+ */
+function argumentoEconomico(rubro, venta, prospecto) {
+  const p = prospecto || {};
+  const usuarios = Math.max(1, cifra(p.usuariosCampo, 1));
+  const vendibles = venta.items.filter((i) => i.cuando !== 'requiere-equipo');
+
+  const costoMensual = vendibles.reduce((a, i) => a + i.precioMensual * (i.modelo === 'por-usuario' ? usuarios : 1), 0);
+  const beneficioMensual = vendibles.reduce((a, i) => a + i.valorMensualCliente, 0);
+  const multiplo = costoMensual > 0 ? beneficioMensual / costoMensual : 0;
+
+  return {
+    costoMensual,
+    beneficioMensual,
+    beneficioAnual: beneficioMensual * 12,
+    multiplo,
+    supuesto: (rubro.prospeccion && rubro.prospeccion.ahorro && rubro.prospeccion.ahorro.supuesto) || null,
+    formula: (rubro.prospeccion && rubro.prospeccion.ahorro && rubro.prospeccion.ahorro.formula) || null,
+    advertencia: 'El beneficio es la estimación declarada del catálogo para una cuenta tipo del rubro, no una medición de este prospecto. En la reunión se reemplaza por sus números con la fórmula de arriba.',
+  };
+}
+
+/**
+ * Ficha completa de prospecto: lo que se lleva a la reunión y lo que queda
+ * adjunto en la oportunidad del CRM.
+ */
+function fichaProspecto(prospecto, ctx) {
+  const c = ctx || {};
+  const rubro = c.rubro;
+  if (!rubro) {
+    return {
+      error: 'Sin rubro no hay ficha útil. Elige el rubro del prospecto o carga un pack para su industria.',
+      calificacion: calificar(prospecto, c),
+    };
+  }
+
+  const venta = queVenderle(rubro, c);
+  const economia = argumentoEconomico(rubro, venta, prospecto);
+  const calificacion = calificar(prospecto, c);
+  const pros = rubro.prospeccion || {};
+
+  const tolerancia = venta.plan.tolerancia;
+  const advertencias = [];
+  if (tolerancia.cumple === false) {
+    advertencias.push('No prometer precisión de este rubro con el parque actual del prospecto: ' + tolerancia.motivo);
+  }
+  (rubro.normativa || []).forEach((n) => advertencias.push(n));
+
+  return {
+    generado: new Date().toISOString(),
+    prospecto: {
+      nombre: prospecto.nombre || null,
+      rubro: rubro.id,
+      usuariosCampo: cifra(prospecto.usuariosCampo, null),
+      equipos: prospecto.equipos || [],
+      appsKimos: prospecto.appsKimos || [],
+    },
+    calificacion,
+    demo: pros.demo || null,
+    preguntas: pros.preguntas || [],
+    senales: pros.senales || [],
+    objeciones: pros.objeciones || [],
+    venderHoy: venta.items.filter((i) => i.cuando === 'hoy' || i.cuando === 'hoy-con-app'),
+    venderConLimites: venta.items.filter((i) => i.cuando === 'hoy-con-limites'),
+    requiereEquipo: venta.items.filter((i) => i.cuando === 'requiere-equipo'),
+    equiposSugeridos: venta.plan.equiposRecomendados,
+    economia,
+    kpis: rubro.kpis || [],
+    flujoInicial: (rubro.flujos || [])[0] || null,
+    advertencias,
+    siguientePaso: siguientePaso(calificacion, venta),
+  };
+}
+
+function siguientePaso(calificacion, venta) {
+  const hoy = venta.items.filter((i) => i.cuando === 'hoy' || i.cuando === 'hoy-con-app');
+  if (calificacion.nivel === 'frío') return 'Antes de proponer nada: averiguar qué equipos usan en terreno y qué módulos de KIMOS ya tienen. Sin eso, cualquier propuesta es adivinanza.';
+  if (!hoy.length) return 'Proponer una prueba con un equipo prestado o comprado para el piloto: hoy su parque no sostiene el módulo principal del rubro.';
+  return 'Agendar la visita con el equipo capaz, escanear su propio espacio en la reunión y dejar el resultado adjunto a la oportunidad.';
+}
+
+/**
+ * El registro que se adjunta a la oportunidad en Prospección Comercial.
+ *
+ * Es deliberadamente plano y corto: viaja por el agente o como adjunto, y tiene
+ * que poder leerse en la ficha del prospecto sin abrir LiDARia.
+ */
+function registroParaCRM(ficha) {
+  if (!ficha || ficha.error) return null;
+  return {
+    fuente: 'kimos-LiDARia',
+    fecha: ficha.generado,
+    rubro: ficha.prospecto.rubro,
+    calificacion: ficha.calificacion.puntaje,
+    nivel: ficha.calificacion.nivel,
+    parqueCapaz: ficha.venderHoy.length > 0,
+    moduloPrincipal: (ficha.venderHoy[0] || ficha.venderConLimites[0] || ficha.requiereEquipo[0] || {}).nombre || null,
+    propuestaMensualUSD: Math.round(ficha.economia.costoMensual),
+    beneficioEstimadoMensualUSD: Math.round(ficha.economia.beneficioMensual),
+    multiploValor: Number(ficha.economia.multiplo.toFixed(1)),
+    siguientePaso: ficha.siguientePaso,
+    advertencias: ficha.advertencias,
+  };
+}
+
+/** Guion de la visita: el orden en que conviene hacer las cosas en la reunión. */
+function guionVisita(rubro, ficha) {
+  const pros = rubro.prospeccion || {};
+  return [
+    { momento: 'Antes de entrar', hacer: 'Confirmar qué equipos tienen en terreno. Es lo que decide qué se puede prometer.' },
+    { momento: 'Primeros 5 minutos', hacer: 'Preguntar, no presentar: ' + (pros.preguntas || []).slice(0, 2).join(' / ') },
+    { momento: 'La demostración', hacer: pros.demo || 'Escanear el propio espacio del prospecto y mostrar el resultado en su teléfono.' },
+    { momento: 'El número', hacer: ficha && ficha.economia && ficha.economia.supuesto ? 'Calcular con sus datos: ' + ficha.economia.supuesto : 'Calcular el ahorro con sus propios números, delante de ellos.' },
+    { momento: 'Las objeciones', hacer: (pros.objeciones || []).map((o) => o.objecion).join(' · ') || 'Escuchar la objeción real antes de responder.' },
+    { momento: 'Al salir', hacer: 'Dejar el escaneo de la reunión adjunto a la oportunidad, con la propuesta y el siguiente paso.' },
+  ];
+}
+
+/* ===== src/core/integraciones.js ===== */
+/**
+ * integraciones.js — qué se puede conectar de verdad con el resto de KIMOS.
+ *
+ * El criterio de este módulo es incómodo a propósito: separa lo que se puede
+ * construir HOY con el contrato AppShell v1 de lo que necesita que la
+ * plataforma crezca, y marca como "marginal" o "no" lo que quedaría bien en una
+ * lámina y no resuelve nada que alguien pague. Una lista de integraciones donde
+ * todo es verde no informa: solo tranquiliza.
+ */
+
+const ORDEN_VEREDICTO = { ancla: 0, util: 1, marginal: 2, no: 3 };
+const ORDEN_DISPONIBILIDAD = { hoy: 0, agente: 1, 'requiere-plataforma': 2, 'no-aplica': 3 };
+
+/** Resuelve un id de app admitiendo alias ('escritorio' → 'agentes'). */
+function integracionDe(catalogo, appId) {
+  const lista = (catalogo && catalogo.integraciones) || [];
+  return lista.filter((i) => i.app === appId || (i.alias || []).indexOf(appId) >= 0)[0] || null;
+}
+
+/** Todas las integraciones ordenadas por veredicto y luego por valor. */
+function ordenadas(catalogo) {
+  return ((catalogo && catalogo.integraciones) || []).slice().sort((a, b) =>
+    (ORDEN_VEREDICTO[a.veredicto] - ORDEN_VEREDICTO[b.veredicto])
+    || (ORDEN_DISPONIBILIDAD[a.disponibilidad] - ORDEN_DISPONIBILIDAD[b.disponibilidad])
+    || (b.valor - a.valor));
+}
+
+/** Resumen para decidir: cuánto cuesta lo que de verdad hay que construir. */
+function resumen(catalogo) {
+  const lista = (catalogo && catalogo.integraciones) || [];
+  const por = (campo) => lista.reduce((a, i) => { a[i[campo]] = (a[i[campo]] || 0) + 1; return a; }, {});
+  const construibles = lista.filter((i) => i.veredicto === 'ancla' || i.veredicto === 'util');
+  const anclas = lista.filter((i) => i.veredicto === 'ancla');
+  return {
+    total: lista.length,
+    porVeredicto: por('veredicto'),
+    porDisponibilidad: por('disponibilidad'),
+    esfuerzoAnclas: anclas.reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    esfuerzoConstruibles: construibles.reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    esfuerzoDescartado: lista.filter((i) => i.veredicto === 'marginal' || i.veredicto === 'no')
+      .reduce((a, i) => a + (i.esfuerzoSemanas || 0), 0),
+    disponiblesHoy: lista.filter((i) => i.disponibilidad === 'hoy' || i.disponibilidad === 'agente').length,
+  };
+}
+
+/**
+ * Las integraciones que exige un módulo o un rubro concretos: sirve para saber
+ * qué hay que conectar ANTES de que ese módulo tenga sentido.
+ */
+function integracionesDe(catalogo, ids) {
+  return (ids || [])
+    .map((id) => integracionDe(catalogo, id))
+    .filter(Boolean)
+    .sort((a, b) => ORDEN_VEREDICTO[a.veredicto] - ORDEN_VEREDICTO[b.veredicto]);
+}
+
+/**
+ * Ruta de conexión recomendada: primero lo que se puede hoy y vale mucho.
+ * Devuelve tres tramos, no una lista plana, porque el orden es la decisión.
+ */
+function rutaDeConexion(catalogo) {
+  const lista = ordenadas(catalogo).filter((i) => i.veredicto === 'ancla' || i.veredicto === 'util');
+  const tramo = (filtro) => lista.filter(filtro).map((i) => ({
+    app: i.app, nombre: i.nombre, icon: i.icon, valor: i.valor,
+    esfuerzoSemanas: i.esfuerzoSemanas, disponibilidad: i.disponibilidad, porque: i.porque,
+  }));
+  return [
+    {
+      tramo: 1,
+      titulo: 'Se conecta hoy y cambia el producto',
+      criterio: 'Anclas que funcionan con el contrato actual, incluido el puente por agente.',
+      items: tramo((i) => i.veredicto === 'ancla' && i.disponibilidad !== 'requiere-plataforma'),
+    },
+    {
+      tramo: 2,
+      titulo: 'Se conecta hoy y suma',
+      criterio: 'Útiles sin cambios de plataforma: se hacen cuando el tramo 1 está vendiendo.',
+      items: tramo((i) => i.veredicto === 'util' && i.disponibilidad !== 'requiere-plataforma'),
+    },
+    {
+      tramo: 3,
+      titulo: 'Espera a que la plataforma crezca',
+      criterio: 'Necesitan escritura entre apps, suscripción a cambios o módulo backend propio.',
+      items: tramo((i) => i.disponibilidad === 'requiere-plataforma'),
+    },
+  ];
+}
+
+/**
+ * Coherencia: toda app referida desde los catálogos de módulos y rubros tiene
+ * que existir aquí. Si no, hay una integración prometida que nadie evaluó.
+ */
+function verificarCoherencia(catalogo, modules, rubros) {
+  const usados = new Set();
+  ((modules && modules.modulos) || []).forEach((m) => (m.kimos || []).forEach((k) => usados.add(k)));
+  ((rubros && rubros.rubros) || rubros || []).forEach((r) => (r.kimos || []).forEach((k) => usados.add(k)));
+  const faltantes = [...usados].filter((id) => !integracionDe(catalogo, id));
+  return { ok: !faltantes.length, faltantes, usados: [...usados] };
+}
+
+/* Exportaciones para uso como módulo (las herramientas lo importan;
+   el bundle de la app de KIMOS quita este bloque al incrustarlo). */
+
 
 /**
  * LiDARia — consola de captura 3D de KIMOS.
@@ -1146,9 +1840,9 @@ function alternativaPara(nombre, politica) {
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
-const DATOS = {"generado":"2026-08-25T17:09:14.740Z","nucleo":"1.0.0","origen":"kimos-LiDARia","devices":{"version":"1.0.0","actualizado":"2026-08-25","nota":"Catálogo de equipos. `caps` son capacidades de HARDWARE del equipo: cuáles quedan activas depende también del entorno (navegador vs app nativa), y eso lo resuelve resolve.js. `confianza` marca lo verificado frente a lo que hay que confirmar antes de prometerlo a un cliente.","clases":[{"id":"movil","label":"Teléfono","icon":"📱"},{"id":"tablet","label":"Tablet","icon":"🧾"},{"id":"visor","label":"Visor de realidad mixta","icon":"🥽"},{"id":"pc","label":"Computador","icon":"🖥️"},{"id":"tv","label":"Smart TV / tótem","icon":"📺"},{"id":"reloj","label":"Reloj / wearable","icon":"⌚"},{"id":"campo","label":"Equipo de campo (dron, escáner, robot)","icon":"🛰️"}],"equipos":[{"id":"apple.iphone.pro.12-17","marca":"Apple","nombre":"iPhone 12 Pro → 17 Pro (y Pro Max)","clase":"movil","plataforma":"ios","anios":[2020,2025],"confianza":"verificado","modelos":["iPhone13,3","iPhone13,4","iPhone14,2","iPhone14,3","iPhone15,2","iPhone15,3","iPhone16,1","iPhone16,2","iPhone17,1","iPhone17,2","iPhone18,1","iPhone18,2"],"caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.arkit.roomplan","api.arkit.objectcapture","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"El equipo de referencia del proyecto: LiDAR trasero, TrueDepth frontal y toda la pila ARKit. Toda gama Pro desde 2020; ningún iPhone estándar, Plus, Air, mini o SE lo lleva."},{"id":"apple.ipadpro.2020+","marca":"Apple","nombre":"iPad Pro 11\" (2ª gen) y 12.9\" (4ª gen) en adelante, incl. M4/M5","clase":"tablet","plataforma":"ios","anios":[2020,2025],"confianza":"verificado","modelos":["iPad8,9","iPad8,10","iPad8,11","iPad8,12","iPad13,4","iPad13,5","iPad13,6","iPad13,7","iPad13,8","iPad13,9","iPad13,10","iPad13,11","iPad14,3","iPad14,4","iPad14,5","iPad14,6","iPad16,3","iPad16,4","iPad16,5","iPad16,6"],"caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.arkit.roomplan","api.arkit.objectcapture","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","compute.npu"],"nota":"Mismo stack que el iPhone Pro con más pantalla: es el equipo cómodo para escanear una vivienda completa y revisar el plano en el sitio. Ni iPad, ni iPad Air, ni iPad mini llevan LiDAR."},{"id":"apple.iphone.estandar","marca":"Apple","nombre":"iPhone X → 17 (estándar, Plus, Air, mini, SE 2ª/3ª gen)","clase":"movil","plataforma":"ios","anios":[2017,2025],"confianza":"verificado","modelos":[],"caps":["depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"Sin LiDAR: mide por movimiento y estéreo, y tiene TrueDepth frontal. Vale para AR, previsualización, fotogrametría y volumen aproximado; no para acotar un plano.","excepciones":{"depth.structured":"Solo modelos con Face ID (no el SE con Touch ID)."}},{"id":"apple.visionpro","marca":"Apple","nombre":"Apple Vision Pro","clase":"visor","plataforma":"visionos","anios":[2024,2026],"confianza":"verificado","caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.viewer.usdz","api.webxr.ar","api.webxr.mesh","media.camera","sensor.imu","compute.npu","runtime.headset"],"nota":"LiDAR + estéreo + seguimiento de manos y mirada, y WebXR habilitado en Safari de visionOS 2: el único equipo donde la app corre inmersiva sin instalar nada."},{"id":"meta.quest3","marca":"Meta","nombre":"Meta Quest 3 / 3S","clase":"visor","plataforma":"android-xr","anios":[2023,2025],"confianza":"verificado","caps":["depth.dtof","depth.stereo","api.webxr.ar","api.webxr.depth","api.webxr.hittest","api.webxr.anchors","api.webxr.mesh","media.camera","sensor.imu","compute.webgpu","runtime.headset"],"nota":"Sensor de profundidad + passthrough a color y navegador con WebXR completo: es la plataforma donde la vía web llega más lejos sin app nativa."},{"id":"android.xr.visores","marca":"Android XR","nombre":"Visores Android XR (Galaxy XR y compatibles)","clase":"visor","plataforma":"android-xr","anios":[2025,2026],"confianza":"por-confirmar","caps":["depth.stereo","api.webxr.ar","api.webxr.depth","api.webxr.hittest","api.webxr.anchors","api.webxr.mesh","media.camera","sensor.imu","compute.webgpu","runtime.headset"],"nota":"Chrome de Android XR expone profundidad estereoscópica (dos mapas en vivo, uno por ojo). Confirmar módulo a módulo en el equipo concreto antes de comprometer funciones."},{"id":"samsung.tof.2019-2020","marca":"Samsung","nombre":"Galaxy S10 5G · Note10+ · S20+ · S20 Ultra","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"verificado","modelos":["SM-G977","SM-N975","SM-N976","SM-G986","SM-G988"],"caps":["depth.itof","depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"La generación Android con ToF trasero real. Samsung lo retiró desde la serie S21: los buques insignia posteriores traen autofoco láser, que no es un sensor de profundidad utilizable."},{"id":"samsung.flagship.reciente","marca":"Samsung","nombre":"Galaxy S21 → S25 (incl. Ultra) y Z Fold/Flip","clase":"movil","plataforma":"android","anios":[2021,2025],"confianza":"verificado","modelos":["SM-S91","SM-S92","SM-S93","SM-S94","SM-F94","SM-F95","SM-S921","SM-S926","SM-S928","SM-S931","SM-S936","SM-S938"],"caps":["depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"Sin ToF dedicado: profundidad por movimiento vía ARCore, buena para AR, oclusión y volumen aproximado. Hay indicios de un módulo ToF en el S25 Ultra que NO damos por bueno hasta medirlo en un equipo real."},{"id":"huawei.tof","marca":"Huawei","nombre":"P30 Pro · Mate 30 Pro · P40 Pro · Mate 40 Pro","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"verificado","caps":["depth.itof","depth.stereo","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"ToF trasero real, pero sin Servicios de Google en los modelos posteriores a 2019: ARCore no está disponible y hay que ir por HMS/AR Engine. Fuera del alcance de la fase 1."},{"id":"sony.xperia1.tof","marca":"Sony","nombre":"Xperia 1 II → 1 V","clase":"movil","plataforma":"android","anios":[2020,2023],"confianza":"por-confirmar","caps":["depth.itof","depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"Sensor 3D iToF trasero en la línea Xperia 1. Confirmar por modelo: Sony lo fue moviendo entre generaciones."},{"id":"honor.lg.tof","marca":"Honor / LG","nombre":"Honor View 20 · LG G8 ThinQ · LG V60","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"por-confirmar","caps":["depth.itof","depth.motion","api.arcore.depth","api.viewer.glb","media.camera","sensor.imu"],"nota":"ToF de la primera oleada Android (en LG, frontal). Equipos fuera de soporte: solo interesan si el cliente ya los tiene en el bolsillo."},{"id":"android.arcore.generico","marca":"Android","nombre":"Android con ARCore (parque general)","clase":"movil","plataforma":"android","anios":[2018,2026],"confianza":"verificado","caps":["depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","api.webxr.ar","api.webxr.depth","api.webxr.hittest","media.camera","sensor.imu","sensor.gnss"],"nota":"El caso más numeroso: sin sensor de profundidad, pero con Depth API por movimiento. Google reporta más del 88% de los equipos activos con Depth API en mayo de 2026. Es el suelo sobre el que hay que diseñar la degradación."},{"id":"android.sinarcore","marca":"Android","nombre":"Android sin ARCore (gama de entrada)","clase":"movil","plataforma":"android","anios":[2016,2026],"confianza":"verificado","caps":["media.camera","sensor.imu","sensor.gnss"],"nota":"Cámara y poco más. Sirve para fotogrametría por fotos subidas a la nube y para consumir resultados, no para capturar en vivo."},{"id":"pc.escritorio","marca":"PC / Mac","nombre":"Computador de escritorio o portátil","clase":"pc","plataforma":"desktop","anios":[2015,2026],"confianza":"verificado","caps":["media.camera","compute.webgpu","compute.wasm.simd","io.filesystem","runtime.web"],"nota":"Cero captura de profundidad, pero es donde se revisa, mide sobre el modelo, se corrige el plano y se exporta. La consola de KIMOS vive aquí."},{"id":"pc.sensor3d","marca":"PC + sensor 3D","nombre":"Computador con cámara de profundidad (RealSense, Femto, Kinect Azure)","clase":"pc","plataforma":"desktop","anios":[2015,2026],"confianza":"por-confirmar","caps":["depth.itof","depth.stereo","media.camera","compute.webgpu","compute.wasm.simd","io.filesystem"],"nota":"Puesto fijo de escaneo (mostrador, línea de empaque). Requiere agente local: el navegador no habla con estos sensores. Fase 3."},{"id":"tv.totem","marca":"Smart TV / tótem","nombre":"Televisor, pantalla de sala o tótem","clase":"tv","plataforma":"tv","anios":[2018,2026],"confianza":"verificado","caps":["runtime.web"],"nota":"Rol honesto: mostrar. Vitrina 3D en sala de ventas, plano en obra, avance de proyecto. No captura ni mide."},{"id":"reloj.wearable","marca":"Apple Watch / Wear OS","nombre":"Reloj inteligente","clase":"reloj","plataforma":"wearable","anios":[2018,2026],"confianza":"verificado","caps":["sensor.imu"],"nota":"Sin cámara ni profundidad. Rol real: mando a distancia de la captura (disparar, marcar punto, avisar de que el escaneo terminó) sin soltar la herramienta. Fase 3."},{"id":"campo.dron.escaner","marca":"Equipos de campo","nombre":"Dron con LiDAR, escáner terrestre, robot con LDS","clase":"campo","plataforma":"externo","anios":[2018,2026],"confianza":"verificado","caps":["io.filesystem"],"nota":"No corren la app: entregan archivos (LAS/LAZ, E57, PLY). El punto de contacto es la importación y el cruce con la captura de mano."}],"identificacion":{"ios":{"problema":"Safari no expone el modelo del iPhone. El navegador solo sabe que es 'iPhone', así que NO se puede afirmar si hay LiDAR desde la web.","estrategia":"Se ofrecen candidatos por tamaño de ventana y GPU, y se pide confirmar el modelo una sola vez (queda guardado). La app nativa lo resuelve exacto por identificador de hardware.","pistas":[{"equipo":"apple.iphone.pro.12-17","css":[[390,844],[393,852],[402,874],[428,926],[430,932],[440,956]],"dpr":[3]},{"equipo":"apple.ipadpro.2020+","css":[[834,1194],[1024,1366],[1032,1376],[834,1210]],"dpr":[2]}]},"android":{"problema":"El modelo llega por User-Agent Client Hints de alta entropía y requiere HTTPS y permiso implícito del navegador.","estrategia":"navigator.userAgentData.getHighEntropyValues(['model','platformVersion']) y prefijo contra `modelos`. Si no hay coincidencia, se usa el perfil genérico y se mide en caliente."}}},"modules":{"version":"1.0.0","actualizado":"2026-08-25","nota":"Catálogo de módulos de kimos-LiDARia. `requiere` es duro; `requiereAlguna` son grupos donde basta una capacidad; `prefiere` sube el grado sin ser obligatorio. Los números de negocio son SUPUESTOS declarados y editables, no resultados medidos: están para ordenar prioridades, no para presentarlos como hechos. `estrategico: true` marca los módulos cuyo valor no se ve entero en su propio P&L porque habilitan la venta de otros (catálogo 3D → Tienda y Vitrina).","supuestos":{"clientesKimos":{"valor":120,"label":"Cuentas KIMOS activas en el horizonte del plan","min":10,"max":5000},"costoSemanaUSD":{"valor":2200,"label":"Costo de una semana-persona de desarrollo (USD)","min":500,"max":8000},"churnMensual":{"valor":0.02,"label":"Baja mensual de cuentas","min":0,"max":0.15},"margenObjetivo":{"valor":0.75,"label":"Margen bruto objetivo","min":0.3,"max":0.95}},"modulos":[{"id":"diagnostico","nombre":"Diagnóstico del equipo","icon":"🩺","fase":0,"resumen":"Antes de prometer nada, la app dice qué puede hacer ESTE equipo y qué no.","problema":"El usuario baja una app de escaneo, la abre en un teléfono sin sensor y la app falla en silencio o entrega medidas malas. Se pierde la confianza en el primer minuto.","solucion":"Un diagnóstico que mide en caliente lo que se puede medir, infiere lo demás del catálogo de equipos y entrega un veredicto por módulo con el margen de error esperable y qué hacer para mejorarlo.","requiere":[],"requiereAlguna":[],"prefiere":[],"degradado":"Sin permisos de cámara solo puede informar del entorno; igual entrega el veredicto por módulo con lo inferido y lo marca como tal.","sinSoporte":"No aplica: es el único módulo que corre en cualquier parte, incluida la consola de escritorio.","salidas":["informe JSON","ficha compartible","QR para abrir en el equipo correcto"],"kimos":["escritorio","archivos"],"negocio":{"modelo":"incluido","precioMensualUSD":0,"costoVariableUSD":0,"valorClienteUSD":0,"adopcion":1,"esfuerzoSemanas":3},"riesgos":["Prometer de más por inferencia: por eso todo veredicto viaja con su fuente y su confianza."],"estrategico":true},{"id":"medir","nombre":"Medición en terreno","icon":"📏","fase":1,"resumen":"Distancias, superficies, alturas y ángulos con el teléfono, con el error real de cada medida a la vista.","problema":"Una visita a terreno para tomar medidas cuesta horas de traslado y se rehace cuando falta una cota. El flexómetro no deja registro y lo anotado a mano no es auditable.","solucion":"Medición apoyada en la profundidad del equipo, con foto anotada, autor, fecha y coordenadas. Cada medida guarda su banda de error, así el que la usa sabe si puede cortar material con ella.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof","depth.motion","api.arkit.scenedepth","api.arcore.depth","api.webxr.hittest"]],"prefiere":["depth.dtof","api.arkit.scenedepth","api.arcore.rawdepth"],"degradado":"Con profundidad por movimiento mide igual, pero el error sube al 5-10%: sirve para presupuestar, no para fabricar.","sinSoporte":"Queda como visor: abrir medidas de otros, comentarlas y exportarlas.","salidas":["foto acotada (PNG/PDF)","CSV de medidas","ficha a Pedidos"],"kimos":["pedidos","prospeccion","archivos","productlab"],"negocio":{"modelo":"por-usuario","precioMensualUSD":9,"costoVariableUSD":0.4,"valorClienteUSD":180,"adopcion":0.55,"esfuerzoSemanas":6},"riesgos":["Medida mal usada en fabricación: el error esperado tiene que ser imposible de ignorar en pantalla."]},{"id":"espacios","nombre":"Escaneo de espacios","icon":"🏠","fase":1,"resumen":"Una habitación en un minuto: plano 2D acotado, modelo 3D y superficies calculadas.","problema":"Levantar el plano de un local para una reforma, un arriendo o un seguro toma horas y termina en un dibujo que nadie puede verificar.","solucion":"Escaneo guiado que produce un plano paramétrico (muros, puertas, ventanas, mobiliario) exportable a DXF, IFC y USDZ/GLB, más superficie por recinto y volumen total.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof"],["api.arkit.roomplan","api.arkit.mesh","api.webxr.mesh","api.arcore.rawdepth"]],"prefiere":["api.arkit.roomplan","depth.dtof","compute.npu"],"degradado":"Sin RoomPlan se arma la malla y el plano se ajusta a mano sobre el escaneo: más lento, misma exportación.","sinSoporte":"Sin sensor de profundidad no se ofrece escaneo: se ofrece medir a mano el recinto y dibujar el plano asistido, y se avisa qué equipo del inventario sí puede.","salidas":["DXF","IFC","USDZ/GLB","PDF acotado","superficies por recinto"],"kimos":["archivos","gantt","pedidos","productlab"],"negocio":{"modelo":"por-usuario","precioMensualUSD":29,"costoVariableUSD":2.1,"valorClienteUSD":900,"adopcion":0.3,"esfuerzoSemanas":14},"riesgos":["Depende de una API de Apple que ha tenido regresiones por versión de iOS: hay que fijar versiones probadas y tener camino de malla propia."]},{"id":"objetos","nombre":"Escaneo de producto","icon":"📦","fase":1,"resumen":"Un producto real convertido en modelo 3D con textura, listo para el catálogo y para la vista AR de la tienda.","problema":"Publicar productos en 3D cuesta caro: modelar a mano una pieza son cientos de dólares y semanas, y sin 3D no hay vista AR ni configurador.","solucion":"Captura guiada del objeto con profundidad + fotos, malla limpia y publicación directa al catálogo de KIMOS con medidas reales, peso volumétrico y modelo AR.","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","depth.structured","depth.motion","api.arkit.objectcapture","api.arcore.depth"]],"prefiere":["api.arkit.objectcapture","depth.dtof","compute.npu"],"degradado":"Sin profundidad se captura por fotos y se reconstruye en servidor: más lento y con escala a confirmar, pero funciona en casi cualquier teléfono.","sinSoporte":"Sin cámara no hay captura; queda revisar y publicar modelos existentes.","salidas":["GLB","USDZ","ficha de producto con medidas","peso volumétrico"],"kimos":["productos","tienda","vitrina","productlab"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":69,"costoVariableUSD":8,"valorClienteUSD":520,"adopcion":0.45,"esfuerzoSemanas":12},"riesgos":["El costo de reconstrucción en nube es real: sin cuota por plan, el margen se lo come el procesamiento."],"estrategico":true},{"id":"vitrina-ar","nombre":"Pruébalo en tu espacio","icon":"🛋️","fase":2,"resumen":"El comprador coloca el producto a escala 1:1 en su propia casa, con oclusión real, desde la tienda de KIMOS.","problema":"La devolución por 'no me cabe' o 'no combina' se paga entera: logística inversa, producto tocado y el cliente perdido.","solucion":"Vista AR embebida en la ficha de producto, servida desde el mismo modelo que produjo el módulo de escaneo. En equipos con profundidad, el mueble virtual queda tapado por lo que está delante.","requiere":[],"requiereAlguna":[["api.webxr.ar","api.viewer.usdz","api.viewer.glb"]],"prefiere":["depth.dtof","api.webxr.depth","api.arcore.depth"],"degradado":"Sin profundidad se coloca sobre el plano detectado sin oclusión: convence menos, pero funciona en casi todo el parque.","sinSoporte":"Se muestra el modelo en 3D girable, sin cámara. Sigue siendo mejor que una foto.","salidas":["enlace AR","código QR por producto","métrica de interacción"],"kimos":["tienda","vitrina","productos","productlab"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":149,"costoVariableUSD":4,"valorClienteUSD":1400,"adopcion":0.25,"esfuerzoSemanas":8},"riesgos":["El beneficio depende de tener catálogo 3D: sin el módulo de producto, esto no se vende solo."],"estrategico":true},{"id":"volumen","nombre":"Volumen y carga","icon":"🚚","fase":2,"resumen":"Bultos, pallets y espacio de carga medidos apuntando el teléfono, con peso volumétrico calculado.","problema":"El cubicaje manual es lento y se factura mal: el transportista cobra por volumen y la diferencia sale del margen del que despacha.","solucion":"Medición de la caja o el pallet con profundidad, cálculo de peso volumétrico por tarifa de transportista y armado de carga sobre el espacio real del camión.","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","api.arcore.rawdepth","depth.motion"]],"prefiere":["depth.dtof","api.arcore.rawdepth"],"degradado":"Con profundidad por movimiento el error de volumen ronda el 10%: sirve para planificar, no para facturar.","sinSoporte":"Entrada manual de medidas con la misma calculadora de peso volumétrico.","salidas":["ficha de bulto","peso volumétrico por tarifa","plan de carga"],"kimos":["pedidos","productos","integraciones"],"negocio":{"modelo":"por-usuario","precioMensualUSD":14,"costoVariableUSD":0.6,"valorClienteUSD":380,"adopcion":0.2,"esfuerzoSemanas":7},"riesgos":["Facturar por estas medidas exige certificación legal para comercio (NTEP y equivalentes). Sin ella, el uso es interno y así hay que decirlo en la app."]},{"id":"obra","nombre":"Avance de obra e inspección","icon":"🏗️","fase":2,"resumen":"El mismo espacio escaneado en el tiempo: qué cambió entre visitas, con evidencia fechada.","problema":"El avance de obra se discute con fotos y palabras. Cuando aparece la diferencia, no hay registro que la resuelva.","solucion":"Escaneos sucesivos alineados sobre el mismo origen, comparación volumétrica entre fechas, marcado de observaciones ancladas al punto físico y reporte firmado.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof"],["api.arkit.mesh","api.arcore.rawdepth","api.webxr.mesh"]],"prefiere":["depth.dtof","sensor.gnss","api.arcore.geospatial"],"degradado":"Sin alineación automática, la comparación se ancla a un marcador impreso puesto en obra.","sinSoporte":"Solo lectura de reportes y observaciones.","salidas":["comparativa por fecha","reporte PDF firmado","observaciones ancladas"],"kimos":["gantt","kanban","archivos","equipos"],"negocio":{"modelo":"por-proyecto","precioMensualUSD":249,"costoVariableUSD":12,"valorClienteUSD":2100,"adopcion":0.12,"esfuerzoSemanas":16},"riesgos":["Alinear dos escaneos del mismo espacio con precisión es el problema técnico más difícil del plan; sin marcador de referencia el error se acumula."]},{"id":"gemelo","nombre":"Gemelo digital de activos","icon":"🧭","fase":3,"resumen":"Equipos y puntos de mantenimiento anclados a su lugar físico: apuntas el teléfono y aparece su ficha.","problema":"La ficha del activo vive en una planilla y el activo vive en un pasillo. Quien va a mantenerlo no encuentra ni el equipo ni su historial.","solucion":"Anclas persistentes en el espacio escaneado, ligadas al activo en KIMOS. El técnico apunta, ve el historial, deja la observación en el punto exacto.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["api.webxr.anchors","api.arcore.geospatial","api.arkit.mesh"]],"prefiere":["depth.dtof","api.arcore.geospatial","sensor.gnss"],"degradado":"Anclas por código QR pegado en el activo: menos elegante, funciona en todas partes y no se pierde.","sinSoporte":"Ficha del activo por búsqueda, sin ubicación.","salidas":["mapa de activos","historial por punto","ruta de mantenimiento"],"kimos":["archivos","kanban","integraciones","equipos"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":199,"costoVariableUSD":9,"valorClienteUSD":1800,"adopcion":0.08,"esfuerzoSemanas":18},"riesgos":["La persistencia de anclas entre sesiones y equipos distintos es frágil: el QR de respaldo no es opcional."]},{"id":"terreno","nombre":"Terreno y nubes públicas","icon":"🛰️","fase":3,"resumen":"Importar LiDAR aéreo público (USGS, IGN, OpenTopography) y cruzarlo con lo capturado a mano.","problema":"Los datos de elevación existen y son gratis, pero llegan en formatos que nadie abre en una reunión y no se cruzan con lo medido en terreno.","solucion":"Visor de nubes de puntos y modelos de elevación en el navegador, recorte por zona, perfiles de terreno, y superposición del escaneo de mano sobre el modelo público georreferenciado.","requiere":["runtime.web"],"requiereAlguna":[["compute.webgpu","compute.wasm.simd"]],"prefiere":["compute.webgpu","io.filesystem","sensor.gnss"],"degradado":"Sin WebGPU se recorta la nube en servidor y se muestra un mosaico ligero.","sinSoporte":"Descarga directa del recorte para abrirlo en un escritorio SIG.","salidas":["LAS/LAZ recortado","perfil de terreno","curvas de nivel","vista 3D compartible"],"kimos":["archivos","panel-html","gantt"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":99,"costoVariableUSD":12,"valorClienteUSD":700,"adopcion":0.06,"esfuerzoSemanas":10},"riesgos":["El costo de servir nubes grandes es el que manda: sin recorte y teselado, la factura de nube se dispara."]},{"id":"cuerpo","nombre":"Medidas corporales y postura","icon":"🧍","fase":3,"resumen":"Tallas, ergonomía y seguimiento de postura a partir del cuerpo capturado en 3D.","problema":"La talla equivocada es la primera causa de devolución en ropa, y evaluar postura en un puesto de trabajo requiere equipo caro o el ojo de alguien.","solucion":"Captura del cuerpo con profundidad, medidas antropométricas repetibles y comparación entre sesiones, con consentimiento explícito y borrado a demanda.","requiere":["media.camera"],"requiereAlguna":[["depth.structured","api.arkit.body","depth.dtof"]],"prefiere":["depth.structured","api.arkit.body","compute.npu"],"degradado":"Sin profundidad, estimación por pose 2D: sirve para tendencia, no para talla.","sinSoporte":"Ficha manual de medidas.","salidas":["medidas antropométricas","evolución por sesión","recomendación de talla"],"kimos":["productos","tienda","clientes"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":129,"costoVariableUSD":6,"valorClienteUSD":900,"adopcion":0.05,"esfuerzoSemanas":14},"riesgos":["Dato biométrico: consentimiento, minimización, borrado y ninguna promesa clínica. Si el cliente lo quiere para diagnóstico, cambia el marco regulatorio completo y esto ya no aplica."]},{"id":"accesibilidad","nombre":"Asistente de entorno","icon":"🦯","fase":3,"resumen":"Detección de obstáculos, puertas y desniveles con aviso por voz y vibración.","problema":"Los espacios que una empresa opera no son igual de transitables para todo el mundo, y la normativa de accesibilidad se audita a mano.","solucion":"Dos usos sobre el mismo motor: asistencia en vivo para la persona que recorre, y auditoría de accesibilidad del local escaneado (anchos de paso, altura de mesones, desniveles).","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","api.arcore.semantics","api.arcore.depth"]],"prefiere":["depth.dtof","api.arcore.semantics","compute.npu"],"degradado":"Sin semántica, avisa por distancia y desnivel, sin nombrar el obstáculo.","sinSoporte":"Auditoría a partir de un escaneo hecho en otro equipo.","salidas":["informe de accesibilidad","avisos en vivo","puntos críticos"],"kimos":["archivos","kanban"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":59,"costoVariableUSD":3,"valorClienteUSD":400,"adopcion":0.04,"esfuerzoSemanas":12},"riesgos":["Asistencia en vivo a una persona con discapacidad visual: un falso negativo es un daño físico. O se hace con estándar de seguridad y batería, o se deja en auditoría."]}]},"licencias":{"version":"1.0.0","actualizado":"2026-08-25","principio":"Ninguna biblioteca entra al producto sin licencia compatible con software propietario distribuido, sin dependencia con ejecución en instalación y sin dueño desconocido. Ante la duda, no entra: casi siempre hay una alternativa permisiva.","politica":{"permitidas":[{"id":"MIT","nota":"Permisiva. Sin concesión explícita de patentes."},{"id":"Apache-2.0","nota":"Permisiva CON concesión de patentes: la preferida cuando existe la opción."},{"id":"BSD-2-Clause","nota":"Permisiva."},{"id":"BSD-3-Clause","nota":"Permisiva; prohíbe usar el nombre del autor para promocionar."},{"id":"ISC","nota":"Equivalente a MIT."},{"id":"Zlib","nota":"Permisiva."},{"id":"Unlicense","nota":"Dominio público."},{"id":"CC0-1.0","nota":"Dominio público; válida para datos y assets, no ideal para código."},{"id":"BSL-1.0","nota":"Boost: permisiva, sin obligación de aviso en binarios."}],"condicionales":[{"id":"MPL-2.0","condicion":"Copyleft por archivo. Se puede usar SIN modificar y manteniendo los archivos separados; si se modifica el archivo, ese archivo se publica. Requiere revisión antes de entrar."},{"id":"LGPL-2.1","condicion":"Exige enlace dinámico y permitir reemplazo de la biblioteca. En un bundle de JavaScript eso casi nunca se cumple: en web, tratar como prohibida."},{"id":"LGPL-3.0","condicion":"Igual que LGPL-2.1 más cláusula antitivoización. En apps móviles firmadas es un problema real."},{"id":"EPL-2.0","condicion":"Copyleft débil por archivo; revisión legal antes de usar."},{"id":"CC-BY-4.0","condicion":"Válida para datos y assets con atribución visible. No para código."}],"prohibidas":[{"id":"GPL-2.0","razon":"Obliga a publicar el código del producto que la enlaza."},{"id":"GPL-3.0","razon":"Igual, más cláusulas de patentes y antitivoización."},{"id":"AGPL-3.0","razon":"Extiende la obligación al servicio en red: contamina el backend de KIMOS."},{"id":"SSPL-1.0","razon":"No es open source aprobada y su alcance sobre servicios es inaceptable para un SaaS."},{"id":"BUSL-1.1","razon":"Fuente disponible con restricción de uso comercial por N años."},{"id":"Commons-Clause","razon":"Prohíbe vender el software: incompatible con un producto de pago."},{"id":"CC-BY-NC","razon":"No comercial. KIMOS es comercial."},{"id":"Elastic-2.0","razon":"Restringe ofrecer el software como servicio gestionado."},{"id":"Investigacion-No-Comercial","razon":"Licencias académicas tipo 'solo investigación' (Inria, NVIDIA Source): explícitamente fuera de uso comercial."},{"id":"Sin-licencia","razon":"Sin licencia no hay permiso: el código con LICENSE ausente es, por defecto, todos los derechos reservados."}]},"reglasCadenaSuministro":["Cero dependencias en el núcleo y en los bundles que se distribuyen: lo que no se instala, no se puede comprometer.","Versión fijada (sin ^ ni ~) y archivo de bloqueo commiteado para cualquier dependencia de desarrollo.","Instalación con scripts deshabilitados (`npm ci --ignore-scripts`): la ejecución de código en instalación es el vector más usado.","Nada de CDN en tiempo de ejecución: todo recurso se sirve desde el propio origen. Además de seguridad, evita fugas de datos del usuario a terceros.","SBOM (CycloneDX) generado en cada publicación y guardado junto al artefacto.","Una dependencia nueva se aprueba mirando cuatro cosas: licencia, número de mantenedores, actividad del último año y árbol de dependencias transitivas.","Los pesos de modelos de IA se auditan aparte del código: es habitual que el código sea Apache-2.0 y los pesos no comerciales."],"bibliotecas":[{"nombre":"three.js","uso":"Visor 3D en la web","licencia":"MIT","veredicto":"usar","nota":"Estándar de facto, sin dependencias pesadas."},{"nombre":"@google/model-viewer","uso":"Ficha de producto en 3D/AR (Quick Look y Scene Viewer)","licencia":"Apache-2.0","veredicto":"usar","nota":"Resuelve el AR de catálogo en una etiqueta HTML. Servirlo desde el propio origen, no desde CDN."},{"nombre":"Draco","uso":"Compresión de mallas","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"meshoptimizer","uso":"Simplificación y optimización de mallas","licencia":"MIT","veredicto":"usar"},{"nombre":"glTF-Transform","uso":"Pipeline de glTF/GLB","licencia":"MIT","veredicto":"usar"},{"nombre":"KTX2 / Basis Universal","uso":"Texturas comprimidas","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"Potree","uso":"Visor de nubes de puntos masivas","licencia":"BSD-2-Clause","veredicto":"usar"},{"nombre":"CesiumJS","uso":"Terreno y 3D Tiles","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"loaders.gl / deck.gl","uso":"Lectura de LAS/LAZ y capas de datos","licencia":"MIT","veredicto":"usar"},{"nombre":"PDAL","uso":"Proceso de nubes de puntos en servidor","licencia":"BSD-3-Clause","veredicto":"usar"},{"nombre":"Open3D","uso":"Registro y mallado en servidor","licencia":"MIT","veredicto":"usar"},{"nombre":"PCL","uso":"Algoritmos clásicos de nubes de puntos","licencia":"BSD-3-Clause","veredicto":"usar"},{"nombre":"OpenCV","uso":"Visión por computador","licencia":"Apache-2.0","veredicto":"usar","nota":"Apache-2.0 desde la 4.5; versiones anteriores eran BSD-3. Fijar versión."},{"nombre":"ONNX Runtime","uso":"Inferencia en el dispositivo","licencia":"MIT","veredicto":"usar"},{"nombre":"MediaPipe / TensorFlow Lite","uso":"Pose y segmentación en el dispositivo","licencia":"Apache-2.0","veredicto":"usar","nota":"El código sí; cada modelo preentrenado trae su propia licencia y se revisa por separado."},{"nombre":"laz-perf","uso":"Lectura de LAZ en el navegador","licencia":"Apache-2.0","veredicto":"condicional","nota":"Confirmar el LICENSE de la versión fijada: el ecosistema LASzip mezcla LGPL en algunas piezas."},{"nombre":"Entwine","uso":"Teselado de nubes de puntos","licencia":"LGPL-2.1","veredicto":"condicional","nota":"Solo como herramienta de servidor ejecutada como proceso aparte, nunca enlazada al producto."},{"nombre":"FFmpeg","uso":"Vídeo de la captura","licencia":"LGPL-2.1 (o GPL según compilación)","veredicto":"condicional","nota":"Compilar sin componentes GPL y ejecutarlo como binario separado. Revisar además patentes de códecs."},{"nombre":"COLMAP","uso":"Fotogrametría (structure from motion)","licencia":"BSD-3-Clause","veredicto":"condicional","nota":"Revisar componentes opcionales de terceros antes de empaquetar."},{"nombre":"OpenMVG","uso":"Fotogrametría","licencia":"MPL-2.0","veredicto":"condicional","nota":"Copyleft por archivo: usar sin modificar."},{"nombre":"AliceVision / Meshroom","uso":"Fotogrametría completa","licencia":"MPL-2.0 + terceros","veredicto":"condicional","nota":"El árbol incluye piezas con otras licencias; auditar antes de distribuir."},{"nombre":"Unity","uso":"Motor para AR avanzada","licencia":"Comercial (EULA)","veredicto":"condicional","nota":"Decisión de costo y de dependencia de proveedor, no de licencia libre. Evitable con ARKit/ARCore nativos y three.js en web."},{"nombre":"Unreal Engine","uso":"Motor para AR avanzada","licencia":"EULA con regalías","veredicto":"condicional","nota":"Regalías sobre ingresos del producto que lo incorpore."},{"nombre":"OpenMVS","uso":"Reconstrucción densa","licencia":"AGPL-3.0","veredicto":"prohibida","nota":"Contamina el servicio en red. Alternativa: Open3D + PDAL."},{"nombre":"CGAL","uso":"Geometría computacional","licencia":"GPL-3.0 / comercial","veredicto":"prohibida","nota":"Solo con licencia comercial pagada. Alternativa: Open3D, libigl (MPL-2.0)."},{"nombre":"3D Gaussian Splatting (implementación original Inria/MPII)","uso":"Renderizado neuronal","licencia":"Investigación no comercial","veredicto":"prohibida","nota":"Alternativa comercialmente utilizable: gsplat (Apache-2.0), verificando también los pesos."},{"nombre":"instant-ngp (NVIDIA)","uso":"NeRF rápido","licencia":"NVIDIA Source Code License (no comercial)","veredicto":"prohibida"},{"nombre":"SDK de Polycam / Matterport","uso":"Escaneo de terceros","licencia":"Comercial","veredicto":"condicional","nota":"Depender del SDK de un competidor directo es riesgo de negocio antes que legal."}],"datos":[{"fuente":"USGS 3DEP / Earth Explorer","licencia":"Dominio público (obra del gobierno de EE. UU.)","veredicto":"usar","nota":"Citar la fuente por buena práctica."},{"fuente":"NOAA Digital Coast","licencia":"Dominio público","veredicto":"usar"},{"fuente":"OpenTopography","licencia":"Varía por conjunto de datos","veredicto":"condicional","nota":"Cada dataset trae su cita y su licencia: se guarda junto al archivo importado."},{"fuente":"IGN España — Centro de Descargas","licencia":"CC-BY 4.0","veredicto":"usar","nota":"Atribución obligatoria y visible en el visor y en los PDF exportados."},{"fuente":"Copernicus / EU-DEM","licencia":"Licencia Copernicus","veredicto":"usar","nota":"Atribución obligatoria."},{"fuente":"OpenStreetMap","licencia":"ODbL","veredicto":"condicional","nota":"TRAMPA CLÁSICA: es share-alike sobre bases de datos derivadas. Se puede usar como mapa base, pero mezclarlo con los datos del cliente puede obligar a publicar el resultado. Preferir un mapa base con licencia permisiva para datos de clientes."}],"otrosRiesgos":[{"tema":"Imágenes de personas en las capturas","riesgo":"Una captura de un local incluye caras y matrículas: es dato personal.","medida":"Difuminado automático antes de subir, retención configurable y borrado a demanda."},{"tema":"Datos biométricos (módulo de cuerpo)","riesgo":"Categoría especial en RGPD y equivalentes; consentimiento explícito y finalidad acotada.","medida":"Consentimiento por sesión, proceso en el dispositivo cuando se pueda, y ninguna afirmación clínica."},{"tema":"Medidas usadas para facturar","riesgo":"Cobrar por volumen medido exige certificación metrológica legal (NTEP y equivalentes nacionales).","medida":"La app marca las medidas como referenciales y no las ofrece para facturación mientras no exista certificación."},{"tema":"Términos de las plataformas","riesgo":"ARKit, ARCore, App Store y Play imponen reglas sobre uso de cámara y datos de profundidad.","medida":"Declarar finalidad en la ficha de la tienda y en los permisos; nada de recolección secundaria."},{"tema":"Marcas de terceros","riesgo":"Nombrar equipos y competidores en la app.","medida":"Uso nominativo y descriptivo (lista de compatibilidad), sin logotipos ni sugerencia de respaldo."}]},"matriz":[{"equipo":"apple.iphone.pro.12-17","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":8,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","espacios":"potencial","objetos":"potencial","obra":"potencial","gemelo":"potencial","cuerpo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":9,"degradados":1,"potenciales":0,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","cuerpo":"completo","medir":"completo","obra":"completo","gemelo":"completo","accesibilidad":"completo","volumen":"completo","vitrina-ar":"degradado","terreno":"visor"}}},{"equipo":"apple.ipadpro.2020+","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":8,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","espacios":"potencial","objetos":"potencial","cuerpo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial","obra":"potencial","gemelo":"potencial"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":7,"degradados":3,"potenciales":0,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","cuerpo":"completo","medir":"completo","accesibilidad":"completo","volumen":"completo","vitrina-ar":"degradado","obra":"degradado","gemelo":"degradado","terreno":"visor"}}},{"equipo":"apple.iphone.estandar","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":3,"visor":5,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","objetos":"potencial","cuerpo":"potencial","medir":"potencial","espacios":"visor","obra":"visor","gemelo":"visor","accesibilidad":"visor","volumen":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.structured","sensorLabel":"Luz estructurada frontal","errorA3m":0.015,"resumen":{"completos":2,"degradados":3,"potenciales":0,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","cuerpo":"completo","medir":"degradado","objetos":"degradado","vitrina-ar":"degradado","espacios":"visor","obra":"visor","gemelo":"visor","terreno":"visor","accesibilidad":"visor","volumen":"visor"}}},{"equipo":"apple.visionpro","web":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":7,"degradados":4,"potenciales":0,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","vitrina-ar":"completo","cuerpo":"completo","accesibilidad":"completo","volumen":"completo","medir":"degradado","obra":"degradado","gemelo":"degradado","terreno":"degradado"}},"nativo":null},{"equipo":"meta.quest3","web":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":3,"degradados":8,"potenciales":0,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"completo","volumen":"completo","medir":"degradado","espacios":"degradado","objetos":"degradado","obra":"degradado","gemelo":"degradado","terreno":"degradado","accesibilidad":"degradado","cuerpo":"degradado"}},"nativo":null},{"equipo":"android.xr.visores","web":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.stereo","sensorLabel":"Estéreo multicámara","errorA3m":0.12,"resumen":{"completos":1,"degradados":4,"potenciales":0,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"degradado","gemelo":"degradado","espacios":"visor","objetos":"visor","volumen":"visor","obra":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"samsung.tof.2019-2020","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":7,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"potencial","gemelo":"potencial","medir":"potencial","espacios":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":4,"degradados":5,"potenciales":0,"visor":2,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","obra":"completo","gemelo":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","accesibilidad":"degradado","espacios":"degradado","objetos":"degradado","terreno":"visor","cuerpo":"visor"}}},{"equipo":"samsung.flagship.reciente","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":5,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","objetos":"potencial","gemelo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial","espacios":"visor","obra":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.stereo","sensorLabel":"Estéreo multicámara","errorA3m":0.12,"resumen":{"completos":4,"degradados":3,"potenciales":0,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","gemelo":"completo","accesibilidad":"completo","volumen":"completo","medir":"degradado","objetos":"degradado","vitrina-ar":"degradado","obra":"visor","espacios":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"huawei.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":4,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","obra":"visor","gemelo":"visor","espacios":"visor","cuerpo":"visor"}},"nativo":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":0,"potenciales":4,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","obra":"visor","gemelo":"visor","terreno":"visor","espacios":"visor","vitrina-ar":"visor","cuerpo":"visor"}}},{"equipo":"sony.xperia1.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":6,"visor":2,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"potencial","medir":"potencial","espacios":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","gemelo":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":2,"degradados":6,"potenciales":0,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","obra":"degradado","espacios":"degradado","objetos":"degradado","accesibilidad":"degradado","gemelo":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"honor.lg.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":4,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","espacios":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":1,"degradados":5,"potenciales":0,"visor":5,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","medir":"degradado","objetos":"degradado","volumen":"degradado","accesibilidad":"degradado","espacios":"visor","obra":"visor","gemelo":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"android.arcore.generico","web":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.motion","sensorLabel":"Profundidad por movimiento","errorA3m":0.21000000000000002,"resumen":{"completos":1,"degradados":5,"potenciales":2,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"degradado","objetos":"degradado","volumen":"degradado","gemelo":"potencial","accesibilidad":"potencial","obra":"visor","espacios":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.motion","sensorLabel":"Profundidad por movimiento","errorA3m":0.21000000000000002,"resumen":{"completos":3,"degradados":4,"potenciales":0,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","gemelo":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","accesibilidad":"degradado","objetos":"degradado","obra":"visor","terreno":"visor","espacios":"visor","cuerpo":"visor"}}},{"equipo":"android.sinarcore","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":0,"visor":8,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"visor","gemelo":"visor","medir":"visor","espacios":"visor","objetos":"visor","volumen":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":0,"potenciales":0,"visor":10,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","obra":"visor","gemelo":"visor","terreno":"visor","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","cuerpo":"visor","accesibilidad":"visor"}}},{"equipo":"pc.escritorio","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":2,"degradados":0,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"completo","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"pc.sensor3d","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":2,"degradados":0,"potenciales":3,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"completo","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","medir":"visor","espacios":"visor","vitrina-ar":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor"}},"nativo":null},{"equipo":"tv.totem","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"reloj.wearable","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"campo.dron.escaner","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null}]};
+const DATOS = {"generado":"2026-08-25T21:53:22.355Z","nucleo":"1.1.0","origen":"kimos-LiDARia","devices":{"version":"1.0.0","actualizado":"2026-08-25","nota":"Catálogo de equipos. `caps` son capacidades de HARDWARE del equipo: cuáles quedan activas depende también del entorno (navegador vs app nativa), y eso lo resuelve resolve.js. `confianza` marca lo verificado frente a lo que hay que confirmar antes de prometerlo a un cliente.","clases":[{"id":"movil","label":"Teléfono","icon":"📱"},{"id":"tablet","label":"Tablet","icon":"🧾"},{"id":"visor","label":"Visor de realidad mixta","icon":"🥽"},{"id":"pc","label":"Computador","icon":"🖥️"},{"id":"tv","label":"Smart TV / tótem","icon":"📺"},{"id":"reloj","label":"Reloj / wearable","icon":"⌚"},{"id":"campo","label":"Equipo de campo (dron, escáner, robot)","icon":"🛰️"}],"equipos":[{"id":"apple.iphone.pro.12-17","marca":"Apple","nombre":"iPhone 12 Pro → 17 Pro (y Pro Max)","clase":"movil","plataforma":"ios","anios":[2020,2025],"confianza":"verificado","modelos":["iPhone13,3","iPhone13,4","iPhone14,2","iPhone14,3","iPhone15,2","iPhone15,3","iPhone16,1","iPhone16,2","iPhone17,1","iPhone17,2","iPhone18,1","iPhone18,2"],"caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.arkit.roomplan","api.arkit.objectcapture","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"El equipo de referencia del proyecto: LiDAR trasero, TrueDepth frontal y toda la pila ARKit. Toda gama Pro desde 2020; ningún iPhone estándar, Plus, Air, mini o SE lo lleva."},{"id":"apple.ipadpro.2020+","marca":"Apple","nombre":"iPad Pro 11\" (2ª gen) y 12.9\" (4ª gen) en adelante, incl. M4/M5","clase":"tablet","plataforma":"ios","anios":[2020,2025],"confianza":"verificado","modelos":["iPad8,9","iPad8,10","iPad8,11","iPad8,12","iPad13,4","iPad13,5","iPad13,6","iPad13,7","iPad13,8","iPad13,9","iPad13,10","iPad13,11","iPad14,3","iPad14,4","iPad14,5","iPad14,6","iPad16,3","iPad16,4","iPad16,5","iPad16,6"],"caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.arkit.roomplan","api.arkit.objectcapture","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","compute.npu"],"nota":"Mismo stack que el iPhone Pro con más pantalla: es el equipo cómodo para escanear una vivienda completa y revisar el plano en el sitio. Ni iPad, ni iPad Air, ni iPad mini llevan LiDAR."},{"id":"apple.iphone.estandar","marca":"Apple","nombre":"iPhone X → 17 (estándar, Plus, Air, mini, SE 2ª/3ª gen)","clase":"movil","plataforma":"ios","anios":[2017,2025],"confianza":"verificado","modelos":[],"caps":["depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.body","api.viewer.usdz","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"Sin LiDAR: mide por movimiento y estéreo, y tiene TrueDepth frontal. Vale para AR, previsualización, fotogrametría y volumen aproximado; no para acotar un plano.","excepciones":{"depth.structured":"Solo modelos con Face ID (no el SE con Touch ID)."}},{"id":"apple.visionpro","marca":"Apple","nombre":"Apple Vision Pro","clase":"visor","plataforma":"visionos","anios":[2024,2026],"confianza":"verificado","caps":["depth.dtof","depth.structured","depth.stereo","api.arkit.scenedepth","api.arkit.mesh","api.viewer.usdz","api.webxr.ar","api.webxr.mesh","media.camera","sensor.imu","compute.npu","runtime.headset"],"nota":"LiDAR + estéreo + seguimiento de manos y mirada, y WebXR habilitado en Safari de visionOS 2: el único equipo donde la app corre inmersiva sin instalar nada."},{"id":"meta.quest3","marca":"Meta","nombre":"Meta Quest 3 / 3S","clase":"visor","plataforma":"android-xr","anios":[2023,2025],"confianza":"verificado","caps":["depth.dtof","depth.stereo","api.webxr.ar","api.webxr.depth","api.webxr.hittest","api.webxr.anchors","api.webxr.mesh","media.camera","sensor.imu","compute.webgpu","runtime.headset"],"nota":"Sensor de profundidad + passthrough a color y navegador con WebXR completo: es la plataforma donde la vía web llega más lejos sin app nativa."},{"id":"android.xr.visores","marca":"Android XR","nombre":"Visores Android XR (Galaxy XR y compatibles)","clase":"visor","plataforma":"android-xr","anios":[2025,2026],"confianza":"por-confirmar","caps":["depth.stereo","api.webxr.ar","api.webxr.depth","api.webxr.hittest","api.webxr.anchors","api.webxr.mesh","media.camera","sensor.imu","compute.webgpu","runtime.headset"],"nota":"Chrome de Android XR expone profundidad estereoscópica (dos mapas en vivo, uno por ojo). Confirmar módulo a módulo en el equipo concreto antes de comprometer funciones."},{"id":"samsung.tof.2019-2020","marca":"Samsung","nombre":"Galaxy S10 5G · Note10+ · S20+ · S20 Ultra","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"verificado","modelos":["SM-G977","SM-N975","SM-N976","SM-G986","SM-G988"],"caps":["depth.itof","depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"La generación Android con ToF trasero real. Samsung lo retiró desde la serie S21: los buques insignia posteriores traen autofoco láser, que no es un sensor de profundidad utilizable."},{"id":"samsung.flagship.reciente","marca":"Samsung","nombre":"Galaxy S21 → S25 (incl. Ultra) y Z Fold/Flip","clase":"movil","plataforma":"android","anios":[2021,2025],"confianza":"verificado","modelos":["SM-S91","SM-S92","SM-S93","SM-S94","SM-F94","SM-F95","SM-S921","SM-S926","SM-S928","SM-S931","SM-S936","SM-S938"],"caps":["depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss","compute.npu"],"nota":"Sin ToF dedicado: profundidad por movimiento vía ARCore, buena para AR, oclusión y volumen aproximado. Hay indicios de un módulo ToF en el S25 Ultra que NO damos por bueno hasta medirlo en un equipo real."},{"id":"huawei.tof","marca":"Huawei","nombre":"P30 Pro · Mate 30 Pro · P40 Pro · Mate 40 Pro","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"verificado","caps":["depth.itof","depth.stereo","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"ToF trasero real, pero sin Servicios de Google en los modelos posteriores a 2019: ARCore no está disponible y hay que ir por HMS/AR Engine. Fuera del alcance de la fase 1."},{"id":"sony.xperia1.tof","marca":"Sony","nombre":"Xperia 1 II → 1 V","clase":"movil","plataforma":"android","anios":[2020,2023],"confianza":"por-confirmar","caps":["depth.itof","depth.stereo","depth.motion","api.arcore.depth","api.arcore.rawdepth","api.viewer.glb","media.camera","media.multicam","sensor.imu","sensor.gnss"],"nota":"Sensor 3D iToF trasero en la línea Xperia 1. Confirmar por modelo: Sony lo fue moviendo entre generaciones."},{"id":"honor.lg.tof","marca":"Honor / LG","nombre":"Honor View 20 · LG G8 ThinQ · LG V60","clase":"movil","plataforma":"android","anios":[2019,2020],"confianza":"por-confirmar","caps":["depth.itof","depth.motion","api.arcore.depth","api.viewer.glb","media.camera","sensor.imu"],"nota":"ToF de la primera oleada Android (en LG, frontal). Equipos fuera de soporte: solo interesan si el cliente ya los tiene en el bolsillo."},{"id":"android.arcore.generico","marca":"Android","nombre":"Android con ARCore (parque general)","clase":"movil","plataforma":"android","anios":[2018,2026],"confianza":"verificado","caps":["depth.motion","api.arcore.depth","api.arcore.rawdepth","api.arcore.semantics","api.arcore.geospatial","api.viewer.glb","api.webxr.ar","api.webxr.depth","api.webxr.hittest","media.camera","sensor.imu","sensor.gnss"],"nota":"El caso más numeroso: sin sensor de profundidad, pero con Depth API por movimiento. Google reporta más del 88% de los equipos activos con Depth API en mayo de 2026. Es el suelo sobre el que hay que diseñar la degradación."},{"id":"android.sinarcore","marca":"Android","nombre":"Android sin ARCore (gama de entrada)","clase":"movil","plataforma":"android","anios":[2016,2026],"confianza":"verificado","caps":["media.camera","sensor.imu","sensor.gnss"],"nota":"Cámara y poco más. Sirve para fotogrametría por fotos subidas a la nube y para consumir resultados, no para capturar en vivo."},{"id":"pc.escritorio","marca":"PC / Mac","nombre":"Computador de escritorio o portátil","clase":"pc","plataforma":"desktop","anios":[2015,2026],"confianza":"verificado","caps":["media.camera","compute.webgpu","compute.wasm.simd","io.filesystem","runtime.web"],"nota":"Cero captura de profundidad, pero es donde se revisa, mide sobre el modelo, se corrige el plano y se exporta. La consola de KIMOS vive aquí."},{"id":"pc.sensor3d","marca":"PC + sensor 3D","nombre":"Computador con cámara de profundidad (RealSense, Femto, Kinect Azure)","clase":"pc","plataforma":"desktop","anios":[2015,2026],"confianza":"por-confirmar","caps":["depth.itof","depth.stereo","media.camera","compute.webgpu","compute.wasm.simd","io.filesystem"],"nota":"Puesto fijo de escaneo (mostrador, línea de empaque). Requiere agente local: el navegador no habla con estos sensores. Fase 3."},{"id":"tv.totem","marca":"Smart TV / tótem","nombre":"Televisor, pantalla de sala o tótem","clase":"tv","plataforma":"tv","anios":[2018,2026],"confianza":"verificado","caps":["runtime.web"],"nota":"Rol honesto: mostrar. Vitrina 3D en sala de ventas, plano en obra, avance de proyecto. No captura ni mide."},{"id":"reloj.wearable","marca":"Apple Watch / Wear OS","nombre":"Reloj inteligente","clase":"reloj","plataforma":"wearable","anios":[2018,2026],"confianza":"verificado","caps":["sensor.imu"],"nota":"Sin cámara ni profundidad. Rol real: mando a distancia de la captura (disparar, marcar punto, avisar de que el escaneo terminó) sin soltar la herramienta. Fase 3."},{"id":"campo.dron.escaner","marca":"Equipos de campo","nombre":"Dron con LiDAR, escáner terrestre, robot con LDS","clase":"campo","plataforma":"externo","anios":[2018,2026],"confianza":"verificado","caps":["io.filesystem"],"nota":"No corren la app: entregan archivos (LAS/LAZ, E57, PLY). El punto de contacto es la importación y el cruce con la captura de mano."}],"identificacion":{"ios":{"problema":"Safari no expone el modelo del iPhone. El navegador solo sabe que es 'iPhone', así que NO se puede afirmar si hay LiDAR desde la web.","estrategia":"Se ofrecen candidatos por tamaño de ventana y GPU, y se pide confirmar el modelo una sola vez (queda guardado). La app nativa lo resuelve exacto por identificador de hardware.","pistas":[{"equipo":"apple.iphone.pro.12-17","css":[[390,844],[393,852],[402,874],[428,926],[430,932],[440,956]],"dpr":[3]},{"equipo":"apple.ipadpro.2020+","css":[[834,1194],[1024,1366],[1032,1376],[834,1210]],"dpr":[2]}]},"android":{"problema":"El modelo llega por User-Agent Client Hints de alta entropía y requiere HTTPS y permiso implícito del navegador.","estrategia":"navigator.userAgentData.getHighEntropyValues(['model','platformVersion']) y prefijo contra `modelos`. Si no hay coincidencia, se usa el perfil genérico y se mide en caliente."}}},"modules":{"version":"1.0.0","actualizado":"2026-08-25","nota":"Catálogo de módulos de kimos-LiDARia. `requiere` es duro; `requiereAlguna` son grupos donde basta una capacidad; `prefiere` sube el grado sin ser obligatorio. Los números de negocio son SUPUESTOS declarados y editables, no resultados medidos: están para ordenar prioridades, no para presentarlos como hechos. `estrategico: true` marca los módulos cuyo valor no se ve entero en su propio P&L porque habilitan la venta de otros (catálogo 3D → Tienda y Vitrina).","supuestos":{"clientesKimos":{"valor":120,"label":"Cuentas KIMOS activas en el horizonte del plan","min":10,"max":5000},"costoSemanaUSD":{"valor":2200,"label":"Costo de una semana-persona de desarrollo (USD)","min":500,"max":8000},"churnMensual":{"valor":0.02,"label":"Baja mensual de cuentas","min":0,"max":0.15},"margenObjetivo":{"valor":0.75,"label":"Margen bruto objetivo","min":0.3,"max":0.95}},"modulos":[{"id":"diagnostico","nombre":"Diagnóstico del equipo","icon":"🩺","fase":0,"resumen":"Antes de prometer nada, la app dice qué puede hacer ESTE equipo y qué no.","problema":"El usuario baja una app de escaneo, la abre en un teléfono sin sensor y la app falla en silencio o entrega medidas malas. Se pierde la confianza en el primer minuto.","solucion":"Un diagnóstico que mide en caliente lo que se puede medir, infiere lo demás del catálogo de equipos y entrega un veredicto por módulo con el margen de error esperable y qué hacer para mejorarlo.","requiere":[],"requiereAlguna":[],"prefiere":[],"degradado":"Sin permisos de cámara solo puede informar del entorno; igual entrega el veredicto por módulo con lo inferido y lo marca como tal.","sinSoporte":"No aplica: es el único módulo que corre en cualquier parte, incluida la consola de escritorio.","salidas":["informe JSON","ficha compartible","QR para abrir en el equipo correcto"],"kimos":["escritorio","archivos"],"negocio":{"modelo":"incluido","precioMensualUSD":0,"costoVariableUSD":0,"valorClienteUSD":0,"adopcion":1,"esfuerzoSemanas":3},"riesgos":["Prometer de más por inferencia: por eso todo veredicto viaja con su fuente y su confianza."],"estrategico":true},{"id":"medir","nombre":"Medición en terreno","icon":"📏","fase":1,"resumen":"Distancias, superficies, alturas y ángulos con el teléfono, con el error real de cada medida a la vista.","problema":"Una visita a terreno para tomar medidas cuesta horas de traslado y se rehace cuando falta una cota. El flexómetro no deja registro y lo anotado a mano no es auditable.","solucion":"Medición apoyada en la profundidad del equipo, con foto anotada, autor, fecha y coordenadas. Cada medida guarda su banda de error, así el que la usa sabe si puede cortar material con ella.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof","depth.motion","api.arkit.scenedepth","api.arcore.depth","api.webxr.hittest"]],"prefiere":["depth.dtof","api.arkit.scenedepth","api.arcore.rawdepth"],"degradado":"Con profundidad por movimiento mide igual, pero el error sube al 5-10%: sirve para presupuestar, no para fabricar.","sinSoporte":"Queda como visor: abrir medidas de otros, comentarlas y exportarlas.","salidas":["foto acotada (PNG/PDF)","CSV de medidas","ficha a Pedidos"],"kimos":["pedidos","prospeccion","archivos","productlab"],"negocio":{"modelo":"por-usuario","precioMensualUSD":9,"costoVariableUSD":0.4,"valorClienteUSD":180,"adopcion":0.55,"esfuerzoSemanas":6},"riesgos":["Medida mal usada en fabricación: el error esperado tiene que ser imposible de ignorar en pantalla."]},{"id":"espacios","nombre":"Escaneo de espacios","icon":"🏠","fase":1,"resumen":"Una habitación en un minuto: plano 2D acotado, modelo 3D y superficies calculadas.","problema":"Levantar el plano de un local para una reforma, un arriendo o un seguro toma horas y termina en un dibujo que nadie puede verificar.","solucion":"Escaneo guiado que produce un plano paramétrico (muros, puertas, ventanas, mobiliario) exportable a DXF, IFC y USDZ/GLB, más superficie por recinto y volumen total.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof"],["api.arkit.roomplan","api.arkit.mesh","api.webxr.mesh","api.arcore.rawdepth"]],"prefiere":["api.arkit.roomplan","depth.dtof","compute.npu"],"degradado":"Sin RoomPlan se arma la malla y el plano se ajusta a mano sobre el escaneo: más lento, misma exportación.","sinSoporte":"Sin sensor de profundidad no se ofrece escaneo: se ofrece medir a mano el recinto y dibujar el plano asistido, y se avisa qué equipo del inventario sí puede.","salidas":["DXF","IFC","USDZ/GLB","PDF acotado","superficies por recinto"],"kimos":["archivos","gantt","pedidos","productlab"],"negocio":{"modelo":"por-usuario","precioMensualUSD":29,"costoVariableUSD":2.1,"valorClienteUSD":900,"adopcion":0.3,"esfuerzoSemanas":14},"riesgos":["Depende de una API de Apple que ha tenido regresiones por versión de iOS: hay que fijar versiones probadas y tener camino de malla propia."]},{"id":"objetos","nombre":"Escaneo de producto","icon":"📦","fase":1,"resumen":"Un producto real convertido en modelo 3D con textura, listo para el catálogo y para la vista AR de la tienda.","problema":"Publicar productos en 3D cuesta caro: modelar a mano una pieza son cientos de dólares y semanas, y sin 3D no hay vista AR ni configurador.","solucion":"Captura guiada del objeto con profundidad + fotos, malla limpia y publicación directa al catálogo de KIMOS con medidas reales, peso volumétrico y modelo AR.","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","depth.structured","depth.motion","api.arkit.objectcapture","api.arcore.depth"]],"prefiere":["api.arkit.objectcapture","depth.dtof","compute.npu"],"degradado":"Sin profundidad se captura por fotos y se reconstruye en servidor: más lento y con escala a confirmar, pero funciona en casi cualquier teléfono.","sinSoporte":"Sin cámara no hay captura; queda revisar y publicar modelos existentes.","salidas":["GLB","USDZ","ficha de producto con medidas","peso volumétrico"],"kimos":["productos","tienda","vitrina","productlab"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":69,"costoVariableUSD":8,"valorClienteUSD":520,"adopcion":0.45,"esfuerzoSemanas":12},"riesgos":["El costo de reconstrucción en nube es real: sin cuota por plan, el margen se lo come el procesamiento."],"estrategico":true},{"id":"vitrina-ar","nombre":"Pruébalo en tu espacio","icon":"🛋️","fase":2,"resumen":"El comprador coloca el producto a escala 1:1 en su propia casa, con oclusión real, desde la tienda de KIMOS.","problema":"La devolución por 'no me cabe' o 'no combina' se paga entera: logística inversa, producto tocado y el cliente perdido.","solucion":"Vista AR embebida en la ficha de producto, servida desde el mismo modelo que produjo el módulo de escaneo. En equipos con profundidad, el mueble virtual queda tapado por lo que está delante.","requiere":[],"requiereAlguna":[["api.webxr.ar","api.viewer.usdz","api.viewer.glb"]],"prefiere":["depth.dtof","api.webxr.depth","api.arcore.depth"],"degradado":"Sin profundidad se coloca sobre el plano detectado sin oclusión: convence menos, pero funciona en casi todo el parque.","sinSoporte":"Se muestra el modelo en 3D girable, sin cámara. Sigue siendo mejor que una foto.","salidas":["enlace AR","código QR por producto","métrica de interacción"],"kimos":["tienda","vitrina","productos","productlab"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":149,"costoVariableUSD":4,"valorClienteUSD":1400,"adopcion":0.25,"esfuerzoSemanas":8},"riesgos":["El beneficio depende de tener catálogo 3D: sin el módulo de producto, esto no se vende solo."],"estrategico":true},{"id":"volumen","nombre":"Volumen y carga","icon":"🚚","fase":2,"resumen":"Bultos, pallets y espacio de carga medidos apuntando el teléfono, con peso volumétrico calculado.","problema":"El cubicaje manual es lento y se factura mal: el transportista cobra por volumen y la diferencia sale del margen del que despacha.","solucion":"Medición de la caja o el pallet con profundidad, cálculo de peso volumétrico por tarifa de transportista y armado de carga sobre el espacio real del camión.","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","api.arcore.rawdepth","depth.motion"]],"prefiere":["depth.dtof","api.arcore.rawdepth"],"degradado":"Con profundidad por movimiento el error de volumen ronda el 10%: sirve para planificar, no para facturar.","sinSoporte":"Entrada manual de medidas con la misma calculadora de peso volumétrico.","salidas":["ficha de bulto","peso volumétrico por tarifa","plan de carga"],"kimos":["pedidos","productos","integraciones"],"negocio":{"modelo":"por-usuario","precioMensualUSD":14,"costoVariableUSD":0.6,"valorClienteUSD":380,"adopcion":0.2,"esfuerzoSemanas":7},"riesgos":["Facturar por estas medidas exige certificación legal para comercio (NTEP y equivalentes). Sin ella, el uso es interno y así hay que decirlo en la app."]},{"id":"obra","nombre":"Avance de obra e inspección","icon":"🏗️","fase":2,"resumen":"El mismo espacio escaneado en el tiempo: qué cambió entre visitas, con evidencia fechada.","problema":"El avance de obra se discute con fotos y palabras. Cuando aparece la diferencia, no hay registro que la resuelva.","solucion":"Escaneos sucesivos alineados sobre el mismo origen, comparación volumétrica entre fechas, marcado de observaciones ancladas al punto físico y reporte firmado.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["depth.dtof","depth.itof"],["api.arkit.mesh","api.arcore.rawdepth","api.webxr.mesh"]],"prefiere":["depth.dtof","sensor.gnss","api.arcore.geospatial"],"degradado":"Sin alineación automática, la comparación se ancla a un marcador impreso puesto en obra.","sinSoporte":"Solo lectura de reportes y observaciones.","salidas":["comparativa por fecha","reporte PDF firmado","observaciones ancladas"],"kimos":["gantt","kanban","archivos","equipos"],"negocio":{"modelo":"por-proyecto","precioMensualUSD":249,"costoVariableUSD":12,"valorClienteUSD":2100,"adopcion":0.12,"esfuerzoSemanas":16},"riesgos":["Alinear dos escaneos del mismo espacio con precisión es el problema técnico más difícil del plan; sin marcador de referencia el error se acumula."]},{"id":"gemelo","nombre":"Gemelo digital de activos","icon":"🧭","fase":3,"resumen":"Equipos y puntos de mantenimiento anclados a su lugar físico: apuntas el teléfono y aparece su ficha.","problema":"La ficha del activo vive en una planilla y el activo vive en un pasillo. Quien va a mantenerlo no encuentra ni el equipo ni su historial.","solucion":"Anclas persistentes en el espacio escaneado, ligadas al activo en KIMOS. El técnico apunta, ve el historial, deja la observación en el punto exacto.","requiere":["media.camera","sensor.imu"],"requiereAlguna":[["api.webxr.anchors","api.arcore.geospatial","api.arkit.mesh"]],"prefiere":["depth.dtof","api.arcore.geospatial","sensor.gnss"],"degradado":"Anclas por código QR pegado en el activo: menos elegante, funciona en todas partes y no se pierde.","sinSoporte":"Ficha del activo por búsqueda, sin ubicación.","salidas":["mapa de activos","historial por punto","ruta de mantenimiento"],"kimos":["archivos","kanban","integraciones","equipos"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":199,"costoVariableUSD":9,"valorClienteUSD":1800,"adopcion":0.08,"esfuerzoSemanas":18},"riesgos":["La persistencia de anclas entre sesiones y equipos distintos es frágil: el QR de respaldo no es opcional."]},{"id":"terreno","nombre":"Terreno y nubes públicas","icon":"🛰️","fase":3,"resumen":"Importar LiDAR aéreo público (USGS, IGN, OpenTopography) y cruzarlo con lo capturado a mano.","problema":"Los datos de elevación existen y son gratis, pero llegan en formatos que nadie abre en una reunión y no se cruzan con lo medido en terreno.","solucion":"Visor de nubes de puntos y modelos de elevación en el navegador, recorte por zona, perfiles de terreno, y superposición del escaneo de mano sobre el modelo público georreferenciado.","requiere":["runtime.web"],"requiereAlguna":[["compute.webgpu","compute.wasm.simd"]],"prefiere":["compute.webgpu","io.filesystem","sensor.gnss"],"degradado":"Sin WebGPU se recorta la nube en servidor y se muestra un mosaico ligero.","sinSoporte":"Descarga directa del recorte para abrirlo en un escritorio SIG.","salidas":["LAS/LAZ recortado","perfil de terreno","curvas de nivel","vista 3D compartible"],"kimos":["archivos","panel-html","gantt"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":99,"costoVariableUSD":12,"valorClienteUSD":700,"adopcion":0.06,"esfuerzoSemanas":10},"riesgos":["El costo de servir nubes grandes es el que manda: sin recorte y teselado, la factura de nube se dispara."]},{"id":"cuerpo","nombre":"Medidas corporales y postura","icon":"🧍","fase":3,"resumen":"Tallas, ergonomía y seguimiento de postura a partir del cuerpo capturado en 3D.","problema":"La talla equivocada es la primera causa de devolución en ropa, y evaluar postura en un puesto de trabajo requiere equipo caro o el ojo de alguien.","solucion":"Captura del cuerpo con profundidad, medidas antropométricas repetibles y comparación entre sesiones, con consentimiento explícito y borrado a demanda.","requiere":["media.camera"],"requiereAlguna":[["depth.structured","api.arkit.body","depth.dtof"]],"prefiere":["depth.structured","api.arkit.body","compute.npu"],"degradado":"Sin profundidad, estimación por pose 2D: sirve para tendencia, no para talla.","sinSoporte":"Ficha manual de medidas.","salidas":["medidas antropométricas","evolución por sesión","recomendación de talla"],"kimos":["productos","tienda","clientes"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":129,"costoVariableUSD":6,"valorClienteUSD":900,"adopcion":0.05,"esfuerzoSemanas":14},"riesgos":["Dato biométrico: consentimiento, minimización, borrado y ninguna promesa clínica. Si el cliente lo quiere para diagnóstico, cambia el marco regulatorio completo y esto ya no aplica."]},{"id":"accesibilidad","nombre":"Asistente de entorno","icon":"🦯","fase":3,"resumen":"Detección de obstáculos, puertas y desniveles con aviso por voz y vibración.","problema":"Los espacios que una empresa opera no son igual de transitables para todo el mundo, y la normativa de accesibilidad se audita a mano.","solucion":"Dos usos sobre el mismo motor: asistencia en vivo para la persona que recorre, y auditoría de accesibilidad del local escaneado (anchos de paso, altura de mesones, desniveles).","requiere":["media.camera"],"requiereAlguna":[["depth.dtof","depth.itof","api.arcore.semantics","api.arcore.depth"]],"prefiere":["depth.dtof","api.arcore.semantics","compute.npu"],"degradado":"Sin semántica, avisa por distancia y desnivel, sin nombrar el obstáculo.","sinSoporte":"Auditoría a partir de un escaneo hecho en otro equipo.","salidas":["informe de accesibilidad","avisos en vivo","puntos críticos"],"kimos":["archivos","kanban"],"negocio":{"modelo":"por-cuenta","precioMensualUSD":59,"costoVariableUSD":3,"valorClienteUSD":400,"adopcion":0.04,"esfuerzoSemanas":12},"riesgos":["Asistencia en vivo a una persona con discapacidad visual: un falso negativo es un daño físico. O se hace con estándar de seguridad y batería, o se deja en auditoría."]}]},"licencias":{"version":"1.0.0","actualizado":"2026-08-25","principio":"Ninguna biblioteca entra al producto sin licencia compatible con software propietario distribuido, sin dependencia con ejecución en instalación y sin dueño desconocido. Ante la duda, no entra: casi siempre hay una alternativa permisiva.","politica":{"permitidas":[{"id":"MIT","nota":"Permisiva. Sin concesión explícita de patentes."},{"id":"Apache-2.0","nota":"Permisiva CON concesión de patentes: la preferida cuando existe la opción."},{"id":"BSD-2-Clause","nota":"Permisiva."},{"id":"BSD-3-Clause","nota":"Permisiva; prohíbe usar el nombre del autor para promocionar."},{"id":"ISC","nota":"Equivalente a MIT."},{"id":"Zlib","nota":"Permisiva."},{"id":"Unlicense","nota":"Dominio público."},{"id":"CC0-1.0","nota":"Dominio público; válida para datos y assets, no ideal para código."},{"id":"BSL-1.0","nota":"Boost: permisiva, sin obligación de aviso en binarios."}],"condicionales":[{"id":"MPL-2.0","condicion":"Copyleft por archivo. Se puede usar SIN modificar y manteniendo los archivos separados; si se modifica el archivo, ese archivo se publica. Requiere revisión antes de entrar."},{"id":"LGPL-2.1","condicion":"Exige enlace dinámico y permitir reemplazo de la biblioteca. En un bundle de JavaScript eso casi nunca se cumple: en web, tratar como prohibida."},{"id":"LGPL-3.0","condicion":"Igual que LGPL-2.1 más cláusula antitivoización. En apps móviles firmadas es un problema real."},{"id":"EPL-2.0","condicion":"Copyleft débil por archivo; revisión legal antes de usar."},{"id":"CC-BY-4.0","condicion":"Válida para datos y assets con atribución visible. No para código."}],"prohibidas":[{"id":"GPL-2.0","razon":"Obliga a publicar el código del producto que la enlaza."},{"id":"GPL-3.0","razon":"Igual, más cláusulas de patentes y antitivoización."},{"id":"AGPL-3.0","razon":"Extiende la obligación al servicio en red: contamina el backend de KIMOS."},{"id":"SSPL-1.0","razon":"No es open source aprobada y su alcance sobre servicios es inaceptable para un SaaS."},{"id":"BUSL-1.1","razon":"Fuente disponible con restricción de uso comercial por N años."},{"id":"Commons-Clause","razon":"Prohíbe vender el software: incompatible con un producto de pago."},{"id":"CC-BY-NC","razon":"No comercial. KIMOS es comercial."},{"id":"Elastic-2.0","razon":"Restringe ofrecer el software como servicio gestionado."},{"id":"Investigacion-No-Comercial","razon":"Licencias académicas tipo 'solo investigación' (Inria, NVIDIA Source): explícitamente fuera de uso comercial."},{"id":"Sin-licencia","razon":"Sin licencia no hay permiso: el código con LICENSE ausente es, por defecto, todos los derechos reservados."}]},"reglasCadenaSuministro":["Cero dependencias en el núcleo y en los bundles que se distribuyen: lo que no se instala, no se puede comprometer.","Versión fijada (sin ^ ni ~) y archivo de bloqueo commiteado para cualquier dependencia de desarrollo.","Instalación con scripts deshabilitados (`npm ci --ignore-scripts`): la ejecución de código en instalación es el vector más usado.","Nada de CDN en tiempo de ejecución: todo recurso se sirve desde el propio origen. Además de seguridad, evita fugas de datos del usuario a terceros.","SBOM (CycloneDX) generado en cada publicación y guardado junto al artefacto.","Una dependencia nueva se aprueba mirando cuatro cosas: licencia, número de mantenedores, actividad del último año y árbol de dependencias transitivas.","Los pesos de modelos de IA se auditan aparte del código: es habitual que el código sea Apache-2.0 y los pesos no comerciales."],"bibliotecas":[{"nombre":"three.js","uso":"Visor 3D en la web","licencia":"MIT","veredicto":"usar","nota":"Estándar de facto, sin dependencias pesadas."},{"nombre":"@google/model-viewer","uso":"Ficha de producto en 3D/AR (Quick Look y Scene Viewer)","licencia":"Apache-2.0","veredicto":"usar","nota":"Resuelve el AR de catálogo en una etiqueta HTML. Servirlo desde el propio origen, no desde CDN."},{"nombre":"Draco","uso":"Compresión de mallas","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"meshoptimizer","uso":"Simplificación y optimización de mallas","licencia":"MIT","veredicto":"usar"},{"nombre":"glTF-Transform","uso":"Pipeline de glTF/GLB","licencia":"MIT","veredicto":"usar"},{"nombre":"KTX2 / Basis Universal","uso":"Texturas comprimidas","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"Potree","uso":"Visor de nubes de puntos masivas","licencia":"BSD-2-Clause","veredicto":"usar"},{"nombre":"CesiumJS","uso":"Terreno y 3D Tiles","licencia":"Apache-2.0","veredicto":"usar"},{"nombre":"loaders.gl / deck.gl","uso":"Lectura de LAS/LAZ y capas de datos","licencia":"MIT","veredicto":"usar"},{"nombre":"PDAL","uso":"Proceso de nubes de puntos en servidor","licencia":"BSD-3-Clause","veredicto":"usar"},{"nombre":"Open3D","uso":"Registro y mallado en servidor","licencia":"MIT","veredicto":"usar"},{"nombre":"PCL","uso":"Algoritmos clásicos de nubes de puntos","licencia":"BSD-3-Clause","veredicto":"usar"},{"nombre":"OpenCV","uso":"Visión por computador","licencia":"Apache-2.0","veredicto":"usar","nota":"Apache-2.0 desde la 4.5; versiones anteriores eran BSD-3. Fijar versión."},{"nombre":"ONNX Runtime","uso":"Inferencia en el dispositivo","licencia":"MIT","veredicto":"usar"},{"nombre":"MediaPipe / TensorFlow Lite","uso":"Pose y segmentación en el dispositivo","licencia":"Apache-2.0","veredicto":"usar","nota":"El código sí; cada modelo preentrenado trae su propia licencia y se revisa por separado."},{"nombre":"laz-perf","uso":"Lectura de LAZ en el navegador","licencia":"Apache-2.0","veredicto":"condicional","nota":"Confirmar el LICENSE de la versión fijada: el ecosistema LASzip mezcla LGPL en algunas piezas."},{"nombre":"Entwine","uso":"Teselado de nubes de puntos","licencia":"LGPL-2.1","veredicto":"condicional","nota":"Solo como herramienta de servidor ejecutada como proceso aparte, nunca enlazada al producto."},{"nombre":"FFmpeg","uso":"Vídeo de la captura","licencia":"LGPL-2.1 (o GPL según compilación)","veredicto":"condicional","nota":"Compilar sin componentes GPL y ejecutarlo como binario separado. Revisar además patentes de códecs."},{"nombre":"COLMAP","uso":"Fotogrametría (structure from motion)","licencia":"BSD-3-Clause","veredicto":"condicional","nota":"Revisar componentes opcionales de terceros antes de empaquetar."},{"nombre":"OpenMVG","uso":"Fotogrametría","licencia":"MPL-2.0","veredicto":"condicional","nota":"Copyleft por archivo: usar sin modificar."},{"nombre":"AliceVision / Meshroom","uso":"Fotogrametría completa","licencia":"MPL-2.0 + terceros","veredicto":"condicional","nota":"El árbol incluye piezas con otras licencias; auditar antes de distribuir."},{"nombre":"Unity","uso":"Motor para AR avanzada","licencia":"Comercial (EULA)","veredicto":"condicional","nota":"Decisión de costo y de dependencia de proveedor, no de licencia libre. Evitable con ARKit/ARCore nativos y three.js en web."},{"nombre":"Unreal Engine","uso":"Motor para AR avanzada","licencia":"EULA con regalías","veredicto":"condicional","nota":"Regalías sobre ingresos del producto que lo incorpore."},{"nombre":"OpenMVS","uso":"Reconstrucción densa","licencia":"AGPL-3.0","veredicto":"prohibida","nota":"Contamina el servicio en red. Alternativa: Open3D + PDAL."},{"nombre":"CGAL","uso":"Geometría computacional","licencia":"GPL-3.0 / comercial","veredicto":"prohibida","nota":"Solo con licencia comercial pagada. Alternativa: Open3D, libigl (MPL-2.0)."},{"nombre":"3D Gaussian Splatting (implementación original Inria/MPII)","uso":"Renderizado neuronal","licencia":"Investigación no comercial","veredicto":"prohibida","nota":"Alternativa comercialmente utilizable: gsplat (Apache-2.0), verificando también los pesos."},{"nombre":"instant-ngp (NVIDIA)","uso":"NeRF rápido","licencia":"NVIDIA Source Code License (no comercial)","veredicto":"prohibida"},{"nombre":"SDK de Polycam / Matterport","uso":"Escaneo de terceros","licencia":"Comercial","veredicto":"condicional","nota":"Depender del SDK de un competidor directo es riesgo de negocio antes que legal."}],"datos":[{"fuente":"USGS 3DEP / Earth Explorer","licencia":"Dominio público (obra del gobierno de EE. UU.)","veredicto":"usar","nota":"Citar la fuente por buena práctica."},{"fuente":"NOAA Digital Coast","licencia":"Dominio público","veredicto":"usar"},{"fuente":"OpenTopography","licencia":"Varía por conjunto de datos","veredicto":"condicional","nota":"Cada dataset trae su cita y su licencia: se guarda junto al archivo importado."},{"fuente":"IGN España — Centro de Descargas","licencia":"CC-BY 4.0","veredicto":"usar","nota":"Atribución obligatoria y visible en el visor y en los PDF exportados."},{"fuente":"Copernicus / EU-DEM","licencia":"Licencia Copernicus","veredicto":"usar","nota":"Atribución obligatoria."},{"fuente":"OpenStreetMap","licencia":"ODbL","veredicto":"condicional","nota":"TRAMPA CLÁSICA: es share-alike sobre bases de datos derivadas. Se puede usar como mapa base, pero mezclarlo con los datos del cliente puede obligar a publicar el resultado. Preferir un mapa base con licencia permisiva para datos de clientes."}],"otrosRiesgos":[{"tema":"Imágenes de personas en las capturas","riesgo":"Una captura de un local incluye caras y matrículas: es dato personal.","medida":"Difuminado automático antes de subir, retención configurable y borrado a demanda."},{"tema":"Datos biométricos (módulo de cuerpo)","riesgo":"Categoría especial en RGPD y equivalentes; consentimiento explícito y finalidad acotada.","medida":"Consentimiento por sesión, proceso en el dispositivo cuando se pueda, y ninguna afirmación clínica."},{"tema":"Medidas usadas para facturar","riesgo":"Cobrar por volumen medido exige certificación metrológica legal (NTEP y equivalentes nacionales).","medida":"La app marca las medidas como referenciales y no las ofrece para facturación mientras no exista certificación."},{"tema":"Términos de las plataformas","riesgo":"ARKit, ARCore, App Store y Play imponen reglas sobre uso de cámara y datos de profundidad.","medida":"Declarar finalidad en la ficha de la tienda y en los permisos; nada de recolección secundaria."},{"tema":"Marcas de terceros","riesgo":"Nombrar equipos y competidores en la app.","medida":"Uso nominativo y descriptivo (lista de compatibilidad), sin logotipos ni sugerencia de respaldo."}]},"rubros":{"version":"1.0.0","actualizado":"2026-08-25","esquema":1,"nota":"Base de conocimiento por rubro. Cada entrada traduce una industria a decisiones concretas: qué módulos importan, con qué tolerancia se trabaja, qué flujo se ejecuta, qué KPI mejora y qué se le dice a un prospecto de ese rubro. Es DATO, no código: un rubro nuevo se añade aquí (o en un pack externo validado con tools/validar-pack.mjs) sin tocar el motor.","convenciones":{"tolerancia":"{ m: error máximo aceptable en metros, aDistancia: distancia de referencia en metros }. El motor la cruza con el sensor activo para decir si el equipo sirve para ese rubro.","prioridad":"1 = el módulo por el que entra el rubro; 2 y 3 = lo que se suma después.","origen":"Lo llena el cargador de packs: 'base' para este archivo, el id del pack para los añadidos."},"rubros":[{"id":"construccion","nombre":"Construcción y remodelación","icon":"🏗️","cliente":"Constructoras chicas y medianas, contratistas de remodelación, arquitectos con obra.","dolor":"Cada partida se presupuesta con medidas tomadas a mano en una visita, y cuando falta una cota hay que volver. Lo medido no queda registrado, así que la diferencia con el cliente se discute de memoria.","tolerancia":{"m":0.03,"aDistancia":3},"toleranciaNota":"Suficiente para presupuestar y para acotar un plano de partida. Para cortar material se remide a mano en el punto: ningún sensor de bolsillo reemplaza eso.","modulos":[{"id":"espacios","prioridad":1,"para":"Levantar el recinto y sacar el plano acotado con superficies por ambiente."},{"id":"obra","prioridad":2,"para":"Comparar el mismo espacio entre visitas y dejar evidencia fechada del avance."},{"id":"medir","prioridad":3,"para":"Cotas sueltas durante la visita, con su banda de error."}],"flujos":[{"id":"levantamiento-presupuesto","nombre":"De la visita al presupuesto sin volver","pasos":["Escanear cada recinto (30-60 s por ambiente)","Revisar el plano y corregir muros dudosos en el sitio","Exportar superficies por recinto a la planilla de partidas","Adjuntar plano y fotos acotadas a la cotización"],"entrega":["Plano DXF acotado","Superficies por recinto (CSV)","PDF con fotos acotadas"],"kimos":["pedidos","archivos","gantt"]},{"id":"avance-quincenal","nombre":"Estado de pago con evidencia","pasos":["Escanear las mismas zonas cada quincena","Comparar contra el escaneo anterior","Marcar observaciones ancladas al punto físico","Emitir reporte firmado"],"entrega":["Comparativa por fecha","Reporte PDF firmado","Observaciones ancladas"],"kimos":["gantt","kanban","archivos","equipos"]}],"kpis":[{"id":"visitas","label":"Visitas a terreno por partida","meta":"De 2-3 a 1"},{"id":"horas","label":"Horas de levantamiento por vivienda","meta":"De 3-4 h a 40 min"},{"id":"disputas","label":"Disputas de avance por proyecto","meta":"Bajar a la mitad con evidencia fechada"}],"equiposRecomendados":["apple.ipadpro.2020+","apple.iphone.pro.12-17"],"normativa":["El acta de avance con evidencia fechada tiene valor si la firman ambas partes: la app la genera, no la reemplaza."],"prospeccion":{"senales":["Más de dos visitas a terreno por semana","Presupuestos que se rehacen por medidas","Discusiones de avance con el mandante"],"preguntas":["¿Cuántas veces vuelven a medir lo mismo en un proyecto?","¿Cuánto tarda una persona en levantar una vivienda completa?","¿Cómo respaldan hoy el avance cuando el cliente lo discute?"],"demo":"Escanear la sala de reuniones del propio prospecto y mostrarle su plano acotado antes de que termine el café.","objeciones":[{"objecion":"Ya tenemos distanciómetro láser.","respuesta":"El láser da una cota; esto da el recinto completo, con plano exportable y registro de quién midió y cuándo. La discusión de avance no se gana con una cota suelta."},{"objecion":"Mis maestros no van a usar una app.","respuesta":"El que escanea es quien ya va a terreno a medir, y el escaneo tarda menos que sacar el flexómetro. Lo que cambia es que queda registrado."}],"ahorro":{"supuesto":"2 visitas evitadas por semana × 3 h × valor hora del profesional","formula":"visitasEvitadas * horasPorVisita * valorHora * 4.33"}},"kimos":["gantt","kanban","archivos","pedidos","equipos"]},{"id":"inmobiliaria","nombre":"Corretaje, arriendo y administración","icon":"🏡","cliente":"Corredoras de propiedades, administradoras de arriendo, portales inmobiliarios.","dolor":"Publicar una propiedad exige fotos, medidas y plano. El plano casi nunca existe, y las visitas presenciales se gastan en gente que se va apenas ve la distribución.","tolerancia":{"m":0.05,"aDistancia":3},"toleranciaNota":"Publicar superficie es una afirmación comercial: se publica la medida del escaneo como referencial y se distingue útil de construida.","modulos":[{"id":"espacios","prioridad":1,"para":"Plano y modelo 3D de la propiedad en una sola visita."},{"id":"vitrina-ar","prioridad":2,"para":"Que el interesado recorra la distribución antes de pedir visita."},{"id":"medir","prioridad":3,"para":"Cotas puntuales para la ficha."}],"flujos":[{"id":"ficha-propiedad","nombre":"Una visita, ficha completa","pasos":["Escanear la propiedad completa","Generar plano y superficies por recinto","Publicar el recorrido 3D en la ficha","Archivar el escaneo como estado de entrega"],"entrega":["Plano 2D","Recorrido 3D compartible","Superficie por recinto"],"kimos":["vitrina","archivos","prospeccion","clientes"]},{"id":"estado-entrega","nombre":"Entrega y devolución sin discusión","pasos":["Escanear al entregar","Escanear al devolver","Comparar y adjuntar al contrato"],"entrega":["Comparativa fechada","Reporte de estado"],"kimos":["archivos","clientes"]}],"kpis":[{"id":"dias","label":"Días en mercado","meta":"Bajar con ficha 3D"},{"id":"visitas","label":"Visitas presenciales por cierre","meta":"Menos visitas improductivas"},{"id":"disputas","label":"Disputas de estado en devolución","meta":"Evidencia en vez de fotos sueltas"}],"equiposRecomendados":["apple.iphone.pro.12-17","apple.ipadpro.2020+"],"normativa":["La superficie publicada compromete: marcarla como referencial y no mezclar útil con construida."],"prospeccion":{"senales":["Cartera sobre 20 propiedades","Fichas sin plano","Reclamos de estado en devolución de arriendo"],"preguntas":["¿Cuántas visitas presenciales hacen por cada cierre?","¿Sus fichas tienen plano?","¿Cómo prueban el estado de entrega de un arriendo?"],"demo":"Escanear la oficina del corredor y mostrarle el recorrido 3D en su propio teléfono, con el enlace listo para pegar en una ficha.","objeciones":[{"objecion":"Ya contratamos fotógrafo con tour 360°.","respuesta":"El tour muestra; esto además mide. La ficha queda con superficie por recinto y plano, que es lo que el interesado pregunta por teléfono."}],"ahorro":{"supuesto":"Visitas improductivas evitadas por mes × costo de traslado y hora del corredor","formula":"visitasEvitadas * costoVisita"}},"kimos":["vitrina","prospeccion","clientes","archivos","tienda"]},{"id":"retail-mobiliario","nombre":"Retail y mobiliario en línea","icon":"🛋️","cliente":"Tiendas de muebles, decoración, electrodomésticos y equipamiento que venden en línea.","dolor":"El catálogo no tiene 3D porque modelar cuesta caro, y sin 3D no hay vista AR. La devolución por 'no me cabe' o 'no combina' se paga entera.","tolerancia":{"m":0.05,"aDistancia":2},"toleranciaNota":"Para AR importa más la escala correcta que el milímetro: un modelo con el tamaño real bien puesto convence; uno a escala equivocada destruye la confianza.","modulos":[{"id":"objetos","prioridad":1,"para":"Convertir el producto real en modelo 3D con su medida real."},{"id":"vitrina-ar","prioridad":2,"para":"Que el comprador lo ponga en su casa a escala 1:1."},{"id":"volumen","prioridad":3,"para":"Peso volumétrico para el despacho."}],"flujos":[{"id":"producto-a-ficha","nombre":"Del producto físico a la ficha con AR","pasos":["Escanear el producto en bodega","Revisar malla y medida real","Publicar el GLB y el tamaño real al producto de KIMOS","Activar la vista AR en la ficha"],"entrega":["GLB optimizado","USDZ","Medida real (lado mayor en cm)","Peso volumétrico"],"kimos":["productlab","productos","tienda","vitrina"]}],"kpis":[{"id":"devoluciones","label":"Tasa de devolución","meta":"Referencia de mercado: hasta 40% menos con 3D en la ficha"},{"id":"conversion","label":"Conversión de la ficha","meta":"Referencia de mercado: hasta 94% más con 3D"},{"id":"costoModelo","label":"Costo por modelo 3D","meta":"De cientos de dólares a minutos de captura"}],"equiposRecomendados":["apple.iphone.pro.12-17","android.arcore.generico"],"normativa":["Las cifras de conversión y devolución son agregados de plataforma, no experimentos controlados: se usan como referencia, no como promesa al cliente."],"prospeccion":{"senales":["Catálogo sobre 50 productos sin 3D","Devoluciones por tamaño","Ya usa ProductLab o Tienda de KIMOS"],"preguntas":["¿Cuánto les cuesta hoy un modelo 3D de un producto?","¿Qué porcentaje de devoluciones es por tamaño o color?","¿Cuántos productos publicarían en 3D si costara minutos?"],"demo":"Escanear un producto que el prospecto tenga a mano y ponerlo en AR en su propia oficina, a escala real, en menos de cinco minutos.","objeciones":[{"objecion":"Nuestros productos ya tienen buenas fotos.","respuesta":"La foto no responde '¿me cabe?'. El modelo con medida real sí, y esa es la pregunta que genera la devolución."},{"objecion":"El escaneo no queda perfecto.","respuesta":"Para la ficha no hace falta perfección: hace falta escala correcta y silueta creíble. Para el producto estrella se retoca; para los otros 200, esto es la diferencia entre tener 3D y no tenerlo."}],"ahorro":{"supuesto":"Devoluciones evitadas al mes × costo logístico de una devolución","formula":"pedidosMes * tasaDevolucion * reduccion * costoDevolucion"}},"kimos":["productlab","productos","tienda","vitrina","pedidos"]},{"id":"logistica","nombre":"Logística, bodega y 3PL","icon":"🚚","cliente":"Operadores logísticos, bodegas de comercio electrónico, empresas que despachan volumen.","dolor":"El transportista cobra por volumen y el cubicaje se hace a ojo o con huincha. La diferencia sale del margen del que despacha, y nadie sabe cuánto se pierde.","tolerancia":{"m":0.02,"aDistancia":1},"toleranciaNota":"Para uso interno alcanza. Para facturar hace falta certificación metrológica legal (NTEP o equivalente): la app marca las medidas como referenciales mientras no exista.","modulos":[{"id":"volumen","prioridad":1,"para":"Volumen de bultos y pallets con peso volumétrico por tarifa."},{"id":"objetos","prioridad":2,"para":"Fichar el producto con su medida real para calcular el embalaje antes de comprarlo."},{"id":"espacios","prioridad":3,"para":"Planificar el uso de la bodega y el espacio de carga."}],"flujos":[{"id":"cubicaje","nombre":"Cubicaje en el mesón de despacho","pasos":["Apuntar al bulto y medir","Calcular peso volumétrico por tarifa del transportista","Adjuntar la ficha al pedido","Contrastar contra lo facturado por el transportista"],"entrega":["Ficha de bulto","Peso volumétrico","Diferencia contra lo facturado"],"kimos":["pedidos","productos","integraciones"]}],"kpis":[{"id":"diferencia","label":"Diferencia entre volumen facturado y real","meta":"Detectarla, que hoy no se ve"},{"id":"ocupacion","label":"Ocupación del camión","meta":"Subir con plan de carga"},{"id":"tiempo","label":"Tiempo de cubicaje por bulto","meta":"De minutos a segundos"}],"equiposRecomendados":["apple.iphone.pro.12-17","samsung.tof.2019-2020"],"normativa":["NTEP y equivalentes nacionales para medidas usadas en facturación.","Sin certificación, el uso es interno y la app lo dice en pantalla."],"prospeccion":{"senales":["Despachos sobre 200 bultos al mes","Reclamos de sobrecobro al transportista","Cubicaje manual en el mesón"],"preguntas":["¿Cómo miden hoy un bulto irregular?","¿Han comparado lo que factura el transportista con el volumen real?","¿Cuánto tiempo toma cubicar un pallet?"],"demo":"Medir una caja del prospecto y mostrar el peso volumétrico con su propia tarifa, comparado con lo que le cobraron la última vez.","objeciones":[{"objecion":"Esto no sirve para facturar.","respuesta":"Correcto, y lo decimos en pantalla. Sirve para saber cuánto se está perdiendo y para reclamar con un número propio, que hoy no existe."}],"ahorro":{"supuesto":"Bultos al mes × sobrecobro promedio detectado por bulto","formula":"bultosMes * sobrecobroPorBulto"}},"kimos":["pedidos","productos","integraciones","panel-html"]},{"id":"manufactura","nombre":"Fabricación a medida y carpintería","icon":"🪚","cliente":"Talleres de mueble a medida, metalmecánica liviana, fabricantes que venden configurable.","dolor":"Vender a medida exige mostrar cómo queda antes de fabricar. Modelar cada producto para el configurador es el cuello de botella: el taller tiene el mueble, no el modelo.","tolerancia":{"m":0.005,"aDistancia":0.5},"toleranciaNota":"El escaneo NO da tolerancia de corte. Sirve para el modelo de venta y para la medida del espacio del cliente; el despiece sale del plano de fabricación, no del escaneo.","modulos":[{"id":"objetos","prioridad":1,"para":"Modelo 3D del producto terminado para el configurador de ProductLab."},{"id":"medir","prioridad":2,"para":"Medir el hueco donde va a ir el mueble, en casa del cliente."},{"id":"vitrina-ar","prioridad":3,"para":"Mostrarle al cliente el mueble en su propio espacio antes de fabricar."}],"flujos":[{"id":"mueble-a-configurador","nombre":"Del mueble del taller al configurador de la tienda","pasos":["Escanear la pieza terminada","Limpiar malla y fijar el lado mayor real","Cargar el GLB en ProductLab y definir partes y acabados","Generar los pasos del configurador desde el modelo"],"entrega":["GLB con partes","Lado mayor real en cm (habilita AR)","Pasos del configurador"],"kimos":["productlab","productos","tienda"]},{"id":"medida-en-casa","nombre":"Medida en casa del cliente","pasos":["Medir el hueco con foto acotada","Adjuntar la medida al pedido","Confirmar con AR que el mueble entra"],"entrega":["Foto acotada","Medidas al pedido"],"kimos":["pedidos","clientes","productlab"]}],"kpis":[{"id":"modelado","label":"Tiempo de modelado por producto","meta":"De horas de CAD a minutos de captura"},{"id":"catalogo3d","label":"Productos del catálogo con 3D","meta":"De unos pocos a todos"},{"id":"errores","label":"Pedidos con medida equivocada","meta":"Bajar con medida registrada en la visita"}],"equiposRecomendados":["apple.iphone.pro.12-17","apple.ipadpro.2020+"],"normativa":[],"prospeccion":{"senales":["Ya usa ProductLab con productos sin visor 3D","Vende a medida y visita al cliente para medir","Catálogo con muchas variantes de acabado"],"preguntas":["¿Cuántos productos de su catálogo tienen modelo 3D?","¿Quién los modela y cuánto demora?","¿Cuántos pedidos se rehacen por una medida mal tomada?"],"demo":"Escanear una pieza del taller y dejarla configurable en ProductLab en la misma reunión, con AR funcionando desde el QR.","objeciones":[{"objecion":"El escaneo no tiene precisión de fabricación.","respuesta":"No la tiene y no la necesita: el despiece sale del plano. Esto resuelve el modelo de venta, que hoy no existe porque modelar cuesta caro."}],"ahorro":{"supuesto":"Productos a modelar × costo de modelado externo evitado","formula":"productos * costoModeladoExterno"}},"kimos":["productlab","productos","tienda","pedidos","clientes"]},{"id":"seguros","nombre":"Seguros, peritaje y siniestros","icon":"📋","cliente":"Liquidadores de siniestros, corredores de seguros, áreas de riesgo.","dolor":"El peritaje se documenta con fotos y una planilla. Cuando la cifra se discute, no hay forma de reconstruir el estado real del lugar en la fecha de la visita.","tolerancia":{"m":0.03,"aDistancia":3},"toleranciaNota":"Lo que importa aquí no es el milímetro: es la trazabilidad —quién capturó, cuándo, con qué equipo y con qué error declarado—.","modulos":[{"id":"espacios","prioridad":1,"para":"Reconstruir el lugar completo en una visita."},{"id":"obra","prioridad":2,"para":"Comparar antes y después, y anclar observaciones al punto exacto."},{"id":"medir","prioridad":3,"para":"Cotas del daño con banda de error."}],"flujos":[{"id":"peritaje","nombre":"Peritaje con evidencia reconstruible","pasos":["Escanear el lugar del siniestro","Marcar y medir los daños","Generar reporte con fecha, autor y error declarado","Archivar el escaneo íntegro"],"entrega":["Modelo 3D del lugar","Reporte con daños medidos","Registro de trazabilidad"],"kimos":["archivos","clientes","kanban"]}],"kpis":[{"id":"tiempo","label":"Días de liquidación","meta":"Menos vueltas al lugar"},{"id":"disputas","label":"Liquidaciones disputadas","meta":"Bajar con evidencia reconstruible"}],"equiposRecomendados":["apple.iphone.pro.12-17"],"normativa":["Las capturas incluyen bienes y personas: difuminado antes de subir y retención acotada.","El valor probatorio depende del procedimiento del liquidador; la app aporta trazabilidad, no la reemplaza."],"prospeccion":{"senales":["Peritos en terreno todos los días","Liquidaciones que se discuten","Documentación solo fotográfica"],"preguntas":["¿Cómo reconstruyen hoy el estado del lugar cuando la cifra se discute?","¿Cuántas veces vuelve el perito al mismo siniestro?"],"demo":"Escanear una sala, marcar un 'daño' y emitir el reporte con fecha, autor y error declarado en dos minutos.","objeciones":[{"objecion":"Las fotos nos han bastado siempre.","respuesta":"Hasta que la contraparte discute una medida. La foto no se mide después; el escaneo sí, y con su error declarado."}],"ahorro":{"supuesto":"Visitas repetidas evitadas × costo de visita del perito","formula":"visitasEvitadas * costoVisita"}},"kimos":["archivos","clientes","kanban","equipos"]},{"id":"facility","nombre":"Mantenimiento y facility management","icon":"🔧","cliente":"Empresas que operan edificios, plantas, sucursales o flotas de locales.","dolor":"La ficha del activo vive en una planilla y el activo vive en un pasillo. Quien va a mantenerlo no encuentra ni el equipo ni su historial.","tolerancia":{"m":0.05,"aDistancia":3},"toleranciaNota":"Aquí manda la ubicación, no la cota: el valor es encontrar el activo y su historial en el punto físico.","modulos":[{"id":"gemelo","prioridad":1,"para":"Anclar la ficha del activo a su lugar físico."},{"id":"espacios","prioridad":2,"para":"Levantar el recinto donde viven los activos."},{"id":"accesibilidad","prioridad":3,"para":"Auditar anchos de paso, alturas y desniveles del local."}],"flujos":[{"id":"mapa-activos","nombre":"Mapa de activos con historial en el punto","pasos":["Escanear el recinto","Anclar cada activo (con QR de respaldo)","Enlazar la ficha y el historial de KIMOS","Generar la ruta de mantenimiento"],"entrega":["Mapa de activos","Historial por punto","Ruta de mantenimiento"],"kimos":["kanban","archivos","integraciones","equipos"]}],"kpis":[{"id":"busqueda","label":"Tiempo de localizar un activo","meta":"De preguntar a apuntar"},{"id":"ordenes","label":"Órdenes cerradas en primera visita","meta":"Subir con historial en el punto"}],"equiposRecomendados":["apple.iphone.pro.12-17","android.arcore.generico"],"normativa":[],"prospeccion":{"senales":["Más de 50 activos distribuidos","Técnicos que preguntan dónde está el equipo","Historial en planilla"],"preguntas":["¿Cómo sabe un técnico nuevo dónde está cada equipo?","¿Cuántas órdenes se cierran en la primera visita?"],"demo":"Anclar la impresora de la oficina del prospecto y mostrar cómo aparece su ficha al apuntar el teléfono.","objeciones":[{"objecion":"Ya usamos códigos QR.","respuesta":"Y se siguen usando: son el respaldo del ancla. Lo que se suma es ver el mapa completo y planificar la ruta sin recorrer el edificio."}],"ahorro":{"supuesto":"Minutos de búsqueda por orden × órdenes al mes × valor hora del técnico","formula":"ordenesMes * minutosBusqueda / 60 * valorHora"}},"kimos":["kanban","archivos","equipos","integraciones"]},{"id":"agro-topografia","nombre":"Agro, terreno y topografía","icon":"🌾","cliente":"Agrícolas, empresas de riego, movimiento de tierras, consultoras ambientales.","dolor":"Los datos de elevación existen y son gratis, pero llegan en formatos que nadie abre en una reunión y no se cruzan con lo medido en terreno.","tolerancia":{"m":0.5,"aDistancia":50},"toleranciaNota":"El dato aéreo público tiene su propia precisión, declarada por el proveedor. La captura de mano solo aporta detalle local: mezclarlas sin decir cuál es cuál es un error caro.","modulos":[{"id":"terreno","prioridad":1,"para":"Importar y recortar nubes públicas y sacar perfiles del terreno."},{"id":"medir","prioridad":2,"para":"Detalle local: acequias, desniveles puntuales, obras chicas."},{"id":"obra","prioridad":3,"para":"Avance de movimiento de tierras entre fechas."}],"flujos":[{"id":"perfil-terreno","nombre":"Del dato público a la decisión de riego o movimiento","pasos":["Recortar la zona desde la fuente pública","Generar perfiles y curvas de nivel","Superponer la captura de campo georreferenciada","Compartir la vista con el cliente"],"entrega":["Recorte LAS/LAZ","Perfiles","Curvas de nivel","Vista 3D compartible"],"kimos":["archivos","panel-html","gantt"]}],"kpis":[{"id":"levantamiento","label":"Costo de un levantamiento previo","meta":"Partir del dato público antes de contratar topografía"},{"id":"decision","label":"Tiempo hasta la primera decisión de diseño","meta":"De semanas a días"}],"equiposRecomendados":["pc.escritorio","apple.iphone.pro.12-17"],"normativa":["Cada fuente pública trae su licencia y su cita obligatoria (IGN: CC-BY; USGS y NOAA: dominio público; OpenTopography: por conjunto).","La atribución viaja con el archivo y aparece en los PDF exportados."],"prospeccion":{"senales":["Proyectos que dependen de topografía","Decisiones de riego o nivelación","Ya compran levantamientos topográficos"],"preguntas":["¿Cuánto pagan por un levantamiento previo que solo sirve para decidir si vale la pena?","¿Usan hoy datos públicos de elevación?"],"demo":"Recortar la zona del predio del prospecto desde el dato público y mostrarle el perfil del terreno en pantalla.","objeciones":[{"objecion":"Necesitamos precisión topográfica.","respuesta":"Para el diseño final, sí, y esto no la reemplaza. Para decidir si el proyecto va, el dato público resuelve en horas lo que hoy espera semanas."}],"ahorro":{"supuesto":"Levantamientos exploratorios evitados × costo del levantamiento","formula":"levantamientos * costoLevantamiento"}},"kimos":["archivos","panel-html","gantt","integraciones"]},{"id":"salud-ergonomia","nombre":"Salud, rehabilitación y ergonomía","icon":"🧍","cliente":"Centros de kinesiología, mutuales, áreas de prevención de riesgos, gimnasios.","dolor":"Evaluar postura o rango de movimiento exige equipo caro o el ojo de alguien, y la evolución entre sesiones se documenta a mano.","tolerancia":{"m":0.01,"aDistancia":1},"toleranciaNota":"Repetibilidad importa más que exactitud: lo que se compara es la misma persona entre sesiones, con el mismo protocolo de captura.","modulos":[{"id":"cuerpo","prioridad":1,"para":"Medidas y postura repetibles entre sesiones."},{"id":"accesibilidad","prioridad":2,"para":"Auditar el puesto de trabajo o el recinto."},{"id":"espacios","prioridad":3,"para":"Levantar el recinto a evaluar."}],"flujos":[{"id":"evaluacion-postural","nombre":"Evaluación con evolución comparable","pasos":["Consentimiento explícito de la persona","Captura con protocolo fijo","Comparación con la sesión anterior","Informe para la ficha"],"entrega":["Medidas por sesión","Comparativa de evolución","Informe"],"kimos":["clientes","archivos","kanban"]}],"kpis":[{"id":"tiempo","label":"Tiempo de evaluación","meta":"Bajar respecto de la medición manual"},{"id":"adherencia","label":"Adherencia del paciente","meta":"Ver la propia evolución ayuda"}],"equiposRecomendados":["apple.iphone.pro.12-17","apple.ipadpro.2020+"],"normativa":["Dato biométrico: categoría especial. Consentimiento explícito por sesión, proceso en el equipo cuando se pueda, borrado a demanda.","Ninguna afirmación clínica ni diagnóstica: si el cliente lo quiere para diagnóstico, cambia el marco regulatorio entero y esto ya no aplica."],"prospeccion":{"senales":["Evaluaciones posturales frecuentes","Programas de prevención de riesgos","Documentación manual de evolución"],"preguntas":["¿Cómo documentan hoy la evolución entre sesiones?","¿Con qué comparan la postura de la primera sesión?"],"demo":"Capturar la postura de un voluntario y mostrar las medidas repetidas dos veces seguidas, para que vean la repetibilidad.","objeciones":[{"objecion":"¿Esto sirve para diagnosticar?","respuesta":"No, y no lo vamos a decir nunca. Sirve para medir y comparar de forma repetible; el diagnóstico es del profesional."}],"ahorro":{"supuesto":"Sesiones al mes × minutos de medición manual ahorrados × valor hora","formula":"sesionesMes * minutos / 60 * valorHora"}},"kimos":["clientes","archivos","kanban"]},{"id":"hoteleria-eventos","nombre":"Hotelería, eventos y ferias","icon":"🎪","cliente":"Centros de eventos, hoteles con salones, productoras de ferias, montajistas.","dolor":"Cotizar un montaje exige saber cuánto entra en el salón. Se cotiza con planos viejos y se descubre en el montaje que no calza.","tolerancia":{"m":0.05,"aDistancia":4},"toleranciaNota":"Suficiente para distribuir stands y mobiliario; las cargas y las alturas de estructura las valida quien monta.","modulos":[{"id":"espacios","prioridad":1,"para":"Levantar el salón con sus obstáculos reales (columnas, accesos, alturas)."},{"id":"vitrina-ar","prioridad":2,"para":"Mostrar el montaje propuesto en el salón real."},{"id":"accesibilidad","prioridad":3,"para":"Verificar anchos de paso y evacuación."}],"flujos":[{"id":"cotizar-montaje","nombre":"Cotizar un montaje con el salón real","pasos":["Escanear el salón","Distribuir el montaje sobre el modelo","Mostrar la propuesta al cliente en AR","Adjuntar el plano al contrato"],"entrega":["Plano del salón","Propuesta de montaje","Vista AR"],"kimos":["eventos","pedidos","archivos","vitrina"]}],"kpis":[{"id":"montajes","label":"Montajes con ajustes de última hora","meta":"Bajar con plano real"},{"id":"cierre","label":"Cierre de cotizaciones de salón","meta":"Subir mostrando el montaje"}],"equiposRecomendados":["apple.ipadpro.2020+","apple.iphone.pro.12-17"],"normativa":["Los anchos de evacuación los valida la normativa local y quien firma: la auditoría es un apoyo, no un certificado."],"prospeccion":{"senales":["Salones que se cotizan por m²","Montajes con ajustes de última hora","Planos desactualizados"],"preguntas":["¿Con qué plano cotizan hoy el salón?","¿Cuántos montajes tuvieron que ajustarse en el sitio este año?"],"demo":"Escanear el salón del propio centro de eventos y mostrar cuántas mesas entran, en su plano, en la reunión.","objeciones":[{"objecion":"Tenemos los planos del arquitecto.","respuesta":"Del edificio como se diseñó, no como está hoy con tabiques, columnas forradas y accesos cambiados. El escaneo muestra lo que hay."}],"ahorro":{"supuesto":"Montajes corregidos evitados × costo de la corrección en sitio","formula":"montajes * costoCorreccion"}},"kimos":["eventos","pedidos","archivos","vitrina"]},{"id":"educacion-patrimonio","nombre":"Educación, museos y patrimonio","icon":"🏛️","cliente":"Museos, universidades, colegios técnicos, fundaciones de patrimonio.","dolor":"Las piezas y los espacios no se pueden tocar ni mover, pero se necesitan para enseñar, difundir y documentar el estado de conservación.","tolerancia":{"m":0.005,"aDistancia":0.5},"toleranciaNota":"Para difusión alcanza con la silueta y el color; para documentar conservación hace falta el detalle fino, que solo da la captura cercana.","modulos":[{"id":"objetos","prioridad":1,"para":"Digitalizar piezas para difusión y estudio."},{"id":"espacios","prioridad":2,"para":"Registrar salas y montajes de exposición."},{"id":"vitrina-ar","prioridad":3,"para":"Llevar la pieza al aula o a la casa del visitante."}],"flujos":[{"id":"digitalizar-coleccion","nombre":"Digitalizar una colección por lotes","pasos":["Definir protocolo de captura por tipo de pieza","Capturar por lote","Publicar en la vitrina digital con su ficha","Archivar el original de alta densidad"],"entrega":["GLB para difusión","Malla densa archivada","Ficha con medidas reales"],"kimos":["vitrina","conocimiento","archivos","productos"]}],"kpis":[{"id":"piezas","label":"Piezas digitalizadas por jornada","meta":"Escala el proyecto sin equipo de laboratorio"},{"id":"alcance","label":"Alcance de la colección en línea","meta":"Sube con 3D navegable"}],"equiposRecomendados":["apple.iphone.pro.12-17","apple.ipadpro.2020+"],"normativa":["Derechos sobre las piezas y sobre los modelos derivados: se acuerdan antes de publicar.","La atribución de la colección viaja con el modelo."],"prospeccion":{"senales":["Colección sin digitalizar","Proyectos de difusión o fondos concursables","Piezas que no pueden salir de vitrina"],"preguntas":["¿Qué parte de la colección está digitalizada?","¿Con qué presupuesto y con qué equipo lo hacen hoy?"],"demo":"Digitalizar una pieza pequeña del propio museo y mostrarla girando en el navegador, en la reunión.","objeciones":[{"objecion":"Nuestros estándares de digitalización son más exigentes.","respuesta":"Para conservación, seguramente. Esto resuelve el 80% de la colección que hoy no está digitalizada porque el método exigente no alcanza para todo."}],"ahorro":{"supuesto":"Piezas × costo de digitalización externa por pieza","formula":"piezas * costoExterno"}},"kimos":["vitrina","conocimiento","archivos","productos"]},{"id":"mineria-industria","nombre":"Minería e industria pesada","icon":"⛏️","cliente":"Faenas mineras, plantas industriales, contratistas de mantenimiento industrial.","dolor":"Documentar el estado de una instalación exige detener operación o mandar gente a lugares incómodos. Los planos as-built casi nunca coinciden con lo instalado.","tolerancia":{"m":0.1,"aDistancia":5},"toleranciaNota":"A esta escala el sensor de bolsillo documenta y ubica; el levantamiento de precisión sigue siendo de escáner terrestre. La combinación es lo que rinde: escáner para lo crítico, teléfono para todo lo demás.","modulos":[{"id":"gemelo","prioridad":1,"para":"Ubicar activos y su historial en la instalación."},{"id":"obra","prioridad":2,"para":"Registrar el estado antes y después de una intervención."},{"id":"terreno","prioridad":3,"para":"Cruzar con datos aéreos del sitio."}],"flujos":[{"id":"as-built-parcial","nombre":"As-built parcial de lo que sí cambió","pasos":["Escanear la zona intervenida","Comparar contra el registro anterior","Actualizar la ficha del activo","Adjuntar al cierre de la orden de trabajo"],"entrega":["Registro fechado","Comparativa","Ficha de activo actualizada"],"kimos":["kanban","archivos","gantt","integraciones"]}],"kpis":[{"id":"asbuilt","label":"Desfase entre plano y realidad","meta":"Actualizar por zona intervenida, no por proyecto completo"},{"id":"exposicion","label":"Tiempo de persona en zona de riesgo","meta":"Menos vueltas a verificar"}],"equiposRecomendados":["apple.iphone.pro.12-17","apple.ipadpro.2020+"],"normativa":["Equipos en faena: certificaciones de seguridad del dispositivo (intrínsecamente seguro donde aplique).","Las imágenes de instalaciones pueden ser información sensible: retención y acceso acotados."],"prospeccion":{"senales":["Planos as-built desactualizados","Mantenimientos con sorpresas en terreno","Contratistas que documentan con fotos"],"preguntas":["¿Qué tan al día están sus as-built?","¿Cuántas veces el equipo llega y se encuentra con algo distinto a lo planificado?"],"demo":"Escanear una sala de máquinas o un tablero y mostrar el registro fechado con las medidas del espacio de trabajo.","objeciones":[{"objecion":"Usamos escáner terrestre.","respuesta":"Para lo crítico, correcto. La pregunta es qué pasa con el 90% de la instalación que no justifica movilizar el escáner: eso hoy no se documenta."}],"ahorro":{"supuesto":"Intervenciones con retrabajo evitadas × costo de detención u hora de cuadrilla","formula":"intervenciones * costoRetrabajo"}},"kimos":["kanban","gantt","archivos","integraciones","equipos"]}]},"integraciones":{"version":"1.0.0","actualizado":"2026-08-25","nota":"Vinculación de LiDARia con el resto del ecosistema KIMOS. `disponibilidad` es lo que de verdad se puede hacer HOY con el contrato AppShell v1, no lo que sería bonito. `veredicto` incluye los 'marginal' y los 'no': una integración que no resuelve nada que alguien pague no se construye, aunque quede bien en una lámina. `alias` recoge los nombres con los que otros catálogos se refieren a la misma app (p. ej. 'escritorio' → 'agentes').","contratoPlataforma":{"lectura":"data.read:{templateId} — la app declara el permiso en su manifest y el superadmin lo aprueba al instalar. Da acceso de solo lectura a instancias e items de otra app, siempre bajo el RBAC del usuario. Precedente real: web-agents lee products y contact-forms; productlab lee products y productlab.","escritura":"NO existe app → app. Una app solo escribe en su propia instancia. Los tres caminos reales para que un artefacto de LiDARia llegue a otra app son: (1) el AGENTE, que aplica un payload en la app destino con sus propias tools (p. ej. SET_MODEL3D de ProductLab); (2) EXPORTAR/IMPORTAR archivo (ProductLab ya tiene EXPORT_DATA/IMPORT_DATA); (3) un módulo de backend propio, que solo tienen las apps oficiales.","publico":"public.read y public.submit exponen un gateway sin auth por instancia: sirve para recibir solicitudes desde un sitio externo y para publicar una definición.","assets":"Los archivos bajo assets/ se sirven en /api/apps/{id}/asset/{ruta}. Vía repo oficial el backend solo sirve dist/, así que los recursos van embebidos o por URL explícita."},"niveles":{"hoy":"Se puede construir con el contrato actual, sin cambios de plataforma.","agente":"Funciona hoy, pero el puente lo cruza el agente IA aplicando un payload en la app destino.","requiere-plataforma":"Necesita algo que la plataforma todavía no da (escritura entre apps, suscripción a cambios, o un módulo backend).","no-aplica":"No hay nada real que conectar."},"integraciones":[{"app":"productlab","nombre":"ProductLab","icon":"🧪","orden":1,"direccion":"lidaria→app","queViaja":"El GLB del producto escaneado, su lado mayor real en centímetros y las partes detectadas.","contrato":"ProductLab ya define `model3d` con `url`, `realSizeCm` (su propia documentación dice: 0 = SIN AR) y `arUrl`, y expone la tool SET_MODEL3D. LiDARia produce exactamente ese payload; el agente lo aplica. Lectura del catálogo con data.read:productlab.","disponibilidad":"agente","valor":5,"esfuerzoSemanas":2,"veredicto":"ancla","porque":"Es la integración que justifica el proyecto entero. ProductLab tiene visor 3D, configurador y cadena AR completa (Scene Viewer, Quick Look, QR de escritorio a móvil) y le falta exactamente una cosa: el modelo del producto real con su medida. Hoy eso se modela a mano o no existe.","riesgo":"El payload tiene que respetar el contrato de partes y materiales del GLB; si los nombres de material no calzan, el configurador no repinta."},{"app":"productos","nombre":"Productos (PIM)","icon":"📦","orden":2,"direccion":"bidireccional","queViaja":"Hacia Productos: medidas reales, peso volumétrico y modelo 3D. Hacia LiDARia: qué productos del catálogo aún no tienen 3D (la cola de trabajo del escaneo).","contrato":"Lectura directa con data.read:products (precedente: web-agents). La escritura pasa por ProductLab o por el agente.","disponibilidad":"hoy","valor":5,"esfuerzoSemanas":3,"veredicto":"ancla","porque":"Convierte el escaneo en una tarea con lista: 'te faltan 84 productos sin 3D, empieza por los 10 que más se devuelven'. Sin esa cola, escanear es un acto suelto.","riesgo":"El peso volumétrico calculado no sirve para facturar sin certificación metrológica."},{"app":"prospeccion","nombre":"Prospección Comercial","icon":"🎯","orden":3,"direccion":"bidireccional","queViaja":"Hacia Prospección: el diagnóstico del parque del prospecto, el escaneo hecho en la visita, la propuesta cuantificada y el guion del rubro. Hacia LiDARia: rubro, tamaño y etapa de la oportunidad.","contrato":"Lectura con data.read:prospeccion cuando el módulo exponga instancias e items. El escaneo de la visita se adjunta como evidencia por el agente o por Archivos; la propuesta se exporta en PDF.","disponibilidad":"agente","valor":5,"esfuerzoSemanas":4,"veredicto":"ancla","porque":"Es la integración de mayor retorno comercial y la menos obvia: el escaneo no es solo lo que se vende, es la demostración que cierra la reunión, y el diagnóstico del parque del prospecto es un dato de calificación que hoy no existe en ningún CRM.","riesgo":"Escanear el local de un prospecto es tratar datos de un tercero: consentimiento y borrado a demanda desde el primer contacto."},{"app":"tienda","nombre":"Tienda (e-commerce)","icon":"🛒","orden":4,"direccion":"lidaria→app","queViaja":"La vista AR en la ficha de producto y el modelo 3D del configurador.","contrato":"Indirecto y ya construido: ProductLab publica el JSON del configurador que consume el theme, con 3D y AR. LiDARia solo tiene que llenar el modelo.","disponibilidad":"hoy","valor":4,"esfuerzoSemanas":1,"veredicto":"ancla","porque":"Es donde el 3D se convierte en dinero: conversión y devoluciones. Y no hay que construir la cadena AR, ya existe.","riesgo":"Un modelo pesado en la ficha arruina la velocidad de carga: compresión y nivel de detalle obligatorios."},{"app":"vitrina","nombre":"Vitrina (catálogo digital)","icon":"🖼️","orden":5,"direccion":"lidaria→app","queViaja":"Modelos 3D navegables de productos, piezas de colección o propiedades.","contrato":"Publicación del modelo con su ficha; el visor 3D es el mismo motor que ya usa ProductLab.","disponibilidad":"hoy","valor":4,"esfuerzoSemanas":2,"veredicto":"util","porque":"Para museos, inmobiliarias y catálogos de marca, la vitrina con 3D es el entregable final del escaneo.","riesgo":"Derechos sobre los modelos derivados en el caso de patrimonio."},{"app":"archivos","nombre":"Archivos","icon":"📁","orden":6,"direccion":"bidireccional","queViaja":"Los artefactos pesados: nubes de puntos, mallas densas, planos DXF/IFC, reportes PDF y los originales de cada captura.","contrato":"Destino natural de la exportación; lectura para reabrir capturas anteriores.","disponibilidad":"hoy","valor":4,"esfuerzoSemanas":2,"veredicto":"ancla","porque":"Sin un lugar donde vivan los originales, cada escaneo es desechable. Y la comparación entre fechas (obra, seguros, arriendo) exige recuperar el anterior.","riesgo":"Volumen: una nube de puntos de una vivienda pesa. Política de retención y compresión desde el día uno."},{"app":"pedidos","nombre":"Pedidos","icon":"🧾","orden":7,"direccion":"bidireccional","queViaja":"Hacia Pedidos: medidas de la visita, volumen del bulto, foto acotada como respaldo. Hacia LiDARia: qué pedido está en curso para adjuntar la evidencia al correcto.","contrato":"Lectura con data.read:orders; el adjunto viaja por Archivos o por el agente.","disponibilidad":"hoy","valor":4,"esfuerzoSemanas":3,"veredicto":"util","porque":"Cierra el ciclo en fabricación a medida y en despacho: la medida deja de vivir en un cuaderno.","riesgo":"Ninguno relevante."},{"app":"clientes","nombre":"Clientes","icon":"👥","orden":8,"direccion":"bidireccional","queViaja":"El histórico de capturas asociado al cliente: su local, su propiedad, sus evaluaciones.","contrato":"Lectura con data.read:customers para elegir el cliente al capturar.","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":2,"veredicto":"util","porque":"Es lo que permite responder '¿cómo estaba esto la última vez que fuimos?' sin buscar en carpetas.","riesgo":"Datos personales dentro de las capturas: difuminado y retención."},{"app":"agentes","nombre":"Agentes / Escritorio KIMOS","icon":"🤖","orden":9,"direccion":"bidireccional","queViaja":"Órdenes y consultas en lenguaje natural sobre inventario, cobertura, economía y licencias; y el puente para aplicar payloads en otras apps.","contrato":"shell.agent.register con tools y getSnapshot. **Ya implementado**: la consola registra seis herramientas.","disponibilidad":"hoy","valor":4,"esfuerzoSemanas":0,"veredicto":"ancla","porque":"Es el único mecanismo de escritura entre apps que existe hoy, y además convierte a LiDARia en algo consultable: '¿con lo que tenemos podemos levantar planos?'.","riesgo":"Todo input del agente se valida: puede mandar datos fuera de rango.","alias":["escritorio"]},{"app":"integraciones","nombre":"Integraciones (iPaaS)","icon":"🔌","orden":10,"direccion":"bidireccional","queViaja":"Salida hacia sistemas externos: ERP, transportistas, BIM, CAD, y entrada de catálogos externos.","contrato":"Módulo de plataforma; LiDARia entrega formatos estándar (GLB, DXF, IFC, LAS/LAZ, CSV) y consume webhooks.","disponibilidad":"requiere-plataforma","valor":4,"esfuerzoSemanas":4,"veredicto":"util","porque":"En construcción y logística, el cliente no cambia su ERP: o el dato sale en su formato, o no hay venta.","riesgo":"Cada integración externa tiene su propio mantenimiento; se priorizan dos o tres, no diez."},{"app":"gantt","nombre":"Planificación (Gantt)","icon":"📊","orden":11,"direccion":"bidireccional","queViaja":"Hacia Gantt: avance medido por zona y fecha. Hacia LiDARia: qué hitos hay que verificar en la próxima visita.","contrato":"Lectura con data.read:gantt; la actualización de avance la aplica el agente o la persona.","disponibilidad":"agente","valor":3,"esfuerzoSemanas":3,"veredicto":"util","porque":"Convierte 'creo que vamos al 60%' en 'estas zonas están terminadas y hay evidencia fechada'.","riesgo":"Traducir volumen escaneado a porcentaje de avance es una interpretación: se muestra la evidencia, no se decide sola."},{"app":"kanban","nombre":"Kanban","icon":"🗂️","orden":12,"direccion":"lidaria→app","queViaja":"Cada observación anclada en el espacio se convierte en una tarjeta con su foto, su punto y su responsable.","contrato":"Creación de tarjetas por el agente; lectura con data.read:kanban para ver el estado en el punto.","disponibilidad":"agente","valor":3,"esfuerzoSemanas":3,"veredicto":"util","porque":"Es el paso natural entre 'encontré esto' y 'alguien lo arregla', y hoy ese paso se pierde en un grupo de mensajería.","riesgo":"Ninguno relevante."},{"app":"conocimiento","nombre":"Conocimiento","icon":"📚","orden":13,"direccion":"bidireccional","queViaja":"Hacia Conocimiento: los packs de rubro (flujos, guiones, tolerancias) como base consultable. Hacia LiDARia: packs propios de la organización.","contrato":"Los packs son JSON validado; entran por el cargador de packs y salen como artículos.","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":3,"veredicto":"util","porque":"Es el mecanismo por el que la base de conocimiento del producto crece con lo que aprende cada organización, en vez de quedarse en lo que trae de fábrica.","riesgo":"Un pack mal hecho degrada las recomendaciones: por eso el cargador valida y marca el origen de cada rubro."},{"app":"formularios","nombre":"Formularios de Contacto","icon":"📝","orden":14,"direccion":"app→lidaria","queViaja":"Solicitudes de levantamiento, cotización o visita entrando desde un sitio externo.","contrato":"Gateway público (public.submit) o lectura con data.read:contact-forms (precedente: web-agents).","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":2,"veredicto":"util","porque":"Es la puerta de entrada barata: 'pide tu levantamiento' en la web del cliente cae directo en la cola de trabajo.","riesgo":"Los guardarraíles del gateway (rate limit, honeypot, payload acotado) ya los pone la plataforma."},{"app":"web-agents","nombre":"Agentes Web","icon":"💬","orden":15,"direccion":"lidaria→app","queViaja":"El modelo 3D y las medidas reales del producto, para que el chat responda '¿cuánto mide?' y '¿cómo se ve en mi living?'.","contrato":"web-agents ya lee products con data.read:products; el 3D llega por esa misma vía una vez publicado.","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":1,"veredicto":"util","porque":"Casi gratis: el dato ya viaja por un camino existente, y responde la pregunta que más frena una compra.","riesgo":"Ninguno relevante."},{"app":"fossflow","nombre":"FossFLOW (BPM)","icon":"🔀","orden":16,"direccion":"bidireccional","queViaja":"El proceso captura → revisión → publicación como flujo supervisado por etapa.","contrato":"Modelado del proceso en FossFLOW; LiDARia reporta el estado de cada captura.","disponibilidad":"requiere-plataforma","valor":3,"esfuerzoSemanas":4,"veredicto":"util","porque":"En una organización con varias personas capturando, sin proceso el resultado es una carpeta con 400 escaneos sin revisar.","riesgo":"Solo vale cuando hay volumen: para un usuario suelto es burocracia."},{"app":"digitai","nombre":"Digitai (automatización IA)","icon":"⚙️","orden":17,"direccion":"bidireccional","queViaja":"Post-proceso automático: limpieza de malla, difuminado de caras, generación de miniaturas y fichas.","contrato":"Orquestación de tareas sobre los artefactos que LiDARia deja en Archivos.","disponibilidad":"requiere-plataforma","valor":3,"esfuerzoSemanas":5,"veredicto":"util","porque":"El difuminado de caras y matrículas no puede depender de que alguien se acuerde: es una tarea automática o no ocurre.","riesgo":"Costo de cómputo: es justo donde se va el margen si no se controla."},{"app":"panel-html","nombre":"HTML Panel / Dashboards","icon":"📈","orden":18,"direccion":"lidaria→app","queViaja":"Cobertura de módulos por equipo, capturas por semana, productos con 3D sobre el total, ahorro estimado.","contrato":"Publicación de un JSON que el panel consume.","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":2,"veredicto":"util","porque":"Es lo que hace que la gerencia vea el retorno sin abrir la app de captura.","riesgo":"Medir uso no es medir valor: el panel tiene que mostrar el KPI del rubro, no la cantidad de escaneos."},{"app":"eventos","nombre":"Gestión de Eventos","icon":"🎫","orden":19,"direccion":"bidireccional","queViaja":"El plano del salón, la propuesta de montaje y la verificación de accesos.","contrato":"Adjuntos y lectura de la ficha del evento.","disponibilidad":"hoy","valor":3,"esfuerzoSemanas":2,"veredicto":"util","porque":"Para el rubro de eventos es el flujo completo: cotizar con el salón real y montar sin sorpresas.","riesgo":"Ninguno relevante."},{"app":"equipos","nombre":"Equipos","icon":"👨‍👩‍👧","orden":20,"direccion":"bidireccional","queViaja":"Compartir una captura con el equipo y comentarla.","contrato":"Canal de colaboración de la plataforma.","disponibilidad":"hoy","valor":2,"esfuerzoSemanas":1,"veredicto":"util","porque":"Barato y evita que las capturas se compartan por mensajería fuera de la organización.","riesgo":"Ninguno relevante."},{"app":"kreative","nombre":"Kreative Studio","icon":"🎨","orden":21,"direccion":"lidaria→app","queViaja":"Renders del modelo 3D en distintos ángulos, fondos y acabados, como insumo gráfico.","contrato":"Exportación de imágenes desde el visor.","disponibilidad":"requiere-plataforma","valor":3,"esfuerzoSemanas":3,"veredicto":"util","porque":"Un producto escaneado puede generar cien fotos de catálogo sin sesión fotográfica. Es un beneficio secundario del mismo trabajo.","riesgo":"Un render mediocre daña más que una foto simple: hay que fijar calidad mínima."},{"app":"notas","nombre":"Notas de Equipo","icon":"📓","orden":22,"direccion":"lidaria→app","queViaja":"Enlaces a capturas dentro de una nota.","contrato":"Enlace, nada más.","disponibilidad":"hoy","valor":1,"esfuerzoSemanas":0,"veredicto":"marginal","porque":"Funciona pegando un enlace. No hace falta construir nada y tampoco aporta gran cosa.","riesgo":"—"},{"app":"social-planner","nombre":"Social Planner","icon":"📱","orden":23,"direccion":"lidaria→app","queViaja":"Vídeos cortos del modelo girando, para publicar.","contrato":"Exportación de vídeo desde el visor.","disponibilidad":"requiere-plataforma","valor":2,"esfuerzoSemanas":3,"veredicto":"marginal","porque":"Es real —el contenido 3D funciona en redes— pero nadie compra LiDARia por esto. Se hace si sobra tiempo después de las anclas.","riesgo":"—"},{"app":"cashflow","nombre":"KIMOS Cashflow","icon":"💰","orden":24,"direccion":"lidaria→app","queViaja":"Cotizaciones generadas desde mediciones, como entrada de flujo proyectado.","contrato":"Vía Pedidos; no hay conexión directa que valga la pena.","disponibilidad":"requiere-plataforma","valor":2,"esfuerzoSemanas":3,"veredicto":"marginal","porque":"La relación es indirecta: lo que alimenta el flujo es el pedido, no la medición. Conectar LiDARia con Cashflow salta un paso que ya existe.","riesgo":"—"},{"app":"funplai","nombre":"Kimos FunPlai (gamificación)","icon":"🎮","orden":25,"direccion":"ninguna","queViaja":"Nada que alguien pague.","contrato":"—","disponibilidad":"no-aplica","valor":1,"esfuerzoSemanas":0,"veredicto":"no","porque":"Se puede imaginar una búsqueda del tesoro en AR sobre un espacio escaneado, y queda bien en una lámina. No resuelve ningún problema por el que una empresa pague, y consumiría el mismo equipo que necesitan las anclas.","riesgo":"El riesgo es construirlo."},{"app":"tarjetas","nombre":"Tarjetas","icon":"🪪","orden":26,"direccion":"ninguna","queViaja":"Nada.","contrato":"—","disponibilidad":"no-aplica","valor":1,"esfuerzoSemanas":0,"veredicto":"no","porque":"No hay punto de contacto real entre tarjetas de presentación y captura 3D. Forzarlo sería inventar una integración para llenar una casilla.","riesgo":"—"}]},"matriz":[{"equipo":"apple.iphone.pro.12-17","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":8,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","espacios":"potencial","objetos":"potencial","obra":"potencial","gemelo":"potencial","cuerpo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":9,"degradados":1,"potenciales":0,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","cuerpo":"completo","medir":"completo","obra":"completo","gemelo":"completo","accesibilidad":"completo","volumen":"completo","vitrina-ar":"degradado","terreno":"visor"}}},{"equipo":"apple.ipadpro.2020+","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":8,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","espacios":"potencial","objetos":"potencial","cuerpo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial","obra":"potencial","gemelo":"potencial"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":7,"degradados":3,"potenciales":0,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","cuerpo":"completo","medir":"completo","accesibilidad":"completo","volumen":"completo","vitrina-ar":"degradado","obra":"degradado","gemelo":"degradado","terreno":"visor"}}},{"equipo":"apple.iphone.estandar","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":3,"visor":5,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","objetos":"potencial","cuerpo":"potencial","medir":"potencial","espacios":"visor","obra":"visor","gemelo":"visor","accesibilidad":"visor","volumen":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.structured","sensorLabel":"Luz estructurada frontal","errorA3m":0.015,"resumen":{"completos":2,"degradados":3,"potenciales":0,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","cuerpo":"completo","medir":"degradado","objetos":"degradado","vitrina-ar":"degradado","espacios":"visor","obra":"visor","gemelo":"visor","terreno":"visor","accesibilidad":"visor","volumen":"visor"}}},{"equipo":"apple.visionpro","web":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":7,"degradados":4,"potenciales":0,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","espacios":"completo","objetos":"completo","vitrina-ar":"completo","cuerpo":"completo","accesibilidad":"completo","volumen":"completo","medir":"degradado","obra":"degradado","gemelo":"degradado","terreno":"degradado"}},"nativo":null},{"equipo":"meta.quest3","web":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.dtof","sensorLabel":"LiDAR (dToF)","errorA3m":0.03,"resumen":{"completos":3,"degradados":8,"potenciales":0,"visor":0,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"completo","volumen":"completo","medir":"degradado","espacios":"degradado","objetos":"degradado","obra":"degradado","gemelo":"degradado","terreno":"degradado","accesibilidad":"degradado","cuerpo":"degradado"}},"nativo":null},{"equipo":"android.xr.visores","web":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.stereo","sensorLabel":"Estéreo multicámara","errorA3m":0.12,"resumen":{"completos":1,"degradados":4,"potenciales":0,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"degradado","gemelo":"degradado","espacios":"visor","objetos":"visor","volumen":"visor","obra":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"samsung.tof.2019-2020","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":7,"visor":1,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"potencial","gemelo":"potencial","medir":"potencial","espacios":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":4,"degradados":5,"potenciales":0,"visor":2,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","obra":"completo","gemelo":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","accesibilidad":"degradado","espacios":"degradado","objetos":"degradado","terreno":"visor","cuerpo":"visor"}}},{"equipo":"samsung.flagship.reciente","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":5,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","objetos":"potencial","gemelo":"potencial","accesibilidad":"potencial","medir":"potencial","volumen":"potencial","espacios":"visor","obra":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.stereo","sensorLabel":"Estéreo multicámara","errorA3m":0.12,"resumen":{"completos":4,"degradados":3,"potenciales":0,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","gemelo":"completo","accesibilidad":"completo","volumen":"completo","medir":"degradado","objetos":"degradado","vitrina-ar":"degradado","obra":"visor","espacios":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"huawei.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":4,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","obra":"visor","gemelo":"visor","espacios":"visor","cuerpo":"visor"}},"nativo":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":0,"potenciales":4,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","obra":"visor","gemelo":"visor","terreno":"visor","espacios":"visor","vitrina-ar":"visor","cuerpo":"visor"}}},{"equipo":"sony.xperia1.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":6,"visor":2,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"potencial","medir":"potencial","espacios":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","gemelo":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":2,"degradados":6,"potenciales":0,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","obra":"degradado","espacios":"degradado","objetos":"degradado","accesibilidad":"degradado","gemelo":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"honor.lg.tof","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":4,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"potencial","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","espacios":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-metrica","nivelLabel":"Captura métrica","sensor":"depth.itof","sensorLabel":"ToF continuo (iToF)","errorA3m":0.07500000000000001,"resumen":{"completos":1,"degradados":5,"potenciales":0,"visor":5,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","medir":"degradado","objetos":"degradado","volumen":"degradado","accesibilidad":"degradado","espacios":"visor","obra":"visor","gemelo":"visor","terreno":"visor","cuerpo":"visor"}}},{"equipo":"android.arcore.generico","web":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.motion","sensorLabel":"Profundidad por movimiento","errorA3m":0.21000000000000002,"resumen":{"completos":1,"degradados":5,"potenciales":2,"visor":3,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","vitrina-ar":"degradado","terreno":"degradado","medir":"degradado","objetos":"degradado","volumen":"degradado","gemelo":"potencial","accesibilidad":"potencial","obra":"visor","espacios":"visor","cuerpo":"visor"}},"nativo":{"nivel":"captura-basica","nivelLabel":"Captura asistida","sensor":"depth.motion","sensorLabel":"Profundidad por movimiento","errorA3m":0.21000000000000002,"resumen":{"completos":3,"degradados":4,"potenciales":0,"visor":4,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","gemelo":"completo","volumen":"completo","medir":"degradado","vitrina-ar":"degradado","accesibilidad":"degradado","objetos":"degradado","obra":"visor","terreno":"visor","espacios":"visor","cuerpo":"visor"}}},{"equipo":"android.sinarcore","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":2,"potenciales":0,"visor":8,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","vitrina-ar":"degradado","obra":"visor","gemelo":"visor","medir":"visor","espacios":"visor","objetos":"visor","volumen":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":0,"potenciales":0,"visor":10,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","obra":"visor","gemelo":"visor","terreno":"visor","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","cuerpo":"visor","accesibilidad":"visor"}}},{"equipo":"pc.escritorio","web":{"nivel":"visor-camara","nivelLabel":"Cámara sin profundidad","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":2,"degradados":0,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"completo","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"pc.sensor3d","web":{"nivel":"bloqueado","nivelLabel":"Capaz, pero bloqueado","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":2,"degradados":0,"potenciales":3,"visor":6,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"completo","objetos":"potencial","volumen":"potencial","accesibilidad":"potencial","medir":"visor","espacios":"visor","vitrina-ar":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor"}},"nativo":null},{"equipo":"tv.totem","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"reloj.wearable","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null},{"equipo":"campo.dron.escaner","web":{"nivel":"consola","nivelLabel":"Consola","sensor":null,"sensorLabel":"sin medición métrica","errorA3m":null,"resumen":{"completos":1,"degradados":1,"potenciales":0,"visor":9,"noDisponibles":0,"total":11},"modulos":{"diagnostico":"completo","terreno":"degradado","medir":"visor","espacios":"visor","objetos":"visor","vitrina-ar":"visor","volumen":"visor","obra":"visor","gemelo":"visor","cuerpo":"visor","accesibilidad":"visor"}},"nativo":null}]};
 
 /* ------------------------------- utilidades ------------------------------- */
 
@@ -1159,9 +1853,12 @@ const cm = (m) => (m == null ? '—' : (m < 0.01 ? (m * 1000).toFixed(0) + ' mm'
 
 const TABS = [
   ['panel', 'Panel', '🛰️'],
+  ['rubros', 'Rubros', '🏭'],
   ['modulos', 'Módulos', '🧩'],
   ['inventario', 'Inventario', '🎒'],
   ['equipos', 'Equipos', '📱'],
+  ['prospeccion', 'Prospección', '🎯'],
+  ['ecosistema', 'Ecosistema', '🔗'],
   ['negocio', 'Negocio', '📈'],
   ['plan', 'Plan', '🗺️'],
   ['licencias', 'Licencias', '⚖️'],
@@ -1234,6 +1931,9 @@ function estadoInicial() {
     v: 1,
     tab: 'panel',
     inventario: [],
+    packs: [],
+    rubroSel: null,
+    prospecto: { nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] },
     sup: Object.assign({}, SUPUESTOS_BASE),
     filtro: '',
     moduloSel: null,
@@ -1264,8 +1964,8 @@ export default function mount(shell) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      const { v, tab, inventario, sup, urlApp } = estado;
-      Promise.resolve(shell.saveData({ v, tab, inventario, sup, urlApp })).catch(() => {});
+      const { v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp } = estado;
+      Promise.resolve(shell.saveData({ v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp })).catch(() => {});
     }, 800);
   }
 
@@ -1278,6 +1978,20 @@ export default function mount(shell) {
       if (d.tab && TABS.some((t) => t[0] === d.tab)) patch.tab = d.tab;
       if (Array.isArray(d.inventario)) patch.inventario = d.inventario.filter((i) => i && equipoPorId(i.equipo));
       if (d.sup) patch.sup = Object.assign({}, SUPUESTOS_BASE, d.sup);
+      // Los packs se revalidan al restaurar: un pack guardado con una versión
+      // vieja del catálogo puede haber quedado apuntando a un módulo que ya no
+      // existe, y entrar en silencio sería peor que descartarlo.
+      if (Array.isArray(d.packs)) {
+        const catalogos = {
+          modulos: DATOS.modules.modulos.map((m) => m.id),
+          equipos: DATOS.devices.equipos.map((e) => e.id),
+        };
+        patch.packs = d.packs.filter((p) => validarPack(p, catalogos).ok);
+      }
+      if (d.prospecto && typeof d.prospecto === 'object') {
+        patch.prospecto = Object.assign({ nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] }, d.prospecto);
+      }
+      if (typeof d.rubroSel === 'string') patch.rubroSel = d.rubroSel;
       if (typeof d.urlApp === 'string') patch.urlApp = d.urlApp;
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
@@ -1736,6 +2450,345 @@ export default function mount(shell) {
           h('b', null, r.tema + ': '), r.riesgo, ' ', h('i', null, r.medida))))));
   }
 
+
+  /* ------------------------- rubros y packs de rubro ------------------------ */
+
+  /** Catálogo de rubros del producto más los packs cargados por la organización. */
+  function rubrosActivos() {
+    const carga = cargarPacks(DATOS.rubros, estado.packs || [], {
+      modulos: DATOS.modules.modulos.map((m) => m.id),
+      equipos: DATOS.devices.equipos.map((e) => e.id),
+    });
+    return carga;
+  }
+
+  /** Contexto que necesita el motor de rubros: estado por módulo según el inventario. */
+  function ctxRubro(cob) {
+    const inv = estado.inventario;
+    const mejorSensorInventario = () => {
+      const orden = ['depth.dtof', 'depth.structured', 'depth.itof', 'depth.stereo', 'depth.motion'];
+      let mejor = null;
+      for (const i of inv) {
+        const f = filaMatriz(i.equipo);
+        const m = (f && f.nativo) || (f && f.web);
+        if (!m || !m.sensor) continue;
+        if (mejor == null || orden.indexOf(m.sensor) < orden.indexOf(mejor)) mejor = m.sensor;
+      }
+      return mejor;
+    };
+    return {
+      sensorId: mejorSensorInventario(),
+      modulos: DATOS.modules,
+      equipos: DATOS.devices,
+      estadoModulo: (id) => (cob.porModulo[id] || {}).estado || 'no-disponible',
+      appsAncla: ['productlab', 'productos', 'tienda', 'vitrina', 'prospeccion'],
+      equipoSirve: (equipoId) => {
+        const f = filaMatriz(equipoId);
+        const m = (f && f.nativo) || (f && f.web);
+        return !!(m && m.sensor);
+      },
+    };
+  }
+
+  async function cargarPackArchivo(archivo) {
+    try {
+      const pack = /\.krub$/i.test(archivo.name)
+        ? leerKrub(await archivo.arrayBuffer())
+        : JSON.parse(await archivo.text());
+      const catalogos = {
+        modulos: DATOS.modules.modulos.map((m) => m.id),
+        equipos: DATOS.devices.equipos.map((e) => e.id),
+      };
+      const v = validarPack(pack, catalogos);
+      if (!v.ok) {
+        if (shell && shell.notify) shell.notify({ level: 'error', text: 'Pack rechazado: ' + v.errores[0] });
+        return;
+      }
+      const packs = (estado.packs || []).filter((p) => p.id !== pack.id).concat([pack]);
+      const prueba = cargarPacks(DATOS.rubros, packs, catalogos);
+      if (prueba.errores.length) {
+        if (shell && shell.notify) shell.notify({ level: 'error', text: 'Pack rechazado: ' + prueba.errores[0] });
+        return;
+      }
+      commit({ packs: packs });
+      if (shell && shell.notify) {
+        shell.notify({ level: 'success', text: 'Pack "' + (pack.nombre || pack.id) + '" cargado: ' + pack.rubros.length + ' entrada(s).' });
+      }
+    } catch (e) {
+      if (shell && shell.notify) shell.notify({ level: 'error', text: 'No se pudo leer el pack: ' + ((e && e.message) || e) });
+    }
+  }
+
+  function quitarPack(id) {
+    commit({ packs: (estado.packs || []).filter((p) => p.id !== id) });
+  }
+
+  function vistaRubros(cob) {
+    const carga = rubrosActivos();
+    const ctx = ctxRubro(cob);
+    const lista = rubrosViables(carga.rubros, ctx);
+    const sel = estado.rubroSel ? carga.rubros.filter((r) => r.id === estado.rubroSel)[0] : null;
+
+    const chipMargen = (t) => {
+      if (t.cumple == null) return chip('sin tolerancia declarada');
+      if (t.cumple === false) return chip('no alcanza', 'ld-t-no', t.motivo);
+      return chip(t.margen === 'justo' ? 'cumple justo' : 'cumple con margen', t.margen === 'justo' ? 'ld-t-justo' : 'ld-t-ok', t.motivo);
+    };
+
+    const fichas = lista.map(({ plan, listos, total, puntaje }) => h('article', {
+      key: plan.rubro.id,
+      className: 'ld-mod' + (estado.rubroSel === plan.rubro.id ? ' on' : ''),
+      onClick: () => commit({ rubroSel: estado.rubroSel === plan.rubro.id ? null : plan.rubro.id }),
+    },
+      h('header', null,
+        h('span', { className: 'ld-mod-ico' }, plan.rubro.icon || '•'),
+        h('div', null,
+          h('h3', null, plan.rubro.nombre),
+          h('p', { className: 'ld-mini' }, listos + '/' + total + ' módulos listos'
+            + (plan.rubro.origen !== 'base' ? ' · pack ' + plan.rubro.origen : ''))),
+        h('span', { className: 'ld-est' }, puntaje + '%')),
+      h('p', null, plan.dolor),
+      h('div', { className: 'ld-chips' }, chipMargen(plan.tolerancia))));
+
+    const detalle = !sel ? null : (function () {
+      const plan = planDeRubro(sel, ctx);
+      return card((sel.icon || '') + ' ' + sel.nombre,
+        h('div', null,
+          h('div', { className: 'ld-cols' },
+            h('div', null,
+              h('h4', null, 'Quién es el cliente'), h('p', null, plan.cliente),
+              h('h4', null, 'Qué le duele'), h('p', null, plan.dolor),
+              h('h4', null, 'Tolerancia del rubro'),
+              h('p', null, plan.tolerancia.motivo),
+              plan.toleranciaNota ? h('p', { className: 'ld-mini' }, plan.toleranciaNota) : null,
+              h('h4', null, 'Módulos, en orden'),
+              h('ul', { className: 'ld-lista' }, plan.modulos.map((m) => h('li', { key: m.id },
+                h('b', null, m.icon + ' ' + m.nombre), ' — ', m.para,
+                ' ', pastilla(m.estado))))),
+            h('div', null,
+              h('h4', null, 'Cómo se trabaja'),
+              (plan.flujos || []).map((f) => h('div', { className: 'ld-gap', key: f.id },
+                h('b', null, f.nombre),
+                h('ol', { className: 'ld-lista ld-mini' }, (f.pasos || []).map((p, i) => h('li', { key: i }, p))),
+                h('div', { className: 'ld-mini' }, 'Entrega: ' + (f.entrega || []).join(' · ')))),
+              h('h4', null, 'Qué mejora'),
+              h('ul', { className: 'ld-lista ld-mini' }, (plan.kpis || []).map((k) => h('li', { key: k.id }, h('b', null, k.label), ' → ' + k.meta))),
+              plan.normativa.length ? h('div', null,
+                h('h4', null, 'Cuidado con'),
+                h('ul', { className: 'ld-lista ld-mini' }, plan.normativa.map((n, i) => h('li', { key: i }, n)))) : null,
+              h('h4', null, 'Se apoya en'),
+              h('div', { className: 'ld-chips' }, (plan.kimos || []).map((k) => chip(k, 'kimos'))))),
+          h('h4', null, 'Qué hacer ahora'),
+          h('ul', { className: 'ld-lista' }, plan.acciones.map((a, i) => h('li', { key: i }, a))),
+          h('div', { className: 'ld-fila' },
+            h('button', {
+              className: 'ld-btn ld-pri',
+              onClick: () => commit({ tab: 'prospeccion', prospecto: Object.assign({}, estado.prospecto, { rubro: sel.id }) }),
+            }, 'Preparar una visita de este rubro'))),
+        { clase: 'ld-detalle' });
+    })();
+
+    const packs = (estado.packs || []);
+    return h('div', null,
+      card('🏭 La misma app, el lenguaje de cada industria',
+        h('div', null,
+          h('p', null, 'Un rubro traduce las capacidades a decisiones: con qué tolerancia se trabaja, qué módulos importan y en qué orden, cómo es el flujo, qué KPI mejora y qué normativa hay que respetar. El porcentaje es qué tan cerca está la organización de poder ejecutarlo con su inventario actual.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Rubros disponibles', carga.rubros.length, packs.length ? (carga.rubros.length - DATOS.rubros.rubros.length) + ' de packs' : 'del catálogo base'),
+            kpi('Listos para empezar', lista.filter((x) => x.plan.listoParaEmpezar).length, 'con el inventario actual'),
+            kpi('Packs cargados', packs.length, 'ampliaciones de la organización')))),
+
+      card('📦 Ampliar la base de conocimiento',
+        h('div', null,
+          h('p', null, 'Un rubro nuevo —o la variante propia de un cliente— entra como un pack ',
+            h('b', null, '.krub'), ' o ', h('b', null, '.json'),
+            ', con las mismas convenciones que una app de KIMOS: id con namespace, versión semver, autor y contrato declarado. Un pack solo puede ',
+            h('b', null, 'añadir o extender'), ': nunca borra lo que trae el producto, y cada rubro queda marcado con su origen.'),
+          h('div', { className: 'ld-fila' },
+            h('input', {
+              type: 'file', accept: '.krub,.json', className: 'ld-input',
+              onChange: (e) => { const f = e.target.files && e.target.files[0]; if (f) cargarPackArchivo(f); e.target.value = ''; },
+            })),
+          packs.length ? h('div', { className: 'ld-tbl-wrap' }, h('table', { className: 'ld-tbl' },
+            h('thead', null, h('tr', null, ['Pack', 'Versión', 'Autor', 'Entradas', ''].map((t) => h('th', { key: t }, t)))),
+            h('tbody', null, packs.map((p) => h('tr', { key: p.id },
+              h('td', null, h('b', null, p.nombre || p.id), h('div', { className: 'ld-mini' }, p.id)),
+              h('td', null, p.version || '—'),
+              h('td', null, p.autor || '—'),
+              h('td', null, (p.rubros || []).length),
+              h('td', null, h('button', { className: 'ld-btn ld-mini-btn', onClick: () => quitarPack(p.id) }, 'Quitar'))))))) : null,
+          carga.errores.length ? h('p', { className: 'ld-hint' }, 'Avisos de carga: ' + carga.errores.join(' · ')) : null),
+        { hint: 'Se empaqueta con node tools/pack-rubro.mjs desde el repositorio kimos-LiDARia, o desde el Creator Pack de KIMOS.' }),
+
+      detalle,
+      h('div', { className: 'ld-grid' }, fichas));
+  }
+
+  /* ------------------------------- prospección ------------------------------ */
+
+  function setProspecto(patch) {
+    commit({ prospecto: Object.assign({}, estado.prospecto, patch) });
+  }
+
+  function fichaActual(cob) {
+    const carga = rubrosActivos();
+    const p = estado.prospecto || {};
+    const rubro = carga.rubros.filter((r) => r.id === p.rubro)[0] || null;
+    const ctx = Object.assign({}, ctxRubro(cob), { rubro: rubro });
+    return { ficha: fichaProspecto(p, ctx), rubro: rubro, carga: carga };
+  }
+
+  function vistaProspeccion(cob) {
+    const p = estado.prospecto || {};
+    const { ficha, rubro, carga } = fichaActual(cob);
+
+    const formulario = card('🎯 El prospecto',
+      h('div', null,
+        h('p', null, 'Tres datos deciden qué se le puede ofrecer: su rubro, cuánta gente tiene en terreno y ',
+          h('b', null, 'qué equipos usan'), '. El tercero es el que ningún CRM tiene hoy, y el que define si la propuesta es real o una promesa.'),
+        h('div', { className: 'ld-campos' },
+          h('label', { className: 'ld-campo' }, h('span', null, 'Nombre'),
+            h('input', { type: 'text', value: p.nombre || '', onChange: (e) => setProspecto({ nombre: e.target.value.slice(0, 80) }) })),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Rubro'),
+            h('select', { value: p.rubro || '', onChange: (e) => setProspecto({ rubro: e.target.value }) },
+              h('option', { value: '' }, '— elegir —'),
+              carga.rubros.map((r) => h('option', { key: r.id, value: r.id }, (r.icon || '') + ' ' + r.nombre)))),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Personas en terreno'),
+            h('input', { type: 'number', min: 0, value: p.usuariosCampo == null ? '' : p.usuariosCampo, onChange: (e) => setProspecto({ usuariosCampo: Number(e.target.value) || 0 }) }))),
+        h('h4', null, 'Equipos que usan hoy'),
+        h('div', { className: 'ld-chips' }, DATOS.devices.equipos.filter((e) => e.clase === 'movil' || e.clase === 'tablet').map((e) => {
+          const on = (p.equipos || []).indexOf(e.id) >= 0;
+          return h('button', {
+            key: e.id, className: 'ld-chip' + (on ? ' req' : ''),
+            onClick: () => setProspecto({ equipos: on ? (p.equipos || []).filter((x) => x !== e.id) : (p.equipos || []).concat([e.id]) }),
+          }, (on ? '✓ ' : '') + e.nombre);
+        })),
+        h('h4', null, 'Módulos de KIMOS que ya usa'),
+        h('div', { className: 'ld-chips' }, ['productlab', 'productos', 'tienda', 'vitrina', 'prospeccion', 'pedidos', 'gantt', 'kanban', 'archivos'].map((a) => {
+          const on = (p.appsKimos || []).indexOf(a) >= 0;
+          return h('button', {
+            key: a, className: 'ld-chip' + (on ? ' req' : ''),
+            onClick: () => setProspecto({ appsKimos: on ? (p.appsKimos || []).filter((x) => x !== a) : (p.appsKimos || []).concat([a]) }),
+          }, (on ? '✓ ' : '') + a);
+        }))));
+
+    if (ficha.error) {
+      return h('div', null, formulario,
+        card('Sin rubro no hay ficha', h('div', null,
+          h('p', null, ficha.error),
+          h('h4', null, 'Lo que ya se puede decir'),
+          h('ul', { className: 'ld-lista' }, ficha.calificacion.motivos.map((m, i) => h('li', { key: i }, m.signo + ' ' + m.texto))))));
+    }
+
+    const lista = (titulo, items, nota) => items.length ? h('div', { className: 'ld-gap' },
+      h('h4', null, titulo),
+      h('ul', { className: 'ld-lista' }, items.map((i) => h('li', { key: i.id },
+        h('b', null, i.icon + ' ' + i.nombre), ' — ', i.para,
+        i.precioMensual ? h('span', { className: 'ld-mini' }, ' · ' + usd(i.precioMensual) + '/mes ' + (i.modelo === 'por-usuario' ? 'por usuario' : 'por cuenta')) : null))),
+      nota ? h('p', { className: 'ld-mini' }, nota) : null) : null;
+
+    return h('div', null,
+      formulario,
+      card('Calificación: ' + ficha.calificacion.puntaje + '/100 · ' + ficha.calificacion.nivel,
+        h('div', null,
+          h('ul', { className: 'ld-lista' }, ficha.calificacion.motivos.map((m, i) =>
+            h('li', { key: i }, h('b', null, m.signo + ' '), m.texto))),
+          h('h4', null, 'Siguiente paso'),
+          h('p', null, ficha.siguientePaso))),
+
+      card('Qué ofrecerle',
+        h('div', null,
+          lista('Se puede vender hoy', ficha.venderHoy),
+          lista('Con límites que hay que decir', ficha.venderConLimites, 'Estos funcionan con menos precisión: se ofrecen diciéndolo.'),
+          lista('Requiere sumar equipo', ficha.requiereEquipo,
+            ficha.equiposSugeridos.length ? 'Equipos que lo resuelven: ' + ficha.equiposSugeridos.map((e) => e.nombre).join(', ') : null),
+          h('div', { className: 'ld-kpis' },
+            kpi('Propuesta', usd(ficha.economia.costoMensual) + '/mes', 'solo lo vendible hoy'),
+            kpi('Beneficio estimado', usd(ficha.economia.beneficioMensual) + '/mes', 'para el cliente'),
+            kpi('Múltiplo de valor', ficha.economia.multiplo.toFixed(1) + '×', 'por cada dólar que paga'),
+            kpi('Al año', usd(ficha.economia.beneficioAnual), 'beneficio estimado')),
+          h('p', { className: 'ld-hint' }, ficha.economia.advertencia),
+          ficha.economia.supuesto ? h('p', { className: 'ld-mini' }, 'Supuesto del rubro: ' + ficha.economia.supuesto + (ficha.economia.formula ? ' · fórmula: ' + ficha.economia.formula : '')) : null)),
+
+      card('La visita, paso a paso',
+        h('div', null,
+          h('div', { className: 'ld-cols' },
+            h('div', null,
+              h('h4', null, 'Guion'),
+              h('ul', { className: 'ld-lista' }, guionVisita(rubro, ficha).map((g, i) =>
+                h('li', { key: i }, h('b', null, g.momento + ': '), g.hacer)))),
+            h('div', null,
+              h('h4', null, 'Preguntas de descubrimiento'),
+              h('ul', { className: 'ld-lista ld-mini' }, ficha.preguntas.map((q, i) => h('li', { key: i }, q))),
+              h('h4', null, 'Objeciones que van a aparecer'),
+              h('ul', { className: 'ld-lista ld-mini' }, ficha.objeciones.map((o, i) =>
+                h('li', { key: i }, h('b', null, o.objecion), ' → ', o.respuesta))))),
+          ficha.advertencias.length ? h('div', null,
+            h('h4', null, 'No prometer'),
+            h('ul', { className: 'ld-lista ld-mini' }, ficha.advertencias.map((a, i) => h('li', { key: i }, a)))) : null)),
+
+      card('Lo que queda en la oportunidad del CRM',
+        h('div', null,
+          h('p', { className: 'ld-mini' }, 'Registro plano para adjuntar a Prospección Comercial: se lee sin abrir LiDARia.'),
+          h('pre', { className: 'ld-pre' }, JSON.stringify(registroParaCRM(ficha), null, 2)),
+          h('button', {
+            className: 'ld-btn',
+            onClick: () => {
+              const txt = JSON.stringify(registroParaCRM(ficha), null, 2);
+              try {
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt);
+                if (shell && shell.notify) shell.notify({ level: 'success', text: 'Registro copiado' });
+              } catch (e) { /* sin portapapeles */ }
+            },
+          }, 'Copiar registro'))));
+  }
+
+  /* ------------------------------- ecosistema ------------------------------- */
+
+  function vistaEcosistema() {
+    const r = resumen(DATOS.integraciones);
+    const ruta = rutaDeConexion(DATOS.integraciones);
+    const cp = DATOS.integraciones.contratoPlataforma;
+
+    const claseVer = (v) => (v === 'ancla' ? 'ld-ok' : v === 'util' ? '' : v === 'marginal' ? 'ld-cond' : 'ld-no');
+
+    return h('div', null,
+      card('🔗 Con qué se conecta, de verdad',
+        h('div', null,
+          h('p', null, 'La lista separa lo que se puede construir ', h('b', null, 'hoy'),
+            ' con el contrato AppShell v1 de lo que necesita que la plataforma crezca. Y marca lo marginal y lo descartado: una lista donde todo es verde no informa, tranquiliza.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Apps evaluadas', r.total),
+            kpi('Anclas', r.porVeredicto.ancla || 0, r.esfuerzoAnclas + ' semanas en total'),
+            kpi('Conectables hoy', r.disponiblesHoy, 'sin cambios de plataforma'),
+            kpi('Descartadas', (r.porVeredicto.marginal || 0) + (r.porVeredicto.no || 0), 'no se construyen')))),
+
+      card('Cómo viaja el dato entre apps (lo que permite la plataforma)',
+        h('div', null,
+          h('h4', null, 'Lectura'), h('p', { className: 'ld-mini' }, cp.lectura),
+          h('h4', null, 'Escritura'), h('p', { className: 'ld-mini' }, cp.escritura),
+          h('h4', null, 'Público'), h('p', { className: 'ld-mini' }, cp.publico))),
+
+      ruta.map((t) => card('Tramo ' + t.tramo + ' · ' + t.titulo,
+        h('div', null,
+          h('p', { className: 'ld-mini' }, t.criterio),
+          h('ul', { className: 'ld-lista' }, t.items.map((i) => h('li', { key: i.app },
+            h('b', null, i.icon + ' ' + i.nombre),
+            h('span', { className: 'ld-mini' }, ' · valor ' + i.valor + '/5 · ' + i.esfuerzoSemanas + ' sem · ' + i.disponibilidad),
+            h('div', { className: 'ld-mini' }, i.porque))))),
+        { key: 't' + t.tramo })),
+
+      card('Catálogo completo', tabla([
+        { k: 'app', l: 'App', cell: (i) => h('div', null, h('b', null, i.icon + ' ' + i.nombre), h('div', { className: 'ld-mini' }, i.direccion)) },
+        { k: 'que', l: 'Qué viaja', cell: (i) => h('span', { className: 'ld-mini' }, i.queViaja) },
+        { k: 'contrato', l: 'Cómo', cell: (i) => h('span', { className: 'ld-mini' }, i.contrato) },
+        { k: 'disp', l: 'Disponible', cell: (i) => i.disponibilidad },
+        { k: 'val', l: 'Valor', num: true, cell: (i) => i.valor + '/5' },
+        { k: 'esf', l: 'Esfuerzo', num: true, cell: (i) => (i.esfuerzoSemanas ? i.esfuerzoSemanas + ' sem' : '—') },
+        { k: 'ver', l: 'Veredicto', cell: (i) => h('span', { className: claseVer(i.veredicto) }, i.veredicto) },
+      ], ordenadas(DATOS.integraciones), { key: (i) => i.app })));
+  }
+
   /* ------------------------------- componente ------------------------------- */
 
   function Component() {
@@ -1748,7 +2801,10 @@ export default function mount(shell) {
     const cob = React.useMemo(() => cobertura(st.inventario), [st.inventario]);
     const eco = React.useMemo(() => economiaCartera(DATOS.modules, st.sup), [st.sup]);
 
-    const cuerpo = st.tab === 'modulos' ? vistaModulos(cob)
+    const cuerpo = st.tab === 'rubros' ? vistaRubros(cob)
+      : st.tab === 'prospeccion' ? vistaProspeccion(cob)
+      : st.tab === 'ecosistema' ? vistaEcosistema()
+      : st.tab === 'modulos' ? vistaModulos(cob)
       : st.tab === 'inventario' ? vistaInventario(cob)
       : st.tab === 'equipos' ? vistaEquipos()
       : st.tab === 'negocio' ? vistaNegocio(eco)
@@ -1777,7 +2833,7 @@ export default function mount(shell) {
   if (shell && shell.agent && typeof shell.agent.register === 'function') {
     desregistrar = shell.agent.register({
       label: 'LiDARia',
-      description: 'Consola de captura 3D: qué puede escanear cada equipo, qué módulos quedan cubiertos con el parque de la organización, cuánto cuesta construir cada módulo y qué bibliotecas pueden entrar al producto.',
+      description: 'Consola de captura 3D: qué puede escanear cada equipo, qué módulos quedan cubiertos con el parque de la organización, qué significa todo eso para cada rubro (con packs de conocimiento ampliables), cómo se prepara la visita a un prospecto, con qué apps de KIMOS se conecta de verdad, cuánto cuesta construir cada módulo y qué bibliotecas pueden entrar al producto.',
       tools: [
         {
           name: 'VER_PESTANA',
@@ -1821,6 +2877,31 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'SET_RUBRO',
+          description: 'Elige el rubro sobre el que trabajar y abre su plan: tolerancia exigida, módulos en orden, flujo, KPI y qué falta para poder ejecutarlo con el inventario actual.',
+          inputSchema: { type: 'object', properties: { rubro: { type: 'string' } }, required: ['rubro'] },
+        },
+        {
+          name: 'FICHA_PROSPECTO',
+          description: 'Arma la ficha de un prospecto: califica con su rubro, su parque de equipos y las apps de KIMOS que ya usa, y devuelve qué se le puede vender hoy, con qué argumento y qué demostrar en la visita. Los equipos van con los ids del catálogo.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              nombre: { type: 'string' },
+              rubro: { type: 'string' },
+              usuariosCampo: { type: 'number' },
+              equipos: { type: 'array', items: { type: 'string' } },
+              appsKimos: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['rubro'],
+          },
+        },
+        {
+          name: 'VER_INTEGRACION',
+          description: 'Explica la vinculación con una app del ecosistema KIMOS: qué dato viaja, por qué contrato, si se puede hacer hoy y si vale la pena construirla.',
+          inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
+        },
+        {
           name: 'EVALUAR_LICENCIA',
           description: 'Evalúa si una licencia puede entrar al producto (acepta expresiones tipo "MIT OR Apache-2.0").',
           inputSchema: { type: 'object', properties: { licencia: { type: 'string' } }, required: ['licencia'] },
@@ -1855,6 +2936,30 @@ export default function mount(shell) {
             prohibidas: DATOS.licencias.bibliotecas.filter((b) => b.veredicto === 'prohibida').map((b) => b.nombre),
             condicionales: DATOS.licencias.bibliotecas.filter((b) => b.veredicto === 'condicional').map((b) => b.nombre),
           },
+          rubros: (function () {
+            const carga = rubrosActivos();
+            const ctx = ctxRubro(cob);
+            return rubrosViables(carga.rubros, ctx).map((x) => ({
+              id: x.plan.rubro.id,
+              nombre: x.plan.rubro.nombre,
+              origen: x.plan.rubro.origen,
+              viabilidad: x.puntaje,
+              toleranciaCumple: x.plan.tolerancia.cumple,
+              toleranciaMargen: x.plan.tolerancia.margen || null,
+              modulosListos: x.listos + '/' + x.total,
+            }));
+          })(),
+          packsCargados: (estado.packs || []).map((p) => ({ id: p.id, nombre: p.nombre, version: p.version, rubros: (p.rubros || []).length })),
+          prospecto: estado.prospecto && estado.prospecto.rubro ? registroParaCRM(fichaActual(cob).ficha) : null,
+          ecosistema: (function () {
+            const r = resumen(DATOS.integraciones);
+            return {
+              anclas: ordenadas(DATOS.integraciones).filter((i) => i.veredicto === 'ancla').map((i) => i.app),
+              descartadas: DATOS.integraciones.integraciones.filter((i) => i.veredicto === 'no' || i.veredicto === 'marginal').map((i) => i.app),
+              conectablesHoy: r.disponiblesHoy,
+              esfuerzoAnclasSemanas: r.esfuerzoAnclas,
+            };
+          })(),
         };
       },
       dispatchAction: async (accion) => {
@@ -1889,6 +2994,54 @@ export default function mount(shell) {
             if (!rec.length) return { success: true, message: 'Ningún equipo del catálogo deja ' + m.nombre + ' completo: es trabajo de plataforma, no de compra.' };
             commit({ tab: 'modulos', moduloSel: m.id });
             return { success: true, message: 'Para ' + m.nombre + ': ' + rec.map((r) => r.equipo.nombre + ' (cubre ' + r.cubre + ' módulos)').join('; ') };
+          }
+          if (t === 'SET_RUBRO') {
+            const carga = rubrosActivos();
+            const r = carga.rubros.filter((x) => x.id === p.rubro)[0];
+            if (!r) return { success: false, error: 'Rubro desconocido: ' + p.rubro + '. Disponibles: ' + carga.rubros.map((x) => x.id).join(', ') };
+            const plan = planDeRubro(r, ctxRubro(cobertura(estado.inventario)));
+            commit({ tab: 'rubros', rubroSel: r.id });
+            return {
+              success: true,
+              message: r.nombre + ': ' + plan.tolerancia.motivo + ' Módulos en orden: '
+                + plan.modulos.map((m) => m.nombre + ' (' + m.estado + ')').join(', ')
+                + '. ' + plan.acciones.join(' '),
+            };
+          }
+          if (t === 'FICHA_PROSPECTO') {
+            const carga = rubrosActivos();
+            const r = carga.rubros.filter((x) => x.id === p.rubro)[0];
+            if (!r) return { success: false, error: 'Rubro desconocido: ' + p.rubro };
+            const equipos = Array.isArray(p.equipos) ? p.equipos.filter((e) => !!equipoPorId(e)) : [];
+            const desconocidos = (p.equipos || []).filter((e) => !equipoPorId(e));
+            const prospecto = {
+              nombre: typeof p.nombre === 'string' ? p.nombre.slice(0, 80) : '',
+              rubro: r.id,
+              usuariosCampo: Math.max(0, Math.round(Number(p.usuariosCampo) || 0)),
+              equipos: equipos,
+              appsKimos: Array.isArray(p.appsKimos) ? p.appsKimos.filter((a) => typeof a === 'string').slice(0, 20) : [],
+            };
+            commit({ tab: 'prospeccion', prospecto: prospecto });
+            const f = fichaActual(cobertura(estado.inventario)).ficha;
+            const nombres = (lista) => lista.map((i) => i.nombre).join(', ') || 'nada';
+            return {
+              success: true,
+              message: 'Calificación ' + f.calificacion.puntaje + '/100 (' + f.calificacion.nivel + '). '
+                + 'Vender hoy: ' + nombres(f.venderHoy) + '. Requiere equipo: ' + nombres(f.requiereEquipo) + '. '
+                + 'Propuesta ' + usd(f.economia.costoMensual) + '/mes contra un beneficio estimado de '
+                + usd(f.economia.beneficioMensual) + '/mes. Demostración: ' + f.demo
+                + (desconocidos.length ? ' (equipos ignorados por no estar en el catálogo: ' + desconocidos.join(', ') + ')' : ''),
+            };
+          }
+          if (t === 'VER_INTEGRACION') {
+            const i = integracionDe(DATOS.integraciones, String(p.app || '').toLowerCase());
+            if (!i) return { success: false, error: 'App desconocida: ' + p.app };
+            commit({ tab: 'ecosistema' });
+            return {
+              success: true,
+              message: i.nombre + ' → ' + i.direccion + '. Viaja: ' + i.queViaja + ' Contrato: ' + i.contrato
+                + ' Disponible: ' + i.disponibilidad + '. Veredicto: ' + i.veredicto + ' — ' + i.porque,
+            };
           }
           if (t === 'EVALUAR_LICENCIA') {
             const ev = evaluar(String(p.licencia || ''), DATOS.licencias);

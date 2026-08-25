@@ -9,7 +9,7 @@
  *
  *   node apps/lidaria/build.mjs
  *
- * `src/nucleo.js` y `src/payload.json` son COPIAS GENERADAS desde el repo
+ * `src/nucleo.mjs` y `src/payload.json` son COPIAS GENERADAS desde el repo
  * kimos-LiDARia (`node tools/build-kimos-payload.mjs`). No se editan aquí.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,11 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const app = readFileSync(join(DIR, 'src/app.js'), 'utf8');
-const nucleo = readFileSync(join(DIR, 'src/nucleo.js'), 'utf8');
+// `src/nucleo.mjs` sirve para dos cosas: aquí se incrusta en el bundle (sin su
+// bloque de exportación, que no tiene sentido dentro de otro módulo) y en
+// tools/pack-rubro.mjs se importa tal cual para validar packs de rubro.
+const nucleoBruto = readFileSync(join(DIR, 'src/nucleo.mjs'), 'utf8');
+const nucleo = nucleoBruto.replace(/^export \{[^}]*\};\s*$/gm, '');
 const payload = JSON.parse(readFileSync(join(DIR, 'src/payload.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(join(DIR, 'manifest.json'), 'utf8'));
 
@@ -39,10 +43,13 @@ if (!app.includes(MARCA)) {
 // dolor de cabeza de depurar. Mejor que falle aquí.
 const NECESARIAS = ['function detectar', 'function identificar', 'function resolver', 'function diagnosticar',
   'function economiaCartera', 'function economiaModulo', 'function auditar', 'function evaluar',
+  'function cargarPacks', 'function validarPack', 'function leerKrub', 'function planDeRubro', 'function rubrosViables',
+  'function fichaProspecto', 'function registroParaCRM', 'function guionVisita',
+  'function integracionDe', 'function ordenadas', 'function resumen', 'function rutaDeConexion',
   'const SUPUESTOS_BASE', 'const CAP_POR_ID'];
 const faltan = NECESARIAS.filter((n) => !nucleo.includes(n));
 if (faltan.length) {
-  console.error('El núcleo copiado no expone: ' + faltan.join(', ') + '. Regenera src/nucleo.js desde kimos-LiDARia.');
+  console.error('El núcleo copiado no expone: ' + faltan.join(', ') + '. Regenera src/nucleo.mjs desde kimos-LiDARia.');
   process.exit(1);
 }
 

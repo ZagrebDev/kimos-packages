@@ -66,7 +66,13 @@
   font-size: 10px; color: var(--l-mut); border: 1px solid var(--l-line);
   border-radius: 999px; padding: 1px 7px; white-space: nowrap;
 }
-.kimos-lidaria .ld-tabs { display: flex; gap: 4px; justify-content: center; overflow-x: auto; scrollbar-width: none; }
+.kimos-lidaria .ld-tabs {
+  display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  /* `safe center` centra mientras quepa y deja de recortar por la izquierda
+     cuando no cabe: con diez pestañas, centrar a secas esconde la primera. */
+  justify-content: center;
+  justify-content: safe center;
+}
 .kimos-lidaria .ld-tabs::-webkit-scrollbar { display: none; }
 .kimos-lidaria .ld-tab {
   flex: 0 0 auto; border: 1px solid transparent; background: transparent; color: var(--l-mut);
@@ -194,3 +200,21 @@
   .kimos-lidaria .ld-tools { text-align: left; }
   .kimos-lidaria .ld-cols, .kimos-lidaria .ld-cols3 { grid-template-columns: 1fr; }
 }
+
+/* --------------------- rubros, prospección y ecosistema -------------------- */
+
+.kimos-lidaria .ld-t-ok { border-color: var(--l-ok); color: var(--l-ok); }
+.kimos-lidaria .ld-t-justo { border-color: var(--l-warn); color: var(--l-warn); }
+.kimos-lidaria .ld-t-no { border-color: var(--l-bad); color: var(--l-bad); }
+
+/* El registro que se copia al CRM se muestra tal cual viaja: si no cabe aquí,
+   tampoco cabe en la ficha del prospecto. */
+.kimos-lidaria .ld-pre {
+  margin: 6px 0; padding: 10px; border-radius: calc(var(--l-r) - 4px);
+  border: 1px solid var(--l-line); background: hsl(var(--muted, 210 20% 94%) / .5);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  line-height: 1.5; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.kimos-lidaria input[type="file"].ld-input { padding: 5px 8px; }
+.kimos-lidaria button.ld-chip { cursor: pointer; font: inherit; font-size: 10.5px; color: inherit; }
+.kimos-lidaria button.ld-chip:hover { border-color: var(--l-pri); }

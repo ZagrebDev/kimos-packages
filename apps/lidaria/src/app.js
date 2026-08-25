@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -30,9 +30,12 @@ const cm = (m) => (m == null ? '—' : (m < 0.01 ? (m * 1000).toFixed(0) + ' mm'
 
 const TABS = [
   ['panel', 'Panel', '🛰️'],
+  ['rubros', 'Rubros', '🏭'],
   ['modulos', 'Módulos', '🧩'],
   ['inventario', 'Inventario', '🎒'],
   ['equipos', 'Equipos', '📱'],
+  ['prospeccion', 'Prospección', '🎯'],
+  ['ecosistema', 'Ecosistema', '🔗'],
   ['negocio', 'Negocio', '📈'],
   ['plan', 'Plan', '🗺️'],
   ['licencias', 'Licencias', '⚖️'],
@@ -105,6 +108,9 @@ function estadoInicial() {
     v: 1,
     tab: 'panel',
     inventario: [],
+    packs: [],
+    rubroSel: null,
+    prospecto: { nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] },
     sup: Object.assign({}, SUPUESTOS_BASE),
     filtro: '',
     moduloSel: null,
@@ -135,8 +141,8 @@ export default function mount(shell) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      const { v, tab, inventario, sup, urlApp } = estado;
-      Promise.resolve(shell.saveData({ v, tab, inventario, sup, urlApp })).catch(() => {});
+      const { v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp } = estado;
+      Promise.resolve(shell.saveData({ v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp })).catch(() => {});
     }, 800);
   }
 
@@ -149,6 +155,20 @@ export default function mount(shell) {
       if (d.tab && TABS.some((t) => t[0] === d.tab)) patch.tab = d.tab;
       if (Array.isArray(d.inventario)) patch.inventario = d.inventario.filter((i) => i && equipoPorId(i.equipo));
       if (d.sup) patch.sup = Object.assign({}, SUPUESTOS_BASE, d.sup);
+      // Los packs se revalidan al restaurar: un pack guardado con una versión
+      // vieja del catálogo puede haber quedado apuntando a un módulo que ya no
+      // existe, y entrar en silencio sería peor que descartarlo.
+      if (Array.isArray(d.packs)) {
+        const catalogos = {
+          modulos: DATOS.modules.modulos.map((m) => m.id),
+          equipos: DATOS.devices.equipos.map((e) => e.id),
+        };
+        patch.packs = d.packs.filter((p) => validarPack(p, catalogos).ok);
+      }
+      if (d.prospecto && typeof d.prospecto === 'object') {
+        patch.prospecto = Object.assign({ nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] }, d.prospecto);
+      }
+      if (typeof d.rubroSel === 'string') patch.rubroSel = d.rubroSel;
       if (typeof d.urlApp === 'string') patch.urlApp = d.urlApp;
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
@@ -607,6 +627,345 @@ export default function mount(shell) {
           h('b', null, r.tema + ': '), r.riesgo, ' ', h('i', null, r.medida))))));
   }
 
+
+  /* ------------------------- rubros y packs de rubro ------------------------ */
+
+  /** Catálogo de rubros del producto más los packs cargados por la organización. */
+  function rubrosActivos() {
+    const carga = cargarPacks(DATOS.rubros, estado.packs || [], {
+      modulos: DATOS.modules.modulos.map((m) => m.id),
+      equipos: DATOS.devices.equipos.map((e) => e.id),
+    });
+    return carga;
+  }
+
+  /** Contexto que necesita el motor de rubros: estado por módulo según el inventario. */
+  function ctxRubro(cob) {
+    const inv = estado.inventario;
+    const mejorSensorInventario = () => {
+      const orden = ['depth.dtof', 'depth.structured', 'depth.itof', 'depth.stereo', 'depth.motion'];
+      let mejor = null;
+      for (const i of inv) {
+        const f = filaMatriz(i.equipo);
+        const m = (f && f.nativo) || (f && f.web);
+        if (!m || !m.sensor) continue;
+        if (mejor == null || orden.indexOf(m.sensor) < orden.indexOf(mejor)) mejor = m.sensor;
+      }
+      return mejor;
+    };
+    return {
+      sensorId: mejorSensorInventario(),
+      modulos: DATOS.modules,
+      equipos: DATOS.devices,
+      estadoModulo: (id) => (cob.porModulo[id] || {}).estado || 'no-disponible',
+      appsAncla: ['productlab', 'productos', 'tienda', 'vitrina', 'prospeccion'],
+      equipoSirve: (equipoId) => {
+        const f = filaMatriz(equipoId);
+        const m = (f && f.nativo) || (f && f.web);
+        return !!(m && m.sensor);
+      },
+    };
+  }
+
+  async function cargarPackArchivo(archivo) {
+    try {
+      const pack = /\.krub$/i.test(archivo.name)
+        ? leerKrub(await archivo.arrayBuffer())
+        : JSON.parse(await archivo.text());
+      const catalogos = {
+        modulos: DATOS.modules.modulos.map((m) => m.id),
+        equipos: DATOS.devices.equipos.map((e) => e.id),
+      };
+      const v = validarPack(pack, catalogos);
+      if (!v.ok) {
+        if (shell && shell.notify) shell.notify({ level: 'error', text: 'Pack rechazado: ' + v.errores[0] });
+        return;
+      }
+      const packs = (estado.packs || []).filter((p) => p.id !== pack.id).concat([pack]);
+      const prueba = cargarPacks(DATOS.rubros, packs, catalogos);
+      if (prueba.errores.length) {
+        if (shell && shell.notify) shell.notify({ level: 'error', text: 'Pack rechazado: ' + prueba.errores[0] });
+        return;
+      }
+      commit({ packs: packs });
+      if (shell && shell.notify) {
+        shell.notify({ level: 'success', text: 'Pack "' + (pack.nombre || pack.id) + '" cargado: ' + pack.rubros.length + ' entrada(s).' });
+      }
+    } catch (e) {
+      if (shell && shell.notify) shell.notify({ level: 'error', text: 'No se pudo leer el pack: ' + ((e && e.message) || e) });
+    }
+  }
+
+  function quitarPack(id) {
+    commit({ packs: (estado.packs || []).filter((p) => p.id !== id) });
+  }
+
+  function vistaRubros(cob) {
+    const carga = rubrosActivos();
+    const ctx = ctxRubro(cob);
+    const lista = rubrosViables(carga.rubros, ctx);
+    const sel = estado.rubroSel ? carga.rubros.filter((r) => r.id === estado.rubroSel)[0] : null;
+
+    const chipMargen = (t) => {
+      if (t.cumple == null) return chip('sin tolerancia declarada');
+      if (t.cumple === false) return chip('no alcanza', 'ld-t-no', t.motivo);
+      return chip(t.margen === 'justo' ? 'cumple justo' : 'cumple con margen', t.margen === 'justo' ? 'ld-t-justo' : 'ld-t-ok', t.motivo);
+    };
+
+    const fichas = lista.map(({ plan, listos, total, puntaje }) => h('article', {
+      key: plan.rubro.id,
+      className: 'ld-mod' + (estado.rubroSel === plan.rubro.id ? ' on' : ''),
+      onClick: () => commit({ rubroSel: estado.rubroSel === plan.rubro.id ? null : plan.rubro.id }),
+    },
+      h('header', null,
+        h('span', { className: 'ld-mod-ico' }, plan.rubro.icon || '•'),
+        h('div', null,
+          h('h3', null, plan.rubro.nombre),
+          h('p', { className: 'ld-mini' }, listos + '/' + total + ' módulos listos'
+            + (plan.rubro.origen !== 'base' ? ' · pack ' + plan.rubro.origen : ''))),
+        h('span', { className: 'ld-est' }, puntaje + '%')),
+      h('p', null, plan.dolor),
+      h('div', { className: 'ld-chips' }, chipMargen(plan.tolerancia))));
+
+    const detalle = !sel ? null : (function () {
+      const plan = planDeRubro(sel, ctx);
+      return card((sel.icon || '') + ' ' + sel.nombre,
+        h('div', null,
+          h('div', { className: 'ld-cols' },
+            h('div', null,
+              h('h4', null, 'Quién es el cliente'), h('p', null, plan.cliente),
+              h('h4', null, 'Qué le duele'), h('p', null, plan.dolor),
+              h('h4', null, 'Tolerancia del rubro'),
+              h('p', null, plan.tolerancia.motivo),
+              plan.toleranciaNota ? h('p', { className: 'ld-mini' }, plan.toleranciaNota) : null,
+              h('h4', null, 'Módulos, en orden'),
+              h('ul', { className: 'ld-lista' }, plan.modulos.map((m) => h('li', { key: m.id },
+                h('b', null, m.icon + ' ' + m.nombre), ' — ', m.para,
+                ' ', pastilla(m.estado))))),
+            h('div', null,
+              h('h4', null, 'Cómo se trabaja'),
+              (plan.flujos || []).map((f) => h('div', { className: 'ld-gap', key: f.id },
+                h('b', null, f.nombre),
+                h('ol', { className: 'ld-lista ld-mini' }, (f.pasos || []).map((p, i) => h('li', { key: i }, p))),
+                h('div', { className: 'ld-mini' }, 'Entrega: ' + (f.entrega || []).join(' · ')))),
+              h('h4', null, 'Qué mejora'),
+              h('ul', { className: 'ld-lista ld-mini' }, (plan.kpis || []).map((k) => h('li', { key: k.id }, h('b', null, k.label), ' → ' + k.meta))),
+              plan.normativa.length ? h('div', null,
+                h('h4', null, 'Cuidado con'),
+                h('ul', { className: 'ld-lista ld-mini' }, plan.normativa.map((n, i) => h('li', { key: i }, n)))) : null,
+              h('h4', null, 'Se apoya en'),
+              h('div', { className: 'ld-chips' }, (plan.kimos || []).map((k) => chip(k, 'kimos'))))),
+          h('h4', null, 'Qué hacer ahora'),
+          h('ul', { className: 'ld-lista' }, plan.acciones.map((a, i) => h('li', { key: i }, a))),
+          h('div', { className: 'ld-fila' },
+            h('button', {
+              className: 'ld-btn ld-pri',
+              onClick: () => commit({ tab: 'prospeccion', prospecto: Object.assign({}, estado.prospecto, { rubro: sel.id }) }),
+            }, 'Preparar una visita de este rubro'))),
+        { clase: 'ld-detalle' });
+    })();
+
+    const packs = (estado.packs || []);
+    return h('div', null,
+      card('🏭 La misma app, el lenguaje de cada industria',
+        h('div', null,
+          h('p', null, 'Un rubro traduce las capacidades a decisiones: con qué tolerancia se trabaja, qué módulos importan y en qué orden, cómo es el flujo, qué KPI mejora y qué normativa hay que respetar. El porcentaje es qué tan cerca está la organización de poder ejecutarlo con su inventario actual.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Rubros disponibles', carga.rubros.length, packs.length ? (carga.rubros.length - DATOS.rubros.rubros.length) + ' de packs' : 'del catálogo base'),
+            kpi('Listos para empezar', lista.filter((x) => x.plan.listoParaEmpezar).length, 'con el inventario actual'),
+            kpi('Packs cargados', packs.length, 'ampliaciones de la organización')))),
+
+      card('📦 Ampliar la base de conocimiento',
+        h('div', null,
+          h('p', null, 'Un rubro nuevo —o la variante propia de un cliente— entra como un pack ',
+            h('b', null, '.krub'), ' o ', h('b', null, '.json'),
+            ', con las mismas convenciones que una app de KIMOS: id con namespace, versión semver, autor y contrato declarado. Un pack solo puede ',
+            h('b', null, 'añadir o extender'), ': nunca borra lo que trae el producto, y cada rubro queda marcado con su origen.'),
+          h('div', { className: 'ld-fila' },
+            h('input', {
+              type: 'file', accept: '.krub,.json', className: 'ld-input',
+              onChange: (e) => { const f = e.target.files && e.target.files[0]; if (f) cargarPackArchivo(f); e.target.value = ''; },
+            })),
+          packs.length ? h('div', { className: 'ld-tbl-wrap' }, h('table', { className: 'ld-tbl' },
+            h('thead', null, h('tr', null, ['Pack', 'Versión', 'Autor', 'Entradas', ''].map((t) => h('th', { key: t }, t)))),
+            h('tbody', null, packs.map((p) => h('tr', { key: p.id },
+              h('td', null, h('b', null, p.nombre || p.id), h('div', { className: 'ld-mini' }, p.id)),
+              h('td', null, p.version || '—'),
+              h('td', null, p.autor || '—'),
+              h('td', null, (p.rubros || []).length),
+              h('td', null, h('button', { className: 'ld-btn ld-mini-btn', onClick: () => quitarPack(p.id) }, 'Quitar'))))))) : null,
+          carga.errores.length ? h('p', { className: 'ld-hint' }, 'Avisos de carga: ' + carga.errores.join(' · ')) : null),
+        { hint: 'Se empaqueta con node tools/pack-rubro.mjs desde el repositorio kimos-LiDARia, o desde el Creator Pack de KIMOS.' }),
+
+      detalle,
+      h('div', { className: 'ld-grid' }, fichas));
+  }
+
+  /* ------------------------------- prospección ------------------------------ */
+
+  function setProspecto(patch) {
+    commit({ prospecto: Object.assign({}, estado.prospecto, patch) });
+  }
+
+  function fichaActual(cob) {
+    const carga = rubrosActivos();
+    const p = estado.prospecto || {};
+    const rubro = carga.rubros.filter((r) => r.id === p.rubro)[0] || null;
+    const ctx = Object.assign({}, ctxRubro(cob), { rubro: rubro });
+    return { ficha: fichaProspecto(p, ctx), rubro: rubro, carga: carga };
+  }
+
+  function vistaProspeccion(cob) {
+    const p = estado.prospecto || {};
+    const { ficha, rubro, carga } = fichaActual(cob);
+
+    const formulario = card('🎯 El prospecto',
+      h('div', null,
+        h('p', null, 'Tres datos deciden qué se le puede ofrecer: su rubro, cuánta gente tiene en terreno y ',
+          h('b', null, 'qué equipos usan'), '. El tercero es el que ningún CRM tiene hoy, y el que define si la propuesta es real o una promesa.'),
+        h('div', { className: 'ld-campos' },
+          h('label', { className: 'ld-campo' }, h('span', null, 'Nombre'),
+            h('input', { type: 'text', value: p.nombre || '', onChange: (e) => setProspecto({ nombre: e.target.value.slice(0, 80) }) })),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Rubro'),
+            h('select', { value: p.rubro || '', onChange: (e) => setProspecto({ rubro: e.target.value }) },
+              h('option', { value: '' }, '— elegir —'),
+              carga.rubros.map((r) => h('option', { key: r.id, value: r.id }, (r.icon || '') + ' ' + r.nombre)))),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Personas en terreno'),
+            h('input', { type: 'number', min: 0, value: p.usuariosCampo == null ? '' : p.usuariosCampo, onChange: (e) => setProspecto({ usuariosCampo: Number(e.target.value) || 0 }) }))),
+        h('h4', null, 'Equipos que usan hoy'),
+        h('div', { className: 'ld-chips' }, DATOS.devices.equipos.filter((e) => e.clase === 'movil' || e.clase === 'tablet').map((e) => {
+          const on = (p.equipos || []).indexOf(e.id) >= 0;
+          return h('button', {
+            key: e.id, className: 'ld-chip' + (on ? ' req' : ''),
+            onClick: () => setProspecto({ equipos: on ? (p.equipos || []).filter((x) => x !== e.id) : (p.equipos || []).concat([e.id]) }),
+          }, (on ? '✓ ' : '') + e.nombre);
+        })),
+        h('h4', null, 'Módulos de KIMOS que ya usa'),
+        h('div', { className: 'ld-chips' }, ['productlab', 'productos', 'tienda', 'vitrina', 'prospeccion', 'pedidos', 'gantt', 'kanban', 'archivos'].map((a) => {
+          const on = (p.appsKimos || []).indexOf(a) >= 0;
+          return h('button', {
+            key: a, className: 'ld-chip' + (on ? ' req' : ''),
+            onClick: () => setProspecto({ appsKimos: on ? (p.appsKimos || []).filter((x) => x !== a) : (p.appsKimos || []).concat([a]) }),
+          }, (on ? '✓ ' : '') + a);
+        }))));
+
+    if (ficha.error) {
+      return h('div', null, formulario,
+        card('Sin rubro no hay ficha', h('div', null,
+          h('p', null, ficha.error),
+          h('h4', null, 'Lo que ya se puede decir'),
+          h('ul', { className: 'ld-lista' }, ficha.calificacion.motivos.map((m, i) => h('li', { key: i }, m.signo + ' ' + m.texto))))));
+    }
+
+    const lista = (titulo, items, nota) => items.length ? h('div', { className: 'ld-gap' },
+      h('h4', null, titulo),
+      h('ul', { className: 'ld-lista' }, items.map((i) => h('li', { key: i.id },
+        h('b', null, i.icon + ' ' + i.nombre), ' — ', i.para,
+        i.precioMensual ? h('span', { className: 'ld-mini' }, ' · ' + usd(i.precioMensual) + '/mes ' + (i.modelo === 'por-usuario' ? 'por usuario' : 'por cuenta')) : null))),
+      nota ? h('p', { className: 'ld-mini' }, nota) : null) : null;
+
+    return h('div', null,
+      formulario,
+      card('Calificación: ' + ficha.calificacion.puntaje + '/100 · ' + ficha.calificacion.nivel,
+        h('div', null,
+          h('ul', { className: 'ld-lista' }, ficha.calificacion.motivos.map((m, i) =>
+            h('li', { key: i }, h('b', null, m.signo + ' '), m.texto))),
+          h('h4', null, 'Siguiente paso'),
+          h('p', null, ficha.siguientePaso))),
+
+      card('Qué ofrecerle',
+        h('div', null,
+          lista('Se puede vender hoy', ficha.venderHoy),
+          lista('Con límites que hay que decir', ficha.venderConLimites, 'Estos funcionan con menos precisión: se ofrecen diciéndolo.'),
+          lista('Requiere sumar equipo', ficha.requiereEquipo,
+            ficha.equiposSugeridos.length ? 'Equipos que lo resuelven: ' + ficha.equiposSugeridos.map((e) => e.nombre).join(', ') : null),
+          h('div', { className: 'ld-kpis' },
+            kpi('Propuesta', usd(ficha.economia.costoMensual) + '/mes', 'solo lo vendible hoy'),
+            kpi('Beneficio estimado', usd(ficha.economia.beneficioMensual) + '/mes', 'para el cliente'),
+            kpi('Múltiplo de valor', ficha.economia.multiplo.toFixed(1) + '×', 'por cada dólar que paga'),
+            kpi('Al año', usd(ficha.economia.beneficioAnual), 'beneficio estimado')),
+          h('p', { className: 'ld-hint' }, ficha.economia.advertencia),
+          ficha.economia.supuesto ? h('p', { className: 'ld-mini' }, 'Supuesto del rubro: ' + ficha.economia.supuesto + (ficha.economia.formula ? ' · fórmula: ' + ficha.economia.formula : '')) : null)),
+
+      card('La visita, paso a paso',
+        h('div', null,
+          h('div', { className: 'ld-cols' },
+            h('div', null,
+              h('h4', null, 'Guion'),
+              h('ul', { className: 'ld-lista' }, guionVisita(rubro, ficha).map((g, i) =>
+                h('li', { key: i }, h('b', null, g.momento + ': '), g.hacer)))),
+            h('div', null,
+              h('h4', null, 'Preguntas de descubrimiento'),
+              h('ul', { className: 'ld-lista ld-mini' }, ficha.preguntas.map((q, i) => h('li', { key: i }, q))),
+              h('h4', null, 'Objeciones que van a aparecer'),
+              h('ul', { className: 'ld-lista ld-mini' }, ficha.objeciones.map((o, i) =>
+                h('li', { key: i }, h('b', null, o.objecion), ' → ', o.respuesta))))),
+          ficha.advertencias.length ? h('div', null,
+            h('h4', null, 'No prometer'),
+            h('ul', { className: 'ld-lista ld-mini' }, ficha.advertencias.map((a, i) => h('li', { key: i }, a)))) : null)),
+
+      card('Lo que queda en la oportunidad del CRM',
+        h('div', null,
+          h('p', { className: 'ld-mini' }, 'Registro plano para adjuntar a Prospección Comercial: se lee sin abrir LiDARia.'),
+          h('pre', { className: 'ld-pre' }, JSON.stringify(registroParaCRM(ficha), null, 2)),
+          h('button', {
+            className: 'ld-btn',
+            onClick: () => {
+              const txt = JSON.stringify(registroParaCRM(ficha), null, 2);
+              try {
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt);
+                if (shell && shell.notify) shell.notify({ level: 'success', text: 'Registro copiado' });
+              } catch (e) { /* sin portapapeles */ }
+            },
+          }, 'Copiar registro'))));
+  }
+
+  /* ------------------------------- ecosistema ------------------------------- */
+
+  function vistaEcosistema() {
+    const r = resumen(DATOS.integraciones);
+    const ruta = rutaDeConexion(DATOS.integraciones);
+    const cp = DATOS.integraciones.contratoPlataforma;
+
+    const claseVer = (v) => (v === 'ancla' ? 'ld-ok' : v === 'util' ? '' : v === 'marginal' ? 'ld-cond' : 'ld-no');
+
+    return h('div', null,
+      card('🔗 Con qué se conecta, de verdad',
+        h('div', null,
+          h('p', null, 'La lista separa lo que se puede construir ', h('b', null, 'hoy'),
+            ' con el contrato AppShell v1 de lo que necesita que la plataforma crezca. Y marca lo marginal y lo descartado: una lista donde todo es verde no informa, tranquiliza.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Apps evaluadas', r.total),
+            kpi('Anclas', r.porVeredicto.ancla || 0, r.esfuerzoAnclas + ' semanas en total'),
+            kpi('Conectables hoy', r.disponiblesHoy, 'sin cambios de plataforma'),
+            kpi('Descartadas', (r.porVeredicto.marginal || 0) + (r.porVeredicto.no || 0), 'no se construyen')))),
+
+      card('Cómo viaja el dato entre apps (lo que permite la plataforma)',
+        h('div', null,
+          h('h4', null, 'Lectura'), h('p', { className: 'ld-mini' }, cp.lectura),
+          h('h4', null, 'Escritura'), h('p', { className: 'ld-mini' }, cp.escritura),
+          h('h4', null, 'Público'), h('p', { className: 'ld-mini' }, cp.publico))),
+
+      ruta.map((t) => card('Tramo ' + t.tramo + ' · ' + t.titulo,
+        h('div', null,
+          h('p', { className: 'ld-mini' }, t.criterio),
+          h('ul', { className: 'ld-lista' }, t.items.map((i) => h('li', { key: i.app },
+            h('b', null, i.icon + ' ' + i.nombre),
+            h('span', { className: 'ld-mini' }, ' · valor ' + i.valor + '/5 · ' + i.esfuerzoSemanas + ' sem · ' + i.disponibilidad),
+            h('div', { className: 'ld-mini' }, i.porque))))),
+        { key: 't' + t.tramo })),
+
+      card('Catálogo completo', tabla([
+        { k: 'app', l: 'App', cell: (i) => h('div', null, h('b', null, i.icon + ' ' + i.nombre), h('div', { className: 'ld-mini' }, i.direccion)) },
+        { k: 'que', l: 'Qué viaja', cell: (i) => h('span', { className: 'ld-mini' }, i.queViaja) },
+        { k: 'contrato', l: 'Cómo', cell: (i) => h('span', { className: 'ld-mini' }, i.contrato) },
+        { k: 'disp', l: 'Disponible', cell: (i) => i.disponibilidad },
+        { k: 'val', l: 'Valor', num: true, cell: (i) => i.valor + '/5' },
+        { k: 'esf', l: 'Esfuerzo', num: true, cell: (i) => (i.esfuerzoSemanas ? i.esfuerzoSemanas + ' sem' : '—') },
+        { k: 'ver', l: 'Veredicto', cell: (i) => h('span', { className: claseVer(i.veredicto) }, i.veredicto) },
+      ], ordenadas(DATOS.integraciones), { key: (i) => i.app })));
+  }
+
   /* ------------------------------- componente ------------------------------- */
 
   function Component() {
@@ -619,7 +978,10 @@ export default function mount(shell) {
     const cob = React.useMemo(() => cobertura(st.inventario), [st.inventario]);
     const eco = React.useMemo(() => economiaCartera(DATOS.modules, st.sup), [st.sup]);
 
-    const cuerpo = st.tab === 'modulos' ? vistaModulos(cob)
+    const cuerpo = st.tab === 'rubros' ? vistaRubros(cob)
+      : st.tab === 'prospeccion' ? vistaProspeccion(cob)
+      : st.tab === 'ecosistema' ? vistaEcosistema()
+      : st.tab === 'modulos' ? vistaModulos(cob)
       : st.tab === 'inventario' ? vistaInventario(cob)
       : st.tab === 'equipos' ? vistaEquipos()
       : st.tab === 'negocio' ? vistaNegocio(eco)
@@ -648,7 +1010,7 @@ export default function mount(shell) {
   if (shell && shell.agent && typeof shell.agent.register === 'function') {
     desregistrar = shell.agent.register({
       label: 'LiDARia',
-      description: 'Consola de captura 3D: qué puede escanear cada equipo, qué módulos quedan cubiertos con el parque de la organización, cuánto cuesta construir cada módulo y qué bibliotecas pueden entrar al producto.',
+      description: 'Consola de captura 3D: qué puede escanear cada equipo, qué módulos quedan cubiertos con el parque de la organización, qué significa todo eso para cada rubro (con packs de conocimiento ampliables), cómo se prepara la visita a un prospecto, con qué apps de KIMOS se conecta de verdad, cuánto cuesta construir cada módulo y qué bibliotecas pueden entrar al producto.',
       tools: [
         {
           name: 'VER_PESTANA',
@@ -692,6 +1054,31 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'SET_RUBRO',
+          description: 'Elige el rubro sobre el que trabajar y abre su plan: tolerancia exigida, módulos en orden, flujo, KPI y qué falta para poder ejecutarlo con el inventario actual.',
+          inputSchema: { type: 'object', properties: { rubro: { type: 'string' } }, required: ['rubro'] },
+        },
+        {
+          name: 'FICHA_PROSPECTO',
+          description: 'Arma la ficha de un prospecto: califica con su rubro, su parque de equipos y las apps de KIMOS que ya usa, y devuelve qué se le puede vender hoy, con qué argumento y qué demostrar en la visita. Los equipos van con los ids del catálogo.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              nombre: { type: 'string' },
+              rubro: { type: 'string' },
+              usuariosCampo: { type: 'number' },
+              equipos: { type: 'array', items: { type: 'string' } },
+              appsKimos: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['rubro'],
+          },
+        },
+        {
+          name: 'VER_INTEGRACION',
+          description: 'Explica la vinculación con una app del ecosistema KIMOS: qué dato viaja, por qué contrato, si se puede hacer hoy y si vale la pena construirla.',
+          inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
+        },
+        {
           name: 'EVALUAR_LICENCIA',
           description: 'Evalúa si una licencia puede entrar al producto (acepta expresiones tipo "MIT OR Apache-2.0").',
           inputSchema: { type: 'object', properties: { licencia: { type: 'string' } }, required: ['licencia'] },
@@ -726,6 +1113,30 @@ export default function mount(shell) {
             prohibidas: DATOS.licencias.bibliotecas.filter((b) => b.veredicto === 'prohibida').map((b) => b.nombre),
             condicionales: DATOS.licencias.bibliotecas.filter((b) => b.veredicto === 'condicional').map((b) => b.nombre),
           },
+          rubros: (function () {
+            const carga = rubrosActivos();
+            const ctx = ctxRubro(cob);
+            return rubrosViables(carga.rubros, ctx).map((x) => ({
+              id: x.plan.rubro.id,
+              nombre: x.plan.rubro.nombre,
+              origen: x.plan.rubro.origen,
+              viabilidad: x.puntaje,
+              toleranciaCumple: x.plan.tolerancia.cumple,
+              toleranciaMargen: x.plan.tolerancia.margen || null,
+              modulosListos: x.listos + '/' + x.total,
+            }));
+          })(),
+          packsCargados: (estado.packs || []).map((p) => ({ id: p.id, nombre: p.nombre, version: p.version, rubros: (p.rubros || []).length })),
+          prospecto: estado.prospecto && estado.prospecto.rubro ? registroParaCRM(fichaActual(cob).ficha) : null,
+          ecosistema: (function () {
+            const r = resumen(DATOS.integraciones);
+            return {
+              anclas: ordenadas(DATOS.integraciones).filter((i) => i.veredicto === 'ancla').map((i) => i.app),
+              descartadas: DATOS.integraciones.integraciones.filter((i) => i.veredicto === 'no' || i.veredicto === 'marginal').map((i) => i.app),
+              conectablesHoy: r.disponiblesHoy,
+              esfuerzoAnclasSemanas: r.esfuerzoAnclas,
+            };
+          })(),
         };
       },
       dispatchAction: async (accion) => {
@@ -760,6 +1171,54 @@ export default function mount(shell) {
             if (!rec.length) return { success: true, message: 'Ningún equipo del catálogo deja ' + m.nombre + ' completo: es trabajo de plataforma, no de compra.' };
             commit({ tab: 'modulos', moduloSel: m.id });
             return { success: true, message: 'Para ' + m.nombre + ': ' + rec.map((r) => r.equipo.nombre + ' (cubre ' + r.cubre + ' módulos)').join('; ') };
+          }
+          if (t === 'SET_RUBRO') {
+            const carga = rubrosActivos();
+            const r = carga.rubros.filter((x) => x.id === p.rubro)[0];
+            if (!r) return { success: false, error: 'Rubro desconocido: ' + p.rubro + '. Disponibles: ' + carga.rubros.map((x) => x.id).join(', ') };
+            const plan = planDeRubro(r, ctxRubro(cobertura(estado.inventario)));
+            commit({ tab: 'rubros', rubroSel: r.id });
+            return {
+              success: true,
+              message: r.nombre + ': ' + plan.tolerancia.motivo + ' Módulos en orden: '
+                + plan.modulos.map((m) => m.nombre + ' (' + m.estado + ')').join(', ')
+                + '. ' + plan.acciones.join(' '),
+            };
+          }
+          if (t === 'FICHA_PROSPECTO') {
+            const carga = rubrosActivos();
+            const r = carga.rubros.filter((x) => x.id === p.rubro)[0];
+            if (!r) return { success: false, error: 'Rubro desconocido: ' + p.rubro };
+            const equipos = Array.isArray(p.equipos) ? p.equipos.filter((e) => !!equipoPorId(e)) : [];
+            const desconocidos = (p.equipos || []).filter((e) => !equipoPorId(e));
+            const prospecto = {
+              nombre: typeof p.nombre === 'string' ? p.nombre.slice(0, 80) : '',
+              rubro: r.id,
+              usuariosCampo: Math.max(0, Math.round(Number(p.usuariosCampo) || 0)),
+              equipos: equipos,
+              appsKimos: Array.isArray(p.appsKimos) ? p.appsKimos.filter((a) => typeof a === 'string').slice(0, 20) : [],
+            };
+            commit({ tab: 'prospeccion', prospecto: prospecto });
+            const f = fichaActual(cobertura(estado.inventario)).ficha;
+            const nombres = (lista) => lista.map((i) => i.nombre).join(', ') || 'nada';
+            return {
+              success: true,
+              message: 'Calificación ' + f.calificacion.puntaje + '/100 (' + f.calificacion.nivel + '). '
+                + 'Vender hoy: ' + nombres(f.venderHoy) + '. Requiere equipo: ' + nombres(f.requiereEquipo) + '. '
+                + 'Propuesta ' + usd(f.economia.costoMensual) + '/mes contra un beneficio estimado de '
+                + usd(f.economia.beneficioMensual) + '/mes. Demostración: ' + f.demo
+                + (desconocidos.length ? ' (equipos ignorados por no estar en el catálogo: ' + desconocidos.join(', ') + ')' : ''),
+            };
+          }
+          if (t === 'VER_INTEGRACION') {
+            const i = integracionDe(DATOS.integraciones, String(p.app || '').toLowerCase());
+            if (!i) return { success: false, error: 'App desconocida: ' + p.app };
+            commit({ tab: 'ecosistema' });
+            return {
+              success: true,
+              message: i.nombre + ' → ' + i.direccion + '. Viaja: ' + i.queViaja + ' Contrato: ' + i.contrato
+                + ' Disponible: ' + i.disponibilidad + '. Veredicto: ' + i.veredicto + ' — ' + i.porque,
+            };
           }
           if (t === 'EVALUAR_LICENCIA') {
             const ev = evaluar(String(p.licencia || ''), DATOS.licencias);
