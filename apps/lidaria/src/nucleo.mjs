@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.3.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.4.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -354,16 +354,227 @@ async function probarSesionXR(nav) {
 }
 
 /** Cámaras traseras visibles sin pedir permiso (las etiquetas llegan vacías si no hay permiso). */
+/**
+ * Adivina qué lente es cada cámara por su etiqueta. Es heurística declarada:
+ * los fabricantes no normalizan estos nombres, así que el resultado se marca
+ * como inferido y la app deja corregirlo a mano.
+ */
+function claseDeLente(etiqueta) {
+  const t = String(etiqueta || '').toLowerCase();
+  if (/ultra|wide angle|0\.5|gran angular/.test(t) && !/telephoto/.test(t)) return 'ultra-ancha';
+  if (/tele|zoom|2x|3x|5x/.test(t)) return 'tele';
+  if (/depth|tof|lidar|profundidad/.test(t)) return 'profundidad';
+  if (/front|user|frontal|selfie/.test(t)) return 'frontal';
+  if (/back|rear|environment|trasera/.test(t)) return 'trasera';
+  return null;
+}
+
+/**
+ * Cámaras del equipo, una por una.
+ *
+ * Antes de conceder el permiso el navegador entrega la lista **sin etiquetas y
+ * sin deviceId estable**: se sabe cuántas hay y nada más. Eso no es un fallo,
+ * es la protección contra huella digital, y por eso `etiquetas` viaja en el
+ * resultado: la app tiene que poder decir "concede el permiso y vuelvo a mirar"
+ * en vez de afirmar que el equipo tiene una sola cámara.
+ */
 async function detectarCamaras(nav) {
   const md = nav && nav.mediaDevices;
-  if (!md || typeof md.enumerateDevices !== 'function') return { disponible: false, n: 0, etiquetas: false };
+  if (!md || typeof md.enumerateDevices !== 'function') {
+    return { disponible: false, n: 0, etiquetas: false, lista: [], soportado: false };
+  }
   try {
     const ds = await conTiempo(md.enumerateDevices(), 2500, []);
     const vid = ds.filter((d) => d.kind === 'videoinput');
-    return { disponible: vid.length > 0, n: vid.length, etiquetas: vid.some((d) => !!d.label) };
+    const etiquetas = vid.some((d) => !!d.label);
+    return {
+      soportado: true,
+      disponible: vid.length > 0,
+      n: vid.length,
+      etiquetas,
+      lista: vid.map((d, i) => ({
+        deviceId: d.deviceId || '',
+        groupId: d.groupId || '',
+        etiqueta: d.label || ('Cámara ' + (i + 1)),
+        lente: claseDeLente(d.label),
+        conEtiqueta: !!d.label,
+      })),
+    };
   } catch (e) {
-    return { disponible: false, n: 0, etiquetas: false };
+    return { disponible: false, n: 0, etiquetas: false, lista: [], soportado: true };
   }
+}
+
+/** Micrófonos y salidas de audio. Misma regla de etiquetas que las cámaras. */
+async function detectarAudio(nav) {
+  const md = nav && nav.mediaDevices;
+  const vacio = { disponible: false, n: 0 };
+  if (!md || typeof md.enumerateDevices !== 'function') {
+    return { microfonos: vacio, altavoces: vacio };
+  }
+  try {
+    const ds = await conTiempo(md.enumerateDevices(), 2500, []);
+    const mic = ds.filter((d) => d.kind === 'audioinput');
+    const out = ds.filter((d) => d.kind === 'audiooutput');
+    return {
+      microfonos: { disponible: mic.length > 0, n: mic.length, etiquetas: mic.some((d) => !!d.label) },
+      // Safari no lista salidas de audio; que no aparezcan no significa que el
+      // equipo no tenga altavoz, así que se declara el altavoz por otra vía.
+      altavoces: { disponible: out.length > 0 || tieneAudioContext(nav), n: out.length, listadas: out.length > 0 },
+    };
+  } catch (e) {
+    return { microfonos: vacio, altavoces: vacio };
+  }
+}
+
+function tieneAudioContext(nav) {
+  const G = typeof globalThis !== 'undefined' ? globalThis : {};
+  return typeof G.AudioContext === 'function' || typeof G.webkitAudioContext === 'function';
+}
+
+/** Radios que el navegador expone. Ninguna de ellas existe en Safari de iOS. */
+function detectarRadios(G, nav) {
+  return {
+    bluetooth: !!(nav && nav.bluetooth && typeof nav.bluetooth.requestDevice === 'function'),
+    nfc: typeof G.NDEFReader === 'function',
+    serie: !!(nav && nav.serial),
+    usb: !!(nav && nav.usb),
+    hid: !!(nav && nav.hid),
+    // `connection` da un tipo de red estimado. NO es la señal de la antena.
+    red: nav && nav.connection ? {
+      tipo: nav.connection.effectiveType || null,
+      bajadaMbps: nav.connection.downlink || null,
+      ahorroDatos: !!nav.connection.saveData,
+    } : null,
+  };
+}
+
+/**
+ * Motor del navegador. Importa porque casi todas las APIs de hardware que
+ * faltan —Bluetooth, NFC, serie, USB, linterna— faltan exactamente en WebKit.
+ */
+function detectarMotor(ua, G) {
+  const t = String(ua || '');
+  if (/Firefox\/|FxiOS/.test(t)) return 'gecko';
+  // En iOS todo navegador es WebKit por dentro, se llame Chrome o no.
+  if (/iPhone|iPad|iPod/.test(t)) return 'webkit';
+  if (/Chrome\/|Chromium\/|Edg\//.test(t)) return 'chromium';
+  if (/Safari\//.test(t)) return 'webkit';
+  return (G && G.chrome) ? 'chromium' : null;
+}
+
+/**
+ * Abre una cámara y mide lo que de verdad entrega: resolución, cuadros por
+ * segundo y las capacidades que el navegador quiera declarar (linterna, zoom,
+ * enfoque). Es la única forma de saberlo: la ficha del fabricante no sirve y el
+ * catálogo tampoco.
+ *
+ * Devuelve siempre; nunca lanza. Si no se pudo abrir, `ok:false` y el motivo en
+ * castellano.
+ */
+async function probarCamara(nav, opciones) {
+  const o = opciones || {};
+  const md = nav && nav.mediaDevices;
+  if (!md || typeof md.getUserMedia !== 'function') {
+    return { ok: false, motivo: 'Este navegador no expone cámaras (getUserMedia no disponible).' };
+  }
+  const tam = { width: { ideal: o.ancho || 1280 }, height: { ideal: o.alto || 720 }, frameRate: { ideal: 30 } };
+  const intentos = [];
+  if (o.deviceId) {
+    intentos.push(Object.assign({ deviceId: { exact: o.deviceId } }, tam));
+    intentos.push({ deviceId: { exact: o.deviceId } });
+  }
+  if (o.facing) intentos.push(Object.assign({ facingMode: { ideal: o.facing } }, tam));
+  intentos.push(Object.assign({}, tam));
+  intentos.push(true);
+
+  let stream = null, ultimo = null, intento = -1;
+  for (let i = 0; i < intentos.length; i++) {
+    try {
+      stream = await conTiempo(md.getUserMedia({ video: intentos[i], audio: false }), 8000, null);
+      if (stream) { intento = i; break; }
+    } catch (e) {
+      ultimo = e;
+      const n = String((e && e.name) || '');
+      // Ni el permiso ni la ausencia de cámara mejoran aflojando la petición:
+      // cortar aquí evita encadenar diálogos de permiso.
+      if (n === 'NotAllowedError' || n === 'PermissionDeniedError' || n === 'SecurityError') break;
+    }
+  }
+  if (!stream) return { ok: false, motivo: motivoDeCamara(ultimo), error: ultimo ? String(ultimo.name || '') : 'timeout' };
+
+  const track = stream.getVideoTracks()[0] || null;
+  const ajustes = track && track.getSettings ? track.getSettings() : {};
+  let capacidades = null;
+  try { capacidades = track && track.getCapabilities ? track.getCapabilities() : null; } catch (e) { capacidades = null; }
+  try { stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
+
+  const cap = capacidades || {};
+  return {
+    ok: true,
+    // Si hubo que soltar la cámara pedida, el operador tiene que saberlo: está
+    // mirando por una cámara distinta de la que eligió.
+    cambioDeCamara: !!(o.deviceId && intento > 1),
+    deviceId: ajustes.deviceId || null,
+    etiqueta: (track && track.label) || null,
+    ancho: ajustes.width || null,
+    alto: ajustes.height || null,
+    fps: ajustes.frameRate || null,
+    facing: ajustes.facingMode || null,
+    // El navegador NO expone el campo de visión. Se calibra o se declara.
+    fovH: null,
+    puede: {
+      linterna: Array.isArray(cap.torch) ? cap.torch.includes(true) : !!cap.torch,
+      zoom: !!cap.zoom,
+      enfoque: Array.isArray(cap.focusMode) ? cap.focusMode.length > 0 : !!cap.focusMode,
+      resolucionMax: cap.width && cap.height ? { ancho: cap.width.max, alto: cap.height.max } : null,
+      fpsMax: cap.frameRate ? cap.frameRate.max : null,
+    },
+    capacidades: cap,
+  };
+}
+
+function motivoDeCamara(e) {
+  const n = String((e && e.name) || '');
+  switch (n) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'Permiso de cámara denegado. Acéptalo en el candado de la barra de direcciones y reintenta.';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No hay ninguna cámara conectada a este equipo.';
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'La cámara está ocupada por otro programa. Ciérralo y reintenta.';
+    case 'OverconstrainedError':
+    case 'ConstraintNotSatisfiedError':
+      return 'Esa cámara no acepta la configuración pedida; puede que ya no esté conectada.';
+    case 'SecurityError':
+      return 'La cámara requiere HTTPS o localhost (contexto seguro).';
+    case '':
+      return 'La cámara no respondió a tiempo.';
+    default:
+      return (e && e.message) || 'No se pudo abrir la cámara.';
+  }
+}
+
+/**
+ * Campo de visión horizontal a partir de una calibración con un objeto de
+ * tamaño conocido.
+ *
+ * Es el hueco que deja la web: `getCapabilities()` no entrega el FOV, y sin FOV
+ * no hay medición en centímetros. Se resuelve poniendo algo de ancho conocido
+ * —una hoja tamaño carta, una regla, una puerta— a una distancia medida, y
+ * anotando qué fracción del ancho del cuadro ocupa.
+ *
+ *     tan(fov/2) = ancho_real / (2 · distancia · fracción_del_cuadro)
+ */
+function calibrarFov(anchoRealCm, distanciaCm, fraccionDelCuadro) {
+  const a = Number(anchoRealCm), d = Number(distanciaCm), f = Number(fraccionDelCuadro);
+  if (!(a > 0) || !(d > 0) || !(f > 0) || f > 1) return null;
+  const tan = a / (2 * d * f);
+  const fovH = (Math.atan(tan) * 2 * 180) / Math.PI;
+  return Number.isFinite(fovH) && fovH > 5 && fovH < 175 ? fovH : null;
 }
 
 /** WebGPU sin pedir adaptador dos veces; falla en silencio donde no existe. */
@@ -452,6 +663,7 @@ async function detectar(g) {
   const hints = await detectarClientHints(nav);
   const xr = await detectarXR(nav);
   const camaras = await detectarCamaras(nav);
+  const audio = await detectarAudio(nav);
   const webgpu = await detectarWebGPU(nav);
 
   const enShellKimos = !!(G.__KIMOS_SHELL__ || (G.parent && G.parent !== G && /kimos/i.test(String(G.location && G.location.hostname || ''))));
@@ -472,6 +684,10 @@ async function detectar(g) {
     } : null,
     xr,
     camaras,
+    microfonos: audio.microfonos,
+    altavoces: audio.altavoces,
+    radios: detectarRadios(G, nav),
+    motor: detectarMotor(ua, G),
     webgpu,
     gpu: detectarGPU(doc),
     wasmSimd: detectarWasmSimd(G),
@@ -688,7 +904,13 @@ function resolver(evid, equipo, xrProbe) {
 
   /* --- lo que aporta el catálogo del equipo (inferido) --- */
   const delCatalogo = (equipo && equipo.caps) || [];
-  const confianzaCatalogo = equipo && equipo.confianza === 'verificado' ? FUENTES.inferida.id : FUENTES.supuesta.id;
+  // 'verificado' es una capacidad comprobada en el equipo; 'ficha' es la
+  // especificación del fabricante para un modelo identificado exacto. Las dos
+  // son inferencias sobre un catálogo, no medidas — pero son mejores que la
+  // suposición de un perfil genérico, que es lo que queda con 'por-confirmar'.
+  const CATALOGO_FIABLE = ['verificado', 'ficha'];
+  const confianzaCatalogo = equipo && CATALOGO_FIABLE.includes(equipo.confianza)
+    ? FUENTES.inferida.id : FUENTES.supuesta.id;
   for (const c of delCatalogo) {
     const bloqueo = RUNTIME_DE_API.filter((r) => c.indexOf(r.prefijo) === 0)[0];
     if (bloqueo && !runtimes.has(bloqueo.runtime)) {
@@ -2394,6 +2616,851 @@ function resumenExtensiones(catalogo, ctx) {
       .filter((x) => x.estado === 'requiere-construccion')
       .reduce((a, x) => a + (x.esfuerzoSemanas || 0), 0),
   };
+}
+
+/* ===== src/core/cuerpo.js ===== */
+/**
+ * cuerpo.js — captura de movimiento y parametrización del cuerpo con cámara.
+ *
+ * El motor geométrico de este módulo viene de **Kimos FunPlai**, donde lleva
+ * meses funcionando en un tótem real: convierte los 33 puntos de una pose en
+ * centímetros usando la altura de la cámara, su inclinación y su campo de
+ * visión. No es una estimación por proporciones corporales: es el rayo que pasa
+ * por los tobillos cortando el piso.
+ *
+ *     elevación(y) = atan((0,5 − y) · 2 · tan(fov_v/2)) − inclinación
+ *     distancia    = altura_cámara / tan(−elevación_tobillos)
+ *     cm_por_unidad_de_imagen = 2 · distancia · tan(fov/2)
+ *
+ * LiDARia aporta dos cosas que FunPlai no necesitaba y una obra sí:
+ *
+ *  1. **Medir sin ver los pies.** La fórmula de arriba exige los tobillos en
+ *     cuadro. Un equipo con LiDAR o ToF entrega la distancia directamente, así
+ *     que `medirConProfundidad()` mide segmentos y alturas con la persona
+ *     cortada a media pierna — el caso normal de una cámara de acceso.
+ *  2. **Parametrizar para trabajo, no para juego.** `parametrizar()` traduce
+ *     las medidas a lo que un prevencionista usa: alturas de trabajo reales,
+ *     alcances, talla de arnés y de ropa.
+ *
+ * La regla de siempre: **lo que no se puede medir se informa como no derivable,
+ * nunca se estima en silencio.** La circunferencia de cabeza no sale de una
+ * pose, así que la talla de casco no se inventa.
+ */
+
+
+const aRad = (grados) => (grados * Math.PI) / 180;
+const aGrados = (radianes) => (radianes * 180) / Math.PI;
+const cifraCuerpo = (v, porDefecto) => (Number.isFinite(Number(v)) ? Number(v) : porDefecto);
+const acotar = (v, min, max) => Math.min(max, Math.max(min, v));
+
+/** Los 33 puntos de la convención MediaPipe Pose, en el orden del modelo. */
+const PUNTOS_CUERPO = [
+  'nariz', 'ojoI.interno', 'ojoI', 'ojoI.externo', 'ojoD.interno', 'ojoD', 'ojoD.externo',
+  'orejaI', 'orejaD', 'bocaI', 'bocaD',
+  'hombroI', 'hombroD', 'codoI', 'codoD', 'munecaI', 'munecaD',
+  'meniqueI', 'meniqueD', 'indiceI', 'indiceD', 'pulgarI', 'pulgarD',
+  'caderaI', 'caderaD', 'rodillaI', 'rodillaD', 'tobilloI', 'tobilloD',
+  'talonI', 'talonD', 'puntaPieI', 'puntaPieD',
+];
+
+/** Índices con nombre. `I`/`D` son izquierda y derecha **de la persona**. */
+const IDX = {
+  nariz: 0, orejaI: 7, orejaD: 8,
+  hombroI: 11, hombroD: 12, codoI: 13, codoD: 14, munecaI: 15, munecaD: 16,
+  indiceI: 19, indiceD: 20,
+  caderaI: 23, caderaD: 24, rodillaI: 25, rodillaD: 26, tobilloI: 27, tobilloD: 28,
+  talonI: 29, talonD: 30, puntaPieI: 31, puntaPieD: 32,
+};
+
+/** Las ocho articulaciones que se puntúan: vértice y sus dos brazos. */
+const ARTICULACIONES = [
+  { id: 'hombroI', label: 'Hombro izquierdo', vertice: IDX.hombroI, a: IDX.codoI, b: IDX.caderaI },
+  { id: 'hombroD', label: 'Hombro derecho', vertice: IDX.hombroD, a: IDX.codoD, b: IDX.caderaD },
+  { id: 'codoI', label: 'Codo izquierdo', vertice: IDX.codoI, a: IDX.hombroI, b: IDX.munecaI },
+  { id: 'codoD', label: 'Codo derecho', vertice: IDX.codoD, a: IDX.hombroD, b: IDX.munecaD },
+  { id: 'caderaI', label: 'Cadera izquierda', vertice: IDX.caderaI, a: IDX.hombroI, b: IDX.rodillaI },
+  { id: 'caderaD', label: 'Cadera derecha', vertice: IDX.caderaD, a: IDX.hombroD, b: IDX.rodillaD },
+  { id: 'rodillaI', label: 'Rodilla izquierda', vertice: IDX.rodillaI, a: IDX.caderaI, b: IDX.tobilloI },
+  { id: 'rodillaD', label: 'Rodilla derecha', vertice: IDX.rodillaD, a: IDX.caderaD, b: IDX.tobilloD },
+];
+
+/**
+ * Montajes de referencia. `alturaCamara` e `inclinacion` son del **centro del
+ * lente**, en cm y grados hacia abajo; `fovH` es el campo horizontal.
+ */
+const MONTAJES = [
+  {
+    id: 'totem.integrada', nombre: 'Tótem con cámara integrada arriba',
+    alturaCamara: 175.5, inclinacion: 0, fovH: 70, aspecto: 16 / 9,
+    alto: 240, ancho: 220, profundidad: 250, distanciaZona: 220,
+    nota: 'El caso medido en el tótem de 180 cm. Con 70° y sin inclinar, el piso recién entra en cuadro a 4,46 m: no sirve para cuerpo entero.',
+  },
+  {
+    id: 'totem.granangular', nombre: 'Tótem con gran angular sobre la pantalla',
+    alturaCamara: 145, inclinacion: 5, fovH: 90, aspecto: 16 / 9,
+    alto: 240, ancho: 220, profundidad: 250, distanciaZona: 220,
+    nota: 'El montaje recomendado: centra la franja de 0 a 240 cm y deja margen vertical.',
+  },
+  {
+    id: 'movil.mano', nombre: 'Móvil o tablet sostenido a la altura del pecho',
+    alturaCamara: 140, inclinacion: 0, fovH: 70, aspecto: 16 / 9,
+    alto: 200, ancho: 160, profundidad: 400, distanciaZona: 300,
+    nota: 'La altura y la inclinación cambian a cada momento: sirve para captura puntual, no para medir en serie. Con IMU se puede leer la inclinación real.',
+  },
+  {
+    id: 'acceso.fija', nombre: 'Cámara fija de control de acceso',
+    alturaCamara: 250, inclinacion: 20, fovH: 90, aspecto: 16 / 9,
+    alto: 200, ancho: 200, profundidad: 400, distanciaZona: 300,
+    nota: 'Alta y muy inclinada: casi nunca ve los pies. Es el caso donde la profundidad real cambia las cosas.',
+  },
+];
+
+const MONTAJE_POR_DEFECTO = MONTAJES[1];
+
+/** Rellena un montaje parcial con los valores del montaje recomendado. */
+function montajeNormalizado(montaje) {
+  const m = montaje || {};
+  const base = MONTAJE_POR_DEFECTO;
+  return {
+    alturaCamara: acotar(cifraCuerpo(m.alturaCamara, base.alturaCamara), 20, 500),
+    inclinacion: acotar(cifraCuerpo(m.inclinacion, base.inclinacion), -45, 60),
+    fovH: acotar(cifraCuerpo(m.fovH, base.fovH), 30, 170),
+    aspecto: acotar(cifraCuerpo(m.aspecto, base.aspecto), 0.4, 4),
+    alto: acotar(cifraCuerpo(m.alto, base.alto), 80, 400),
+    ancho: acotar(cifraCuerpo(m.ancho, base.ancho), 60, 600),
+    profundidad: acotar(cifraCuerpo(m.profundidad, base.profundidad), 60, 2000),
+    distanciaZona: acotar(cifraCuerpo(m.distanciaZona, cifraCuerpo(m.profundidad, base.profundidad) * 0.88), 40, 2000),
+  };
+}
+
+/** Campo de visión vertical a partir del horizontal y la relación de aspecto. */
+function geometriaCamara(montaje) {
+  const m = montajeNormalizado(montaje);
+  const tanH = Math.tan(aRad(m.fovH / 2));
+  const tanV = tanH / m.aspecto;
+  return { fovH: m.fovH, fovV: aGrados(Math.atan(tanV)) * 2, tanH, tanV, aspecto: m.aspecto };
+}
+
+/**
+ * Franja de altura que la cámara ve a cada distancia. `pisoEn(d) === 0` quiere
+ * decir que a esa distancia el suelo ya entra en cuadro.
+ */
+function franjaVisible(montaje) {
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const medio = g.fovV / 2;
+  const tanAbajo = Math.tan(aRad(m.inclinacion + medio));
+  return {
+    geometria: g,
+    alturaCamara: m.alturaCamara,
+    inclinacion: m.inclinacion,
+    // Distancia a la que el borde inferior del cuadro toca el suelo.
+    distanciaPies: tanAbajo > 0.01 ? m.alturaCamara / tanAbajo : Infinity,
+    techoEn: (d) => m.alturaCamara + d * Math.tan(aRad(medio - m.inclinacion)),
+    pisoEn: (d) => Math.max(0, m.alturaCamara - d * tanAbajo),
+  };
+}
+
+/** ¿El lente cubre el volumen declarado dentro de la profundidad disponible? */
+function coberturaDeMontaje(montaje) {
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const altoCubierto = 2 * m.distanciaZona * g.tanV;
+  const anchoCubierto = 2 * m.distanciaZona * g.tanH;
+  const distMinAlto = m.alto / (2 * g.tanV);
+  const distMinAncho = m.ancho / (2 * g.tanH);
+  const necesaria = Math.max(distMinAlto, distMinAncho);
+  const alcanza = necesaria <= m.profundidad + 0.5;
+  const tanHNecesario = Math.max(m.ancho / (2 * m.profundidad), (m.alto / (2 * m.profundidad)) * g.aspecto);
+  const fovNecesario = aGrados(Math.atan(tanHNecesario)) * 2;
+  return {
+    geometria: g, ...m,
+    altoCubierto, anchoCubierto,
+    distanciaMinima: necesaria, distMinAlto, distMinAncho,
+    alcanza,
+    cubreEnLaZona: altoCubierto >= m.alto - 0.5 && anchoCubierto >= m.ancho - 0.5,
+    fovNecesario,
+    recomendacion: alcanza
+      ? 'La cámara cubre el volumen declarado dentro de la profundidad disponible.'
+      : 'Con ' + Math.round(g.fovH) + '° harían falta ' + Math.round(necesaria) + ' cm de profundidad. Con '
+        + Math.round(m.profundidad) + ' cm disponibles hace falta un lente de al menos ' + Math.round(fovNecesario) + '° horizontales.',
+  };
+}
+
+/**
+ * Dónde marcar la zona y cuánto inclinar la cámara.
+ *
+ * El punto fino: la inclinación correcta es la **bisectriz de los dos ángulos**
+ * —el que baja al piso y el que sube al techo de la franja—, no la que apunta
+ * al punto medio en centímetros. Vista desde una cámara alta, la mitad de abajo
+ * ocupa muchos más grados que la de arriba, y apuntar al centro métrico deja la
+ * cabeza fuera de cuadro.
+ */
+function montajeSugerido(montaje) {
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const hc = m.alturaCamara;
+  const aPiso = (d) => aGrados(Math.atan(hc / d));
+  const aTecho = (d) => aGrados(Math.atan((m.alto - hc) / d));
+  const abarca = (d) => aPiso(d) + aTecho(d);
+  const margen = 3;
+  let distancia = Math.max(80, m.profundidad - 15);
+  for (let d = 80; d <= m.profundidad - 15; d += 1) {
+    if (abarca(d) <= g.fovV - margen) { distancia = d; break; }
+  }
+  const inclinacion = (aPiso(distancia) - aTecho(distancia)) / 2;
+  const franja = franjaVisible(m);
+  const veCuerpoEntero = franja.distanciaPies <= m.profundidad && franja.techoEn(franja.distanciaPies) >= m.alto - 1;
+  // El mejor caso del lente: cámara a media franja, al fondo del espacio.
+  const mejorCaso = 2 * aGrados(Math.atan(m.alto / (2 * m.profundidad)));
+  const hayMontaje = mejorCaso <= g.fovV;
+  const fovMinimo = 2 * aGrados(Math.atan(Math.tan(aRad(mejorCaso / 2)) * g.aspecto));
+  return {
+    distancia: Math.round(distancia),
+    inclinacion: Math.round(inclinacion),
+    alturaSinInclinar: Math.round(m.alto / 2),
+    distanciaPies: franja.distanciaPies,
+    techoEnZona: franja.techoEn(m.distanciaZona),
+    pisoEnZona: franja.pisoEn(m.distanciaZona),
+    veCuerpoEntero, hayMontaje, fovMinimo,
+    mensaje: veCuerpoEntero
+      ? 'El montaje actual ve el cuerpo entero dentro del espacio disponible.'
+      : !hayMontaje
+        ? 'Con ' + Math.round(g.fovH) + '° horizontales no hay altura ni inclinación que sirva para cuerpo entero: los '
+          + Math.round(m.alto) + ' cm de franja ocupan ' + Math.round(mejorCaso) + '° verticales incluso desde '
+          + Math.round(m.profundidad) + ' cm, y el lente da ' + Math.round(g.fovV) + '°. Hace falta un lente de al menos '
+          + Math.round(fovMinimo) + '° horizontales. Para medio cuerpo este sirve igual, y con profundidad real tampoco hace falta.'
+        : 'Con la cámara a ' + Math.round(hc) + ' cm e inclinación ' + Math.round(m.inclinacion) + '°, el piso recién entra en cuadro a '
+          + (franja.distanciaPies === Infinity ? '∞' : Math.round(franja.distanciaPies)) + ' cm. Para ver de pies a cabeza dentro de '
+          + Math.round(m.profundidad) + ' cm: inclínala ' + Math.round(inclinacion) + '° y marca la zona a ' + Math.round(distancia)
+          + ' cm, o bájala a ' + Math.round(m.alto / 2) + ' cm y déjala horizontal.',
+  };
+}
+
+/* ------------------------------ la pose ------------------------------ */
+
+const visible = (L, i, umbral) => {
+  const p = L && L[i];
+  return !!p && (p.visibility == null || p.visibility > (umbral == null ? 0.35 : umbral));
+};
+
+/**
+ * Altura sobre el suelo, en cm, del punto que la pose ofrece como apoyo.
+ *
+ * MediaPipe marca el **tobillo** en la articulación, no en la planta: usarlo
+ * como si pisara el suelo alarga la distancia unos 8 cm a 2 m, y ese error se
+ * arrastra a todos los segmentos. El talón y la punta del pie sí están en el
+ * suelo, así que se prefieren cuando el modelo los da con confianza.
+ */
+const ALTURA_APOYO_CM = { talon: 0, puntaPie: 0, tobillo: 7 };
+
+function puntoDeApoyo(L) {
+  const promedio = (indices, tipo) => {
+    const ps = indices.filter((i) => visible(L, i)).map((i) => L[i]);
+    if (!ps.length) return null;
+    return { y: ps.reduce((a, p) => a + p.y, 0) / ps.length, tipo, alturaCm: ALTURA_APOYO_CM[tipo] };
+  };
+  return promedio([IDX.talonI, IDX.talonD, IDX.puntaPieI, IDX.puntaPieD], 'talon')
+    || promedio([IDX.tobilloI, IDX.tobilloD], 'tobillo');
+}
+
+/** Ángulo en grados en el vértice `b` del triángulo a-b-c. */
+function anguloEn(a, b, c) {
+  if (!a || !b || !c) return null;
+  const v1x = a.x - b.x, v1y = a.y - b.y;
+  const v2x = c.x - b.x, v2y = c.y - b.y;
+  const n1 = Math.hypot(v1x, v1y), n2 = Math.hypot(v2x, v2y);
+  if (n1 < 1e-6 || n2 < 1e-6) return null;
+  return aGrados(Math.acos(acotar((v1x * v2x + v1y * v2y) / (n1 * n2), -1, 1)));
+}
+
+/** Los ocho ángulos articulares, en grados. `null` donde el punto no se ve. */
+function angulosArticulares(L) {
+  const salida = {};
+  for (const art of ARTICULACIONES) {
+    salida[art.id] = (visible(L, art.vertice) && visible(L, art.a) && visible(L, art.b))
+      ? anguloEn(L[art.a], L[art.vertice], L[art.b])
+      : null;
+  }
+  return salida;
+}
+
+/**
+ * Márgenes de encuadre para el montaje declarado.
+ *
+ * Un umbral fijo —"los hombros tienen que ocupar el 12% del cuadro"— solo vale
+ * para el lente con el que se calibró. Con un gran angular de 90° a 2,2 m unos
+ * hombros normales ocupan el 8%, y ese umbral fijo mandaría a la persona a
+ * acercarse cuando está exactamente donde debe. Así que el margen sale de la
+ * geometría: hombros de 32 cm al fondo del espacio y de 52 cm en el borde
+ * cercano de la zona.
+ */
+function margenesDeHombros(montaje) {
+  if (!montaje) return { min: 0.12, max: 0.55 };
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const fraccion = (anchoCm, distancia) => anchoCm / (2 * distancia * g.tanH);
+  return {
+    min: fraccion(32, m.profundidad) * 0.8,
+    max: fraccion(52, Math.max(50, m.distanciaZona * 0.5)),
+  };
+}
+
+/**
+ * ¿Está la persona bien encuadrada? `modo` es `'completo'` (hace falta ver los
+ * pies) o `'superior'` (basta torso, brazos y cabeza). Con `montaje` los
+ * márgenes se calculan para ese lente; sin él se usan los del tótem.
+ */
+function encuadreDePose(L, modo, montaje) {
+  if (!L || L.length < 29) return { ok: false, motivo: 'Sin persona detectada' };
+  if (modo === 'superior') {
+    if (!visible(L, IDX.nariz, 0.4)) return { ok: false, motivo: 'No veo la cara: ponte de frente a la cámara' };
+    if (!visible(L, IDX.hombroI, 0.4) || !visible(L, IDX.hombroD, 0.4)) return { ok: false, motivo: 'No veo los hombros: céntrate en la cámara' };
+    const ancho = Math.abs(L[IDX.hombroI].x - L[IDX.hombroD].x);
+    const cx = (L[IDX.hombroI].x + L[IDX.hombroD].x) / 2;
+    const margen = margenesDeHombros(montaje);
+    if (ancho < margen.min) return { ok: false, motivo: 'Acércate: la persona se ve muy pequeña' };
+    if (ancho > margen.max) return { ok: false, motivo: 'Retrocede un paso' };
+    if (cx < 0.32) return { ok: false, motivo: 'Muévete a tu derecha →' };
+    if (cx > 0.68) return { ok: false, motivo: '← Muévete a tu izquierda' };
+    return { ok: true, motivo: 'Encuadre correcto', ancho, cx, modo: 'superior' };
+  }
+  if (!visible(L, IDX.nariz, 0.4)) return { ok: false, motivo: 'No veo la cabeza: retrocede un poco' };
+  if (!visible(L, IDX.tobilloI, 0.4) && !visible(L, IDX.tobilloD, 0.4)) {
+    return { ok: false, motivo: 'No veo los pies: aléjate, baja la cámara o inclínala' };
+  }
+  let minY = 1, maxY = 0, minX = 1, maxX = 0;
+  for (const p of L) {
+    if (!p) continue;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+  }
+  const alto = maxY - minY, cx = (minX + maxX) / 2;
+  if (alto < 0.55) return { ok: false, motivo: 'Acércate: la persona se ve muy pequeña' };
+  if (alto > 0.99) return { ok: false, motivo: 'Aléjate: la persona no cabe en cuadro' };
+  if (cx < 0.3) return { ok: false, motivo: 'Muévete a tu derecha →' };
+  if (cx > 0.7) return { ok: false, motivo: '← Muévete a tu izquierda' };
+  return { ok: true, motivo: 'Encuadre correcto', alto, ancho: maxX - minX, cx, modo: 'completo' };
+}
+
+/* --------------------------- la medición --------------------------- */
+
+/** Segmentos y alturas comunes a las dos vías de medición. */
+function cuerpoDesdeDistancia(L, m, g, distancia, mundo) {
+  const cmPorY = 2 * distancia * g.tanV;
+  const cmPorX = 2 * distancia * g.tanH;
+  const elevacion = (y) => aGrados(Math.atan((0.5 - y) * 2 * g.tanV)) - m.inclinacion;
+  /** Altura sobre el suelo de un punto de la imagen, en cm. */
+  const alturaDe = (i) => (visible(L, i) ? m.alturaCamara + distancia * Math.tan(aRad(elevacion(L[i].y))) : null);
+  const entre = (a, b) => (visible(L, a) && visible(L, b)
+    ? Math.hypot((L[a].x - L[b].x) * cmPorX, (L[a].y - L[b].y) * cmPorY) : null);
+
+  const segmentos = {
+    anchoHombros: entre(IDX.hombroI, IDX.hombroD),
+    anchoCaderas: entre(IDX.caderaI, IDX.caderaD),
+    brazoI: entre(IDX.hombroI, IDX.codoI),
+    brazoD: entre(IDX.hombroD, IDX.codoD),
+    antebrazoI: entre(IDX.codoI, IDX.munecaI),
+    antebrazoD: entre(IDX.codoD, IDX.munecaD),
+    manoI: entre(IDX.munecaI, IDX.indiceI),
+    manoD: entre(IDX.munecaD, IDX.indiceD),
+    torso: entre(IDX.hombroI, IDX.caderaI),
+    musloI: entre(IDX.caderaI, IDX.rodillaI),
+    musloD: entre(IDX.caderaD, IDX.rodillaD),
+    piernaI: entre(IDX.rodillaI, IDX.tobilloI),
+    piernaD: entre(IDX.rodillaD, IDX.tobilloD),
+    pieI: entre(IDX.talonI, IDX.puntaPieI),
+    pieD: entre(IDX.talonD, IDX.puntaPieD),
+  };
+  const alturas = {
+    hombro: alturaDe(IDX.hombroD) != null && alturaDe(IDX.hombroI) != null
+      ? (alturaDe(IDX.hombroI) + alturaDe(IDX.hombroD)) / 2 : (alturaDe(IDX.hombroD) ?? alturaDe(IDX.hombroI)),
+    codo: alturaDe(IDX.codoD) ?? alturaDe(IDX.codoI),
+    muneca: alturaDe(IDX.munecaD) ?? alturaDe(IDX.munecaI),
+    cadera: alturaDe(IDX.caderaD) ?? alturaDe(IDX.caderaI),
+    rodilla: alturaDe(IDX.rodillaD) ?? alturaDe(IDX.rodillaI),
+  };
+  let envergaduraMundo = null;
+  if (mundo && mundo[IDX.munecaI] && mundo[IDX.munecaD]) {
+    const a = mundo[IDX.munecaI], b = mundo[IDX.munecaD];
+    envergaduraMundo = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * 100;
+  }
+  const angulos = angulosArticulares(L);
+  // Wrist-to-wrist solo mide la envergadura con los brazos en cruz. El codo
+  // estirado no basta: de pie con los brazos caídos también está estirado y da
+  // la mitad de la envergadura real, que alimentaría un alcance falso. Hace
+  // falta además que el brazo esté separado del tronco (ángulo de hombro).
+  const brazosExtendidos = angulos.codoI != null && angulos.codoD != null
+    && angulos.hombroI != null && angulos.hombroD != null
+    && angulos.codoI > 150 && angulos.codoD > 150
+    && angulos.hombroI > 70 && angulos.hombroD > 70;
+  const distanciaMunecas = entre(IDX.munecaI, IDX.munecaD);
+  return {
+    segmentos, alturas, cmPorX, cmPorY, elevacion, alturaDe, angulos,
+    distanciaMunecas,
+    brazosExtendidos,
+    envergadura: brazosExtendidos ? distanciaMunecas : null,
+    envergaduraMotivo: brazosExtendidos ? null : 'Los brazos no están en cruz: la distancia entre muñecas no es la envergadura. Pide abrir los brazos.',
+    envergaduraMundo,
+  };
+}
+
+/**
+ * Medición por geometría de piso: **exige ver los tobillos**. Es el motor de
+ * FunPlai, y en el tótem recupera 180 cm de distancia, 175 de estatura y 176 de
+ * envergadura sobre un cuerpo sintético con error de 0 cm.
+ */
+function medirCuerpo(L, montaje, opciones) {
+  const o = opciones || {};
+  if (!L || L.length < 33) return { ok: false, via: 'piso', motivo: 'Sin persona detectada' };
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const elevacion = (y) => aGrados(Math.atan((0.5 - y) * 2 * g.tanV)) - m.inclinacion;
+
+  const apoyo = puntoDeApoyo(L);
+  if (!apoyo) {
+    return {
+      ok: false, via: 'piso',
+      motivo: 'No veo los pies: por geometría de piso la distancia se mide desde el suelo',
+      alternativa: 'Con un sensor de profundidad (LiDAR, ToF o estéreo) usa medirConProfundidad(): no necesita los tobillos.',
+    };
+  }
+  const aPies = elevacion(apoyo.y);
+  if (aPies >= -0.5) {
+    return { ok: false, via: 'piso', motivo: 'Los pies quedan sobre el horizonte: revisa la inclinación de la cámara' };
+  }
+  // El punto detectado no siempre está en el suelo: el tobillo va unos 7 cm
+  // más arriba, y usarlo como si pisara alarga la distancia varios centímetros.
+  const distancia = (m.alturaCamara - apoyo.alturaCm) / Math.tan(aRad(-aPies));
+  if (!Number.isFinite(distancia) || distancia <= 0 || distancia > 2000) {
+    return { ok: false, via: 'piso', motivo: 'Distancia fuera de rango: revisa altura e inclinación de la cámara' };
+  }
+  const base = cuerpoDesdeDistancia(L, m, g, distancia, o.mundo);
+  const cabeza = visible(L, IDX.nariz)
+    // La nariz queda unos 10 cm bajo la coronilla en un adulto de pie.
+    ? m.alturaCamara + distancia * Math.tan(aRad(elevacion(L[IDX.nariz].y))) + 10
+    : null;
+  const dentro = distancia >= m.distanciaZona * 0.55 && distancia <= m.profundidad + 30;
+  return {
+    ok: true, via: 'piso', distancia, altura: cabeza,
+    apoyo: apoyo.tipo,
+    ...base,
+    dentroDelEspacio: dentro,
+    // 1° de error de inclinación son ~3,5 cm a 2 m: ese es el error dominante.
+    errorCm: Math.max(3, distancia * Math.tan(aRad(1)) * (o.errorInclinacionGrados || 1)),
+    motivo: dentro ? 'Dentro del espacio declarado' : 'Fuera del espacio declarado',
+  };
+}
+
+/**
+ * Medición con distancia entregada por un sensor de profundidad.
+ *
+ * Aquí está el aporte de LiDARia: el rayo al piso deja de hacer falta, así que
+ * se mide con la persona cortada a media pierna —el caso normal de una cámara
+ * de acceso montada alta. La estatura sigue necesitando los pies o el plano del
+ * suelo, y cuando no están **se informa `altura: null`, no se estima**.
+ *
+ * @param muestra `{ distanciaCm, sensorId }` — `sensorId` es una clave de
+ *        `PERFIL_SENSOR` y decide la banda de error que se reporta.
+ */
+function medirConProfundidad(L, montaje, muestra, opciones) {
+  const o = opciones || {};
+  if (!L || L.length < 33) return { ok: false, via: 'profundidad', motivo: 'Sin persona detectada' };
+  const d = cifraCuerpo(muestra && muestra.distanciaCm, NaN);
+  if (!(d > 0)) return { ok: false, via: 'profundidad', motivo: 'El sensor no entregó distancia' };
+  const sensorId = (muestra && muestra.sensorId) || 'depth.dtof';
+  if (!PERFIL_SENSOR[sensorId]) {
+    return { ok: false, via: 'profundidad', motivo: 'Sensor desconocido: ' + sensorId };
+  }
+  const m = montajeNormalizado(montaje);
+  const g = geometriaCamara(m);
+  const base = cuerpoDesdeDistancia(L, m, g, d, o.mundo);
+  const veLosPies = visible(L, IDX.tobilloI) || visible(L, IDX.tobilloD);
+  const alturaCabeza = (veLosPies && visible(L, IDX.nariz))
+    ? m.alturaCamara + d * Math.tan(aRad(base.elevacion(L[IDX.nariz].y))) + 10
+    : null;
+  return {
+    ok: true, via: 'profundidad', sensorId, distancia: d,
+    ...base,
+    altura: alturaCabeza,
+    alturaMotivo: alturaCabeza == null
+      ? 'La estatura necesita ver los pies o el plano del suelo; los segmentos y las alturas relativas no.'
+      : null,
+    // La banda del sensor manda: es medida, no inferida.
+    errorCm: errorEsperado(sensorId, d / 100) * 100,
+    dentroDelEspacio: d <= m.profundidad + 30,
+    motivo: 'Distancia medida por ' + PERFIL_SENSOR[sensorId].label,
+  };
+}
+
+/**
+ * Encuadre digital: recorta y centra sobre la persona sin mover el lente.
+ *
+ * Una PTZ con gimbal encuadra mejor, pero al girar cambia su inclinación sin
+ * informarla, y con eso se pierde la referencia que permite medir en cm. Esto
+ * consigue el mismo efecto en pantalla dejando la geometría intacta.
+ */
+function seguimientoDigital(L, previo, opciones) {
+  const o = opciones || {};
+  const suave = acotar(cifraCuerpo(o.suavizado, 0.12), 0.01, 1);
+  const zoomMax = acotar(cifraCuerpo(o.zoomMax, 1.8), 1, 3);
+  const base = previo || { zoom: 1, cx: 0.5, cy: 0.5 };
+  const puntos = (L || []).filter((p) => p && (p.visibility == null || p.visibility > 0.4));
+  if (puntos.length < 4) {
+    return {
+      zoom: base.zoom + (1 - base.zoom) * suave,
+      cx: base.cx + (0.5 - base.cx) * suave,
+      cy: base.cy + (0.5 - base.cy) * suave,
+      siguiendo: false,
+    };
+  }
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (const p of puntos) {
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+  }
+  const margen = cifraCuerpo(o.margen, 0.12);
+  const ancho = acotar((x1 - x0) + margen * 2, 0.08, 1);
+  const alto = acotar((y1 - y0) + margen * 2, 0.08, 1);
+  const objetivo = acotar(Math.min(1 / ancho, 1 / alto), 1, zoomMax);
+  const limite = (z) => 0.5 - 0.5 / z;
+  const zoom = base.zoom + (objetivo - base.zoom) * suave;
+  const lim = limite(zoom);
+  return {
+    zoom,
+    cx: acotar(base.cx + ((x0 + x1) / 2 - base.cx) * suave, 0.5 - lim, 0.5 + lim),
+    cy: acotar(base.cy + ((y0 + y1) / 2 - base.cy) * suave, 0.5 - lim, 0.5 + lim),
+    siguiendo: true,
+  };
+}
+
+/* -------------------- de centímetros a decisiones -------------------- */
+
+/** Lee `alturas.codo`, `segmentos.pieD`, `envergadura`… sobre una medición. */
+function valorDe(medicion, ruta) {
+  if (!medicion || !ruta) return null;
+  let v = medicion;
+  for (const parte of String(ruta).split('.')) {
+    if (v == null) return null;
+    v = v[parte];
+  }
+  return Number.isFinite(v) ? v : null;
+}
+
+const CONFIANZA_ORDEN = { medida: 1, derivada: 2, estimada: 3 };
+
+/**
+ * Traduce una medición a lo que se usa en terreno: alturas de trabajo,
+ * alcances y tallas.
+ *
+ * Devuelve siempre las tres listas —`ergonomia`, `tallas` y `noDerivables`—
+ * aunque falten medidas: una entrada sin dato aparece con `valor: null` y el
+ * motivo por el que no se pudo calcular. Callar una fila es peor que mostrarla
+ * vacía, porque el operador no sabe si la app no lo midió o no lo sabe hacer.
+ */
+function parametrizar(medicion, catalogo) {
+  const cat = catalogo || {};
+  const ok = !!(medicion && medicion.ok);
+
+  const ergonomia = (cat.ergonomia || []).map((regla) => {
+    const base = ok ? valorDe(medicion, regla.desde) : null;
+    let valor = null, rango = null;
+    if (base != null) {
+      if (Array.isArray(regla.ajusteCm)) {
+        rango = [Math.round(base + regla.ajusteCm[0]), Math.round(base + regla.ajusteCm[1])];
+        valor = Math.round((rango[0] + rango[1]) / 2);
+      } else {
+        valor = Math.round(base * cifraCuerpo(regla.factor, 1));
+        rango = [valor, valor];
+      }
+    }
+    return {
+      ...regla, valor, rango,
+      motivo: base != null ? null : (ok ? 'Falta la medida base: ' + regla.desde : 'Sin medición válida'),
+    };
+  });
+
+  const tallas = (cat.tallas || []).map((t) => {
+    const base = ok ? valorDe(medicion, t.desde) : null;
+    let talla = null;
+    if (base != null) {
+      if (Array.isArray(t.tabla)) {
+        const fila = t.tabla.find((f) => base <= f.hasta);
+        talla = fila ? fila.talla : null;
+      } else if (t.id === 'calzado') {
+        // Un pie humano calzado mide entre 15 y 40 cm. Fuera de ahí lo que
+        // falló es la detección del pie, y una talla inventada es peor que
+        // ninguna: el pedido llega y no le sirve a nadie.
+        talla = base >= 15 && base <= 40 ? 'EU ' + Math.round(base * 1.5 + 2) : null;
+      }
+    }
+    return {
+      ...t, base, talla,
+      motivo: talla != null ? null
+        : base == null ? (ok ? 'Falta la medida base: ' + t.desde : 'Sin medición válida')
+        : 'La medida base (' + base.toFixed(1) + ' cm) está fuera del rango humano: el punto se detectó mal.',
+    };
+  });
+
+  const conDato = ergonomia.filter((e) => e.valor != null).length + tallas.filter((t) => t.talla != null).length;
+  const total = ergonomia.length + tallas.length;
+  const peor = [...ergonomia, ...tallas]
+    .filter((e) => (e.valor != null || e.talla != null))
+    .reduce((p, e) => Math.max(p, CONFIANZA_ORDEN[e.confianza] || 3), 0);
+
+  return {
+    ok: ok && conDato > 0,
+    via: (medicion && medicion.via) || null,
+    errorCm: (medicion && medicion.errorCm) || null,
+    ergonomia, tallas,
+    noDerivables: cat.noDerivables || [],
+    cobertura: total ? conDato / total : 0,
+    confianzaGlobal: peor === 1 ? 'medida' : peor === 2 ? 'derivada' : peor === 3 ? 'estimada' : null,
+    aviso: 'Las medidas corporales de una persona identificada son datos personales. Para asignar EPP basta el número; para guardarlo junto al nombre hace falta base de licitud y plazo de conservación.',
+  };
+}
+
+/**
+ * Rasgos de la parametrización corporal para `clasificar()` de legal.js.
+ *
+ * Medir un cuerpo para asignarle un arnés **no es dato biométrico**: no busca
+ * identificar a nadie. Pasa a serlo en el momento en que la medida se usa para
+ * reconocer a la persona, y por eso `identificar` es un parámetro, no un
+ * supuesto.
+ */
+function rasgosDeCuerpo(opciones) {
+  const o = opciones || {};
+  return {
+    personas: true,
+    sensibles: o.identificar === true,
+    observacionSistematica: o.continuo === true,
+    masivo: o.masivo === true,
+    decisionAutomatizada: o.decideSolo === true,
+  };
+}
+
+/**
+ * ¿Sirve esta captura? Junta las tres cosas que la arruinan: pocos cuadros por
+ * segundo, puntos poco visibles y una persona fuera del volumen declarado.
+ */
+function calidadDeCaptura(datos) {
+  const d = datos || {};
+  const fps = cifraCuerpo(d.fps, 0);
+  const L = d.landmarks || null;
+  const vistos = L ? L.filter((p) => p && (p.visibility == null || p.visibility > 0.5)).length : 0;
+  const visibilidad = L && L.length ? vistos / L.length : 0;
+  const problemas = [];
+  if (fps > 0 && fps < 12) problemas.push('Menos de 12 cuadros por segundo: el movimiento se pierde entre cuadros.');
+  if (L && visibilidad < 0.6) problemas.push('Más de un tercio de los puntos con baja visibilidad: revisa luz y contraluz.');
+  if (d.medicion && d.medicion.ok && d.medicion.dentroDelEspacio === false) {
+    problemas.push('La persona está fuera del volumen declarado: la medida en centímetros pierde garantía.');
+  }
+  if (d.medicion && !d.medicion.ok) problemas.push(d.medicion.motivo);
+  const veredicto = !L ? 'sin-persona' : problemas.length === 0 ? 'buena' : problemas.length === 1 ? 'aceptable' : 'mala';
+  return {
+    veredicto, fps, visibilidad, puntosVisibles: vistos,
+    problemas,
+    // Sin persona no hay nada que reprochar: es el estado normal de una cámara vacía.
+    mensaje: veredicto === 'sin-persona' ? 'Sin persona en cuadro'
+      : veredicto === 'buena' ? 'Captura utilizable para medir'
+      : veredicto === 'aceptable' ? 'Captura utilizable con reservas'
+      : 'Captura no utilizable para medir',
+  };
+}
+
+/* ===== src/core/componentes.js ===== */
+/**
+ * componentes.js — todo lo que el equipo trae, no solo el sensor de profundidad.
+ *
+ * LiDARia nació mirando la profundidad, y eso dejaba fuera la pregunta que hace
+ * cualquiera con un teléfono en la mano: *«¿y con esto qué puedo sacar?»*. La
+ * respuesta casi nunca es el LiDAR —la mayoría de los equipos no lo tiene— sino
+ * la suma de la cámara, el micrófono, el altavoz, las radios y el IMU.
+ *
+ * Este módulo mantiene la misma regla que el resto del núcleo: **tener un
+ * componente no es poder usarlo**. Un Xiaomi tiene emisor infrarrojo y antena
+ * WiFi; desde el navegador no se llega a ninguno de los dos, y desde un
+ * contenedor iOS tampoco. Eso se dice, no se rodea.
+ */
+
+const ORDEN_ACCESO = { web: 1, 'web-permiso': 2, 'web-chromium': 3, nativo: 4, no: 5 };
+
+/** Estados posibles de un componente en un equipo concreto. */
+const ESTADOS_COMPONENTE = [
+  { id: 'disponible', label: 'Disponible ahora', orden: 1, icon: '✅' },
+  { id: 'requiere-permiso', label: 'Disponible tras permiso', orden: 2, icon: '🔓' },
+  { id: 'requiere-nativo', label: 'Necesita contenedor nativo', orden: 3, icon: '📦' },
+  { id: 'no-en-plataforma', label: 'No accesible en esta plataforma', orden: 4, icon: '🚫' },
+  { id: 'ausente', label: 'El equipo no lo trae', orden: 5, icon: '—' },
+];
+
+const ORDEN_ESTADO_COMPONENTE = Object.fromEntries(ESTADOS_COMPONENTE.map((e, i) => [e.id, i]));
+
+const componentePorId = (catalogo, id) =>
+  (catalogo && catalogo.componentes || []).find((c) => c.id === id) || null;
+
+/** La vía de acceso que corresponde a la plataforma donde corre la app. */
+function accesoEn(componente, plataforma, runtime) {
+  if (!componente) return 'no';
+  if (runtime === 'nativo') {
+    const p = String(plataforma || '');
+    if (p.startsWith('ios') || p === 'visionos') return componente.ios || 'no';
+    return componente.android || 'no';
+  }
+  return componente.web || 'no';
+}
+
+/**
+ * Estado de un componente en este equipo y en este entorno.
+ *
+ * `presente` viene del catálogo del equipo. Cuando no se sabe si el equipo lo
+ * trae, se pasa `null` y el estado lo dice: preguntar es mejor que suponer que
+ * sí, porque la lista de lo que "puede hacer" el equipo es exactamente lo que
+ * el usuario va a creer.
+ */
+function estadoDeComponente(componente, contexto) {
+  const ctx = contexto || {};
+  if (!componente) return { estado: 'ausente', porque: 'Componente desconocido' };
+  if (ctx.presente === false) {
+    return { estado: 'ausente', porque: 'El catálogo de este equipo no lo declara.' };
+  }
+  const acceso = accesoEn(componente, ctx.plataforma, ctx.runtime);
+  const enChromium = ctx.motor === 'chromium';
+  if (acceso === 'no') {
+    return {
+      estado: ctx.runtime === 'nativo' ? 'no-en-plataforma' : 'requiere-nativo',
+      acceso,
+      porque: componente.apiWeb || 'Sin API que lo exponga en este entorno.',
+    };
+  }
+  if (acceso === 'nativo') {
+    return {
+      estado: ctx.runtime === 'nativo' ? 'disponible' : 'requiere-nativo',
+      acceso,
+      porque: ctx.runtime === 'nativo'
+        ? 'El contenedor lo alcanza con la API del sistema.'
+        : 'El navegador no lo expone; el contenedor nativo sí.',
+    };
+  }
+  if (acceso === 'web-chromium') {
+    return {
+      estado: enChromium ? 'requiere-permiso' : 'requiere-nativo',
+      acceso,
+      porque: enChromium
+        ? 'Chromium lo expone; pide permiso al usar.'
+        : 'Solo Chromium lo expone. En Safari de iOS hace falta el contenedor nativo.',
+    };
+  }
+  if (acceso === 'web-permiso') {
+    return { estado: 'requiere-permiso', acceso, porque: 'Disponible en la web; el usuario debe conceder el permiso.' };
+  }
+  return { estado: 'disponible', acceso, porque: 'Disponible sin permiso.' };
+}
+
+/**
+ * Inventario completo de componentes para un equipo, ordenado por lo que se
+ * puede usar ya. `equipo.componentes` es la lista de ids que ese equipo trae;
+ * si no está declarada, todo queda como "por confirmar".
+ */
+function inventarioDeComponentes(catalogo, contexto) {
+  const ctx = contexto || {};
+  const declarados = ctx.equipo && Array.isArray(ctx.equipo.componentes) ? ctx.equipo.componentes : null;
+  const filas = (catalogo && catalogo.componentes || []).map((c) => {
+    const presente = declarados ? declarados.includes(c.id) : null;
+    const est = estadoDeComponente(c, { ...ctx, presente });
+    return {
+      ...c, presente,
+      estado: est.estado, acceso: est.acceso, porque: est.porque,
+      confirmado: presente != null,
+    };
+  });
+  filas.sort((a, b) => (ORDEN_ESTADO_COMPONENTE[a.estado] - ORDEN_ESTADO_COMPONENTE[b.estado])
+    || (ORDEN_ACCESO[a.acceso] || 9) - (ORDEN_ACCESO[b.acceso] || 9)
+    || a.nombre.localeCompare(b.nombre));
+  const cuenta = (id) => filas.filter((f) => f.estado === id).length;
+  return {
+    filas,
+    resumenComponentes: {
+      disponibles: cuenta('disponible'),
+      conPermiso: cuenta('requiere-permiso'),
+      conNativo: cuenta('requiere-nativo'),
+      fuera: cuenta('no-en-plataforma') + cuenta('ausente'),
+      total: filas.length,
+      declarado: declarados != null,
+    },
+  };
+}
+
+/** Combinaciones cuyos componentes están todos utilizables en este equipo. */
+function combinacionesViables(catalogo, inventario) {
+  const usable = new Set((inventario.filas || [])
+    .filter((f) => f.estado === 'disponible' || f.estado === 'requiere-permiso')
+    .map((f) => f.id));
+  return (catalogo && catalogo.combinaciones || []).map((c) => {
+    const faltan = c.necesita.filter((id) => !usable.has(id));
+    return {
+      ...c,
+      viable: faltan.length === 0,
+      faltan,
+      // Una combinación de laboratorio no se vuelve producto porque el equipo
+      // la soporte: sigue siendo un experimento con el hardware perfecto.
+      recomendable: faltan.length === 0 && c.veredicto !== 'laboratorio',
+    };
+  }).sort((a, b) => (b.viable - a.viable) || (b.recomendable - a.recomendable));
+}
+
+/**
+ * Qué puede aportar este equipo a cada módulo, contando todos sus componentes.
+ *
+ * Responde a la pregunta práctica: «tengo este teléfono, ¿para qué me sirve?».
+ * Un módulo aparece como alcanzable cuando **todos** sus componentes de entrada
+ * están utilizables; si falta uno, se nombra cuál y por qué.
+ */
+function planDeAprovechamiento(catalogo, inventario, modulos) {
+  const porId = new Map((inventario.filas || []).map((f) => [f.id, f]));
+  const utilizable = (id) => {
+    const f = porId.get(id);
+    return !!f && (f.estado === 'disponible' || f.estado === 'requiere-permiso');
+  };
+  return (modulos || []).map((mod) => {
+    const suyos = (inventario.filas || []).filter((f) => (f.modulos || []).includes(mod.id));
+    const listos = suyos.filter((f) => utilizable(f.id));
+    const bloqueados = suyos.filter((f) => !utilizable(f.id));
+    return {
+      modulo: mod.id,
+      nombre: mod.nombre || mod.id,
+      componentes: suyos.map((f) => f.id),
+      listos: listos.map((f) => f.id),
+      bloqueados: bloqueados.map((f) => ({ id: f.id, nombre: f.nombre, estado: f.estado, porque: f.porque })),
+      // Sin ningún componente listo el módulo no arranca; con algunos, arranca degradado.
+      estado: suyos.length === 0 ? 'sin-relacion'
+        : listos.length === 0 ? 'bloqueado'
+        : bloqueados.length === 0 ? 'completo' : 'parcial',
+    };
+  }).filter((p) => p.estado !== 'sin-relacion')
+    .sort((a, b) => b.listos.length - a.listos.length);
+}
+
+/**
+ * Evidencia de componentes que sí se puede recoger en caliente, a partir de lo
+ * que `detectar()` ya trae. No sustituye al catálogo: lo confirma o lo
+ * desmiente, que es lo que convierte una fuente 'declarada' en 'medida'.
+ */
+function componentesObservados(evid) {
+  const e = evid || {};
+  const vistos = [];
+  const camaras = e.camaras || {};
+  if (camaras.disponible) {
+    vistos.push('cam.trasera');
+    if ((camaras.n || 0) > 1) vistos.push('cam.frontal');
+  }
+  if (e.microfonos && e.microfonos.disponible) vistos.push('mic');
+  if (e.altavoces && e.altavoces.disponible) vistos.push('parlante');
+  if (e.sensores && e.sensores.imu) vistos.push('imu');
+  if (e.sensores && e.sensores.gnss) vistos.push('gnss');
+  if (e.radios && e.radios.bluetooth) vistos.push('ble');
+  if (e.radios && e.radios.nfc) vistos.push('nfc');
+  return vistos;
 }
 
 /* Exportaciones para uso como módulo (las herramientas lo importan;

@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -34,6 +34,8 @@ const TABS = [
   ['modulos', 'Módulos', '🧩'],
   ['inventario', 'Inventario', '🎒'],
   ['equipos', 'Equipos', '📱'],
+  ['componentes', 'Componentes', '🔌'],
+  ['montaje', 'Montaje', '🎥'],
   ['prospeccion', 'Prospección', '🎯'],
   ['vision', 'Visión', '👁️'],
   ['extensiones', 'Extensiones', '🧩'],
@@ -114,6 +116,11 @@ function estadoInicial() {
     packs: [],
     rubroSel: null,
     vision: { rubro: 'construccion', fuente: 'totem', distanciaM: 3 },
+    // Montaje de cámara declarado: sin esto no hay centímetros, solo ángulos.
+    montaje: { alturaCamara: 145, inclinacion: 5, fovH: 90, aspecto: 16 / 9, alto: 240, ancho: 220, profundidad: 250, distanciaZona: 220 },
+    // Equipo sobre el que se evalúan los componentes: por defecto el detectado.
+    equipoComp: null,
+    runtimeComp: 'web',
     manualSel: null,
     expediente: {},
     accesorios: [],
@@ -151,10 +158,10 @@ export default function mount(shell) {
     timer = setTimeout(() => {
       timer = null;
       const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
-        expediente, accesorios, responsable, nivelLegal } = estado;
+        expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp } = estado;
       Promise.resolve(shell.saveData({
         v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
-        expediente, accesorios, responsable, nivelLegal,
+        expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp,
       })).catch(() => {});
     }, 800);
   }
@@ -190,6 +197,9 @@ export default function mount(shell) {
         patch.vision = Object.assign({ rubro: 'construccion', fuente: 'totem', distanciaM: 3 }, d.vision);
       }
       if (typeof d.urlApp === 'string') patch.urlApp = d.urlApp;
+      if (d.montaje && typeof d.montaje === 'object') patch.montaje = Object.assign({}, estado.montaje, d.montaje);
+      if (typeof d.equipoComp === 'string' && equipoPorId(d.equipoComp)) patch.equipoComp = d.equipoComp;
+      if (d.runtimeComp === 'web' || d.runtimeComp === 'nativo') patch.runtimeComp = d.runtimeComp;
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
     } catch (e) { /* primera apertura */ }
@@ -484,6 +494,164 @@ export default function mount(shell) {
               ? h('div', { className: 'ld-mini' }, 'Sumando ', h('b', null, rec[0].equipo.nombre), ' quedaría completo (y ' + rec[0].cubre + ' módulos en total).')
               : h('div', { className: 'ld-mini' }, 'Ningún equipo del catálogo lo deja completo: es trabajo de plataforma, no de compra.'));
         }))) : null);
+  }
+
+  /* ------------------------- componentes del equipo ------------------------ */
+
+  /** El equipo sobre el que se evalúan los componentes, y en qué entorno. */
+  function contextoDeComponentes(st) {
+    const id = st.equipoComp || (st.diag && st.diag.equipo && st.diag.equipo.id) || null;
+    const eq = id ? equipoPorId(id) : null;
+    return {
+      equipo: eq,
+      plataforma: eq ? eq.plataforma : 'desconocida',
+      runtime: st.runtimeComp,
+      // El escritorio de KIMOS corre en un navegador de escritorio, que es
+      // Chromium en la práctica; para un iPhone hay que evaluar como WebKit.
+      motor: eq && (eq.plataforma === 'ios' || eq.plataforma === 'visionos') ? 'webkit' : 'chromium',
+    };
+  }
+
+  function vistaComponentes(st) {
+    const ctx = contextoDeComponentes(st);
+    const inv = inventarioDeComponentes(DATOS.componentes, ctx);
+    const r = inv.resumenComponentes;
+    const combos = combinacionesViables(DATOS.componentes, inv);
+    const plan = planDeAprovechamiento(DATOS.componentes, inv, DATOS.modules.modulos);
+    const ico = (id) => (ESTADOS_COMPONENTE.filter((e) => e.id === id)[0] || {}).icon || '';
+    const lbl = (id) => (ESTADOS_COMPONENTE.filter((e) => e.id === id)[0] || {}).label || id;
+    const grupo = (id) => (DATOS.componentes.grupos.filter((g) => g.id === id)[0] || {}).label || id;
+
+    const selector = h('div', { className: 'ld-form' },
+      h('label', { className: 'ld-campo' }, h('span', null, 'Equipo'),
+        h('select', {
+          value: ctx.equipo ? ctx.equipo.id : '',
+          onChange: (e) => commit({ equipoComp: e.target.value || null }),
+        },
+        h('option', { value: '' }, '— elige un equipo —'),
+        DATOS.devices.equipos.map((e) => h('option', { key: e.id, value: e.id }, e.nombre)))),
+      h('label', { className: 'ld-campo' }, h('span', null, 'Entorno'),
+        h('select', { value: st.runtimeComp, onChange: (e) => commit({ runtimeComp: e.target.value }) },
+          h('option', { value: 'web' }, 'Navegador'),
+          h('option', { value: 'nativo' }, 'Contenedor nativo')),
+        h('small', null, 'Cambiar de navegador a contenedor es lo que desbloquea Bluetooth, NFC, la señal WiFi y la NPU.')));
+
+    if (!ctx.equipo) {
+      return h('div', null, card('🔌 Componentes del equipo',
+        h('div', null,
+          h('p', null, 'Elige un equipo para ver todo lo que trae —cámaras, micrófono, altavoz, radios, sensores— y en qué estado está cada componente en cada entorno.'),
+          selector)));
+    }
+
+    const cols = [
+      { k: 'comp', l: 'Componente', cell: (f) => h('div', null,
+          h('b', null, ico(f.estado) + ' ' + f.nombre),
+          h('div', { className: 'ld-mini' }, grupo(f.grupo) + ' · ' + lbl(f.estado) + (f.confirmado ? '' : ' · por confirmar')),
+          h('div', { className: 'ld-mini' }, f.capta)) },
+      { k: 'porque', l: 'Por qué', cell: (f) => h('div', { className: 'ld-mini' }, f.porque) },
+      { k: 'nota', l: 'Límite', cell: (f) => h('div', { className: 'ld-mini' }, f.nota) },
+      { k: 'mods', l: 'Módulos', cell: (f) => (f.modulos || []).length
+          ? h('div', { className: 'ld-chips' }, f.modulos.map((m) => chip(m))) : '—' },
+    ];
+
+    return h('div', null,
+      card('🔌 Componentes del equipo',
+        h('div', null,
+          h('p', null, 'No solo el sensor de profundidad. La regla es la de siempre: ',
+            h('b', null, 'tener un componente no es poder usarlo'),
+            '. Bluetooth y NFC no existen en Safari de iOS, y la señal WiFi no existe en ningún navegador.'),
+          selector,
+          h('div', { className: 'ld-kpis' },
+            kpi('Disponibles ahora', r.disponibles, 'sin pedir nada'),
+            kpi('Tras permiso', r.conPermiso, 'el usuario tiene que aceptar'),
+            kpi('Con contenedor nativo', r.conNativo, 'el navegador no llega'),
+            kpi('Fuera de alcance', r.fuera, 'no lo trae o la plataforma no lo da')))),
+      card(null, tabla(cols, inv.filas, { key: (f) => f.id })),
+      card('🔗 Combinaciones',
+        h('ul', { className: 'ld-lista' }, combos.map((c) => h('li', { key: c.id },
+          h('b', null, (c.viable ? (c.recomendable ? '✅ ' : '🧪 ') : '— ') + c.nombre),
+          h('div', null, c.da),
+          h('div', { className: 'ld-mini' }, c.ganancia + (c.faltan.length ? ' · Falta: ' + c.faltan.join(', ') : '')))))),
+      card('🧩 Qué alcanza este equipo, módulo por módulo',
+        tabla([
+          { k: 'mod', l: 'Módulo', cell: (p) => h('b', null, p.nombre) },
+          { k: 'est', l: 'Estado', cell: (p) => p.estado },
+          { k: 'falta', l: 'Le falta', cell: (p) => h('div', { className: 'ld-mini' },
+              p.bloqueados.length ? p.bloqueados.map((b) => b.nombre + ' (' + b.estado + ')').join(', ') : '—') },
+        ], plan, { key: (p) => p.modulo })));
+  }
+
+  /* ---------------------------- montaje de cámara --------------------------- */
+
+  function vistaMontaje(st) {
+    const m = st.montaje;
+    const cob = coberturaDeMontaje(m);
+    const sug = montajeSugerido(m);
+    const franja = franjaVisible(m);
+    const setM = (patch) => commit({ montaje: Object.assign({}, m, patch) });
+    const num = (n, d) => (n == null || !isFinite(n) ? '—' : n.toFixed(d == null ? 0 : d));
+
+    const campo = (clave, etiqueta, ayuda, extra) => h('label', { className: 'ld-campo', key: clave },
+      h('span', null, etiqueta),
+      h('input', Object.assign({
+        type: 'number', value: m[clave],
+        onChange: (e) => { const v = Number(e.target.value); if (isFinite(v)) setM({ [clave]: v }); },
+      }, extra || {})),
+      ayuda ? h('small', null, ayuda) : null);
+
+    // Tabla de qué franja ve a cada distancia: es lo que hace evidente que,
+    // con la cámara alta, acercarse EMPEORA el encuadre.
+    const distancias = [100, 150, 200, m.distanciaZona, 300, m.profundidad]
+      .filter((d, i, a) => d > 0 && a.indexOf(d) === i).sort((a, b) => a - b);
+
+    return h('div', null,
+      card('🎥 Montaje de la cámara',
+        h('div', null,
+          h('p', null, 'Este es el motor que LiDARia adoptó de ',
+            h('b', null, 'Kimos FunPlai'),
+            ': con la altura del lente, su inclinación y su campo de visión, una cámara común mide en centímetros. ',
+            'Sin sensor de profundidad, y validado contra un tótem real.'),
+          h('p', { className: 'ld-mini' }, 'La altura se mide al centro del lente, no al borde de la carcasa. 1° de error de inclinación son 3,5 cm a 2 m: es el error que más pesa en toda la medición.'),
+          h('div', { className: 'ld-form' },
+            campo('alturaCamara', 'Altura del lente (cm)', 'Del suelo al centro del lente.', { min: 20, max: 500 }),
+            campo('inclinacion', 'Inclinación hacia abajo (°)', 'Positiva mirando al suelo.', { min: -45, max: 60 }),
+            campo('fovH', 'Campo horizontal (°)', 'Webcam típica 70°; gran angular 90°.', { min: 30, max: 170 }),
+            campo('profundidad', 'Profundidad del espacio (cm)', 'Lo que hay entre la cámara y la pared de atrás.', { min: 60, max: 2000 }),
+            campo('distanciaZona', 'Zona marcada (cm)', 'Dónde se para la persona.', { min: 40, max: 2000 }),
+            campo('alto', 'Franja a cubrir (cm)', '240 cm cubre a un adulto con los brazos en alto.', { min: 80, max: 400 })))),
+
+      card('📐 Lo que ve con este montaje',
+        h('div', null,
+          h('div', { className: 'ld-kpis' },
+            kpi('Campo vertical', num(cob.geometria.fovV, 1) + '°', 'sale del horizontal y la relación de aspecto'),
+            kpi('Ve el cuerpo entero', sug.veCuerpoEntero ? 'sí' : 'no', sug.veCuerpoEntero ? '' : 'la estatura no se puede medir'),
+            kpi('El piso entra a', franja.distanciaPies === Infinity ? 'nunca' : num(franja.distanciaPies) + ' cm', 'antes de eso no se ven los pies'),
+            kpi('Inclinación sugerida', num(sug.inclinacion) + '°', 'bisectriz, no el punto medio en cm')),
+          h('p', null, sug.mensaje),
+          h('p', { className: 'ld-mini' }, cob.recomendacion),
+          h('button', {
+            className: 'ld-btn ld-pri',
+            onClick: () => setM({ inclinacion: sug.inclinacion, distanciaZona: sug.distancia }),
+          }, 'Aplicar ' + num(sug.inclinacion) + '° y zona a ' + num(sug.distancia) + ' cm'))),
+
+      card('📏 Franja visible a cada distancia',
+        h('div', null,
+          h('p', { className: 'ld-mini' }, 'Con la cámara alta, acercarse EMPEORA el encuadre: el borde inferior del cuadro sube. Es lo contrario de lo que dice la intuición, y es la razón de marcar una sola zona.'),
+          tabla([
+            { k: 'd', l: 'Distancia', cell: (d) => num(d) + ' cm' + (d === m.distanciaZona ? ' ← zona' : '') },
+            { k: 'desde', l: 'Ve desde', cell: (d) => num(sug.pisoEnZona != null && d === m.distanciaZona ? sug.pisoEnZona : franja.pisoEn(d)) + ' cm' },
+            { k: 'hasta', l: 'Ve hasta', cell: (d) => num(franja.techoEn(d)) + ' cm' },
+            { k: 'ok', l: 'Cuerpo entero', cell: (d) => (franja.pisoEn(d) <= 0.5 && franja.techoEn(d) >= m.alto ? '✅' : '—') },
+          ], distancias, { key: (d) => String(d) }))),
+
+      card('🧍 Qué se puede medir, y qué no',
+        h('div', null,
+          h('p', null, 'Con el montaje declarado y la persona en la zona, se obtienen distancia, estatura, alturas de hombro, codo, cadera y rodilla, largos de segmento y su traducción a alturas de trabajo y tallas.'),
+          h('ul', { className: 'ld-lista' },
+            h('li', null, h('b', null, 'Sin ver los pies'), ': la geometría de piso se niega a medir. Con un sensor de profundidad no hace falta verlos, y ahí sí mide segmentos y alturas relativas — la estatura sigue necesitando los pies y se deja en blanco.'),
+            h('li', null, h('b', null, 'Envergadura'), ': solo con los brazos en cruz. Con los brazos caídos, la distancia entre muñecas es la mitad, y llamarla envergadura alimentaría un alcance falso.'),
+            ...DATOS.cuerpo.noDerivables.map((n) => h('li', { key: n.id },
+              h('b', null, 'No derivable: ' + n.que), ' — ', n.porque, ' ', h('i', null, n.comoSi)))))));
   }
 
   function vistaEquipos() {
@@ -1301,6 +1469,8 @@ export default function mount(shell) {
       : st.tab === 'modulos' ? vistaModulos(cob)
       : st.tab === 'inventario' ? vistaInventario(cob)
       : st.tab === 'equipos' ? vistaEquipos()
+      : st.tab === 'componentes' ? vistaComponentes(st)
+      : st.tab === 'montaje' ? vistaMontaje(st)
       : st.tab === 'negocio' ? vistaNegocio(eco)
       : st.tab === 'plan' ? vistaPlan(eco)
       : st.tab === 'licencias' ? vistaLicencias()
@@ -1449,6 +1619,34 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
         },
         {
+          name: 'VER_COMPONENTES',
+          description: 'Lista todo lo que un equipo trae —cámaras, micrófono, altavoz, radios, sensores— y en qué estado está cada componente en el navegador o en un contenedor nativo. Responde a "¿qué le puedo sacar a este teléfono?".',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              equipo: { type: 'string', description: 'Id del equipo del catálogo. Sin él usa el equipo detectado.' },
+              entorno: { type: 'string', enum: ['web', 'nativo'] },
+            },
+          },
+        },
+        {
+          name: 'CALCULAR_MONTAJE',
+          description: 'Dice a qué distancia marcar la zona y cuánto inclinar la cámara para ver el cuerpo entero, y si con ese lente hay montaje posible. Acepta altura del lente, inclinación, campo de visión horizontal y profundidad disponible, todo en cm y grados.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              alturaCamara: { type: 'number' }, inclinacion: { type: 'number' },
+              fovH: { type: 'number' }, profundidad: { type: 'number' },
+              distanciaZona: { type: 'number' }, alto: { type: 'number' },
+            },
+          },
+        },
+        {
+          name: 'MEDIDAS_DERIVABLES',
+          description: 'Explica qué medidas corporales se pueden obtener con una cámara y cuáles no, con el motivo y la alternativa. Sirve para no prometer una talla de casco o un peso que ninguna cámara puede dar.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'EVALUAR_LICENCIA',
           description: 'Evalúa si una licencia puede entrar al producto (acepta expresiones tipo "MIT OR Apache-2.0").',
           inputSchema: { type: 'object', properties: { licencia: { type: 'string' } }, required: ['licencia'] },
@@ -1462,6 +1660,21 @@ export default function mount(shell) {
           nucleo: DATOS.nucleo,
           pestana: estado.tab,
           equipoActual: estado.diag && estado.diag.equipo ? estado.diag.equipo.nombre : null,
+          montaje: Object.assign({}, estado.montaje, {
+            veCuerpoEntero: montajeSugerido(estado.montaje).veCuerpoEntero,
+            inclinacionSugerida: Math.round(montajeSugerido(estado.montaje).inclinacion),
+          }),
+          componentes: (() => {
+            const id = estado.equipoComp || (estado.diag && estado.diag.equipo && estado.diag.equipo.id) || null;
+            const eq = id ? equipoPorId(id) : null;
+            if (!eq) return null;
+            const inv = inventarioDeComponentes(DATOS.componentes, {
+              equipo: eq, plataforma: eq.plataforma, runtime: estado.runtimeComp,
+              motor: eq.plataforma === 'ios' || eq.plataforma === 'visionos' ? 'webkit' : 'chromium',
+            });
+            return { equipo: eq.id, entorno: estado.runtimeComp, resumen: inv.resumenComponentes };
+          })(),
+          noDerivables: DATOS.cuerpo.noDerivables.map((n) => n.que),
           nivelEquipoActual: estado.diag && estado.diag.nivel ? estado.diag.nivel.label : null,
           inventario: estado.inventario.map((i) => ({ equipo: i.equipo, etiqueta: i.etiqueta, cantidad: i.cantidad || 1 })),
           cobertura: cob.resumen,
@@ -1575,6 +1788,53 @@ export default function mount(shell) {
             if (!rec.length) return { success: true, message: 'Ningún equipo del catálogo deja ' + m.nombre + ' completo: es trabajo de plataforma, no de compra.' };
             commit({ tab: 'modulos', moduloSel: m.id });
             return { success: true, message: 'Para ' + m.nombre + ': ' + rec.map((r) => r.equipo.nombre + ' (cubre ' + r.cubre + ' módulos)').join('; ') };
+          }
+          if (t === 'VER_COMPONENTES') {
+            const eqId = p.equipo || (estado.diag && estado.diag.equipo && estado.diag.equipo.id) || null;
+            if (p.equipo && !equipoPorId(p.equipo)) return { success: false, error: 'Equipo desconocido: ' + p.equipo };
+            if (!eqId) return { success: false, error: 'No hay equipo elegido ni detectado: pasa un id del catálogo.' };
+            const entorno = p.entorno === 'nativo' ? 'nativo' : (p.entorno === 'web' ? 'web' : estado.runtimeComp);
+            commit({ tab: 'componentes', equipoComp: eqId, runtimeComp: entorno });
+            const eq = equipoPorId(eqId);
+            const inv = inventarioDeComponentes(DATOS.componentes, {
+              equipo: eq, plataforma: eq.plataforma, runtime: entorno,
+              motor: eq.plataforma === 'ios' || eq.plataforma === 'visionos' ? 'webkit' : 'chromium',
+            });
+            const r = inv.resumenComponentes;
+            const listos = inv.filas.filter((f) => f.estado === 'disponible' || f.estado === 'requiere-permiso');
+            const nativos = inv.filas.filter((f) => f.estado === 'requiere-nativo');
+            return {
+              success: true,
+              message: eq.nombre + ' en ' + (entorno === 'nativo' ? 'contenedor nativo' : 'navegador') + ': '
+                + (r.disponibles + r.conPermiso) + ' componentes utilizables ('
+                + listos.slice(0, 8).map((f) => f.nombre).join(', ') + ')'
+                + (nativos.length ? '. Necesitan contenedor nativo: ' + nativos.map((f) => f.nombre).join(', ') : '')
+                + (r.declarado ? '' : '. Ojo: este equipo no declara sus componentes en el catálogo, así que todo va por confirmar.'),
+            };
+          }
+          if (t === 'CALCULAR_MONTAJE') {
+            const m = Object.assign({}, estado.montaje);
+            for (const k of ['alturaCamara', 'inclinacion', 'fovH', 'profundidad', 'distanciaZona', 'alto']) {
+              if (typeof p[k] === 'number' && isFinite(p[k])) m[k] = p[k];
+            }
+            const sug = montajeSugerido(m);
+            const cob = coberturaDeMontaje(m);
+            commit({ tab: 'montaje', montaje: m });
+            return {
+              success: true,
+              message: sug.mensaje + ' ' + cob.recomendacion
+                + (sug.hayMontaje ? ' Sugerido: inclinar ' + Math.round(sug.inclinacion) + '° y marcar la zona a ' + Math.round(sug.distancia) + ' cm.' : ''),
+            };
+          }
+          if (t === 'MEDIDAS_DERIVABLES') {
+            commit({ tab: 'montaje' });
+            const no = DATOS.cuerpo.noDerivables.map((n) => n.que + ' (' + n.porque + ' Alternativa: ' + n.comoSi + ')');
+            return {
+              success: true,
+              message: 'Con el montaje declarado se miden: distancia, estatura (si se ven los pies), alturas de hombro, codo, cadera y rodilla sobre el suelo, y los largos de segmento. '
+                + 'La envergadura solo con los brazos en cruz. Con un sensor de profundidad no hace falta ver los pies, pero la estatura sí los necesita y se deja en blanco. '
+                + 'NO se pueden derivar: ' + no.join('; ') + '.',
+            };
           }
           if (t === 'SET_RUBRO') {
             const carga = rubrosActivos();
