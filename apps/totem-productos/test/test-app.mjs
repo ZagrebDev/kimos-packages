@@ -240,6 +240,31 @@ r = await agentPub.dispatchAction({ type: 'IR_A_PESTANA', payload: { pestana: 'e
 assert(!r.success, 'las pestañas de gestión no existen en la vitrina pública');
 app2.unmount();
 
+// ── Solo products instalada (sin productlab): la app funciona igual ──────────
+let agentSolo = null;
+const shellSolo = {
+  ...shell,
+  app: { appId: 'totem-productos', instanceId: 'inst-2', teamId: 'team-1' },
+  items: { list: async () => [], create: async (i) => i, update: async (id, i) => i, remove: async () => {} },
+  agent: { register: (reg) => { agentSolo = reg; return () => { agentSolo = null; }; } },
+  data: {
+    listInstances: async (tpl) => {
+      if (tpl === 'products') return [{ id: 'p-inst', name: 'Productos' }];
+      throw new Error('template desconocido: ' + tpl);   // productlab NO instalada
+    },
+    listItems: async (iid) => (iid === 'p-inst' ? productsItems : []),
+  },
+};
+const appSolo = mod.default(shellSolo);
+await espera(80);
+const snapSolo = agentSolo.getSnapshot();
+const nombresSolo = snapSolo.productos.map((p) => p.nombre).sort();
+assert(snapSolo.productos.length === 3, 'sin productlab: se muestran los 3 productos de products (' + nombresSolo.join(', ') + ')');
+assert(nombresSolo.indexOf('Mesa Roble (tienda)') !== -1, 'sin productlab no hay dedupe: el producto enlazado se muestra desde products');
+r = await agentSolo.dispatchAction({ type: 'ELEGIR_OPCION', payload: { producto: 'Polera Estampada', paso: 'Color', valor: 'Azul' } });
+assert(r.success, 'sin productlab la personalización por opciones/variantes de products sigue funcionando: ' + r.message);
+appSolo.unmount();
+
 // ── Render smoke: el árbol de cada vista se construye sin lanzar ─────────────
 // (React simulado: useState devuelve el valor inicial, useEffect no corre.)
 function renderProfundo(nodo, depth) {
