@@ -534,6 +534,136 @@
       }
     },
     {
+      "id": "workoffice",
+      "name": "Kimos WorkOffice",
+      "description": "Suite ofimática de KIMOS: un espacio de trabajo con Documentos, Hojas de cálculo con motor de fórmulas, Presentaciones con modo presentador, Notas y Calendario, todo dentro de la misma ventana y guardado archivo por archivo (dos personas editando archivos distintos nunca se pisan). Explorador con recientes, favoritos, búsqueda global y papelera; paleta de comandos (Ctrl+K); autoguardado con estado a la vista; exportación e importación en CSV, Markdown y HTML; impresión y modo presentación. Se integra con el resto de KIMOS: trae filas de Productos, Clientes y Pedidos a una hoja, muestra las tareas de Planificación en el calendario y las Notas de Equipo junto a las personales, siempre en solo lectura y respetando el RBAC del usuario. Control total por agente IA.",
+      "icon": "🧰",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "data.read:products",
+        "data.read:customers",
+        "data.read:orders",
+        "data.read:gantt",
+        "data.read:notas-equipo"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos WorkOffice",
+        "fields": [
+          {
+            "key": "startModule",
+            "label": "Al abrir, mostrar",
+            "type": "select",
+            "options": [
+              {
+                "value": "drive",
+                "label": "Inicio (mis archivos)"
+              },
+              {
+                "value": "docs",
+                "label": "Documentos"
+              },
+              {
+                "value": "sheets",
+                "label": "Hojas de cálculo"
+              },
+              {
+                "value": "slides",
+                "label": "Presentaciones"
+              },
+              {
+                "value": "notes",
+                "label": "Notas"
+              },
+              {
+                "value": "calendar",
+                "label": "Calendario"
+              }
+            ],
+            "help": "Módulo que se abre al montar la ventana."
+          },
+          {
+            "key": "autosave",
+            "label": "Autoguardado",
+            "type": "boolean",
+            "help": "Guarda solo unos segundos después de dejar de escribir. Si lo apagas, el guardado es con Ctrl+S."
+          },
+          {
+            "key": "dense",
+            "label": "Interfaz compacta",
+            "type": "boolean",
+            "help": "Más filas y tarjetas por pantalla; útil en monitores pequeños."
+          },
+          {
+            "key": "weekStart",
+            "label": "La semana empieza en",
+            "type": "select",
+            "options": [
+              {
+                "value": "1",
+                "label": "Lunes"
+              },
+              {
+                "value": "0",
+                "label": "Domingo"
+              }
+            ]
+          },
+          {
+            "key": "currency",
+            "label": "Moneda de las hojas",
+            "type": "select",
+            "options": [
+              {
+                "value": "CLP",
+                "label": "Peso chileno (CLP)"
+              },
+              {
+                "value": "USD",
+                "label": "Dólar (USD)"
+              },
+              {
+                "value": "EUR",
+                "label": "Euro (EUR)"
+              },
+              {
+                "value": "MXN",
+                "label": "Peso mexicano (MXN)"
+              },
+              {
+                "value": "COP",
+                "label": "Peso colombiano (COP)"
+              },
+              {
+                "value": "ARS",
+                "label": "Peso argentino (ARS)"
+              }
+            ]
+          },
+          {
+            "key": "kimosData",
+            "label": "Traer datos de otras apps de KIMOS",
+            "type": "boolean",
+            "help": "Muestra las tareas de Planificación en el calendario y permite importar Productos, Clientes y Pedidos a una hoja. Siempre en solo lectura."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "startModule": "drive",
+        "autosave": true,
+        "dense": false,
+        "weekStart": "1",
+        "currency": "CLP",
+        "kimosData": true
+      },
+      "appShellApi": "1.x"
+    },
+    {
       "id": "lidaria",
       "name": "LiDARia",
       "description": "Consola de captura 3D, supervisión por cámara y ampliación por sensores de KIMOS. Qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), a qué distancia se puede vigilar cada implemento de protección —calculado por geometría—, y qué capacidades se pueden sumar en el futuro (reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado) con su puerta de cumplimiento: las funciones con dato sensible se distribuyen apagadas y el software no las enciende hasta que el expediente de la Ley 21.719 está completo y firmado. Incluye manual de uso paso a paso, catálogo de 17 accesorios y sensores conectables (ESP32, térmicas, básculas, cámaras IP, drones) con su forma de conexión por plataforma, 14 rubros ampliables con packs .krub, matriz de 23 equipos contra 15 módulos, inventario, prospección, ecosistema, negocio y licencias. Control por agente IA con catorce herramientas.",
