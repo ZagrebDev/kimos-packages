@@ -1,0 +1,134 @@
+{
+  "id": "kimos.vinas",
+  "nombre": "Pack de rubro: viñas y bodegas",
+  "version": "1.0.0",
+  "autor": "Ejemplo KIMOS",
+  "rubroPackApi": "1.x",
+  "descripcion": "Ejemplo del Creator Pack: añade el rubro de viñas y bodegas y extiende el de construcción con un flujo propio, sin tocar el producto.",
+  "rubros": [
+    {
+      "id": "kimos.vinas",
+      "nombre": "Viñas y bodegas",
+      "icon": "🍇",
+      "cliente": "Viñas con sala de barricas, bodegas de guarda y salas de degustación abiertas al público.",
+      "dolor": "El inventario de barricas y estanques se lleva en planilla, la sala de guarda no tiene plano actualizado, y el enoturismo se vende con fotos que no muestran el recorrido.",
+      "tolerancia": {
+        "m": 0.05,
+        "aDistancia": 4
+      },
+      "toleranciaNota": "Para ubicar activos y planificar el recorrido alcanza; el volumen fiscal de los estanques lo certifica quien corresponda.",
+      "modulos": [
+        {
+          "id": "gemelo",
+          "prioridad": 1,
+          "para": "Anclar cada barrica y estanque a su lugar físico con su ficha de contenido."
+        },
+        {
+          "id": "espacios",
+          "prioridad": 2,
+          "para": "Levantar la sala de guarda y la sala de degustación."
+        },
+        {
+          "id": "vitrina-ar",
+          "prioridad": 3,
+          "para": "Vender el recorrido de enoturismo mostrando la bodega antes de la visita."
+        }
+      ],
+      "flujos": [
+        {
+          "id": "inventario-barricas",
+          "nombre": "Inventario de guarda ubicado",
+          "pasos": [
+            "Escanear la sala de guarda",
+            "Anclar barricas por hilera con QR de respaldo",
+            "Enlazar la ficha de contenido y añada",
+            "Generar la ruta de control"
+          ],
+          "entrega": [
+            "Mapa de la sala",
+            "Inventario ubicado",
+            "Ruta de control"
+          ],
+          "kimos": [
+            "archivos",
+            "kanban",
+            "productos"
+          ]
+        }
+      ],
+      "kpis": [
+        {
+          "id": "control",
+          "label": "Tiempo del control de guarda",
+          "meta": "De una jornada a un recorrido"
+        },
+        {
+          "id": "enoturismo",
+          "label": "Reservas de enoturismo",
+          "meta": "Subir mostrando el recorrido antes de reservar"
+        }
+      ],
+      "equiposRecomendados": [
+        "apple.iphone.pro.12-17"
+      ],
+      "normativa": [
+        "Los volúmenes con efecto tributario los certifica el organismo competente: la app no los reemplaza."
+      ],
+      "prospeccion": {
+        "senales": [
+          "Sala de guarda con más de 200 barricas",
+          "Enoturismo activo",
+          "Inventario en planilla"
+        ],
+        "preguntas": [
+          "¿Cómo saben hoy qué hay en cada barrica y dónde está?",
+          "¿Cuánto demora el control de guarda?"
+        ],
+        "demo": "Anclar tres barricas de su propia sala y mostrar cómo aparece la ficha al apuntar el teléfono.",
+        "objeciones": [
+          {
+            "objecion": "Ya tenemos etiquetas y planilla.",
+            "respuesta": "Y siguen sirviendo. Lo que se suma es ver la sala completa y planificar el recorrido sin caminarla dos veces."
+          }
+        ],
+        "ahorro": {
+          "supuesto": "Jornadas de control ahorradas al año × costo de jornada",
+          "formula": "jornadas * costoJornada"
+        }
+      },
+      "kimos": [
+        "archivos",
+        "kanban",
+        "productos",
+        "vitrina",
+        "eventos"
+      ]
+    },
+    {
+      "id": "construccion",
+      "extiende": true,
+      "flujos": [
+        {
+          "id": "obra-enologica",
+          "nombre": "Obra en sala de proceso (variante del pack)",
+          "pasos": [
+            "Escanear antes de la vendimia",
+            "Registrar la intervención",
+            "Verificar despejes antes de reanudar proceso"
+          ],
+          "entrega": [
+            "Registro fechado",
+            "Verificación de despejes"
+          ],
+          "kimos": [
+            "gantt",
+            "archivos"
+          ]
+        }
+      ],
+      "normativa": [
+        "En sala de proceso, la intervención se planifica fuera de vendimia: el registro fechado sirve para probarlo."
+      ]
+    }
+  ]
+}

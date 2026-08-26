@@ -664,6 +664,22 @@
       "appShellApi": "1.x"
     },
     {
+      "id": "lidaria",
+      "name": "LiDARia",
+      "description": "Consola de captura 3D, supervisión por cámara y ampliación por sensores de KIMOS. Qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), a qué distancia se puede vigilar cada implemento de protección —calculado por geometría—, y qué capacidades se pueden sumar en el futuro (reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado) con su puerta de cumplimiento: las funciones con dato sensible se distribuyen apagadas y el software no las enciende hasta que el expediente de la Ley 21.719 está completo y firmado. Incluye manual de uso paso a paso, catálogo de 17 accesorios y sensores conectables (ESP32, térmicas, básculas, cámaras IP, drones) con su forma de conexión por plataforma, 14 rubros ampliables con packs .krub, matriz de 23 equipos contra 15 módulos, inventario, prospección, ecosistema, negocio y licencias. Control por agente IA con catorce herramientas.",
+      "icon": "🛰️",
+      "version": "1.3.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
+    },
+    {
       "id": "kimos-safe-concierge",
       "name": "KIMOS Safe Concierge",
       "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil con avatar (humanizado o caricaturizado) que atiende visitas, residentes, proveedores y encomiendas 24/7, y una consola de seguridad que convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
