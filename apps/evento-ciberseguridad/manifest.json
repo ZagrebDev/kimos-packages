@@ -1,0 +1,64 @@
+{
+  "id": "evento-ciberseguridad",
+  "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
+  "version": "2.9.0",
+  "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: pantalla \"Ahora\" con la sesión en curso y la siguiente en tiempo real, agenda compacta con fichas de expositores en modal (QR de contacto y de sitio web), marco legal en tarjetas con detalle en modal, Diagnóstico Rápido de Cumplimiento y pie con el logo de Kimos.",
+  "icon": "🛡️",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ],
+  "configSchema": {
+    "title": "Preferencias del totem",
+    "fields": [
+      {
+        "key": "modo",
+        "label": "Disposición",
+        "type": "select",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Automática (totem si la pantalla es vertical y grande)"
+          },
+          {
+            "value": "totem",
+            "label": "Forzar totem (tipografía y botones XL)"
+          },
+          {
+            "value": "escritorio",
+            "label": "Forzar escritorio"
+          }
+        ]
+      },
+      {
+        "key": "segundosInactividad",
+        "label": "Segundos sin tocar antes de volver al inicio",
+        "type": "number",
+        "min": 15,
+        "max": 600
+      },
+      {
+        "key": "acento",
+        "label": "Color de acento",
+        "type": "color"
+      },
+      {
+        "key": "mostrarFotos",
+        "label": "Mostrar las fotos de los expositores",
+        "type": "boolean"
+      }
+    ]
+  },
+  "defaultConfig": {
+    "modo": "auto",
+    "segundosInactividad": 90,
+    "acento": "#00E4D0",
+    "mostrarFotos": true
+  }
+}

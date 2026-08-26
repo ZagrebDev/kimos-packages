@@ -32,7 +32,50 @@ window.KIMOS_3D_AUTOLOAD = false;
 // solos en la siguiente hora. El custom.js que descarga ProductLab
 // (Publicación → "custom.js (configurado)") ya trae aquí una marca nueva en
 // cada descarga: subirlo junto a los otros archivos los refresca al instante.
-window.KIMOS_ASSET_V = '50';
+window.KIMOS_ASSET_V = '70';
+
+// ── SERVICE WORKER ZOMBI: fuera ─────────────────────────────────────────────
+// Si la tienda tuvo una PWA (o Jumpseller registró un service worker en algún
+// momento), ese SW queda VIVO en el navegador de quien la visitó y puede
+// servir páginas y archivos VIEJOS para siempre, ignorando recargas, Ctrl+F5
+// y hasta parámetros nuevos en la URL (los SW suelen ignorar el query string).
+// Es la única capa de caché que ninguna cabecera nuestra puede atravesar.
+// Esta tienda no usa PWA: cualquier SW registrado es un zombi — se da de baja
+// y se limpia su caché, UNA vez, y ese navegador queda sano para siempre.
+(function () {
+  try {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.getRegistrations) return;
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      if (!regs.length) return;
+      regs.forEach(function (r) { r.unregister(); });
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+      }
+      console.warn('[kimos] service worker antiguo dado de baja (' + regs.length + '): recarga la página para ver la versión vigente.');
+    });
+  } catch (e) { /* mejor una tienda sin purga que una purga que rompa */ }
+})();
+
+// ── PWA DE LA PLATAFORMA: neutralizada ──────────────────────────────────────
+// Jumpseller inyecta <link rel="manifest" href="/manifest.json"> en todas las
+// páginas aunque la tienda no use PWA: el manifest no existe (un 404 en cada
+// carga) y es el vector por el que se registró el service worker zombi. No se
+// puede quitar desde el theme (lo inyecta la plataforma), así que se retira
+// aquí antes de que el navegador lo pida.
+(function () {
+  try {
+    var quitar = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('link[rel="manifest"]'), function (l) {
+        if (l.parentNode) l.parentNode.removeChild(l);
+      });
+    };
+    quitar();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', quitar);
+  } catch (e) { /* sin drama: era solo limpieza */ }
+})();
+
+// Huella visible en consola: la primera línea kimos dice qué custom.js corre.
+console.info('[kimos] custom.js activo · KIMOS_ASSET_V=' + window.KIMOS_ASSET_V);
 
 // AR EN VIVO (8th Wall Engine, gratuito y autoalojable). La cámara en la
 // propia página y el producto ENCIMA, con los colores elegidos al instante,

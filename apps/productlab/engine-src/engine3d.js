@@ -286,10 +286,48 @@ export function createViewer(canvas, options) {
 
     root.traverse((obj) => {
       if (!obj.isMesh) return;
-      const material = obj.material;
+      let material = obj.material;
       if (!material || !material.name) return;
       const part = partByMaterial.get(material.name);
       if (!part) return;
+
+      // ── TERCIADO: capitas visibles en los cantos de cada plancha ──
+      // El eje del espesor lo marca el pipeline en `extras` del nodo del GLB
+      // (plyAxis/plyThickness). three lo deja en el userData del nodo PADRE
+      // cuando parte una malla multi-primitiva, así que hay que subir por la
+      // cadena — leerlo solo del mesh dejaba las planchas lisas.
+      // Y como un mismo material lo comparten piezas con ejes DISTINTOS
+      // (peldaños horizontales y laterales verticales), cada eje necesita su
+      // propia variante del material: con uno solo, el último eje pisaba a
+      // todos y las capas salían cruzadas.
+      if (!obj.userData.plyDone) {
+        obj.userData.plyDone = true;
+        for (let holder = obj; holder; holder = holder.parent) {
+          if (holder.userData && holder.userData.plyAxis) {
+            obj.userData.plyAxis = holder.userData.plyAxis;
+            obj.userData.plyThickness = holder.userData.plyThickness;
+            break;
+          }
+        }
+        if (obj.userData.plyAxis) {
+          const variants = (root.userData.plyVariants = root.userData.plyVariants || {});
+          const vKey = material.name + '#' + obj.userData.plyAxis.join('');
+          if (variants[vKey]) {
+            obj.material = material = variants[vKey];
+          } else if (Object.keys(variants).some((k) => k.indexOf(material.name + '#') === 0)) {
+            // clonar SIN userData: lleva los uniforms del shader de veta.
+            const saved = material.userData;
+            material.userData = {};
+            const clone = material.clone();
+            material.userData = saved;
+            clone.name = material.name;   // el emparejado con la parte es por nombre
+            variants[vKey] = clone;
+            obj.material = material = clone;
+          } else {
+            variants[vKey] = material;
+          }
+        }
+      }
 
       // Visibilidad por parte (pasos que agregan o quitan piezas).
       obj.visible = !state.hidden[part.id];
@@ -311,7 +349,11 @@ export function createViewer(canvas, options) {
               angle: along ? 0 : (part.grainAngle || 0),
               opacity: finish.opacity != null ? finish.opacity : 1,
               plyAxis: obj.userData.plyAxis || null,
-              plySpacing: finish.plySpacing,
+              // Sin plySpacing declarado se deduce del espesor real de la
+              // plancha que trae el GLB (9 láminas, como el terciado real).
+              plySpacing: finish.plySpacing != null && finish.plySpacing !== ''
+                ? finish.plySpacing
+                : (obj.userData.plyThickness ? obj.userData.plyThickness / 9 : undefined),
               // Relieve del grano: APAGADO salvo que el acabado lo pida
               // (finish.bump). Se probó derivarlo de `grain` y en GPU real
               // la madera salía en mosaico de ruido — el harness con

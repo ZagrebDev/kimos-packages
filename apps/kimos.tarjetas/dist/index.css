@@ -1,0 +1,772 @@
+/* Tarjetas Virtuales para KIMOS — Scope .kimos-tarjetas */
+.kimos-tarjetas {
+  --kt-fg: hsl(var(--foreground, 222 47% 11%));
+  --kt-muted: hsl(var(--muted-foreground, 215 16% 47%));
+  --kt-border: hsl(var(--border, 214 32% 91%));
+  --kt-input-border: hsl(var(--input, 214 32% 88%));
+  --kt-surface: hsl(var(--muted, 210 40% 96.1%) / 0.65);
+  --kt-card-bg: hsl(var(--card, 0 0% 100%));
+  --kt-accent: hsl(var(--primary, 182 75% 40%));
+  --kt-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kt-destructive: hsl(var(--destructive, 0 84% 60%));
+  --kt-radius: var(--radius, 8px);
+  --kt-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --kt-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--kt-fg);
+  background: transparent;
+  overflow: hidden;
+}
+
+.kimos-tarjetas *, .kimos-tarjetas *::before, .kimos-tarjetas *::after {
+  box-sizing: border-box;
+}
+
+/* Header & Tabs */
+.kimos-tarjetas .kt-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--kt-border);
+  background: hsl(var(--card, 0 0% 100%) / 0.85);
+  backdrop-filter: blur(12px);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.kimos-tarjetas .kt-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kimos-tarjetas .kt-brand-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.kimos-tarjetas .kt-brand-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--kt-fg);
+}
+
+.kimos-tarjetas .kt-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--kt-surface);
+  color: var(--kt-muted);
+  border: 1px solid var(--kt-border);
+}
+
+.kimos-tarjetas .kt-nav-tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  background: var(--kt-surface);
+  padding: 3px;
+  border-radius: var(--kt-radius);
+  border: 1px solid var(--kt-border);
+  max-width: fit-content;
+  margin: 0 auto;
+}
+
+.kimos-tarjetas .kt-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--kt-muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--kt-radius) - 2px);
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.kimos-tarjetas .kt-tab-btn:hover {
+  color: var(--kt-fg);
+}
+
+.kimos-tarjetas .kt-tab-btn.active {
+  background: var(--kt-card-bg);
+  color: var(--kt-fg);
+  font-weight: 600;
+  box-shadow: var(--kt-shadow-sm);
+}
+
+.kimos-tarjetas .kt-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Main Layout */
+.kimos-tarjetas .kt-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  background: hsl(var(--card, 0 0% 100%) / 0.3);
+}
+
+.kimos-tarjetas .kt-split-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.kimos-tarjetas .kt-panel-left {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px;
+  border-right: 1px solid var(--kt-border);
+  background: hsl(var(--card, 0 0% 100%) / 0.7);
+  backdrop-filter: blur(8px);
+}
+
+.kimos-tarjetas .kt-panel-right {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  background: hsl(var(--muted, 210 40% 96.1%) / 0.35);
+}
+
+.kimos-tarjetas .kt-full-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+/* Form & Input Components */
+.kimos-tarjetas .kt-section {
+  background: var(--kt-card-bg);
+  border: 1px solid var(--kt-border);
+  border-radius: var(--kt-radius);
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: var(--kt-shadow-sm);
+}
+
+.kimos-tarjetas .kt-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--kt-border);
+}
+
+.kimos-tarjetas .kt-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kt-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.kimos-tarjetas .kt-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.kimos-tarjetas .kt-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kimos-tarjetas .kt-form-group.col-full {
+  grid-column: span 2;
+}
+
+.kimos-tarjetas .kt-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-input,
+.kimos-tarjetas .kt-select,
+.kimos-tarjetas .kt-textarea {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--kt-fg);
+  background: var(--kt-surface);
+  border: 1px solid var(--kt-input-border);
+  border-radius: calc(var(--kt-radius) - 2px);
+  outline: none;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.kimos-tarjetas .kt-input:focus,
+.kimos-tarjetas .kt-select:focus,
+.kimos-tarjetas .kt-textarea:focus {
+  border-color: var(--kt-accent);
+  background: var(--kt-card-bg);
+}
+
+.kimos-tarjetas .kt-textarea {
+  resize: vertical;
+  min-height: 55px;
+}
+
+/* Upload & Dropzone Areas */
+.kimos-tarjetas .kt-upload-box {
+  border: 1px dashed var(--kt-border);
+  border-radius: var(--kt-radius);
+  padding: 10px;
+  background: var(--kt-surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kimos-tarjetas .kt-avatar-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--kt-border);
+  background: var(--kt-card-bg);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--kt-muted);
+  overflow: hidden;
+}
+
+.kimos-tarjetas .kt-avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kimos-tarjetas .kt-logo-preview {
+  width: 72px;
+  height: 48px;
+  border-radius: calc(var(--kt-radius) - 2px);
+  border: 1px solid var(--kt-border);
+  background: var(--kt-card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.kimos-tarjetas .kt-logo-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.kimos-tarjetas .kt-upload-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+/* Theme and Style Selectors */
+.kimos-tarjetas .kt-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.kimos-tarjetas .kt-palette-card {
+  border: 1px solid var(--kt-border);
+  border-radius: var(--kt-radius);
+  padding: 8px;
+  background: var(--kt-card-bg);
+  cursor: pointer;
+  transition: all 150ms ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kimos-tarjetas .kt-palette-card:hover {
+  border-color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-palette-card.active {
+  border-color: var(--kt-accent);
+  box-shadow: 0 0 0 2px hsl(var(--primary, 182 75% 40%) / 0.2);
+}
+
+.kimos-tarjetas .kt-palette-preview {
+  height: 28px;
+  border-radius: 4px;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--kt-border);
+}
+
+.kimos-tarjetas .kt-palette-name {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--kt-fg);
+}
+
+/* Color Pickers */
+.kimos-tarjetas .kt-color-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.kimos-tarjetas .kt-color-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--kt-surface);
+  border: 1px solid var(--kt-border);
+  border-radius: calc(var(--kt-radius) - 2px);
+}
+
+.kimos-tarjetas .kt-color-picker {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+}
+
+.kimos-tarjetas .kt-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.kimos-tarjetas .kt-color-picker::-webkit-color-swatch {
+  border: 1px solid var(--kt-border);
+  border-radius: 4px;
+}
+
+/* Card Gallery List */
+.kimos-tarjetas .kt-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.kimos-tarjetas .kt-card-item {
+  border: 1px solid var(--kt-border);
+  border-radius: var(--kt-radius);
+  background: var(--kt-card-bg);
+  overflow: hidden;
+  transition: all 150ms ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--kt-shadow-sm);
+}
+
+.kimos-tarjetas .kt-card-item:hover {
+  box-shadow: var(--kt-shadow-md);
+  border-color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-card-item.selected {
+  border-color: var(--kt-accent);
+  box-shadow: 0 0 0 2px hsl(var(--primary, 182 75% 40%) / 0.2);
+}
+
+.kimos-tarjetas .kt-card-item-preview {
+  padding: 12px;
+  background: var(--kt-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--kt-border);
+  min-height: 140px;
+  cursor: pointer;
+}
+
+.kimos-tarjetas .kt-card-mini-canvas {
+  max-width: 100%;
+  max-height: 140px;
+  border-radius: 4px;
+  box-shadow: var(--kt-shadow-sm);
+  display: block;
+}
+
+.kimos-tarjetas .kt-card-item-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.kimos-tarjetas .kt-card-item-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--kt-fg);
+}
+
+.kimos-tarjetas .kt-card-item-title {
+  font-size: 12px;
+  color: var(--kt-accent);
+  font-weight: 500;
+}
+
+.kimos-tarjetas .kt-card-item-company {
+  font-size: 11px;
+  color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-card-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--kt-border);
+  background: var(--kt-surface);
+}
+
+/* Live Preview Canvas Box */
+.kimos-tarjetas .kt-preview-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.kimos-tarjetas .kt-canvas-wrapper {
+  background: hsl(var(--card, 0 0% 100%));
+  border: 1px solid var(--kt-border);
+  border-radius: calc(var(--kt-radius) + 2px);
+  padding: 8px;
+  box-shadow: var(--kt-shadow-md);
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.kimos-tarjetas .kt-live-canvas {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--kt-radius);
+}
+
+.kimos-tarjetas .kt-export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+  padding: 12px;
+  background: var(--kt-card-bg);
+  border: 1px solid var(--kt-border);
+  border-radius: var(--kt-radius);
+  box-shadow: var(--kt-shadow-sm);
+}
+
+.kimos-tarjetas .kt-qr-helper-tip {
+  font-size: 12px;
+  color: var(--kt-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+/* Buttons */
+.kimos-tarjetas .kt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: calc(var(--kt-radius) - 2px);
+  border: 1px solid var(--kt-border);
+  background: var(--kt-card-bg);
+  color: var(--kt-fg);
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: inherit;
+  line-height: 1.2;
+}
+
+.kimos-tarjetas .kt-btn:hover {
+  background: var(--kt-surface);
+  border-color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-btn-primary {
+  background: var(--kt-accent);
+  color: var(--kt-accent-fg);
+  border-color: var(--kt-accent);
+}
+
+.kimos-tarjetas .kt-btn-primary:hover {
+  opacity: 0.92;
+  background: var(--kt-accent);
+  border-color: var(--kt-accent);
+}
+
+.kimos-tarjetas .kt-btn-danger {
+  color: var(--kt-destructive);
+  background: transparent;
+  border-color: transparent;
+}
+
+.kimos-tarjetas .kt-btn-danger:hover {
+  background: hsl(var(--destructive, 0 84% 60%) / 0.1);
+  border-color: hsl(var(--destructive, 0 84% 60%) / 0.2);
+}
+
+.kimos-tarjetas .kt-btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.kimos-tarjetas .kt-btn-icon {
+  padding: 6px;
+  border-radius: 4px;
+}
+
+/* Empty States */
+.kimos-tarjetas .kt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  gap: 12px;
+  color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-empty-icon {
+  font-size: 40px;
+}
+
+.kimos-tarjetas .kt-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--kt-fg);
+}
+
+.kimos-tarjetas .kt-empty-desc {
+  font-size: 13px;
+  max-width: 360px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 860px) {
+  .kimos-tarjetas .kt-header {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .kimos-tarjetas .kt-nav-tabs {
+    margin: 0;
+    width: 100%;
+    overflow-x: auto;
+  }
+  .kimos-tarjetas .kt-split-view {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .kimos-tarjetas .kt-panel-left {
+    border-right: none;
+    border-bottom: 1px solid var(--kt-border);
+    height: auto;
+  }
+  .kimos-tarjetas .kt-panel-right {
+    height: auto;
+  }
+  .kimos-tarjetas .kt-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .kimos-tarjetas .kt-form-group.col-full {
+    grid-column: span 1;
+  }
+}
+
+/* ── v1.1.0 · Pestaña Usuarios Kimos (usuarios reales del sistema) ────────── */
+.kimos-tarjetas .kt-brand-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.kimos-tarjetas .kt-brand-fields {
+  flex: 1;
+  min-width: 240px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.kimos-tarjetas .kt-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--kt-muted);
+}
+
+.kimos-tarjetas .kt-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kimos-tarjetas .kt-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--kt-border);
+  border-radius: var(--kt-radius);
+  background: var(--kt-card-bg);
+  box-shadow: var(--kt-shadow-sm);
+}
+
+.kimos-tarjetas .kt-member-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--kt-accent);
+  color: var(--kt-accent-fg);
+  font-size: 15px;
+  font-weight: 700;
+  border: 2px solid var(--kt-border);
+}
+
+.kimos-tarjetas .kt-member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kimos-tarjetas .kt-member-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.kimos-tarjetas .kt-member-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--kt-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kimos-tarjetas .kt-member-meta {
+  font-size: 12px;
+  color: var(--kt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kimos-tarjetas .kt-member-actions {
+  flex-shrink: 0;
+}
+
+@media (max-width: 860px) {
+  .kimos-tarjetas .kt-brand-fields {
+    grid-template-columns: 1fr;
+  }
+  .kimos-tarjetas .kt-member-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── v1.2.0 · Controles de visualización de foto y logo ───────────────────── */
+.kimos-tarjetas .kt-style-controls {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--kt-border);
+  border-radius: var(--kt-radius);
+  background: var(--kt-surface);
+}
+
+.kimos-tarjetas .kt-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--kt-fg);
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 8px;
+}
+
+.kimos-tarjetas .kt-check-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--kt-accent);
+  cursor: pointer;
+  margin: 0;
+}
+
+.kimos-tarjetas .kt-range {
+  width: 100%;
+  height: 22px;
+  accent-color: var(--kt-accent);
+  cursor: pointer;
+  background: transparent;
+}
+
+.kimos-tarjetas .kt-range:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

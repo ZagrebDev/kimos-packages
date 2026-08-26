@@ -8,6 +8,13 @@ Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y 
 > este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
 > descargable desde la Tienda de KIMOS o regenerable con
 > `node tools/build-creator-pack.mjs`.
+>
+> **Creator Pack 2.0** — el kit ahora cubre dos formas de aportar contenido:
+> una **app** instalable (`.kapp`, para quien programa) y un **pack de rubro**
+> para LiDARia (`.krub`, sin programar: es un JSON con el conocimiento de una
+> industria). La guía del segundo camino es
+> **[`CREA-TU-RUBRO.md`](CREA-TU-RUBRO.md)** y su empaquetador,
+> `tools/pack-rubro.mjs`.
 
 ## Modelo de apps (v0.22)
 
@@ -54,6 +61,8 @@ Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
 | id              | descripción breve |
 |-----------------|-------------------|
 | `productlab` 🧪 | **Laboratorio de productos personalizables**: componentes/costos, pasos con dependencias y cantidades, previsualizador, builder de descripción, visualizador 3D/AR y publicación del configurador (Jumpseller). Ver [`apps/productlab/`](apps/productlab/). |
+| `lidaria` 🛰️ | **Consola de captura 3D**: qué puede escanear cada equipo (LiDAR, ToF, profundidad por movimiento), qué módulos cubre el parque de la organización, qué significa para cada rubro (base de conocimiento ampliable con packs `.krub`), preparación de visitas a prospectos y mapa honesto de vinculación con el resto del ecosistema. Ver [`apps/lidaria/`](apps/lidaria/). |
+| `estudio-mercado` 🎯 | **Estudio del mercado competitivo** como tablero interactivo, con modo dashboard, compacto y tema de KIMOS, adaptado de móvil a tótem: los 24 módulos de KIMOS contra 154 planes de precio de la competencia, con gráficos en vivo, precios editables, configurador de suscripción, mercado por país, unit economics y diagnóstico. Todos los supuestos son editables y se recalcula en vivo. Ver [`apps/estudio-mercado/`](apps/estudio-mercado/). |
 | `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla
@@ -69,3 +78,31 @@ manifest desde `raw.githubusercontent.com/.../main/manifest.json` y expone los a
 2. Añadir entrada en la sección `apps` del `manifest.json` raíz con `id`, `name`, `version`, `icon`.
 3. Commit + push a `main`. Tras el deploy, la app aparece en la Tienda de Front 2.0 como "Disponible".
 4. El usuario admin la instala desde la Tienda → backend descarga `dist/` a GCS bajo `/apps/{id}/{version}/`.
+
+## Cómo actualizar una app publicada (versionado)
+
+**La Tienda ofrece la actualización según el `manifest.json` RAÍZ**, no según el
+de la carpeta de la app. Si solo se sube uno de los dos, la app instalada se
+queda con el bundle viejo y no aparece nada que actualizar. En cada publicación,
+en el mismo commit, la versión sube en **cuatro** lugares:
+
+| # | Dónde | Para qué |
+|---|---|---|
+| 1 | `apps/{id}/manifest.json` → `version` | Fuente de verdad de la app (y del `.kapp`). |
+| 2 | **`manifest.json` raíz** → `apps[] → {id}.version` | **Lo que lee la Tienda**: sin esto no hay actualización. Sube también `description` si cambió. |
+| 3 | `apps/{id}/dist/index.js` → `const APP_VERSION` | La versión que la app **muestra en pantalla** (chip `vX.Y.Z` en su cabecera), para confirmar qué build tomó el host al probar. |
+| 4 | `apps/{id}/README.md` | “Versión actual” + tabla de historial con qué trae cada versión. |
+
+Antes de commitear, verificar (falla con código 1 si algo quedó desalineado):
+
+```bash
+node tools/check-versions.mjs                # todas las apps
+node tools/check-versions.mjs notas-equipo   # una sola
+```
+
+Semver: parche para arreglos, menor para funciones nuevas compatibles, mayor si
+cambia el formato de datos o el contrato del agente. **Nunca reutilizar un
+número ya publicado**: el backend guarda y cachea el bundle en
+`/apps/{id}/{version}/`, así que repetir versión sirve el bundle viejo.
+Referencia completa en [`APP-SPEC.md` §7.a](APP-SPEC.md); `apps/notas-equipo` es
+el ejemplo con la versión a la vista en la cabecera.

@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.21.1';
+  var VERSION = '6.1.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -149,23 +149,31 @@
     return out.id == null ? null : out;
   }
 
-  // El JSON público se pide SIEMPRE fresco a la red: publicar en ProductLab
-  // se ve en la tienda en la visita siguiente, sin TTL ni CDN de por medio
-  // (el velo de arranque ya tapa esa espera, y la copia local es una página
-  // del mismo origen: rapidísima). La copia en localStorage queda SOLO de
-  // respaldo: si ni la página ni KIMOS responden, la tienda usa la última
-  // buena y no se queda sin ficha.
-  function defCacheKey() { return 'kc-def::' + CFG_URLS.join('|'); }
-  function defCacheRead() {
-    try {
-      var raw = localStorage.getItem(defCacheKey());
-      if (!raw) return null;
-      var c = JSON.parse(raw);
-      return (c && c.def) ? c : null;
-    } catch (e) { return null; }
+  // REGLA DE ORO (decisión del usuario): la ficha KIMOS solo se muestra con
+  // datos CONFIRMADOS — la página publicada en la tienda (la publicación ES
+  // esa página) o una copia cuya versión confirmó el faro. Jamás una copia
+  // vieja "por si acaso": si no hay fuente confiable, manda la ficha nativa
+  // del theme, que cobra siempre los precios REALES de Jumpseller. Vender feo
+  // es aceptable; vender con datos de ayer no.
+  // (Aquí vivía un caché defCache que servía "la última buena" sin confirmar
+  // versión: eliminado por esa regla.)
+  // La publicación declara qué versión de kit espera (def.kitExpected): si el
+  // theme corre una anterior, se grita en consola — un theme activado desde
+  // un zip puede traer assets viejos y revivir bugs ya corregidos.
+  function kitViejo(esperado) {
+    if (!esperado) return false;
+    var a = String(VERSION).split('.').map(Number), b = String(esperado).split('.').map(Number);
+    for (var i = 0; i < 3; i++) { if ((a[i] || 0) < (b[i] || 0)) return true; if ((a[i] || 0) > (b[i] || 0)) return false; }
+    return false;
   }
-  function defCacheWrite(def) {
-    try { localStorage.setItem(defCacheKey(), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
+  function avisarKitViejo(def) {
+    if (def && kitViejo(def.kitExpected)) {
+      console.error(LOG, '⚠ EL KIT DEL THEME ESTÁ DESACTUALIZADO: corre v' + VERSION
+        + ' pero la publicación espera v' + def.kitExpected
+        + '. Actualiza los archivos del theme desde ProductLab (KIT MANUAL) — un theme activado desde zip trae assets viejos.');
+      try { window.KIMOS_KIT_DESACTUALIZADO = def.kitExpected; } catch (e) {}
+    }
+    return def;
   }
   // Copia LOCAL del catálogo: ProductLab puede publicar el JSON en una
   // página de la propia tienda (permalink derivado de la instancia). Se
@@ -177,32 +185,147 @@
     return ('kimos-productlab-' + m[1]).toLowerCase()
       .replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
   }
-  function loadDefinition() {
-    var hit = defCacheRead();
-    // Marca única por carga: ni el navegador ni el CDN de la tienda pueden
-    // servir una copia vieja del JSON — "publicar" recarga a todos de verdad.
-    var bust = Date.now();
-    var pedirLocal = function (u) {
-      var p = permalinkLocal(u);
+  function loadDefinition(prod) {
+    // La ficha necesita UN producto, no el catálogo entero. Al gateway se le
+    // pide recortado (`?product=`): con cincuenta productos, quien mira una
+    // silla ya no descarga también las otras cuarenta y nueve con sus fotos,
+    // pasos y presets. La copia local de la tienda sigue siendo el catálogo
+    // completo —es un solo archivo servido por el CDN de Jumpseller— y se
+    // intenta primero, así que esto solo aligera el camino de respaldo.
+    var refProd = prod ? String(prod.id || prod.sku || prod.name || '').trim() : '';
+    // LECTURA SIMPLE (v6, decisión del usuario): la ficha se sirve de la
+    // PÁGINA publicada en la propia tienda, y de nada más. Sin faro, sin
+    // versiones, sin copias en el navegador: publicar = actualizar la página,
+    // y cada visita la lee fresca del MISMO Jumpseller que sirve la ficha
+    // (una petición, mismo origen). Los PRECIOS ni pasan por aquí: los cobra
+    // y los muestra la tienda con sus opciones nativas, así que este catálogo
+    // no puede cobrar mal — solo verse como su última publicación.
+    // KIMOS aparece únicamente como respaldo de ARRANQUE (una tienda que aún
+    // no publica su página), con tope de espera.
+    var pedirPagina = function (permalink) {
+      var p = String(permalink || '').trim();
       if (!p) return Promise.reject(new Error('sin permalink'));
-      return fetch('/' + p + '?_t=' + bust, { credentials: 'omit', cache: 'no-store' })
+      // MISMO ORIGEN y CON COOKIES ('same-origin'): en una tienda protegida
+      // con contraseña, pedir la página sin la cookie de sesión choca contra
+      // el muro y responde 404 — parecía que la copia local no existía cuando
+      // en realidad existía y el visitante (que ya pasó el muro) SÍ podía verla.
+      // 'no-store': publicar se ve en la visita siguiente, garantizado por
+      // construcción — la frescura ya no depende de ningún sistema de versiones.
+      return fetch('/' + p.replace(/^\/+/, ''), { credentials: 'same-origin', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
-          var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/);
-          if (!m) throw new Error('sin datos embebidos');
+          // Dos envases posibles: el <script> clásico y el <textarea> oculto
+          // (hay tiendas donde Jumpseller sanitiza el cuerpo de las páginas y
+          // elimina los <script> — la página se servía perfecta… sin datos).
+          var m = html.match(/<script[^>]*id="kimos-productlab"[^>]*>([\s\S]*?)<\/script>/)
+            || html.match(/<textarea[^>]*id="kimos-productlab-datos"[^>]*>([\s\S]*?)<\/textarea>/);
+          if (!m) throw new Error('la página existe pero viene SIN el bloque de datos (¿republicar?)');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
           return def;
         });
     };
+    var pedirLocal = function (u) {
+      // PÁGINA POR PRODUCTO primero (permalink derivado: -p<id del producto
+      // de esta ficha>): es la unidad que publica ProductLab. Después la
+      // página agregada de la instancia (respaldo y compat).
+      var agregada = permalinkLocal(u);
+      var propia = refProd && agregada ? agregada + '-p' + refProd : '';
+      if (!propia) return pedirPagina(agregada);
+      return pedirPagina(propia).catch(function (e1) {
+        return pedirPagina(agregada).catch(function (e2) {
+          throw new Error('producto: ' + (e1 && e1.message || '?') + ' · instancia: ' + (e2 && e2.message || '?'));
+        });
+      });
+    };
     var pedirRemoto = function (u) {
-      return fetch(u + (u.indexOf('?') === -1 ? '?' : '&') + '_t=' + bust, { credentials: 'omit', cache: 'no-store' })
+      if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);
+      return fetch(u, { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
     };
+    // VENCIMIENTO LOCAL (licencia, decisión del usuario): cada publicación
+    // sella su fecha (updatedAt) y declara su plazo (kitTtlDias, lo fija el
+    // dueño en ProductLab; 0 = no vence; ausente = 90). Si la última
+    // publicación es más vieja que el plazo, el kit NO monta y queda la ficha
+    // nativa — que cobra bien. Es 100% local: ninguna caída de KIMOS puede
+    // gatillarlo, solo meses sin publicar (una tienda que dejó de operar el
+    // sistema). Publicar de nuevo lo renueva solo.
+    var vencida = function (def) {
+      var dias = def && def.kitTtlDias != null ? Number(def.kitTtlDias) : 90;
+      if (!isFinite(dias) || dias <= 0) return false;
+      var t = Date.parse(String((def && def.updatedAt) || ''));
+      if (!isFinite(t)) return false;   // sin fecha legible no se veta (compat)
+      return (Date.now() - t) > dias * 86400000;
+    };
+    // Un catálogo que NO EXISTE es el peor caso de todos: una tienda puede
+    // quedar con el kit apuntando a una instancia borrada o despublicada, y
+    // entonces cada visitante pide un catálogo ausente. Visto en producción:
+    // una tienda viva golpeando un backend dormido, con compradores esperando
+    // hasta 30 segundos el arranque en frío para recibir un 404.
+    //
+    // Cuando el catálogo responde que no está, se anota y no se vuelve a
+    // preguntar por un rato. La tienda cae a su ficha normal al instante, sin
+    // velo y sin espera. El plazo es corto para que publicar se note enseguida.
+    var AUSENTE_MS = 10 * 60 * 1000;
+    var claveAusente = function (u) { return 'kc-sin-catalogo:' + u; };
+    var estaAusente = function (u) {
+      try {
+        var t = parseInt(localStorage.getItem(claveAusente(u)) || '0', 10);
+        return t && (Date.now() - t) < AUSENTE_MS;
+      } catch (e) { return false; }
+    };
+    var marcarAusente = function (u) {
+      try { localStorage.setItem(claveAusente(u), String(Date.now())); } catch (e) {}
+    };
+    // Tope de espera para lo que viene de KIMOS. La DISPONIBILIDAD de la
+    // tienda no puede depender de que KIMOS responda: un backend colgado o en
+    // arranque en frío (30 s) dejaba al comprador mirando el spinner. Con el
+    // tope, KIMOS que no responde A TIEMPO cuenta como KIMOS caído y queda la
+    // ficha nativa.
+    var REMOTO_MS = 8000;
+    var conTope = function (p, ms) {
+      return Promise.race([p, new Promise(function (_, rj) {
+        setTimeout(function () { rj(new Error('sin respuesta en ' + ms + ' ms')); }, ms);
+      })]);
+    };
     var pedir = function (u) {
+      if (estaAusente(u)) {
+        console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
+        return Promise.resolve(null);
+      }
+      var t0 = Date.now();
+      // De DÓNDE salió el catálogo, en una línea de consola: es la respuesta
+      // verificable a "¿estoy sirviéndome de la tienda o de KIMOS?".
+      var cuenta = function (def, origen) {
+        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · publicado ' + (def && def.updatedAt || '?'));
+        return def;
+      };
       return pedirLocal(u)
-        .catch(function () { return pedirRemoto(u); })
+        .then(function (def) {
+          return cuenta(def, 'PÁGINA DE LA TIENDA — sin KIMOS');
+        })
+        .catch(function (eLocal) {
+          // El MOTIVO por el que se descartó la página va en la línea:
+          // "respaldo" a secas obligaba a adivinar (¿404?, ¿sin bloque?).
+          return conTope(pedirRemoto(u), REMOTO_MS).then(function (def) {
+            return cuenta(def, 'KIMOS (respaldo de arranque — página: '
+              + ((eLocal && eLocal.message) || '?') + ')');
+          });
+          // Si tampoco KIMOS responde, AQUÍ TERMINA: la ficha nativa del
+          // theme queda al mando, con los precios reales de Jumpseller.
+        })
+        .then(function (def) {
+          // Vencimiento local (licencia): publicación más vieja que su plazo
+          // → ficha nativa. Ver `vencida`.
+          if (vencida(def)) throw new Error('publicación vencida (más de '
+            + (def.kitTtlDias != null ? def.kitTtlDias : 90) + ' días sin publicar): ficha nativa');
+          return def;
+        })
+        .catch(function (err) {
+          if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);
+          throw err;
+        })
         .then(function (def) {
           // Cada producto recuerda su instancia de origen: el AR y cualquier
           // llamada por-producto van al backend correcto aunque haya varios.
@@ -214,18 +337,17 @@
     };
     return Promise.all(CFG_URLS.map(pedir)).then(function (defs) {
       defs = defs.filter(function (x) { return !!x; });
-      if (!defs.length) {
-        if (hit) { console.warn(LOG, 'ningún catálogo responde; usando copia local'); return hit.def; }
-        throw new Error('ningún catálogo respondió');
-      }
+      // Sin fuente confirmada NO se inventa nada: error → la ficha nativa
+      // del theme queda al mando (regla de oro).
+      if (!defs.length) throw new Error('ningún catálogo respondió');
       var def = defs[0];
       if (defs.length > 1) {
         var prods = [];
         for (var i = 0; i < defs.length; i++) prods = prods.concat((defs[i].productos || defs[i].equipos) || []);
-        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store, productos: prods };
+        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store,
+          kitExpected: def.kitExpected, productos: prods };
       }
-      defCacheWrite(def);
-      return def;
+      return avisarKitViejo(def);
     });
   }
 
@@ -239,10 +361,38 @@
 
   // ── Controles nativos del theme: la única vía para elegir variante ────────
   // Cada grupo de KIMOS se empareja con su control por NOMBRE de opción.
+  //
+  // CONTRATO ANCLA + ADDONS: además de los grupos de variantes (select/radio),
+  // la ficha trae un checkbox por cada opción `addon` "Paso: Valor" (con su
+  // `data-addon-price`). Aquí esos checkboxes se agrupan por paso en grupos
+  // VIRTUALES con la misma interfaz que un grupo nativo: el paso a paso los
+  // pinta igual, y elegir un valor marca su checkbox (y desmarca los hermanos)
+  // — el theme suma los addon_price al precio y el submit nativo los envía.
   function nativeGroups(prod) {
-    return Array.prototype.map.call(document.querySelectorAll('.prod-options'), function (g) {
+    var reales = [], virtuales = [], porPaso = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.prod-options'), function (g) {
       var optId = g.getAttribute('data-optionid');
       var opt = (prod.options || []).filter(function (o) { return String(o.id) === String(optId); })[0];
+      if (g.tagName === 'INPUT' && (g.getAttribute('type') || '').toLowerCase() === 'checkbox') {
+        var nom = opt ? String(opt.name || '') : '';
+        if (!nom) {
+          var lb = g.closest && g.closest('label');
+          nom = lb ? (lb.textContent || '').trim() : '';
+        }
+        var corte = nom.indexOf(': ');
+        if (corte === -1) return;   // checkbox ajeno al contrato: es del theme
+        var paso = nom.slice(0, corte).trim();
+        var valor = nom.slice(corte + 2).trim();
+        var clave = norm(paso);
+        var vg = porPaso[clave];
+        if (!vg) {
+          vg = porPaso[clave] = { el: null, id: 'kc-addon:' + clave, name: paso, values: [], inputs: {}, virtual: true };
+          virtuales.push(vg);
+        }
+        vg.values.push({ id: String(optId), name: valor });
+        vg.inputs[String(optId)] = g;
+        return;
+      }
       var name = opt ? opt.name : '';
       if (!name) {
         var fs = (g.closest && (g.closest('.product-options__fieldset') || g.closest('fieldset'))) || g.parentElement;
@@ -260,14 +410,30 @@
           return { id: i.value, name: lab ? lab.textContent.trim() : i.value };
         });
       }
-      return { el: g, id: optId, name: name, values: values };
+      reales.push({ el: g, id: optId, name: name, values: values });
     });
+    return reales.concat(virtuales);
+  }
+  // Solo los grupos que la TIENDA usa para casar variante (los addons no
+  // generan variantes: viajan aparte en el mismo POST del carro).
+  function gruposDeVariante(groups) {
+    return (groups || []).filter(function (g) { return !g.virtual; });
+  }
+  // Recargo del addon elegido en un grupo virtual (lo declara el theme en
+  // data-addon-price). Para grupos reales no aplica: su precio va en la variante.
+  function addonPriceDe(g, valueId) {
+    var cb = g && g.virtual && g.inputs[String(valueId)];
+    return cb ? (Number(cb.getAttribute('data-addon-price')) || 0) : 0;
   }
 
   function readSelection(groups) {
     var out = {};
     groups.forEach(function (g) {
-      if (g.el.tagName === 'SELECT') out[g.id] = g.el.value;
+      if (g.virtual) {
+        for (var k in g.inputs) {
+          if (g.inputs[k].checked) { out[g.id] = k; break; }
+        }
+      } else if (g.el.tagName === 'SELECT') out[g.id] = g.el.value;
       else {
         var c = g.el.querySelector('input[type=radio]:checked');
         if (c) out[g.id] = c.value;
@@ -279,6 +445,28 @@
   // Escribe en el control nativo y avisa al theme. Es el theme quien decide
   // precio, variante y disponibilidad: aquí solo se refleja la elección.
   function applyNative(g, valueId) {
+    if (g.virtual) {
+      // Grupo de addons: marcar el checkbox elegido y desmarcar los hermanos
+      // (un paso = una elección). `valueId` null/desconocido desmarca todo —
+      // es lo que corresponde cuando el paso queda oculto por dependencia.
+      // PRIMERO todas las mutaciones y DESPUÉS los avisos: el primer `change`
+      // repinta y re-evalúa dependencias, y con el grupo a medias (el viejo
+      // desmarcado, el nuevo aún sin marcar) el ajuste re-marcaba el default.
+      var tocados = [];
+      Object.keys(g.inputs).forEach(function (k) {
+        var cb = g.inputs[k];
+        var debe = String(k) === String(valueId);
+        if (cb.checked !== debe) {
+          cb.checked = debe;
+          tocados.push(cb);
+        }
+      });
+      tocados.forEach(function (cb) {
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        if (window.jQuery) { try { window.jQuery(cb).trigger('change'); } catch (e) {} }
+      });
+      return;
+    }
     if (g.el.tagName === 'SELECT') {
       g.el.value = String(valueId);
     } else {
@@ -362,16 +550,27 @@
       var changed = false;
       kgs.forEach(function (kg) {
         var visible = isGroupVisible(entry, kg, selMap);
+        var g = nativeOf(groups, kg);
+        // Grupos de ADDONS (contrato ancla+addons). Un paso oculto no deja
+        // NINGÚN checkbox marcado: su relleno no existe como addon, y marcar
+        // el default cobraría (y listaría en el carro) lo que el cliente no
+        // ve. Uno visible sin nada marcado —al montar la ficha, o al
+        // reaparecer tras estar oculto— recupera su primer valor elegible.
+        var sinMarca = !!(g && g.virtual) && readSelection([g])[g.id] == null;
+        if (g && g.virtual && !visible) {
+          if (!sinMarca) { applyNative(g, null); changed = true; }
+          selMap[kg.id] = (kimosDefault(kg) || {}).id;   // para las cadenas
+          return;
+        }
         // OCULTO → su valor por defecto (que debería ser el de relleno).
         // VISIBLE → nunca el relleno: ese valor solo existe para sostener las
         // variantes en las que el paso no se muestra. Sin esto, el "No aplica"
         // que hace falta para las combinaciones ocultas se podía comprar.
         var dv = visible ? primerElegible(kg) : kimosDefault(kg);
-        if (visible && !esRelleno(valorPorId(kg, selMap[kg.id]))) return;
-        if (!dv || String(selMap[kg.id]) === String(dv.id)) return;
+        if (visible && !sinMarca && !esRelleno(valorPorId(kg, selMap[kg.id]))) return;
+        if (!dv || (!sinMarca && String(selMap[kg.id]) === String(dv.id))) return;
         selMap[kg.id] = dv.id;
         changed = true;
-        var g = nativeOf(groups, kg);
         if (g) {
           var nat = g.values.filter(function (v) { return norm(v.name) === norm(dv.name); })[0];
           if (nat && String(readSelection(groups)[g.id]) !== String(nat.id)) {
@@ -421,12 +620,15 @@
       return [];
     } catch (e) { return []; }
   })();
-  // La variante que casa con lo elegido en los controles nativos.
+  // La variante que casa con lo elegido en los controles nativos. Solo cuentan
+  // los grupos REALES (con ancla+addons la variante es únicamente el color;
+  // los addons no forman parte de ninguna variante).
   function varianteActual(groups) {
-    if (!VARIANTES.length || !groups || !groups.length) return null;
-    var sel = readSelection(groups);
-    var ids = groups.map(function (g) { return String(sel[g.id] || ''); }).filter(Boolean);
-    if (ids.length !== groups.length) return null;
+    var reales = gruposDeVariante(groups);
+    if (!VARIANTES.length || !reales || !reales.length) return null;
+    var sel = readSelection(reales);
+    var ids = reales.map(function (g) { return String(sel[g.id] || ''); }).filter(Boolean);
+    if (ids.length !== reales.length) return null;
     for (var i = 0; i < VARIANTES.length; i++) {
       var e = VARIANTES[i] || {};
       // Formas vistas en producción: {values:[{value:{id}}]}, {values:[{id}]},
@@ -472,10 +674,18 @@
    * lista de variantes (theme raro o producto sin ellas), se cae al JSON de
    * arranque, que al menos es correcto para un producto simple.
    */
-  function themePriceValue(groups) {
-    var v = varianteActual(groups || VARIANT_GROUPS);
-    var real = precioDeVariante(v);
-    if (real != null && isFinite(real)) return real;
+  // Suma de los addons MARCADOS ahora mismo (contrato ancla+addons): la misma
+  // cuenta que hace el theme para repintar su precio (data-addon-price de los
+  // checkboxes marcados). En una ficha sin addons vale 0 y no cambia nada.
+  function addonsMarcados() {
+    var t = 0;
+    var cbs = document.querySelectorAll('input.prod-options[type=checkbox]:checked');
+    for (var i = 0; i < cbs.length; i++) t += Number(cbs[i].getAttribute('data-addon-price')) || 0;
+    return t;
+  }
+  // Precio de arranque del producto según el theme (JSON de la ficha), sin
+  // variante ni addons: el respaldo cuando no hay lista de variantes.
+  function precioBaseProducto() {
     var f = document.querySelector('script.product-form-json');
     if (!f) return null;
     try {
@@ -485,6 +695,15 @@
       var n = vp != null ? Number(vp) : (p != null ? Number(p) : null);
       return n != null && isFinite(n) ? n : null;
     } catch (e) { return null; }
+  }
+  function themePriceValue(groups) {
+    var v = varianteActual(groups || VARIANT_GROUPS);
+    var real = precioDeVariante(v);
+    // La variante (el color) es la BASE; los addons marcados suman encima —
+    // exactamente lo que cobrará el servidor de la tienda al añadir al carro.
+    if (real != null && isFinite(real)) return real + addonsMarcados();
+    var n = precioBaseProducto();
+    return n != null ? n + addonsMarcados() : null;
   }
   var digitos = function (t) { return String(t).replace(/\D/g, ''); };
 
@@ -511,16 +730,19 @@
         if (!t || t.length > 40 || !/\d/.test(t) || t.indexOf('{') !== -1) continue;
         if (!simbolo) simbolo = (t.match(/^[^\d]*/) || [''])[0].trim();
         if (!vivo) vivo = t;
-        // Con precio conocido solo vale el nodo que lo muestra.
-        if (buscado) { if (digitos(t).indexOf(buscado) !== -1) return t; }
+        // Con precio conocido solo vale el nodo que lo muestra EXACTO. Antes
+        // bastaba con "contener" los dígitos, y al sumar addons el theme
+        // repinta su precio con decimales fantasma ("$1,482,811.000"): esa
+        // cadena contiene el número buscado y se copiaba tal cual a la barra.
+        if (buscado) { if (digitos(t) === buscado) return t; }
         else if (valor == null) return t;   // sin JSON no queda otra que confiar
       }
     }
-    // El theme muestra un precio DISTINTO del calculado: gana el theme, que es
-    // quien cobra. Pasa cuando su product-json trae otra forma de variantes y
-    // el cálculo se queda con la de arranque — el precio "que no cambiaba".
-    if (vivo && buscado && digitos(vivo) !== buscado) return vivo;
-    if (valor == null) return '';
+    // Con ancla + addons el total es NUESTRA suma (precio de variante + los
+    // data-addon-price marcados, ambos impresos por el servidor): si ningún
+    // nodo del theme lo muestra bien formateado, se formatea aquí en el
+    // locale de la tienda — nunca se copia un texto que diga otro número.
+    if (valor == null) return vivo || '';
     // El producto está a CERO en la tienda. Se dice en claro en vez de pintar
     // un "0" suelto al lado de "Añadir al carro", que parece un fallo de la
     // ficha cuando en realidad es el precio del producto en Jumpseller.
@@ -531,7 +753,7 @@
     }
     // Hay precio pero ningún nodo del theme lo muestra: se formatea aquí.
     try {
-      return (simbolo || '$') + new Intl.NumberFormat(document.documentElement.lang || 'es-CL').format(valor);
+      return (simbolo || '$') + new Intl.NumberFormat(document.documentElement.lang || 'es-CL', { maximumFractionDigits: 0 }).format(valor);
     } catch (e) { return (simbolo || '$') + valor; }
   }
 
@@ -759,7 +981,10 @@
 
   // `cfg` = storefront.style.photos: tamaño de la galería dentro de Explorar
   // (s|m|l|xl) y fotos por fila (0 = automático). Sin cfg, todo como antes.
-  function renderPhotos(images, note, cfg, altDe) {
+  // La galería es SOLO la galería. La nota es su propia sección y se ve
+  // únicamente si está en la lista de la experiencia: pintarla también aquí
+  // dejaba texto bajo las fotos que no había forma de quitar.
+  function renderPhotos(images, cfg, altDe) {
     altDe = altDe || function () { return ''; };
     var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
@@ -822,7 +1047,6 @@
       });
       wrap.appendChild(thumbs);
     }
-    if (note) wrap.appendChild(el('div', 'kc-foto-note', note));
     return wrap;
   }
 
@@ -854,11 +1078,48 @@
   //             el theme publica para la variante actual (server-side, en
   //             product-form-json) más la diferencia de deltas del JSON;
   //   'none'  → sin precio en las cards.
-  function cardPrecio(mode, on, kv, kvSel, precioAhora) {
-    if (mode === 'none' || on || !kv || kv.delta == null) return '';
-    var dlt = (Number(kv.delta) || 0) - (kvSel && kvSel.delta != null ? Number(kvSel.delta) || 0 : 0);
+  // El recargo mostrado en la card sale DE LA TIENDA cuando se puede saber
+  // (dltTienda): data-addon-price de los addons, o diferencia de precio entre
+  // variantes para el paso de color. Es EXACTAMENTE lo que el servidor va a
+  // cobrar — los deltas del catálogo (kv.delta, con su propio redondeo)
+  // quedan solo de respaldo para fichas del modelo antiguo, donde el número
+  // mostrado y el cobrado podían diferir en el redondeo.
+  function cardPrecio(mode, on, kv, kvSel, precioAhora, dltTienda) {
+    if (mode === 'none' || on) return '';
+    var dlt = dltTienda != null ? dltTienda
+      : (kv && kv.delta != null
+        ? (Number(kv.delta) || 0) - (kvSel && kvSel.delta != null ? Number(kvSel.delta) || 0 : 0)
+        : null);
+    if (dlt == null) return '';
     if (mode === 'total' && precioAhora != null) return fmtMonto(precioAhora + dlt);
     return dlt === 0 ? '' : fmtDelta(dlt);
+  }
+  // Precio de la variante que resultaría de SUSTITUIR, en la selección actual
+  // de los grupos reales, el valor del grupo `g` por `valueId`. null cuando la
+  // combinación no existe en la lista del theme (se cae al delta del catálogo).
+  function precioVarianteSustituyendo(g, valueId) {
+    var reales = gruposDeVariante(VARIANT_GROUPS || []);
+    if (!reales.length || !VARIANTES.length || valueId == null) return null;
+    var sel = readSelection(reales);
+    sel[g.id] = String(valueId);
+    var ids = reales.map(function (x) { return String(sel[x.id] || ''); }).filter(Boolean);
+    if (ids.length !== reales.length) return null;
+    for (var i = 0; i < VARIANTES.length; i++) {
+      var e = VARIANTES[i] || {};
+      var crudos = e.values || e.options || [];
+      var vals = [];
+      for (var k = 0; k < crudos.length; k++) {
+        var x = crudos[k] || {};
+        var vid = (x.value && x.value.id != null) ? x.value.id
+          : (x.value_id != null ? x.value_id : x.id);
+        if (vid != null) vals.push(String(vid));
+      }
+      if (vals.length !== ids.length) continue;
+      var todos = true;
+      for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+      if (todos) return precioDeVariante(e.variant || e);
+    }
+    return null;
   }
 
   // ── Pasos de configuración ───────────────────────────────────────────────
@@ -905,8 +1166,20 @@
         ctx.refresh();
       });
       sec.appendChild(head);
+      // Comentario del paso (escrito por el dueño en ProductLab): bajo el
+      // título, solo cuando el paso está abierto.
+      if (abierto && kg && String(kg.nota || '').trim()) {
+        sec.appendChild(el('div', 'kc-step-note', String(kg.nota).trim()));
+      }
 
       var cards = el('div', 'kc-cards');
+      // Paso de COLOR: si sus valores traen swatch y ninguno foto, las cards
+      // se pintan como muestras grandes de color (el nombre debajo) en vez de
+      // cajas con hueco de imagen — es lo que se espera al elegir un tono.
+      var valsK = (kg && kg.values) || [];
+      var esPasoColor = valsK.length > 0
+        && valsK.every(function (x) { return x.swatchColor && !x.imageUrl; });
+      if (esPasoColor) cards.setAttribute('data-modo', 'color');
       g.values.forEach(function (v) {
         var kv = kg ? (kg.values || []).filter(function (x) { return norm(x.name) === norm(v.name); })[0] : null;
         if (esRelleno(kv)) return;   // relleno: no se ofrece cuando el paso se ve
@@ -922,17 +1195,32 @@
           sw.style.background = kv.swatchColor;
           c.appendChild(sw);
         }
-        // Cantidad: "2× Kingston 8GB". Si el nombre YA dice la cantidad
-        // ("16GB (2×8)"), no se repite nada — "16GB (2×8) ×2" era leerlo dos
-        // veces y entender cuatro módulos.
+        // El NOMBRE de la card es del dueño y va TAL CUAL: anteponerle la
+        // cantidad lo rompía — un valor "16GB DDR5" (2×8GB) salía como
+        // "2× 16GB DDR5", que se lee como 32GB. La cantidad vive en el
+        // DETALLE: los catálogos nuevos ya la traen en `desc` ("2× 8GB…");
+        // a los viejos (desc = specs a secas) se les antepone aquí, salvo
+        // que el nombre o el detalle ya la digan.
         var q = kv ? Math.round(Number(kv.qty) || 1) : 1;
-        var dice = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i').test(v.name || '');
         var nombre = el('span', 'kc-card-n');
-        if (q > 1 && !dice) nombre.appendChild(el('span', 'kc-card-qty', q + '× '));
         nombre.appendChild(document.createTextNode(v.name));
         c.appendChild(nombre);
-        if (kv && kv.desc) c.appendChild(el('span', 'kc-card-d', kv.desc));
-        var precio = cardPrecio(st.showDeltas || 'delta', on, kv, kvSel, precioAhora);
+        var det = kv ? String(kv.desc || '').trim() : '';
+        var diceQ = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i')
+          .test(det + ' ' + (v.name || ''));
+        if (q > 1 && !diceQ) det = (q + '× ' + det).trim();
+        if (det) c.appendChild(el('span', 'kc-card-d', det));
+        // Recargo REAL de esta card según la tienda: addons por su
+        // data-addon-price; color por la diferencia de precio entre variantes.
+        var dltTienda = null;
+        if (g.virtual) {
+          dltTienda = addonPriceDe(g, v.id) - (selId != null ? addonPriceDe(g, selId) : 0);
+        } else if (VARIANTES.length) {
+          var pCand = precioVarianteSustituyendo(g, v.id);
+          var pAct = selId != null ? precioVarianteSustituyendo(g, selId) : null;
+          if (pCand != null && pAct != null) dltTienda = pCand - pAct;
+        }
+        var precio = cardPrecio(st.showDeltas || 'delta', on, kv, kvSel, precioAhora, dltTienda);
         if (precio) c.appendChild(el('span', 'kc-card-price', precio));
         c.addEventListener('click', function () {
           applyNative(g, v.id);
@@ -964,6 +1252,42 @@
       if (min) { out.push(a, b); } else { out.push(b, a); }
     });
     return out;
+  }
+  // ── De dónde sale el .glb ────────────────────────────────────────────────
+  // Igual que el catálogo: la tienda primero, KIMOS como respaldo. Si el
+  // modelo se subió a los Assets del theme (a mano, como el kit), la ficha lo
+  // carga desde ahí y deja de necesitar a KIMOS para mostrarse. Jumpseller le
+  // quita los guiones al nombre al subirlo, así que se prueban las variantes.
+  function modeloUrls(m3) {
+    var out = [];
+    var nombre = String((m3 && m3.asset) || '').trim().replace(/^.*[/\\]/, '');
+    if (nombre) {
+      var src = (SELF && SELF.src) || '';
+      var base = src ? src.replace(/[^/]*$/, '') : '';
+      if (base) {
+        var q = (src.match(/\?.*$/) || [''])[0];
+        var plano = nombre.replace(/-/g, '');
+        out.push(base + nombre + q);
+        if (plano !== nombre) out.push(base + plano + q);
+      }
+    }
+    var propia = String((m3 && m3.url) || '').trim();
+    if (propia) out.push(propia);
+    return out;
+  }
+  function ponerModelo(viewer, m3) {
+    var urls = modeloUrls(m3);
+    var i = 0;
+    var intentar = function () {
+      if (i >= urls.length) return Promise.reject(new Error('modelo 3D no disponible'));
+      var u = urls[i++];
+      return viewer.setModel({ url: u, rotation: m3.rotation, mirror: m3.mirror, parts: m3.parts })
+        .catch(function (err) {
+          if (i < urls.length) { console.warn(LOG, 'modelo no está en', u, '— probando el siguiente'); return intentar(); }
+          throw err;
+        });
+    };
+    return intentar();
   }
   function loadEngine() {
     if (window.KimosEngine3D) return Promise.resolve(window.KimosEngine3D);
@@ -2212,7 +2536,20 @@
       if (panelImg) panelImg.src = fotoSeleccion();
       var mini = bar.querySelector('[data-kc-photo]');
       if (mini) mini.src = fotoSeleccion();
-      if (panelPrecio) panelPrecio.textContent = themePriceText() || '—';
+      // Combinación que la tienda no conoce: ocurre cuando la publicación de
+      // variantes quedó a medias y el cliente arma un set que nunca llegó a
+      // Jumpseller. El síntoma que se veía era el peor posible — precio "$0" y
+      // el botón de comprar habilitado, que al pulsarlo respondía "Variante
+      // del producto no fue encontrada". Aquí se dice antes de intentarlo.
+      var sinVariante = VARIANTES.length > 0 && gruposDeVariante(groups).length > 0 && !varianteActual(groups);
+      if (panelPrecio) {
+        panelPrecio.textContent = sinVariante ? 'No disponible' : (themePriceText() || '—');
+      }
+      if (panelBox) panelBox.setAttribute('data-kc-sin-variante', sinVariante ? '1' : '0');
+      if (sinVariante) {
+        console.warn(LOG, 'esta combinación no existe como variante en la tienda: '
+          + 'vuelve a aplicar el producto desde ProductLab para publicar las variantes que faltan.');
+      }
       if (panelEntrega) panelEntrega.textContent = textoEntrega();
       if (panelResumen) {
         var sel = readSelection(groups);
@@ -2230,7 +2567,9 @@
       var real = botonCarro();
       // `disabled` es la única señal fiable de que la combinación no se puede
       // comprar; si el theme no expone su botón, no se inventa un aviso.
-      var noHay = !!(real && real.disabled);
+      // Una combinación sin variante en la tienda tampoco se puede comprar,
+      // aunque el theme deje su botón habilitado: él no sabe que le falta.
+      var noHay = !!(real && real.disabled) || sinVariante;
       if (panelCta) {
         panelCta.textContent = (real && (real.textContent || '').trim()) || 'Añadir al carro';
         panelCta.disabled = noHay;
@@ -2365,16 +2704,33 @@
           panelBox = el('div', 'kc-panel');
           confView = el('div', 'kc-panel-foto');
           if (has3d) {
+            confPanel.setAttribute('data-viewer', '3d');
             var cv = el('canvas', 'kc-canvas');
             confView.appendChild(cv);
             var msg = el('div', 'kc-canvas-msg', 'Cargando 3D…');
             confView.appendChild(msg);
             loadEngine().then(function (eng) {
               viewer = eng.createViewer(cv, { podium: false });
-              return viewer.setModel({
-                url: entry.model3d.url, rotation: entry.model3d.rotation,
-                mirror: entry.model3d.mirror, parts: entry.model3d.parts,
-              }).then(function () {
+              // Ver en grande: el visor a pantalla completa (y de vuelta con
+              // Esc). El motor necesita que se le avise del nuevo tamaño.
+              var exp = el('button', 'kc-canvas-exp', '⤢');
+              exp.type = 'button';
+              exp.title = 'Ver en grande';
+              exp.setAttribute('aria-label', 'Ver el modelo en grande');
+              var grande = false;
+              var alternar = function () {
+                grande = !grande;
+                confView.classList.toggle('kc-3d-full', grande);
+                exp.textContent = grande ? '✕' : '⤢';
+                exp.title = grande ? 'Salir de pantalla completa' : 'Ver en grande';
+                setTimeout(function () { if (viewer && viewer.resize) viewer.resize(); }, 60);
+              };
+              exp.addEventListener('click', alternar);
+              document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape' && grande) alternar();
+              });
+              confView.appendChild(exp);
+              return ponerModelo(viewer, entry.model3d).then(function () {
                 viewer.setFinishes(entry.model3d.finishes || []);
                 viewer.setState(build3dState(entry, groups));
                 msg.style.display = 'none';
@@ -2443,29 +2799,45 @@
       return ids;
     }
     function precioPreset(pz) {
-      if (!VARIANTES.length) return null;
       // Selección actual + el preset encima: los pasos que el preset no toca
-      // conservan su valor (los ocultos, su comodín).
+      // conservan su valor (los ocultos, su comodín). La BASE la pone la
+      // variante (solo grupos reales — con ancla+addons, el color); encima
+      // suman los addon_price de los pasos virtuales elegidos.
       var sel = readSelection(groups);
       var pre = idsDePreset(pz);
-      var ids = groups.map(function (g) { return String(pre[g.id] || sel[g.id] || ''); }).filter(Boolean);
-      if (ids.length !== groups.length) return null;
-      for (var i = 0; i < VARIANTES.length; i++) {
-        var e = VARIANTES[i] || {};
-        var crudos = e.values || e.options || [];
-        var vals = [];
-        for (var k = 0; k < crudos.length; k++) {
-          var x = crudos[k] || {};
-          var vid = (x.value && x.value.id != null) ? x.value.id
-            : (x.value_id != null ? x.value_id : x.id);
-          if (vid != null) vals.push(String(vid));
+      var eleccion = function (g) { return String(pre[g.id] != null ? pre[g.id] : (sel[g.id] || '')); };
+      var reales = gruposDeVariante(groups);
+      var base = null;
+      if (reales.length && VARIANTES.length) {
+        var ids = reales.map(eleccion).filter(Boolean);
+        if (ids.length !== reales.length) return null;
+        for (var i = 0; i < VARIANTES.length; i++) {
+          var e = VARIANTES[i] || {};
+          var crudos = e.values || e.options || [];
+          var vals = [];
+          for (var k = 0; k < crudos.length; k++) {
+            var x = crudos[k] || {};
+            var vid = (x.value && x.value.id != null) ? x.value.id
+              : (x.value_id != null ? x.value_id : x.id);
+            if (vid != null) vals.push(String(vid));
+          }
+          if (vals.length !== ids.length) continue;
+          var todos = true;
+          for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
+          if (todos) { base = precioDeVariante(e.variant || e); break; }
         }
-        if (vals.length !== ids.length) continue;
-        var todos = true;
-        for (var j = 0; j < vals.length; j++) { if (ids.indexOf(vals[j]) === -1) { todos = false; break; } }
-        if (todos) return precioDeVariante(e.variant || e);
+        if (base == null) return null;
+      } else {
+        base = precioBaseProducto();
+        if (base == null) return null;
       }
-      return null;
+      var total = base;
+      groups.forEach(function (g) {
+        if (!g.virtual) return;
+        var id = eleccion(g);
+        if (id) total += addonPriceDe(g, id);
+      });
+      return total;
     }
     function aplicarPreset(pz) {
       var pre = idsDePreset(pz);
@@ -2525,12 +2897,16 @@
         // builder, y las pestañas de arriba solo bajan hasta ellas. Tenerlas
         // como pestañas aparte rompía la lectura en trozos inconexos.
         anclas = {};
+        // La nota es SU PROPIA sección y solo se ve ahí. La galería la pintaba
+        // además dentro de sí misma, así que salía duplicada y no había forma
+        // de quitarla de ahí: quien no la quería bajo las fotos no tenía
+        // interruptor. Ahora la lista de secciones manda y punto.
         secs.forEach(function (s) {
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
-          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, sf.photosNote, style.photos, altDe); anclas.fotos = n; }
+          else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
@@ -2622,6 +2998,9 @@
         var g = nativeOf(groups, kg);
         if (!g) { faltan.push('el paso "' + kg.label + '" no existe como opción en la tienda'); return; }
         var sinTienda = (kg.values || []).filter(function (v) {
+          // El relleno ("No aplica") de un paso dependiente no se publica como
+          // addon a propósito: no es un valor comprable y no debe acusarse.
+          if (g.virtual && esRelleno(v)) return false;
           return !g.values.some(function (n) { return norm(n.name) === norm(v.name); });
         }).map(function (v) { return v.name; });
         if (sinTienda.length) faltan.push('"' + kg.label + '" sin ' + sinTienda.join(', ') + ' en la tienda');
@@ -2670,7 +3049,15 @@
     };
     var imgs = raiz.querySelectorAll('img');
     for (var i = 0; i < imgs.length; i++) {
-      if (imgs[i].src && !imgs[i].complete) pendientes.push(espera(imgs[i]));
+      if (!imgs[i].src || imgs[i].complete) continue;
+      // Solo lo que el cliente VE al entrar: esperar también las fotos de las
+      // cards del fondo de la página retenía el velo más de un segundo sin
+      // que nadie lo notara — esas cargan solas mientras se hace scroll.
+      try {
+        var rc = imgs[i].getBoundingClientRect();
+        if (rc.top > (window.innerHeight || 800) * 1.2) continue;
+      } catch (e) { /* sin rect: se espera como siempre */ }
+      pendientes.push(espera(imgs[i]));
     }
     // Fondos de hero: se precargan en un <img> suelto, que es lo que permite
     // saber cuándo están listos. Es la foto grande que aparecía a destiempo.
@@ -2690,11 +3077,15 @@
   }
 
   function start() {
+    // Radiografía del arranque: cuánto tardó cada tramo, para optimizar con
+    // números y no con sensaciones (el velo se retira cuando esto termina).
+    var tInicio = Date.now();
     var prod = currentProduct();
     // Cuando NO se va a reemplazar nada, el velo sobra: fuera de inmediato,
     // sin fundido, que la ficha del theme ya está lista debajo.
     if (!prod) { destapar(true); return; }
-    loadDefinition().then(function (def) {
+    loadDefinition(prod).then(function (def) {
+      var tCatalogo = Date.now();
       var entry = findEntry(def, prod);
       if (!entry) { destapar(true); return; }
       // Sin ficha ni 3D no hay nada que reemplazar: se deja el theme como está.
@@ -2717,7 +3108,13 @@
       // Se destapa cuando la ficha está pintada Y sus fotos han cargado: así
       // no se ve ni la ficha vieja ni el hero sin su imagen.
       var raiz = document.querySelector('.kimos-cfg') || document;
-      esperarImagenes(raiz, CFG.bootMax).then(function () { destapar(); });
+      var tMontaje = Date.now();
+      esperarImagenes(raiz, CFG.bootMax).then(function () {
+        destapar();
+        console.info(LOG, 'ficha lista en ' + (Date.now() - tInicio) + ' ms — catálogo '
+          + (tCatalogo - tInicio) + ' ms · montaje ' + (tMontaje - tCatalogo) + ' ms · imágenes '
+          + (Date.now() - tMontaje) + ' ms');
+      });
     }).catch(function (e) { destapar(); console.warn(LOG, 'no se pudo leer la definición:', e.message); });
   }
 

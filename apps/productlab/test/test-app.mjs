@@ -20,8 +20,9 @@ productsStore.set('prod-1', {
   images: ['https://cdn/x.png', 'https://cdn/g2.png'], // galería completa (pull v2)
   description: 'Camisa de algodón peinado, costura reforzada.', // texto de la tienda
   // Estado previo en la tienda: ids que deben PRESERVARSE al regenerar
-  options: [{ name: 'Tela', optionType: 'option', sourceOptionId: '900',
-    values: [{ name: 'Algodón', sourceValueId: '901' }] }],
+  // (forma ancla+addons: un addon por valor de paso, adoptado por nombre)
+  options: [{ name: 'Tela: Algodón', optionType: 'addon', addonPrice: 0, sourceOptionId: '900',
+    values: [{ name: 'Sí', sourceValueId: '901' }] }],
   variants: [],
 });
 // Catálogo de la app de computadores (esquema legacy: kind 'equipo',
@@ -252,7 +253,7 @@ if (!eqSnap.warnings.some((w) => w.indexOf('ojal:reforzado') !== -1)) throw new 
 const eqOld = snap2.productos.find((e) => e.id === 'eq-old');
 expectEq('producto migrado computedPrice', eqOld.computedPrice, 231990);
 
-// ── 3. Aplicar a la tienda: variantes con precio por combinación ──
+// ── 3. Aplicar a la tienda: ANCLA + ADDONS (sin variantes por combinación) ──
 await act('RECALC_PRICES', { apply: true, confirm: true });
 const saved = store.get('eq-test');
 expectEq('price persistido', saved.price, 345990);
@@ -260,18 +261,36 @@ if (!saved.lastPush || saved.lastPush.status !== 'synced') throw new Error('last
 expectEq('imageUrl refrescada desde la tienda', saved.imageUrl, 'https://cdn/x.png');
 if (!saved.storefront || saved.storefront.hero.photoPos !== 'right' || saved.storefront.specs.length !== 1) throw new Error('la ficha de tienda (hero/specs) no se preservó al aplicar');
 const prod = productsStore.get('prod-1');
-expectEq('producto price', prod.price, 345990);
-const optCpu = prod.options.find((o) => o.name === 'Tela');
-if (optCpu.sourceOptionId !== '900') throw new Error('no se preservó sourceOptionId');
-if (optCpu.values.find((v) => v.name === 'Algodón').sourceValueId !== '901') throw new Error('no se preservó sourceValueId');
-if (optCpu.values.some((v) => v.name.indexOf('Kingston') !== -1 || v.name.indexOf('8500G') !== -1)) throw new Error('los valores deben ser etiquetas genéricas sin marca');
-const vR5 = prod.variants.find((v) => v.options['Tela'] === 'Algodón');
-const vR7 = prod.variants.find((v) => v.options['Tela'] === 'Lino');
-expectEq('variante R5', vR5.price, 345990);
-expectEq('variante R7', vR7.price, 595990); // 119000+406980+69615=595595→595990
-if (vR5.options['Botones'] !== 'Nácar') throw new Error('variante sin la opción Memoria genérica');
-expectEq('opciones aplicadas (paso sin valores disponibles excluido)', prod.options.length, 2);
-if (prod.variants.some((v) => v.options['Acabado'] != null)) throw new Error('las variantes no deben incluir el paso vacío');
+// El precio del producto en la tienda es el ANCLA (configuración más
+// económica). Aquí el default de cada paso ES el más barato → coincide.
+expectEq('producto price (ancla)', prod.price, 345990);
+// Un addon por valor: "Tela: Algodón" (delta 0), "Tela: Lino" (recargo) y
+// "Botones: Nácar". "Acabado" (todo agotado) queda fuera. Sin paso de color,
+// sin variantes.
+expectEq('opciones aplicadas (un addon por valor; paso agotado excluido)', prod.options.length, 3);
+if (prod.options.some((o) => o.optionType !== 'addon')) throw new Error('sin paso de color, todas las opciones deben ser addons');
+const optAlg = prod.options.find((o) => o.name === 'Tela: Algodón');
+if (optAlg.sourceOptionId !== '900') throw new Error('no se preservó sourceOptionId');
+if (optAlg.values.find((v) => v.name === 'Sí').sourceValueId !== '901') throw new Error('no se preservó sourceValueId');
+expectEq('addon del valor más barato sin recargo', optAlg.addonPrice, 0);
+// Lino: 406980 − 157080 (algodón, el mínimo del paso) = 249900 → 250000:
+// con redondeo "final 990" los recargos van al múltiplo de $1.000, para que
+// ancla (…990) + Σ addons siga terminando en 990 en cualquier configuración.
+expectEq('addon Lino = delta redondeado al múltiplo del paso de redondeo', prod.options.find((o) => o.name === 'Tela: Lino').addonPrice, 250000);
+expectEq('ancla + addon conserva el final 990', (prod.price + prod.options.find((o) => o.name === 'Tela: Lino').addonPrice) % 1000, 990);
+expectEq('addon Nácar (único valor) sin recargo', prod.options.find((o) => o.name === 'Botones: Nácar').addonPrice, 0);
+if (prod.options.some((o) => o.name.indexOf('Kingston') !== -1 || o.name.indexOf('8500G') !== -1)) throw new Error('los addons deben usar etiquetas genéricas sin marca');
+if (prod.options.some((o) => o.name.indexOf('Acabado') !== -1)) throw new Error('el paso sin valores disponibles no debe generar addons');
+expectEq('sin paso de color no hay variantes', prod.variants.length, 0);
+// EQUIVALENCIA DE PRECIOS (modo auto): ancla + Σ deltas ≈ precio por
+// combinación de siempre, con diferencia < redondeo (el redondeo final ya no
+// puede aplicarse por combinación porque no existen combinaciones).
+{
+  const viejoLino = 595990; // roundFinal(119000+406980+69615)
+  const nuevoLino = prod.price + prod.options.find((o) => o.name === 'Tela: Lino').addonPrice
+    + prod.options.find((o) => o.name === 'Botones: Nácar').addonPrice;
+  if (Math.abs(nuevoLino - viejoLino) >= 1000) throw new Error('ancla+deltas se aleja más que el redondeo: ' + nuevoLino + ' vs ' + viejoLino);
+}
 
 // ── 3b. JSON público republicado: paso vacío fuera y días de armado por regla ──
 const pubData = store.get('definition').public.data;
@@ -308,10 +327,12 @@ await act('UPSERT_COMPONENT', { name: 'Botón nácar (Prov. A)', stock: 0 });
 await act('RECALC_PRICES', { apply: true, confirm: true });
 // RAM-B 47000×1.30×1.19=72709 → 119000+157080+72709=348789 → 348990
 expectEq('price tras agotarse RAM-A', store.get('eq-test').price, 348990);
-expectEq('variante R5 actualizada', productsStore.get('prod-1').variants.find((v) => v.options['Tela'] === 'Algodón').price, 348990);
+expectEq('ancla actualizada en la tienda', productsStore.get('prod-1').price, 348990);
+expectEq('el addon del único valor sigue en 0 (la alternativa cara es el nuevo mínimo)',
+  productsStore.get('prod-1').options.find((o) => o.name === 'Botones: Nácar').addonPrice, 0);
 
-// ── 5. Re-aplicar preserva sourceVariantId ──
-const ids1 = productsStore.get('prod-1').variants.map((v) => v.sourceVariantId).sort();
+// ── 5. Re-aplicar preserva sourceOptionId/sourceValueId (idempotencia) ──
+const ids1 = productsStore.get('prod-1').options.map((o) => o.sourceOptionId).sort();
 // GUARDARRAÍL: sin confirm:true, las acciones de tienda viva NO se ejecutan
 // (el agente debe tener el pedido explícito del usuario, o preguntar).
 const sinConfirm = await agentReg.dispatchAction({ type: 'APPLY_PRODUCTO', payload: { producto: 'Camisa Clásica' } });
@@ -319,9 +340,9 @@ if (sinConfirm.success !== false || String(sinConfirm.error).indexOf('CONFIRMACI
   throw new Error('APPLY_PRODUCTO sin confirm debía pedir confirmación: ' + JSON.stringify(sinConfirm));
 }
 await act('APPLY_PRODUCTO', { producto: 'Camisa Clásica', confirm: true });
-const ids2 = productsStore.get('prod-1').variants.map((v) => v.sourceVariantId).sort();
-if (JSON.stringify(ids1) !== JSON.stringify(ids2)) throw new Error('re-aplicar regeneró variantes');
-console.log('re-aplicación preserva sourceVariantId ✔ (' + ids2.join(', ') + ')');
+const ids2 = productsStore.get('prod-1').options.map((o) => o.sourceOptionId).sort();
+if (JSON.stringify(ids1) !== JSON.stringify(ids2)) throw new Error('re-aplicar regeneró opciones');
+console.log('re-aplicación preserva sourceOptionId ✔ (' + ids2.join(', ') + ')');
 
 // ── 6. Base del margen 'sale': venta = costo ÷ (1 − m) ──
 const def = store.get('definition');
@@ -524,26 +545,37 @@ const composed = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headli
 if (composed.message.indexOf('2 características') === -1 || composed.message.indexOf('[clasico]') === -1) {
   throw new Error('COMPOSE_HERO sin detalle esperado: ' + composed.message);
 }
+// Sin heroIndex se AGREGA: pedir un hero nuevo no puede borrar el que había
+// (un agente dejó a un producto sin su hero principal haciendo justo esto).
+const herosAntes = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente')
+  .storefront.pageSections.filter((x) => x.kind === 'hero').length;
 const composedEq = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente');
-const composedHero = composedEq.storefront.pageSections.find((x) => x.kind === 'hero');
+const herosTras = composedEq.storefront.pageSections.filter((x) => x.kind === 'hero');
+if (herosTras.length !== herosAntes) throw new Error('COMPOSE_HERO sin heroIndex no agregó: ' + herosAntes + ' → ' + herosTras.length);
+// El compuesto es el ÚLTIMO; el anterior sigue intacto.
+const composedHero = herosTras[herosTras.length - 1];
 const nBlocks = Object.keys(composedHero.slots).reduce((a, k) => a + composedHero.slots[k].length, 0);
 if (nBlocks < 4) throw new Error('COMPOSE_HERO dejó pocos bloques: ' + nBlocks);
 if (!composedHero.slots.center || composedHero.slots.center[0].type !== 'photo') throw new Error('foto no quedó al centro');
 if (!composedHero.slots.left || composedHero.slots.left[0].type !== 'items' || composedHero.slots.left[0].items.length !== 2) throw new Error('features no quedaron como items');
 if (!composedHero.slots.bottom || composedHero.slots.bottom[0].type !== 'cta') throw new Error('CTA no quedó abajo');
-// Reemplazo del mismo hero conservando el fondo cuando no se envía uno nuevo
-const composed2 = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Calce perfecto', features: [{ title: 'Puño doble' }] });
+// Con heroIndex SÍ reemplaza, y conserva el fondo cuando no se envía uno nuevo.
+const idxNuevo = herosTras.length;
+const composed2 = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Calce perfecto', features: [{ title: 'Puño doble' }], heroIndex: idxNuevo });
+if (composed2.message.indexOf('reemplazado') === -1) throw new Error('COMPOSE_HERO con heroIndex no reportó reemplazo: ' + composed2.message);
 const hero2 = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.filter((x) => x.kind === 'hero');
-if (hero2.length !== 1) throw new Error('COMPOSE_HERO duplicó heros: ' + hero2.length);
-if (hero2[0].bgColor !== '#1D1D1B') throw new Error('no conservó el fondo: ' + hero2[0].bgColor);
+if (hero2.length !== idxNuevo) throw new Error('COMPOSE_HERO con heroIndex duplicó heros: ' + hero2.length);
+if (hero2[idxNuevo - 1].bgColor !== '#1D1D1B') throw new Error('no conservó el fondo: ' + hero2[idxNuevo - 1].bgColor);
 // v3.6.1: reparto de features entre ambos laterales
 const split = await act('COMPOSE_HERO', { producto: 'Chaqueta Agente', headline: 'Reparto', featuresRightCount: 2,
   features: [{ title: 'F1' }, { title: 'F2' }, { title: 'F3' }, { title: 'F4' }, { title: 'F5' }] });
-const splitHero = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.find((x) => x.kind === 'hero');
+// El hero recién compuesto es el ÚLTIMO (sin heroIndex se agrega, no reemplaza).
+const splitHeros = agentReg.getSnapshot().productos.find((e) => e.name === 'Chaqueta Agente').storefront.pageSections.filter((x) => x.kind === 'hero');
+const splitHero = splitHeros[splitHeros.length - 1];
 if (splitHero.slots.left[0].items.length !== 3 || !splitHero.slots.right || splitHero.slots.right[0].items.length !== 2) {
   throw new Error('reparto incorrecto: izq=' + splitHero.slots.left[0].items.length + ' der=' + (splitHero.slots.right && splitHero.slots.right[0] ? splitHero.slots.right[0].items.length : 0));
 }
-console.log('agente: COMPOSE_HERO (composición plana, reemplazo, fondo conservado y reparto 3/2) OK');
+console.log('agente: COMPOSE_HERO (agrega por defecto, reemplaza con heroIndex, fondo conservado y reparto 3/2) OK');
 
 // ── Dropshipping (v3.5.0): impuesto %, entrega en serie, producto sin pasos ──
 // Impuesto adicional %: se suma al costo ANTES del margen — misma base, +10%.
@@ -622,7 +654,18 @@ expectEq('redondeo ending (terminación 990)', priceOf(), 11990);
 // El impuesto de venta es un parámetro, no un 19% fijo.
 await reload({ roundMode: 'none', salesTaxPct: 21 });
 expectEq('impuesto de venta parametrizable (21%)', priceOf(), Math.round(11000 * 1.21));
-console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo e impuesto parametrizable OK');
+
+// Costo cargado CON el impuesto de venta incluido (boleta / precio web): se
+// descuenta antes del margen. Round-trip sin margen: 119.000 c/IVA → neto
+// 100.000 → venta con IVA 19% = 119.000 de vuelta. Con margen 25%: 148.750.
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 0 });
+await act('UPSERT_COMPONENT', { name: 'Tela boleta', type: 'tela', cost: 119000, currency: 'CLP', costConIva: true });
+const boleta = () => agentReg.getSnapshot().components.find((c) => c.name === 'Tela boleta');
+expectEq('costo c/IVA sin margen: la venta reproduce el costo de boleta', boleta().salePrice, 119000);
+expectEq('el snapshot expone costConIva', boleta().costConIva, true);
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 25, marginBasis: 'cost' });
+expectEq('costo c/IVA con margen 25%: neto 100.000 × 1.25 × 1.19', boleta().salePrice, 148750);
+console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo, impuesto parametrizable y costo c/IVA OK');
 
 // ── 10. Visor 3D OPCIONAL ────────────────────────────────────────────────
 // Nada de lo anterior tiene modelo 3D: eso ya demuestra que la app funciona
@@ -746,10 +789,13 @@ expectEq('combinaciones', pack.variantCombos, 16);
 await act('LINK_PRODUCT', { producto: 'Pack 2 Pisos', product: '424242' });
 await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
 const packProd = productsStore.get('prod-1');
-expectEq('variantes aplicadas', packProd.variants.length, 16);
-const precios = Array.from(new Set(packProd.variants.map((v) => v.price)));
-expectEq('todas las variantes al mismo precio', precios.join(','), '100000');
-expectEq('precio del producto en la tienda', packProd.price, 100000);
+// Ancla + addons: sin paso de color no hay variantes; cada valor es un addon
+// y con precio fijo sin recargos todos los addons valen 0 (el ancla lo es todo).
+expectEq('sin variantes (ancla + addons)', packProd.variants.length, 0);
+expectEq('un addon por valor', packProd.options.length, 8);
+const preciosAddon = Array.from(new Set(packProd.options.map((o) => o.addonPrice)));
+expectEq('todos los addons sin recargo', preciosAddon.join(','), '0');
+expectEq('precio del producto en la tienda (ancla = precio fijo)', packProd.price, 100000);
 // Con precio fijo no se muestran recargos en la tienda.
 await act('PUBLISH_CONFIG', { enabled: true });
 const pubPack = store.get('definition').public.data.productos.find((e) => e.sku === 'PACK-2');
@@ -763,9 +809,13 @@ await act('SET_PRODUCTO_STEPS', { producto: 'Pack 2 Pisos', steps: packItem.grou
   values: g.values.map((v) => ({ label: v.label, priceDelta: v.priceDelta, model3d: v.model3d })),
 })) });
 await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
-const conRecargo = productsStore.get('prod-1').variants;
-const caro = conRecargo.filter((v) => v.price === 115000).length;
-expectEq('el recargo por valor se aplica sobre el precio fijo', caro, 8);
+const conRecargo = productsStore.get('prod-1').options;
+const caros = conRecargo.filter((o) => o.addonPrice === 15000);
+expectEq('el recargo por valor viaja como addon_price sobre el ancla', caros.length, 1);
+expectEq('el producto sigue anclado en lo fijado', productsStore.get('prod-1').price, 100000);
+// Equivalencia EXACTA en precio fijo: ancla + addon = precio de la
+// combinación de siempre (100000 + 15000 = 115000), sin redondeos de por medio.
+expectEq('ancla + addon == precio por combinación (fijo, exacto)', 100000 + caros[0].addonPrice, 115000);
 expectEq('la configuración por defecto sigue costando lo fijado',
   agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 2 Pisos').computedPrice, 100000);
 
@@ -1057,14 +1107,23 @@ const snapCombo = agentReg.getSnapshot().productos.find((e) => e.name === 'Pack 
 expectEq('cartesiano (lo que se publicaba antes)', snapCombo.variantCombosSinDependencias, 18);
 expectEq('alcanzables (lo que se publica ahora)', snapCombo.variantCombos, 4);
 await act('PUBLISH_CONFIG', { enabled: true });
-// Y ninguna variante mezcla plataformas: no existe "Intel + Ryzen".
+// Con ancla + addons ninguna combinación viaja a la tienda: no hay variantes
+// imposibles porque no hay variantes. Cada valor REAL es un addon; el relleno
+// ("No aplica") no se vende y no genera addon — quién puede elegir qué sigue
+// siendo lógica del kit (dependencias del catálogo publicado).
 await act('APPLY_PRODUCTO', { producto: 'Pack 2 Pisos', confirm: true });
-const variantes = productsStore.get('prod-1').variants;
-const imposibles = variantes.filter((v) => (v.options['Plataforma'] === 'Intel' && /Ryzen/.test(v.options['CPU AMD'] || ''))
-  || (v.options['Plataforma'] === 'AMD' && /Core/.test(v.options['CPU Intel'] || '')));
-expectEq('sin variantes imposibles', imposibles.length, 0);
-expectEq('el paso oculto lleva su relleno', variantes.filter((v) => v.options['CPU AMD'] === 'No aplica').length, 2);
-console.log('ProductLab: solo se publican combinaciones alcanzables OK');
+const prodDep = productsStore.get('prod-1');
+expectEq('sin variantes (paso de color no hay)', prodDep.variants.length, 0);
+if (prodDep.options.some((o) => o.name.indexOf('No aplica') !== -1)) throw new Error('el relleno no debe generar addon');
+const nombresDep = prodDep.options.map((o) => o.name).sort().join(' | ');
+if (nombresDep.indexOf('Plataforma: AMD') === -1 || nombresDep.indexOf('CPU Intel: Core i7') === -1) {
+  throw new Error('faltan addons de pasos dependientes: ' + nombresDep);
+}
+// Deltas de un paso dependiente: puede quedar oculto (contribución 0), así
+// que el mínimo del paso nunca es >0 y cada valor real conserva su recargo.
+expectEq('addon de paso dependiente = su recargo completo',
+  prodDep.options.find((o) => o.name === 'CPU Intel: Core i7').addonPrice, 150000);
+console.log('ProductLab: ancla + addons sin combinaciones imposibles OK');
 
 // ── Conjuntos (bundle) y filtro por compatibilidad de tags ────────────────
 // "Procesador" en UN paso: cada valor SUMA CPU + placa (bundle), sin pasos
@@ -1163,7 +1222,7 @@ if (csvText.indexOf('Ryzen 5 8500G') === -1) throw new Error('CSV sin los compon
 // Editar el CSV como en una planilla: cambio de costo y componente nuevo.
 const editado = csvText.split('\r\n')
   .map((ln) => (ln.indexOf('cmp-r5') === 0 ? ln.replace('110000', '125000') : ln))
-  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,0,7,4,PC Factory,https://p/9,,,,,si,,'])
+  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,si,0,7,4,PC Factory,https://p/9,,,,,si,,'])
   .join('\r\n');
 uploads.set(csvUrl, editado);
 const impCsv = await act('IMPORT_DATA', { url: csvUrl });
@@ -1175,6 +1234,8 @@ if (!nuevoCsv) throw new Error('el componente agregado en el CSV no llegó');
 expectEq('stock del componente nuevo (columna stock)', nuevoCsv.stock, 7);
 expectEq('días de entrega del componente nuevo', nuevoCsv.deliveryDays, 4);
 expectEq('costo del componente nuevo', nuevoCsv.cost, 39990);
+expectEq('columna costoConIva del CSV (si → true)', nuevoCsv.costConIva, true);
+expectEq('los componentes exportados sin marcar siguen netos', snapCsv.components.find((c) => c.id === 'cmp-r5').costConIva, false);
 if (!agentReg.getSnapshot().types.some((t) => t.label === 'Chasis')) throw new Error('el tipo nuevo del CSV debía crearse solo');
 
 // Export JSON completo y reimportación en modo "skip" (no toca lo existente).
@@ -1191,5 +1252,75 @@ expectEq('modo skip no crea duplicados', agentReg.getSnapshot().components.lengt
 if (impSkip.message.indexOf('omitidos') === -1) throw new Error('modo skip no informó omisiones: ' + impSkip.message);
 console.log('ProductLab: migración desde otra app, export/import JSON y CSV (ida y vuelta) OK');
 
-console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, variantes por combinación, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen, estilo por producto y plantillas de estilo válidos');
+// ── Guardado concurrente: dos manos sobre el mismo producto ──────────────────
+// El agente guarda con el modelo que tenía cargado (hasta 45 s viejo) y una
+// persona puede haber editado otra cosa mientras tanto. Antes ganaba la última
+// escritura y la otra edición desaparecía sin aviso.
+{
+  await act('UPSERT_PRODUCTO', { nombre: 'Silla Concurrente', precioFijo: 50000 });
+  const antes = agentReg.getSnapshot().productos.find((e) => e.name === 'Silla Concurrente');
+
+  // Alguien más cambia el SKU directamente en el servidor (otra pestaña).
+  const enServidor = store.get(antes.id);
+  store.set(antes.id, { ...enServidor, sku: 'SKU-DE-OTRO' });
+
+  // El agente guarda partiendo de su copia, que NO trae ese SKU, y cambia
+  // OTRO campo (los días de preparación).
+  const r = await act('UPSERT_PRODUCTO', { name: 'Silla Concurrente', deliveryExtraDays: 7 });
+  if (!r.success) throw new Error('el guardado concurrente falló: ' + r.error);
+
+  const final = store.get(antes.id);
+  if (Number(final.deliveryExtraDays) !== 7) throw new Error('no se aplicó el cambio propio: ' + final.deliveryExtraDays);
+  if (final.sku !== 'SKU-DE-OTRO') throw new Error('SE PISÓ el cambio ajeno: sku=' + final.sku);
+  if (r.message.indexOf('fuera de aquí') === -1) throw new Error('no avisó de la fusión: ' + r.message);
+  if (!r.message.includes('sku')) throw new Error('no dijo QUÉ se conservó: ' + r.message);
+  console.log('ProductLab: guardado concurrente conserva los cambios de la otra mano OK');
+}
+
+// ── Paso de COLOR: la única opción que genera variantes ─────────────────────
+// El paso cuyo nombre contiene "color" viaja como opción `option` con una
+// variante por valor (para que el carro muestre la foto correcta), con el
+// precio ancla + su recargo y el stock del componente MÁS ESCASO de ese
+// color. Los demás pasos siguen siendo addons.
+{
+  await act('UPSERT_COMPONENT', { name: 'Forro escaso', type: 'forro', cost: 20000, stock: 2 });
+  await act('UPSERT_COMPONENT', { name: 'Forro surtido', type: 'forro', cost: 10000, stock: 30 });
+  await act('UPSERT_COMPONENT', { name: 'Sin bordado', type: 'other', cost: 0 });
+  await act('UPSERT_COMPONENT', { name: 'Bordado pecho', type: 'other', cost: 5000 });
+  await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
+    { label: 'Color de forro', values: [
+      { label: 'Escaso', components: ['Forro escaso'] },
+      { label: 'Surtido', components: ['Forro surtido'] },
+    ] },
+    { label: 'Bordado', values: [
+      { label: 'Sin bordado', components: ['Sin bordado'] },
+      { label: 'Con bordado', components: ['Bordado pecho'] },
+    ] },
+  ] });
+  await act('APPLY_PRODUCTO', { producto: 'Chaqueta Agente', confirm: true });
+  const prodC = productsStore.get('prod-1') || {};
+  const vs = prodC.variants || [];
+  const escaso = vs.find((v) => v.options['Color de forro'] === 'Escaso');
+  const surtido = vs.find((v) => v.options['Color de forro'] === 'Surtido');
+  if (!escaso || !surtido) throw new Error('faltan variantes de color: ' + JSON.stringify(vs.map((v) => v.options)));
+  expectEq('solo el color genera variantes', vs.length, 2);
+  if (escaso.stock !== 2) throw new Error('la variante escasa debía quedar en 2: ' + escaso.stock);
+  if (surtido.stock !== 30) throw new Error('la variante surtida debía quedar en 30: ' + surtido.stock);
+  if (escaso.stockUnlimited !== false) throw new Error('no marcó el stock como limitado');
+  // La opción de color es `option`; el bordado va como addons.
+  const optColor = (prodC.options || []).find((o) => o.name === 'Color de forro');
+  if (!optColor || optColor.optionType !== 'option' || optColor.values.length !== 2) {
+    throw new Error('el paso de color no viajó como opción de variantes: ' + JSON.stringify(optColor));
+  }
+  const addBord = (prodC.options || []).filter((o) => o.name.indexOf('Bordado: ') === 0);
+  expectEq('los demás pasos siguen siendo addons', addBord.length, 2);
+  // Precio de variante = ancla + recargo del color: el surtido es el mínimo
+  // del paso, así que su variante vale el ancla y la escasa el ancla + delta.
+  if (!(escaso.price > surtido.price)) throw new Error('la variante cara no lleva su recargo: ' + escaso.price + ' vs ' + surtido.price);
+  expectEq('la variante del color más barato vale el ancla', surtido.price, prodC.price);
+  console.log('ProductLab: color → variantes con stock del componente más escaso OK');
+}
+
+
+console.log('\nTodo OK ✔ — precios (ambas bases de margen), alternativas por disponibilidad, stock, migración v2.0, publicación ancla + addons, agente completo, render, parametrización genérica (moneda/impuesto/redondeo), visor 3D opcional, qty, pasos dependientes, secciones imagen, estilo por producto y plantillas de estilo válidos');
 cleanups.forEach((c) => c());

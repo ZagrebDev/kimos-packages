@@ -179,6 +179,48 @@ function commit(next){ model = next; listeners.forEach(l => l(model)); scheduleS
 // mismas funciones que la UI → el lienzo se repinta solo cuando el agente actúa.
 ```
 
+### 5.1 Colaboración multiusuario (varias personas a la vez)
+
+No hay push del servidor: el patrón de la casa es **sincronizar cada pocos
+segundos** cuando la ventana se ve (`contact-forms`, `productlab`,
+`miorg.buzon`, `miorg.encuestas` y `web-agents` lo hacen así):
+
+```js
+const t = setInterval(() => {
+  if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refresh();
+}, 30000);
+```
+
+Eso basta para apps de lectura (bandejas, listados). Si **dos personas editan
+el mismo documento**, hace falta además no perder datos. La app `gantt` (v4)
+implementa el patrón completo y es la referencia a copiar:
+
+1. **Fusionar, no reemplazar.** `refresh()` no pisa el modelo con lo remoto:
+   lo fusiona. Cada sub-entidad editable (tarea, tarjeta, fila) lleva su
+   `updatedAt` y gana la más reciente **por entidad**, no por documento. Así
+   dos personas que tocan filas distintas no se pisan.
+2. **Lápidas para las bajas.** Guarda `deletedIds: [{id, at}]` en el documento
+   y descarta al fusionar todo id con lápida más nueva que su `updatedAt`. Sin
+   esto, lo que borra una persona reaparece desde la pantalla de la otra.
+3. **Leer-fusionar-escribir.** Antes de cada `PUT`, relee del servidor, fusiona
+   y recién ahí escribe. El `PUT` de un item hace merge de campos de primer
+   nivel, así que un array (`tasks`, `cards`…) se reemplaza entero: la fusión
+   tiene que ocurrir en el cliente.
+4. **Auto-reparación.** Queda una ventana mínima (el viaje de red entre el read
+   y el write) donde otra escritura puede quedar pisada. Cada sesión repara lo
+   suyo: si al sincronizar falta algo **propio y reciente** que nadie borró, se
+   vuelve a guardar solo. Acótalo a lo propio y reciente — si no, resucitarás lo
+   que borró otra persona.
+5. **No repintar de más.** Compara una firma del estado visible y emite solo si
+   cambió: repintar cada pocos segundos molesta a quien está escribiendo.
+6. **Cadencia según el foco.** Rápido con la ventana enfocada, lento de fondo,
+   en pausa si la pestaña no se ve. Y serializa la red mutante en una cadena de
+   promesas para no cruzar un guardado con un refresh.
+
+Nada de esto necesita backend a medida ni cambia el modelo de datos: son campos
+añadidos al documento que ya guardas. **No mandes campos de control en el body
+del `PUT`** (`_loQueSea`): el backend los persistiría como parte del item.
+
 ---
 
 ## 6. Control por agente (`agent.control`)
@@ -239,6 +281,56 @@ shell.agent.register({
 para obtener su URL — alternativa a embeber recursos. (Vía repo oficial, el
 backend solo sirve `dist/`; para assets nativos por esa vía, empaqueta `.kapp` o
 embébelos en el bundle, como hace FossFLOW con sus SVG.)
+
+---
+
+## 7.a Versionado: dónde vive la versión (y por qué falla la actualización)
+
+La Tienda decide si hay actualización comparando la versión **instalada** con la
+del **catálogo raíz** (`/manifest.json` → `apps[]`). Ese es el número que manda:
+si se sube la versión dentro de `apps/{id}/` pero no en el catálogo, la app
+instalada se queda con el bundle viejo y **no aparece nada que actualizar**
+(pasó con `notas-equipo` 2.1.0 → la tarjeta seguía mostrando v2.0.0).
+
+Al publicar un cambio, la versión sube en **los cuatro lugares, en el mismo commit**:
+
+| # | Dónde | Para qué sirve |
+|---|---|---|
+| 1 | `apps/{id}/manifest.json` → `version` | Fuente de verdad de la app; es lo que valida `tools/pack.mjs` y lo que viaja en el `.kapp`. |
+| 2 | **`/manifest.json` raíz** → `apps[] → {id}.version` | **Lo que lee la Tienda**: sin esto no se ofrece la actualización. Sube también la `description` si cambió. |
+| 3 | `apps/{id}/dist/index.js` → `const APP_VERSION` | La versión que la app **muestra en pantalla** (ver abajo). |
+| 4 | `apps/{id}/README.md` → “Versión actual” + tabla de historial | Documenta qué trae cada versión. |
+
+**Verifícalo antes de commitear** (falla con código 1 si algo quedó desalineado):
+
+```bash
+node tools/check-versions.mjs                # todas las apps
+node tools/check-versions.mjs notas-equipo   # una sola
+```
+
+**Criterio del número** (semver): parche `x.y.Z` para arreglos, menor `x.Y.0`
+para funciones nuevas compatibles, mayor `X.0.0` si cambia el formato de los
+datos guardados o el contrato del agente. Nunca reutilices un número ya
+publicado: el backend guarda el bundle en `/apps/{id}/{version}/` y lo cachea,
+así que repetir versión sirve bundles viejos.
+
+### La versión, siempre a la vista
+
+Toda app debe **identificar en pantalla el build que está corriendo**: sin eso no
+hay forma de saber, al probar, si el host tomó la actualización o quedó con la
+copia cacheada. La convención:
+
+```js
+// Mantener en sincronía con manifest.json (y con el catálogo raíz).
+const APP_VERSION = '2.2.0';
+…
+h('span', { className: 'nt-ver', title: 'Notas de Equipo v' + APP_VERSION }, 'v' + APP_VERSION),
+```
+
+- Un chip discreto en la cabecera, junto al título (ver `apps/notas-equipo`).
+- Si la app tiene pantalla de bienvenida o vacía, repítelo ahí.
+- Si registra agente, incluye `version: APP_VERSION` en `getSnapshot()`, así el
+  agente IA puede responder qué build está corriendo.
 
 ---
 
@@ -310,6 +402,8 @@ Reglas:
 
 ## 8. Checklist antes de publicar
 
+- [ ] **Versión subida en los cuatro lugares** (§7.a) y `node tools/check-versions.mjs` en verde.
+- [ ] La app **muestra su versión** en pantalla (`APP_VERSION` en la cabecera).
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
 - [ ] `dist/index.js` exporta `default mount(shell)` y usa `globalThis.React`.
 - [ ] Estado dentro del closure; `unmount()` limpia timers/listeners/agente.
@@ -321,9 +415,52 @@ Reglas:
 
 ---
 
-## 9. Ejemplos en este repo
+## 9. Aspecto: el sistema visual de las apps de KIMOS
+
+El referente es **`apps/productlab`**; `gantt` y `notas-equipo` ya están
+alineadas. Copia su hoja de estilos como plantilla. Reglas:
+
+1. **Ni un color propio cableado.** Todo sale de los tokens del tema del host
+   (shadcn/HSL): `--background`, `--foreground`, `--card`, `--muted`,
+   `--muted-foreground`, `--border`, `--input`, `--primary`,
+   `--primary-foreground`, `--destructive`, `--radius`, `--shadow-sm/md`.
+   Declara tus variables encima de ellos, con *fallback* al tema claro:
+
+   ```css
+   .kimos-miapp {
+     --x-fg: hsl(var(--foreground, 220 25% 6%));
+     --x-glass: hsl(var(--card, 0 0% 100%) / .6);
+     --x-soft: hsl(var(--border, 214.3 18% 72%) / .4);
+   }
+   ```
+
+   Así la app cambia de **día/noche** y de **color de acento** junto con KIMOS,
+   sin escuchar nada. El modo noche sale gratis; solo se retocan los colores
+   semánticos que quedan ilegibles sobre fondo oscuro:
+   `.dark .kimos-miapp { --x-err: #F87171; }`.
+2. **Fondo transparente + vidrio.** La raíz no pinta fondo (`background:
+   transparent`): debajo está el fondo de pantalla del escritorio. Las
+   superficies son `var(--x-glass)` + `backdrop-filter: blur(10px)` + borde
+   suave + `--shadow-sm`, como el taskbar y el chat.
+3. **Layout**: barra superior con *título · pestañas · acciones*
+   (`grid-template-columns: 1fr auto 1fr`); las pestañas son la `TabsList` de
+   shadcn (lista `muted`, pastilla activa con `background` + sombra).
+4. **Tipografía** Inter, `--radius` del tema para las esquinas, y botones al
+   estilo shadcn (outline por defecto, `--primary` para la acción principal).
+5. **Angosto**: a `max-width: 860px` el header pasa a dos filas y las pestañas
+   ocupan el ancho completo con scroll horizontal.
+
+---
+
+## 10. Ejemplos en este repo
 
 - **`apps/kanban`** — `saveData/loadData`, drag&drop nativo, sin agente.
-- **`apps/notas-equipo`** — `shell.items` + agente (multiInstance de ejemplo).
+- **`apps/notas-equipo`** — `shell.items` + agente, edición en la propia tarjeta,
+  redactor con formato (marcas tipo markdown pintadas como elementos React) y
+  menú de `@menciones` sobre el textarea (personas y agentes IA de la
+  organización).
+- **`apps/gantt`** — colaboración multiusuario (§5.1), tabla con orden y filtros,
+  agente con paridad total sobre la UI.
 - **`apps/fossflow`** — modelo JSON complejo, render SVG isométrico, iconos
   nativos embebidos, agente con muchas tools, área de trabajo en cuadrícula.
+- **`apps/productlab`** — referente de diseño (§9).
