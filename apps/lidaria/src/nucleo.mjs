@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.2.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.3.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -2077,6 +2077,325 @@ function fuentesDisponibles(catalogo, caps) {
   });
 }
 
+/* ===== src/core/legal.js ===== */
+/**
+ * legal.js — la puerta de cumplimiento, ejecutable.
+ *
+ * Este producto pone cámaras a mirar personas. En Chile, desde el 1 de
+ * diciembre de 2026, eso cae bajo la Ley 21.719, y la parte biométrica es
+ * categoría especial. La decisión de diseño es no dejarlo en un párrafo de
+ * documentación: **el expediente de cumplimiento es un objeto que la app
+ * evalúa, y las funciones sensibles no se encienden sin él**.
+ *
+ * Esto no es asesoría legal. Es la lista de lo que hay que tener hecho,
+ * traducida a preguntas que alguien puede responder sin ser abogado, y
+ * convertida en una condición que el software comprueba.
+ */
+
+const NIVEL = { 'sin-datos': 0, 'datos-personales': 1, 'alto-riesgo': 2, sensibles: 3 };
+
+/**
+ * Clasifica un tratamiento. Se le pasa lo que la función hace, no lo que se
+ * quisiera que hiciera.
+ *
+ * @param rasgos { personas, sensibles, observacionSistematica, masivo, decisionAutomatizada }
+ */
+function clasificar(rasgos) {
+  const r = rasgos || {};
+  if (r.sensibles) return 'sensibles';
+  if (r.observacionSistematica || r.masivo || r.decisionAutomatizada) return 'alto-riesgo';
+  if (r.personas) return 'datos-personales';
+  return 'sin-datos';
+}
+
+/** ¿Este nivel de tratamiento activa esta obligación del checklist? */
+function aplica(item, nivel) {
+  const n = NIVEL[nivel] == null ? 0 : NIVEL[nivel];
+  if (item.aplicaSi === 'datos-personales') return n >= 1;
+  if (item.aplicaSi === 'alto-riesgo') return n >= 2;
+  if (item.aplicaSi === 'sensibles') return n >= 3;
+  return true;
+}
+
+/** Obligaciones que corresponden a un nivel de tratamiento. */
+function checklistPara(catalogo, nivel) {
+  return (catalogo.checklist || []).filter((i) => aplica(i, nivel));
+}
+
+/**
+ * Evalúa el expediente: qué está respondido y qué falta.
+ *
+ * `respuestas` es un objeto `{ idDelItem: true | false | { hecho, por, fecha } }`.
+ * Se admite el objeto porque para las obligaciones bloqueantes interesa saber
+ * QUIÉN respondió y CUÁNDO: sin eso no hay responsabilidad proactiva, que es
+ * justo lo que exige la ley.
+ */
+function evaluarExpediente(catalogo, nivel, respuestas) {
+  const items = checklistPara(catalogo, nivel);
+  const dadas = respuestas || {};
+
+  const estado = items.map((i) => {
+    const r = dadas[i.id];
+    const hecho = r === true || (r && typeof r === 'object' && r.hecho === true);
+    return {
+      id: i.id,
+      pregunta: i.pregunta,
+      bloqueante: !!i.bloqueante,
+      hecho,
+      por: (r && typeof r === 'object' && r.por) || null,
+      fecha: (r && typeof r === 'object' && r.fecha) || null,
+      comoSeCumple: i.comoSeCumple,
+    };
+  });
+
+  const faltan = estado.filter((e) => !e.hecho);
+  const bloqueantes = faltan.filter((e) => e.bloqueante);
+
+  return {
+    nivel,
+    total: estado.length,
+    hechos: estado.length - faltan.length,
+    porcentaje: estado.length ? Math.round(((estado.length - faltan.length) / estado.length) * 100) : 100,
+    completo: faltan.length === 0,
+    // Lo que decide si la función se puede encender: los bloqueantes.
+    puedeActivarse: bloqueantes.length === 0,
+    faltan: faltan.map((e) => e.id),
+    bloqueantes: bloqueantes.map((e) => e.id),
+    items: estado,
+  };
+}
+
+/**
+ * Registro de activación: lo que queda guardado cuando alguien enciende una
+ * función sensible. Sin esto no hay forma de responder "¿quién autorizó esto?",
+ * que es la primera pregunta de cualquier fiscalización.
+ */
+function registroDeActivacion(capacidad, expediente, responsable) {
+  if (!expediente.puedeActivarse) return null;
+  return {
+    capacidad: capacidad.id,
+    nombre: capacidad.nombre,
+    nivel: expediente.nivel,
+    activadaEn: new Date().toISOString(),
+    responsable: responsable || null,
+    expediente: {
+      porcentaje: expediente.porcentaje,
+      completo: expediente.completo,
+      pendientesNoBloqueantes: expediente.faltan,
+    },
+    marco: 'cl-21719',
+  };
+}
+
+/** Plazo de conservación sugerido para lo que produce un módulo. */
+function retencionDe(catalogo, moduloId) {
+  return (catalogo.retencionSugerida || []).filter((r) => r.modulo === moduloId)[0] || null;
+}
+
+/** Días que faltan para que el marco entre en vigencia (negativo si ya rige). */
+function diasParaVigencia(catalogo, hoy) {
+  const ahora = hoy ? new Date(hoy) : new Date();
+  const vigencia = new Date(catalogo.marco.vigencia + 'T00:00:00Z');
+  return Math.ceil((vigencia - ahora) / 86400000);
+}
+
+/* ===== src/core/extensiones.js ===== */
+/**
+ * extensiones.js — cómo la app suma capacidades nuevas sin rehacerse.
+ *
+ * El catálogo de capacidades futuras (`src/data/capacidades-futuras.json`)
+ * declara qué falta para cada una en tres planos distintos, y este módulo los
+ * cruza:
+ *
+ *   1. el EQUIPO       — ¿tiene las capacidades técnicas necesarias?
+ *   2. el ACCESORIO    — ¿hace falta un sensor externo, y está conectado?
+ *   3. el EXPEDIENTE   — ¿está hecho el trámite legal que exige esa función?
+ *
+ * El tercero es el que suele faltar y el único que el software puede hacer
+ * cumplir de verdad: una capacidad marcada `activacionControlada` no se enciende
+ * mientras queden obligaciones bloqueantes sin responder.
+ */
+
+
+const ORDEN_ESTADO_EXTENSION = ['lista', 'requiere-expediente', 'requiere-construccion', 'requiere-accesorio', 'requiere-equipo', 'no-ofrecida'];
+
+const ESTADOS_EXTENSION = {
+  lista: { label: 'Lista para encender', icon: '✅' },
+  'requiere-expediente': { label: 'Falta el expediente legal', icon: '⚖️' },
+  'requiere-construccion': { label: 'Falta construirla', icon: '🔨' },
+  'requiere-accesorio': { label: 'Falta el accesorio', icon: '🔌' },
+  'requiere-equipo': { label: 'El equipo no da', icon: '📵' },
+  'no-ofrecida': { label: 'No se ofrece', icon: '⛔' },
+};
+
+const porId = (lista, id) => (lista || []).filter((x) => x.id === id)[0] || null;
+const capacidadPorId = (catalogo, id) => porId(catalogo.capacidades, id);
+const accesorioPorId = (catalogo, id) => porId(catalogo.accesorios, id);
+
+/** Rasgos de tratamiento que implica una capacidad, para clasificarla. */
+function rasgosDe(cap) {
+  const biometricaOconducta = cap.categoria === 'biometria' || cap.categoria === 'conducta';
+  return {
+    personas: cap.categoria !== 'ambiental',
+    sensibles: !!cap.datoSensible,
+    observacionSistematica: biometricaOconducta || cap.categoria === 'verificacion',
+    masivo: false,
+    decisionAutomatizada: biometricaOconducta,
+  };
+}
+
+/**
+ * Estado de una capacidad con los medios de esta organización.
+ *
+ * @param ctx { caps:Set, accesorios:Set, expediente:{}, accesoriosCatalogo, legalCatalogo }
+ */
+function estadoDeCapacidad(cap, ctx) {
+  const c = ctx || {};
+  const tiene = (x) => (c.caps && typeof c.caps.has === 'function' ? c.caps.has(x) : false);
+  const conectado = (x) => (c.accesorios && typeof c.accesorios.has === 'function' ? c.accesorios.has(x) : false);
+
+  const capsFaltantes = (cap.requiereCaps || []).filter((x) => !tiene(x));
+  const opciones = cap.requiereAccesorio || [];
+  const accesorioPuesto = !opciones.length || opciones.some(conectado);
+  const accesoriosFaltantes = accesorioPuesto ? [] : opciones;
+
+  // Puerta legal: se evalúa siempre, aunque falte lo técnico, porque el trámite
+  // se puede ir haciendo en paralelo y suele ser lo más lento.
+  const nivel = clasificar(rasgosDe(cap));
+  const expediente = c.legalCatalogo
+    ? evaluarExpediente(c.legalCatalogo, nivel, c.expediente)
+    : { puedeActivarse: true, completo: true, faltan: [], bloqueantes: [], porcentaje: 100, nivel, items: [] };
+
+  // Un accesorio marcado "prohibida" cierra la capacidad, aunque esté conectado.
+  const accesorioVetado = opciones
+    .map((id) => accesorioPorId(c.accesoriosCatalogo || {}, id))
+    .filter((a) => a && a.veredicto === 'prohibida');
+
+  let estado;
+  if (accesorioVetado.length || cap.puertaLegal === 'equipo-certificado') estado = 'no-ofrecida';
+  else if (capsFaltantes.length) estado = 'requiere-equipo';
+  else if (accesoriosFaltantes.length) estado = 'requiere-accesorio';
+  else if (cap.madurez !== 'disponible') estado = 'requiere-construccion';
+  else if (!expediente.puedeActivarse) estado = 'requiere-expediente';
+  else estado = 'lista';
+
+  const acciones = [];
+  if (estado === 'no-ofrecida') {
+    acciones.push(cap.honestidad || 'Esta capacidad queda fuera del alcance del producto.');
+  }
+  if (capsFaltantes.length) {
+    acciones.push('Este equipo no tiene: ' + capsFaltantes.join(', ') + '. Usa un equipo del catálogo que sí las tenga.');
+  }
+  if (accesoriosFaltantes.length) {
+    const nombres = accesoriosFaltantes
+      .map((id) => (accesorioPorId(c.accesoriosCatalogo || {}, id) || {}).nombre || id);
+    acciones.push('Conecta uno de estos accesorios: ' + nombres.join(' o ') + '.');
+  }
+  if (cap.madurez === 'en-desarrollo') {
+    acciones.push('Está resuelta técnicamente y sin construir: ' + (cap.esfuerzoSemanas || '?') + ' semanas de trabajo.');
+  }
+  if (cap.madurez === 'investigacion' && !accesoriosFaltantes.length) {
+    acciones.push('Por visión no está resuelta de forma fiable. ' + (cap.honestidad || ''));
+  }
+  if (!expediente.puedeActivarse) {
+    acciones.push('Antes de encenderla faltan obligaciones bloqueantes: ' + expediente.bloqueantes.join(', ') + '.');
+  }
+  if (cap.alternativaMenosInvasiva) {
+    acciones.push('Alternativa menos invasiva: ' + cap.alternativaMenosInvasiva);
+  }
+
+  return {
+    id: cap.id,
+    nombre: cap.nombre,
+    icon: cap.icon,
+    categoria: cap.categoria,
+    madurez: cap.madurez,
+    puertaLegal: cap.puertaLegal,
+    datoSensible: !!cap.datoSensible,
+    activacionControlada: !!cap.activacionControlada,
+    moduloBase: cap.moduloBase,
+    esfuerzoSemanas: cap.esfuerzoSemanas || null,
+    estado,
+    estadoLabel: ESTADOS_EXTENSION[estado].label,
+    estadoIcon: ESTADOS_EXTENSION[estado].icon,
+    faltan: { caps: capsFaltantes, accesorios: accesoriosFaltantes, legal: expediente.bloqueantes },
+    expediente: { nivel: expediente.nivel, porcentaje: expediente.porcentaje, puedeActivarse: expediente.puedeActivarse },
+    acciones,
+    honestidad: cap.honestidad || null,
+    recomendada: !!cap.recomendada,
+  };
+}
+
+/**
+ * Intento de activación. Devuelve el registro cuando procede, y el motivo
+ * cuando no: la app nunca enciende una capacidad controlada sin dejar rastro.
+ */
+function activar(cap, ctx, responsable) {
+  const e = estadoDeCapacidad(cap, ctx);
+  if (e.estado !== 'lista') {
+    return { activada: false, motivo: e.estadoLabel, detalle: e.acciones };
+  }
+  if (cap.activacionControlada && !responsable) {
+    return {
+      activada: false,
+      motivo: 'Falta el responsable',
+      detalle: ['Una capacidad de activación controlada exige el nombre de quien la autoriza: queda en el registro.'],
+    };
+  }
+  const nivel = clasificar(rasgosDe(cap));
+  const expediente = evaluarExpediente(ctx.legalCatalogo, nivel, ctx.expediente);
+  return { activada: true, registro: registroDeActivacion(cap, expediente, responsable) };
+}
+
+/** Todas las capacidades ordenadas por lo cerca que están de poder encenderse. */
+function extensionesDisponibles(catalogo, ctx) {
+  return (catalogo.capacidades || [])
+    .map((c) => estadoDeCapacidad(c, ctx))
+    .sort((a, b) => (ORDEN_ESTADO_EXTENSION.indexOf(a.estado) - ORDEN_ESTADO_EXTENSION.indexOf(b.estado))
+      || (a.categoria < b.categoria ? -1 : 1));
+}
+
+/** Qué accesorios habilitan una capacidad, con su forma de conexión. */
+function accesoriosQueHabilitan(catalogoAccesorios, capId) {
+  return (catalogoAccesorios.accesorios || [])
+    .filter((a) => (a.habilita || []).indexOf(capId) >= 0)
+    .map((a) => ({ id: a.id, nombre: a.nombre, icon: a.icon, conexion: a.conexion, costoAprox: a.costoAprox, veredicto: a.veredicto }));
+}
+
+/**
+ * Dónde funciona una conexión. Es la pregunta que más se repite en terreno, y
+ * la respuesta vuelve a ser la misma que con el LiDAR: en Android el navegador
+ * alcanza, en iOS hace falta el contenedor nativo.
+ */
+function soportePlataforma(catalogoAccesorios, accesorioId, plataforma) {
+  const a = accesorioPorId(catalogoAccesorios, accesorioId);
+  if (!a) return null;
+  const conexion = (catalogoAccesorios.conexiones || {})[a.conexion];
+  if (!conexion) return null;
+  const texto = conexion[plataforma] || conexion.escritorio || 'Sin información.';
+  const via = /^No\.?$/i.test(texto.trim()) ? 'no'
+    : /nativo|CoreBluetooth|Core NFC/i.test(texto) ? 'nativo'
+      : /servidor de ingesta/i.test(texto) ? 'servidor'
+        : 'web';
+  return { accesorio: a.nombre, conexion: conexion.nombre, plataforma, via, texto, nota: conexion.nota };
+}
+
+/** Resumen para la consola: cuántas capacidades hay en cada estado. */
+function resumenExtensiones(catalogo, ctx) {
+  const lista = extensionesDisponibles(catalogo, ctx);
+  const por = (campo) => lista.reduce((a, x) => { a[x[campo]] = (a[x[campo]] || 0) + 1; return a; }, {});
+  return {
+    total: lista.length,
+    porEstado: por('estado'),
+    porCategoria: por('categoria'),
+    sensibles: lista.filter((x) => x.datoSensible).length,
+    controladas: lista.filter((x) => x.activacionControlada).length,
+    esfuerzoPendienteSemanas: lista
+      .filter((x) => x.estado === 'requiere-construccion')
+      .reduce((a, x) => a + (x.esfuerzoSemanas || 0), 0),
+  };
+}
+
 /* Exportaciones para uso como módulo (las herramientas lo importan;
    el bundle de la app de KIMOS quita este bloque al incrustarlo). */
-export { validarPack, cargarPacks, leerKrub, planDeRubro, rubrosViables, cumpleTolerancia, apiCompatible, RUBRO_PACK_API, fichaProspecto, registroParaCRM, guionVisita, calificar, integracionDe, ordenadas, resumen, rutaDeConexion, verificarCoherencia, diagnosticar, identificar, resolver, detectar, planSupervision, evaluarPersona, alcanceDeFuente, reglasDeRubro, distanciaMaxima, modelosViables, modelosDescartados, fuentesDisponibles, fuentePorId, eppPorId, economiaCartera, economiaModulo, SUPUESTOS_BASE, evaluar, auditar, CAP_POR_ID };
+export { validarPack, cargarPacks, leerKrub, planDeRubro, rubrosViables, cumpleTolerancia, apiCompatible, RUBRO_PACK_API, fichaProspecto, registroParaCRM, guionVisita, calificar, integracionDe, ordenadas, resumen, rutaDeConexion, verificarCoherencia, diagnosticar, identificar, resolver, detectar, planSupervision, evaluarPersona, alcanceDeFuente, reglasDeRubro, distanciaMaxima, modelosViables, modelosDescartados, fuentesDisponibles, fuentePorId, eppPorId, estadoDeCapacidad, extensionesDisponibles, accesoriosQueHabilitan, soportePlataforma, resumenExtensiones, capacidadPorId, accesorioPorId, activar, evaluarExpediente, checklistPara, clasificar, rasgosDe, retencionDe, diasParaVigencia, economiaCartera, economiaModulo, SUPUESTOS_BASE, evaluar, auditar, CAP_POR_ID };

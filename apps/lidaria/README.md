@@ -5,7 +5,7 @@ escanear cada equipo de la organización, qué módulos quedan cubiertos con el
 parque que ya existe, cuánto cuesta construir cada módulo y qué bibliotecas
 pueden entrar al producto sin problema legal.
 
-**Versión actual: 1.2.0** · núcleo `kimos-LiDARia` 1.2.0
+**Versión actual: 1.3.0** · núcleo `kimos-LiDARia` 1.3.0
 
 ## Por qué existe
 
@@ -23,6 +23,8 @@ capturar: decide.
 | **Inventario** | El parque real de la organización. Registra equipos y calcula cobertura: qué módulos quedan completos, cuáles no y **qué equipo conviene sumar** para cubrir los que faltan. |
 | **Equipos** | Matriz de 18 familias de equipos contra los 11 módulos, con el sensor de cada uno y el error esperable a 3 m. Exportable a CSV. |
 | **Visión** | Qué se puede reconocer con cada cámara y a qué distancia, **calculado por geometría**: elige rubro, cámara y distancia y la app dice qué implementos de protección se vigilan y cuáles quedan como "no evaluable". Incluye la tabla de alcance de las 11 prendas por las 6 fuentes de cámara y los modelos que pueden entrar al producto (con los AGPL descartados). |
+| **Extensiones** | Las 16 capacidades que la app puede llegar a tener —reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado, patente, caídas— con lo que le falta a cada una en tres planos: equipo, accesorio y **expediente legal**. Incluye el checklist de la Ley 21.719 con firma y responsable: las funciones con dato sensible **no se encienden** hasta completarlo. |
+| **Manual** | El manual de uso dentro de la app, ordenado por lo que este equipo puede hacer: paso a paso de cada función, cómo conectar cada accesorio (ESP32, térmica, báscula, cámara IP, dron), qué hacer cuando algo falla y qué revisar antes de encender una cámara. |
 | **Prospección** | Prepara la visita: califica al prospecto por su rubro, su parque de equipos y las apps de KIMOS que ya usa; dice qué se le puede vender hoy y qué exige comprar equipo; arma el argumento cuantificado, el guion de la reunión y el registro que queda en la oportunidad del CRM. |
 | **Ecosistema** | Con qué apps de KIMOS se conecta de verdad: qué dato viaja, por qué contrato, si se puede hoy y si vale la pena. Incluye las marginales y las descartadas, con el motivo. |
 | **Negocio** | La calculadora: supuestos editables (cartera, usuarios, costo de desarrollo, costo de operar, churn) y recálculo en vivo de ingreso, margen, inversión, payback y retorno por módulo y por fase. |
@@ -46,7 +48,11 @@ capturar: decide.
 - **No acusa a nadie de lo que la cámara no podía ver.** Si un implemento queda
   fuera del alcance geométrico, se informa como *no evaluable*, nunca como
   incumplimiento.
-- **No mide temperatura de personas ni reconoce identidades.**
+- **No enciende sola nada que trate datos sensibles.** El reconocimiento facial
+  y biométrico está integrado y se distribuye apagado: la app exige el expediente
+  de la Ley 21.719 completo y el nombre de quien autoriza, y deja registro.
+- **No mide temperatura corporal de personas**, aunque el expediente esté
+  completo: es un dispositivo regulado.
 
 ## Cómo se construye
 
@@ -80,10 +86,10 @@ silencio—.
 
 ## Agente IA
 
-La app registra once herramientas: `VER_PESTANA`, `AGREGAR_EQUIPO`,
+La app registra catorce herramientas: `VER_PESTANA`, `AGREGAR_EQUIPO`,
 `QUITAR_EQUIPO`, `SET_SUPUESTO`, `RECOMENDAR_EQUIPO`, `SET_RUBRO`,
-`FICHA_PROSPECTO`, `PLAN_VISION`, `VER_ALCANCE`, `VER_INTEGRACION` y
-`EVALUAR_LICENCIA`.
+`FICHA_PROSPECTO`, `PLAN_VISION`, `VER_ALCANCE`, `VER_CAPACIDAD`,
+`MARCAR_OBLIGACION`, `VER_MANUAL`, `VER_INTEGRACION` y `EVALUAR_LICENCIA`.
 `getSnapshot()` entrega el inventario, la cobertura por módulo, el catálogo de
 equipos, los rubros con su viabilidad y su margen de tolerancia, los packs
 cargados, el registro del prospecto en curso, las anclas y descartes del
@@ -98,6 +104,7 @@ OpenMVS?"* sin inventar.
 
 | Versión | Qué trae |
 |---|---|
+| 1.3.0 | Pestaña de extensiones con las 16 capacidades futuras y la puerta de cumplimiento de la Ley 21.719 (checklist con responsable y fecha; las funciones sensibles no se encienden sin él). Módulo de identidad y biometría con escalera de tres peldaños —credencial, verificación 1:1, identificación 1:N— y plantillas irreversibles en vez de fotografías. Pestaña de manual dentro de la app, con 14 secciones y 17 accesorios conectables (ESP32 por BLE y MQTT, térmicas, básculas, cámaras IP, drones) y su forma de conexión por plataforma. Tres herramientas de agente más. |
 | 1.2.0 | Pestaña de visión: alcance por geometría de 11 implementos de protección contra 6 fuentes de cámara (móvil, tablet, tótem, cámara IP, dron en vivo y dron grabado), reglas de EPP por rubro, y catálogo de modelos con los AGPL descartados. Tres módulos nuevos (personas y zonas, supervisión de EPP, termografía), cinco familias de equipos nuevas (drones, cámara IP, accesorio térmico, tótem con cámara) y dos rubros nuevos (alimentario y seguridad). Dos herramientas de agente más. |
 | 1.1.0 | Base de conocimiento por rubro (12 rubros, packs `.krub` ampliables con validación y revalidación al restaurar), pestaña de prospección (calificación por parque de equipos, propuesta cuantificada, guion de visita y registro para el CRM), mapa de vinculación con las 26 apps del ecosistema en tres tramos, y tres herramientas nuevas de agente. El veredicto de tolerancia pasa a tres grados: cumple con margen, cumple justo, no alcanza. |
 | 1.0.0 | Primera versión: diagnóstico del equipo, catálogo de 11 módulos, inventario con cobertura y recomendación de compra, matriz de 18 equipos, calculadora de negocio con supuestos editables, plan por fases, política de licencias con 28 bibliotecas evaluadas y agente con seis herramientas. |

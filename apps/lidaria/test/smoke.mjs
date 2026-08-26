@@ -50,17 +50,18 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
-ok(agente && agente.tools.length === 11, 'once herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
+ok(agente && agente.tools.length === 14, 'catorce herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
 ok(snap0.version === manifest.version, 'APP_VERSION coincide con el manifest', snap0.version);
 ok(snap0.catalogoEquipos.length >= 15, 'catálogo de equipos embebido', snap0.catalogoEquipos.length + ' equipos');
-ok(snap0.modulos.length === 14, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
+ok(snap0.modulos.length === 15, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
 ok(!!snap0.nucleo, 'versión del núcleo a la vista', snap0.nucleo);
 
-console.log('\nRender de las once pestañas');
-const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'vision', 'ecosistema', 'negocio', 'plan', 'licencias'];
+console.log('\nRender de las trece pestañas');
+const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'vision',
+  'extensiones', 'manual', 'ecosistema', 'negocio', 'plan', 'licencias'];
 for (const t of TABS) {
   const r = await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
   let arbol = null;
@@ -143,6 +144,36 @@ ok(snap.vision.alcanceCasco.movil > snap.vision.alcanceCasco['dron.rtmp'] * 1.7,
 ok(snap.vision.modelosDescartados.some((m) => /AGPL/.test(m)), 'los modelos AGPL están descartados', snap.vision.modelosDescartados.join(' · '));
 r = await agente.dispatchAction({ type: 'PLAN_VISION', payload: { rubro: 'inmobiliaria', fuente: 'movil' } });
 ok(!r.success, 'un rubro sin reglas de EPP se rechaza en vez de inventar una regla', r.error);
+
+console.log('\nExtensiones: la puerta de cumplimiento');
+r = await agente.dispatchAction({ type: 'VER_CAPACIDAD', payload: { capacidad: 'reconocimiento-facial' } });
+ok(r.success && /credencial/i.test(r.message), 'el facial existe y propone la alternativa menos invasiva', r.message.slice(0, 100) + '…');
+ok(/controlada/i.test(r.message), 'y avisa de que su activación es controlada');
+snap = agente.getSnapshot();
+ok(snap.extensiones.expediente.puedeActivarSensibles === false, 'sin expediente no se enciende nada sensible');
+ok(snap.extensiones.expediente.marco.includes('21.719'), 'el marco aplicado es el chileno', snap.extensiones.expediente.marco);
+
+r = await agente.dispatchAction({ type: 'MARCAR_OBLIGACION', payload: { obligacion: 'eipd' } });
+ok(!r.success && /responsable/i.test(r.error), 'marcar una obligación exige responsable', r.error);
+for (const o of ['base', 'informacion', 'consentimiento', 'eipd', 'retencion', 'minimizacion', 'decision']) {
+  r = await agente.dispatchAction({ type: 'MARCAR_OBLIGACION', payload: { obligacion: o, responsable: 'Jefa de prevención' } });
+}
+ok(r.success, 'el agente completa el expediente', r.message);
+snap = agente.getSnapshot();
+ok(snap.extensiones.expediente.puedeActivarSensibles === true, 'con los bloqueantes hechos, ya se puede encender');
+ok(snap.extensiones.expediente.responsable === 'Jefa de prevención', 'y queda registrado quién firmó');
+
+r = await agente.dispatchAction({ type: 'VER_CAPACIDAD', payload: { capacidad: 'temperatura-corporal' } });
+ok(r.success && /no se ofrece/i.test(r.message), 'la temperatura corporal sigue sin ofrecerse pese al expediente', r.message.slice(0, 80) + '…');
+
+console.log('\nManual');
+r = await agente.dispatchAction({ type: 'VER_MANUAL', payload: { seccion: 'esp32' } });
+ok(r.success && /MQTT/.test(r.message), 'el manual explica cómo conectar un sensor propio');
+ok(/iOS/.test(r.message) || /nativa/.test(r.message), 'y dice qué pasa en iOS');
+r = await agente.dispatchAction({ type: 'VER_MANUAL', payload: { seccion: 'biometria' } });
+ok(r.success && /credencial/i.test(r.message), 'y empieza la biometría por el peldaño más bajo');
+snap = agente.getSnapshot();
+ok(snap.manual.length >= 14, 'el snapshot lista las secciones del manual', snap.manual.length + ' secciones');
 
 console.log('\nEcosistema KIMOS');
 r = await agente.dispatchAction({ type: 'VER_INTEGRACION', payload: { app: 'productlab' } });

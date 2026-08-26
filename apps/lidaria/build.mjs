@@ -48,10 +48,35 @@ const NECESARIAS = ['function detectar', 'function identificar', 'function resol
   'function integracionDe', 'function ordenadas', 'function resumen', 'function rutaDeConexion',
   'function planSupervision', 'function alcanceDeFuente', 'function distanciaMaxima',
   'function modelosViables', 'function modelosDescartados', 'const eppPorId',
+  'function estadoDeCapacidad', 'function extensionesDisponibles', 'function resumenExtensiones',
+  'function soportePlataforma', 'const capacidadPorId', 'const accesorioPorId',
+  'function evaluarExpediente', 'function diasParaVigencia',
   'const SUPUESTOS_BASE', 'const CAP_POR_ID'];
 const faltan = NECESARIAS.filter((n) => !nucleo.includes(n));
 if (faltan.length) {
   console.error('El núcleo copiado no expone: ' + faltan.join(', ') + '. Regenera src/nucleo.mjs desde kimos-LiDARia.');
+  process.exit(1);
+}
+
+/**
+ * Nombres declarados en el ámbito superior de un archivo. El bundle concatena
+ * el núcleo con la app, así que ambos comparten ese ámbito: dos constantes con
+ * el mismo nombre compilan por separado y revientan al juntarlas, con un error
+ * que aparece lejos de su causa. Aquí se detecta antes.
+ */
+function declaraciones(texto) {
+  const nombres = [];
+  const re = /^(?:export\s+)?(?:const|let|function|async function|class)\s+([A-Za-z_$][\w$]*)/gm;
+  let m;
+  while ((m = re.exec(texto))) nombres.push(m[1]);
+  return nombres;
+}
+
+const delNucleo = new Set(declaraciones(nucleo));
+const choques = [...new Set(declaraciones(app).filter((n) => delNucleo.has(n)))];
+if (choques.length) {
+  console.error('Colisión de nombres entre el núcleo y src/app.js: ' + choques.join(', ')
+    + '. Renombra en la app (o en el núcleo, y regenera).');
   process.exit(1);
 }
 

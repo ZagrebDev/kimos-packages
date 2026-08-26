@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -36,6 +36,8 @@ const TABS = [
   ['equipos', 'Equipos', '📱'],
   ['prospeccion', 'Prospección', '🎯'],
   ['vision', 'Visión', '👁️'],
+  ['extensiones', 'Extensiones', '🧩'],
+  ['manual', 'Manual', '📖'],
   ['ecosistema', 'Ecosistema', '🔗'],
   ['negocio', 'Negocio', '📈'],
   ['plan', 'Plan', '🗺️'],
@@ -112,6 +114,11 @@ function estadoInicial() {
     packs: [],
     rubroSel: null,
     vision: { rubro: 'construccion', fuente: 'totem', distanciaM: 3 },
+    manualSel: null,
+    expediente: {},
+    accesorios: [],
+    responsable: '',
+    nivelLegal: 'sensibles',
     prospecto: { nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] },
     sup: Object.assign({}, SUPUESTOS_BASE),
     filtro: '',
@@ -143,8 +150,12 @@ export default function mount(shell) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp } = estado;
-      Promise.resolve(shell.saveData({ v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp })).catch(() => {});
+      const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
+        expediente, accesorios, responsable, nivelLegal } = estado;
+      Promise.resolve(shell.saveData({
+        v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
+        expediente, accesorios, responsable, nivelLegal,
+      })).catch(() => {});
     }, 800);
   }
 
@@ -171,6 +182,10 @@ export default function mount(shell) {
         patch.prospecto = Object.assign({ nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] }, d.prospecto);
       }
       if (typeof d.rubroSel === 'string') patch.rubroSel = d.rubroSel;
+      if (d.expediente && typeof d.expediente === 'object') patch.expediente = d.expediente;
+      if (Array.isArray(d.accesorios)) patch.accesorios = d.accesorios.filter((a) => !!accesorioPorId(DATOS.accesorios, a));
+      if (typeof d.responsable === 'string') patch.responsable = d.responsable;
+      if (typeof d.nivelLegal === 'string') patch.nivelLegal = d.nivelLegal;
       if (d.vision && typeof d.vision === 'object') {
         patch.vision = Object.assign({ rubro: 'construccion', fuente: 'totem', distanciaM: 3 }, d.vision);
       }
@@ -1069,6 +1084,202 @@ export default function mount(shell) {
             'Se detecta y se sigue a una persona dentro de la escena, con un identificador que dura lo que dura el vídeo. Reconocimiento facial no, y ligar un incumplimiento a un trabajador concreto exige el trámite legal hecho.'))));
   }
 
+
+  /* --------------------------- manual de uso --------------------------- */
+
+  function seccionesManual() {
+    const M = DATOS.manual;
+    const d = estado.diag;
+    const capsActivas = new Set((d && d.capacidades ? d.capacidades : []).map((c) => c.id));
+    // El manual se ordena por lo que este equipo puede hacer: lo aplicable
+    // primero, y lo que exige otro equipo o un accesorio, después.
+    return M.secciones.map((s) => {
+      const faltan = (s.requiereCaps || []).filter((c) => !capsActivas.has(c));
+      return Object.assign({}, s, { aplicable: faltan.length === 0, faltan: faltan });
+    }).sort((a, b) => (a.aplicable === b.aplicable ? 0 : (a.aplicable ? -1 : 1)));
+  }
+
+  function vistaManual() {
+    const M = DATOS.manual;
+    const abierta = estado.manualSel;
+    const nombreAcc = (id) => {
+      const a = accesorioPorId(DATOS.accesorios, id);
+      return a ? a.icon + ' ' + a.nombre : id;
+    };
+
+    const ficha = (s) => h('article', {
+      key: s.id,
+      className: 'ld-mod' + (abierta === s.id ? ' on' : '') + (s.aplicable ? '' : ' ld-b-visor'),
+      onClick: () => commit({ manualSel: abierta === s.id ? null : s.id }),
+    },
+      h('header', null,
+        h('span', { className: 'ld-mod-ico' }, s.icon),
+        h('div', null,
+          h('h3', null, s.titulo),
+          h('p', { className: 'ld-mini' }, s.para === 'campo' ? 'En el equipo de terreno'
+            : s.para === 'consola' ? 'En la consola' : 'En cualquiera de los dos')),
+        h('span', { className: 'ld-est' }, s.aplicable ? '' : '⚠')),
+      h('p', { className: 'ld-mini' }, s.cuando),
+      abierta === s.id ? h('div', null,
+        h('h4', null, 'Paso a paso'),
+        h('ol', { className: 'ld-lista' }, s.pasos.map((p, i) => h('li', { key: i },
+          p.hacer,
+          p.ojo ? h('div', { className: 'ld-mini' }, '👉 ' + p.ojo) : null))),
+        s.siNoPuedes ? h('div', { className: 'ld-acc' },
+          h('b', null, 'Si tu equipo no puede: '), s.siNoPuedes.porque, ' ',
+          (s.siNoPuedes.conecta || []).length
+            ? h('span', null, 'Conecta ', h('b', null, s.siNoPuedes.conecta.map(nombreAcc).join(' o ')), '. ')
+            : null,
+          s.siNoPuedes.otraVia) : null,
+        (s.legal || []).length ? h('div', null,
+          h('h4', null, '⚖️ Antes de encender'),
+          h('ul', { className: 'ld-lista ld-mini' }, s.legal.map((l, i) => h('li', { key: i }, l)))) : null,
+        (s.errores || []).length ? h('div', null,
+          h('h4', null, 'Cuando algo falla'),
+          tabla([
+            { k: 's', l: 'Síntoma', cell: (e) => e.sintoma },
+            { k: 'c', l: 'Causa probable', cell: (e) => h('span', { className: 'ld-mini' }, e.causa) },
+            { k: 'q', l: 'Qué hacer', cell: (e) => e.solucion },
+          ], s.errores, { key: (e, i) => i })) : null) : null);
+
+    return h('div', null,
+      card('📖 Manual de uso',
+        h('div', null,
+          h('p', null, 'Las mismas instrucciones que salen en la documentación, ordenadas por lo que ',
+            h('b', null, 'este'), ' equipo puede hacer. Haz clic en una sección para abrirla.'),
+          h('ul', { className: 'ld-lista' }, M.antesDeEmpezar.map((t, i) => h('li', { key: i }, t))))),
+      h('div', { className: 'ld-grid' }, seccionesManual().map(ficha)),
+      card('🔌 Accesorios compatibles',
+        h('div', null,
+          h('p', { className: 'ld-hint' }, 'Cuando el equipo no da, esto es lo que se conecta. La columna que importa es dónde funciona la conexión: en iOS el navegador no expone Bluetooth ni USB, igual que pasa con el LiDAR.'),
+          tabla([
+            { k: 'a', l: 'Accesorio', cell: (a) => h('div', null, h('b', null, a.icon + ' ' + a.nombre), h('div', { className: 'ld-mini' }, a.nota)) },
+            { k: 'c', l: 'Conexión', cell: (a) => (DATOS.accesorios.conexiones[a.conexion] || {}).nombre },
+            { k: 'and', l: 'Android', cell: (a) => vía(a.id, 'android') },
+            { k: 'ios', l: 'iOS', cell: (a) => vía(a.id, 'ios') },
+            { k: 'p', l: 'Costo', cell: (a) => h('span', { className: 'ld-mini' }, a.costoAprox) },
+            { k: 'h', l: 'Habilita', cell: (a) => h('span', { className: 'ld-mini' }, (a.habilita || []).join(', ') || '—') },
+          ], DATOS.accesorios.accesorios, { key: (a) => a.id }))));
+  }
+
+  function vía(accesorioId, plataforma) {
+    const s = soportePlataforma(DATOS.accesorios, accesorioId, plataforma);
+    if (!s) return '—';
+    const clase = s.via === 'web' ? 'ld-ok' : s.via === 'no' ? 'ld-no' : 'ld-cond';
+    const texto = s.via === 'web' ? 'navegador' : s.via === 'nativo' ? 'app nativa' : s.via === 'servidor' ? 'servidor' : 'no';
+    return h('span', { className: clase, title: s.texto }, texto);
+  }
+
+  /* ------------------------ extensiones y expediente ------------------------ */
+
+  function ctxExtensiones() {
+    const d = estado.diag;
+    const caps = new Set((d && d.capacidades ? d.capacidades : []).map((c) => c.id));
+    // La consola corre en el escritorio: para juzgar una capacidad de terreno
+    // valen las capacidades del parque, no las de este computador.
+    for (const item of estado.inventario) {
+      const f = filaMatriz(item.equipo);
+      const m = (f && f.nativo) || (f && f.web);
+      if (m && m.modulos) { caps.add('api.vision.ondevice'); caps.add('media.camera'); }
+      const e = equipoPorId(item.equipo);
+      (e ? e.caps : []).forEach((c) => caps.add(c));
+    }
+    return {
+      caps: caps,
+      accesorios: new Set(estado.accesorios || []),
+      expediente: estado.expediente || {},
+      accesoriosCatalogo: DATOS.accesorios,
+      legalCatalogo: DATOS.legal,
+    };
+  }
+
+  function marcarObligacion(id, hecho) {
+    const exp = Object.assign({}, estado.expediente || {});
+    if (hecho) exp[id] = { hecho: true, por: estado.responsable || null, fecha: new Date().toISOString().slice(0, 10) };
+    else delete exp[id];
+    commit({ expediente: exp });
+  }
+
+  function toggleAccesorio(id) {
+    const lista = (estado.accesorios || []).slice();
+    const i = lista.indexOf(id);
+    if (i >= 0) lista.splice(i, 1); else lista.push(id);
+    commit({ accesorios: lista });
+  }
+
+  function vistaExtensiones() {
+    const ctx = ctxExtensiones();
+    const lista = extensionesDisponibles(DATOS.capacidadesFuturas, ctx);
+    const res = resumenExtensiones(DATOS.capacidadesFuturas, ctx);
+    const dias = diasParaVigencia(DATOS.legal, null);
+
+    const nivelesConChecklist = ['datos-personales', 'alto-riesgo', 'sensibles'];
+    const nivel = estado.nivelLegal || 'sensibles';
+    const exp = evaluarExpediente(DATOS.legal, nivel, estado.expediente || {});
+
+    const expedienteUI = card('⚖️ Expediente de cumplimiento · ' + DATOS.legal.marco.nombre,
+      h('div', null,
+        h('p', null, DATOS.legal.marco.resumen),
+        h('div', { className: 'ld-kpis' },
+          kpi('Vigencia', DATOS.legal.marco.vigencia, dias > 0 ? 'faltan ' + dias + ' días' : 'ya rige'),
+          kpi('Expediente', exp.porcentaje + '%', exp.hechos + ' de ' + exp.total + ' respondidas'),
+          kpi('Bloqueantes pendientes', exp.bloqueantes.length, exp.puedeActivarse ? 'se puede encender' : 'no se enciende nada sensible'),
+          kpi('Sanción máxima', '20.000 UTM', 'y hasta 4% de ingresos por reincidencia')),
+        h('div', { className: 'ld-fila' },
+          h('label', { className: 'ld-campo' }, h('span', null, 'Responsable que firma'),
+            h('input', { type: 'text', value: estado.responsable || '', placeholder: 'Nombre y cargo',
+              onChange: (e) => commit({ responsable: e.target.value.slice(0, 80) }) })),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Nivel del tratamiento'),
+            h('select', { value: nivel, onChange: (e) => commit({ nivelLegal: e.target.value }) },
+              nivelesConChecklist.map((n) => h('option', { key: n, value: n },
+                (DATOS.legal.clasificacion[n] || {}).label || n))))),
+        tabla([
+          { k: 'ok', l: '', cell: (i) => h('input', {
+              type: 'checkbox', checked: i.hecho,
+              onChange: (e) => marcarObligacion(i.id, e.target.checked),
+            }) },
+          { k: 'p', l: 'Obligación', cell: (i) => h('div', null,
+              h('b', null, i.pregunta),
+              h('div', { className: 'ld-mini' }, i.comoSeCumple)) },
+          { k: 'b', l: 'Bloquea', cell: (i) => h('span', { className: i.bloqueante ? 'ld-no' : 'ld-mini' }, i.bloqueante ? 'sí' : 'no') },
+          { k: 'q', l: 'Firmada por', cell: (i) => h('span', { className: 'ld-mini' }, i.hecho ? ((i.por || 'sin responsable') + ' · ' + (i.fecha || '')) : '—') },
+        ], exp.items, { key: (i) => i.id }),
+        h('p', { className: 'ld-hint' }, 'Esto no es asesoría legal: es la lista de lo que hay que tener hecho. El texto de la ley manda.')));
+
+    const fichaCap = (c) => h('article', { key: c.id, className: 'ld-mod ld-b-' + (c.estado === 'lista' ? 'completo' : c.estado === 'no-ofrecida' ? 'no-disponible' : 'potencial') },
+      h('header', null,
+        h('span', { className: 'ld-mod-ico' }, c.icon),
+        h('div', null,
+          h('h3', null, c.nombre),
+          h('p', { className: 'ld-mini' }, c.categoria + ' · ' + c.madurez
+            + (c.datoSensible ? ' · dato sensible' : '') + (c.esfuerzoSemanas ? ' · ' + c.esfuerzoSemanas + ' sem' : ''))),
+        h('span', { className: 'ld-est' }, c.estadoIcon + ' ' + c.estadoLabel)),
+      c.recomendada ? h('div', { className: 'ld-chips' }, chip('recomendada', 'req')) : null,
+      c.activacionControlada ? h('div', { className: 'ld-chips' }, chip('activación controlada', 'ld-t-justo')) : null,
+      h('ul', { className: 'ld-lista ld-mini' }, c.acciones.map((a, i) => h('li', { key: i }, a))),
+      c.honestidad ? h('p', { className: 'ld-mini' }, '⚠ ' + c.honestidad) : null);
+
+    return h('div', null,
+      card('🧩 Lo que la app puede llegar a hacer',
+        h('div', null,
+          h('p', null, 'Sumar una capacidad es datos más un detector, nunca un rediseño. Cada una declara qué le falta en tres planos: el equipo, el accesorio y el trámite legal. El tercero es el que suele faltar, y el único que el software puede hacer cumplir.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Capacidades', res.total, 'en el catálogo'),
+            kpi('Listas para encender', res.porEstado.lista || 0),
+            kpi('Con dato sensible', res.sensibles, res.controladas + ' con activación controlada'),
+            kpi('Por construir', res.esfuerzoPendienteSemanas + ' sem', 'de las que ya son viables')))),
+      expedienteUI,
+      card('🔌 Accesorios conectados',
+        h('div', null,
+          h('p', { className: 'ld-hint' }, 'Marca lo que la organización ya tiene: las capacidades de arriba se recalculan al instante.'),
+          h('div', { className: 'ld-chips' }, DATOS.accesorios.accesorios.map((a) => {
+            const on = (estado.accesorios || []).indexOf(a.id) >= 0;
+            return h('button', { key: a.id, className: 'ld-chip' + (on ? ' req' : ''), onClick: () => toggleAccesorio(a.id) },
+              (on ? '✓ ' : '') + a.icon + ' ' + a.nombre);
+          })))),
+      h('div', { className: 'ld-grid' }, lista.map(fichaCap)));
+  }
+
   /* ------------------------------- componente ------------------------------- */
 
   function Component() {
@@ -1084,6 +1295,8 @@ export default function mount(shell) {
     const cuerpo = st.tab === 'rubros' ? vistaRubros(cob)
       : st.tab === 'prospeccion' ? vistaProspeccion(cob)
       : st.tab === 'vision' ? vistaVision()
+      : st.tab === 'extensiones' ? vistaExtensiones()
+      : st.tab === 'manual' ? vistaManual()
       : st.tab === 'ecosistema' ? vistaEcosistema()
       : st.tab === 'modulos' ? vistaModulos(cob)
       : st.tab === 'inventario' ? vistaInventario(cob)
@@ -1200,6 +1413,37 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'VER_CAPACIDAD',
+          description: 'Estado de una capacidad futura (reconocimiento facial, fatiga, temperatura, arnés enganchado…): qué le falta del equipo, qué accesorio la habilita y qué trámite legal exige antes de encenderse.',
+          inputSchema: {
+            type: 'object',
+            properties: { capacidad: { type: 'string', enum: DATOS.capacidadesFuturas.capacidades.map((c) => c.id) } },
+            required: ['capacidad'],
+          },
+        },
+        {
+          name: 'MARCAR_OBLIGACION',
+          description: 'Marca una obligación del expediente de cumplimiento como cumplida, dejando constancia de quién y cuándo. Es lo que habilita las capacidades con dato sensible.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              obligacion: { type: 'string', enum: DATOS.legal.checklist.map((i) => i.id) },
+              responsable: { type: 'string' },
+              hecho: { type: 'boolean' },
+            },
+            required: ['obligacion'],
+          },
+        },
+        {
+          name: 'VER_MANUAL',
+          description: 'Devuelve el paso a paso de una sección del manual: cómo usar una función o cómo conectar un accesorio.',
+          inputSchema: {
+            type: 'object',
+            properties: { seccion: { type: 'string', enum: DATOS.manual.secciones.map((s) => s.id) } },
+            required: ['seccion'],
+          },
+        },
+        {
           name: 'VER_INTEGRACION',
           description: 'Explica la vinculación con una app del ecosistema KIMOS: qué dato viaja, por qué contrato, si se puede hacer hoy y si vale la pena construirla.',
           inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
@@ -1270,6 +1514,24 @@ export default function mount(shell) {
               }, {}),
             };
           })(),
+          extensiones: (function () {
+            const ctx = ctxExtensiones();
+            const res = resumenExtensiones(DATOS.capacidadesFuturas, ctx);
+            const exp = evaluarExpediente(DATOS.legal, estado.nivelLegal || 'sensibles', estado.expediente || {});
+            return {
+              resumen: res,
+              expediente: {
+                nivel: exp.nivel, porcentaje: exp.porcentaje,
+                puedeActivarSensibles: exp.puedeActivarse, bloqueantes: exp.bloqueantes,
+                responsable: estado.responsable || null,
+                marco: DATOS.legal.marco.nombre, vigencia: DATOS.legal.marco.vigencia,
+              },
+              accesoriosConectados: estado.accesorios || [],
+              capacidades: extensionesDisponibles(DATOS.capacidadesFuturas, ctx)
+                .map((c) => ({ id: c.id, estado: c.estado, sensible: c.datoSensible, controlada: c.activacionControlada })),
+            };
+          })(),
+          manual: DATOS.manual.secciones.map((s) => ({ id: s.id, titulo: s.titulo, cuando: s.cuando })),
           ecosistema: (function () {
             const r = resumen(DATOS.integraciones);
             return {
@@ -1374,6 +1636,46 @@ export default function mount(shell) {
               success: true,
               message: a.fuente.nombre + ' (' + a.fuente.resolucionV + 'p): '
                 + a.items.map((i) => i.nombre.toLowerCase() + ' ' + i.distanciaMaxM.toFixed(1) + ' m').join(', ') + '.',
+            };
+          }
+          if (t === 'VER_CAPACIDAD') {
+            const cap = capacidadPorId(DATOS.capacidadesFuturas, p.capacidad);
+            if (!cap) return { success: false, error: 'Capacidad desconocida: ' + p.capacidad };
+            const e = estadoDeCapacidad(cap, ctxExtensiones());
+            commit({ tab: 'extensiones' });
+            return {
+              success: true,
+              message: cap.nombre + ' → ' + e.estadoLabel + '. ' + e.acciones.join(' ')
+                + (cap.activacionControlada ? ' Activación controlada: no se enciende sin expediente y responsable.' : ''),
+            };
+          }
+          if (t === 'MARCAR_OBLIGACION') {
+            const item = DATOS.legal.checklist.filter((i) => i.id === p.obligacion)[0];
+            if (!item) return { success: false, error: 'Obligación desconocida: ' + p.obligacion };
+            if (p.hecho !== false && !p.responsable && !estado.responsable) {
+              return { success: false, error: 'Marcar una obligación exige el nombre del responsable: queda en el registro.' };
+            }
+            if (p.responsable) commit({ responsable: String(p.responsable).slice(0, 80) });
+            marcarObligacion(item.id, p.hecho !== false);
+            const exp = evaluarExpediente(DATOS.legal, estado.nivelLegal || 'sensibles', estado.expediente);
+            commit({ tab: 'extensiones' });
+            return {
+              success: true,
+              message: item.pregunta + ' → ' + (p.hecho === false ? 'pendiente' : 'cumplida') + '. '
+                + 'Expediente al ' + exp.porcentaje + '%'
+                + (exp.puedeActivarse ? '; ya se pueden encender funciones sensibles.' : '; faltan bloqueantes: ' + exp.bloqueantes.join(', ') + '.'),
+            };
+          }
+          if (t === 'VER_MANUAL') {
+            const sec = DATOS.manual.secciones.filter((x) => x.id === p.seccion)[0];
+            if (!sec) return { success: false, error: 'Sección desconocida: ' + p.seccion };
+            commit({ tab: 'manual', manualSel: sec.id });
+            const pasos = sec.pasos.map((x, i) => (i + 1) + '. ' + x.hacer).join(' ');
+            return {
+              success: true,
+              message: sec.titulo + ' — ' + sec.cuando + ' ' + pasos
+                + (sec.siNoPuedes ? ' Si el equipo no puede: ' + sec.siNoPuedes.otraVia : '')
+                + ((sec.legal || []).length ? ' Antes de encender: ' + sec.legal[0] : ''),
             };
           }
           if (t === 'VER_INTEGRACION') {
