@@ -1,8 +1,8 @@
 {
   "id": "lidaria",
   "name": "LiDARia",
-  "version": "1.1.0",
-  "description": "Consola de captura 3D de KIMOS: qué puede escanear cada equipo (LiDAR, ToF, profundidad por movimiento), qué módulos quedan cubiertos con el parque real de la organización y qué significa eso para cada rubro. Trae base de conocimiento por industria ampliable con packs .krub (12 rubros con su tolerancia, flujo, KPI y normativa), preparación de visitas a prospectos con calificación por parque de equipos y argumento cuantificado, mapa honesto de vinculación con las 26 apps del ecosistema KIMOS (qué se conecta hoy, qué espera plataforma y qué se descarta), matriz de 18 familias de equipos contra 11 módulos, inventario con recomendación de compra, calculadora de negocio con supuestos editables, plan por fases y política de licencias y cadena de suministro. Control por agente IA con nueve herramientas.",
+  "version": "1.2.0",
+  "description": "Consola de captura 3D y supervisión por cámara de KIMOS: qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), qué implementos de protección se pueden vigilar con cada cámara —móvil, tablet, tótem, cámara IP o dron— y a qué distancia, calculado por geometría y no estimado. Trae reglas de EPP por rubro, base de conocimiento de 14 industrias ampliable con packs .krub, matriz de 23 familias de equipos contra 14 módulos, inventario con recomendación de compra, preparación de visitas a prospectos, mapa honesto de vinculación con las 26 apps del ecosistema, calculadora de negocio con supuestos editables, plan por fases y política de licencias que descarta los modelos de visión incompatibles. Control por agente IA con once herramientas.",
   "icon": "🛰️",
   "author": "kimos",
   "entry": "dist/index.js",

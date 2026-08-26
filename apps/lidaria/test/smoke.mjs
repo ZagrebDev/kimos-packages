@@ -50,17 +50,17 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
-ok(agente && agente.tools.length === 9, 'nueve herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
+ok(agente && agente.tools.length === 11, 'once herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
 ok(snap0.version === manifest.version, 'APP_VERSION coincide con el manifest', snap0.version);
 ok(snap0.catalogoEquipos.length >= 15, 'catálogo de equipos embebido', snap0.catalogoEquipos.length + ' equipos');
-ok(snap0.modulos.length === 11, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
+ok(snap0.modulos.length === 14, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
 ok(!!snap0.nucleo, 'versión del núcleo a la vista', snap0.nucleo);
 
-console.log('\nRender de las diez pestañas');
-const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'ecosistema', 'negocio', 'plan', 'licencias'];
+console.log('\nRender de las once pestañas');
+const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'vision', 'ecosistema', 'negocio', 'plan', 'licencias'];
 for (const t of TABS) {
   const r = await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
   let arbol = null;
@@ -125,6 +125,24 @@ ok(snap.prospecto && snap.prospecto.fuente === 'kimos-LiDARia', 'el registro par
 ok(typeof snap.prospecto.propuestaMensualUSD === 'number' && snap.prospecto.propuestaMensualUSD > 0, 'con una propuesta en dólares', snap.prospecto.propuestaMensualUSD);
 r = await agente.dispatchAction({ type: 'FICHA_PROSPECTO', payload: { rubro: 'construccion', equipos: ['equipo.inventado'] } });
 ok(r.success && /ignorados/.test(r.message), 'un equipo fuera del catálogo se ignora y se avisa');
+
+console.log('\nVisión y EPP');
+r = await agente.dispatchAction({ type: 'VER_ALCANCE', payload: { fuente: 'movil' } });
+ok(r.success && /casco/.test(r.message), 'el agente entrega el alcance por implemento', r.message.slice(0, 90) + '…');
+r = await agente.dispatchAction({ type: 'PLAN_VISION', payload: { rubro: 'construccion', fuente: 'totem', distanciaM: 2.5 } });
+ok(r.success && /se vigila/.test(r.message), 'con un tótem a 2,5 m se vigila todo lo obligatorio');
+ok(!/no evaluable\): casco/.test(r.message), 'y el casco no queda fuera de alcance');
+r = await agente.dispatchAction({ type: 'PLAN_VISION', payload: { rubro: 'construccion', fuente: 'dron.rtmp', distanciaM: 12 } });
+ok(r.success && /Fuera de alcance/.test(r.message), 'desde un dron a 12 m casi todo queda fuera de alcance');
+ok(/latencia/i.test(r.message), 'y avisa de la latencia del vídeo en vivo');
+snap = agente.getSnapshot();
+ok(snap.vision.cubreObligatorios === false, 'el snapshot refleja la última selección');
+ok(snap.vision.alcanceCasco.movil > snap.vision.alcanceCasco['dron.rtmp'] * 1.7,
+  'y sabe que un móvil ve el casco mucho más lejos que un dron a 720p',
+  JSON.stringify(snap.vision.alcanceCasco));
+ok(snap.vision.modelosDescartados.some((m) => /AGPL/.test(m)), 'los modelos AGPL están descartados', snap.vision.modelosDescartados.join(' · '));
+r = await agente.dispatchAction({ type: 'PLAN_VISION', payload: { rubro: 'inmobiliaria', fuente: 'movil' } });
+ok(!r.success, 'un rubro sin reglas de EPP se rechaza en vez de inventar una regla', r.error);
 
 console.log('\nEcosistema KIMOS');
 r = await agente.dispatchAction({ type: 'VER_INTEGRACION', payload: { app: 'productlab' } });

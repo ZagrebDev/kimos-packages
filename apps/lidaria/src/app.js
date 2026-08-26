@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -35,6 +35,7 @@ const TABS = [
   ['inventario', 'Inventario', '🎒'],
   ['equipos', 'Equipos', '📱'],
   ['prospeccion', 'Prospección', '🎯'],
+  ['vision', 'Visión', '👁️'],
   ['ecosistema', 'Ecosistema', '🔗'],
   ['negocio', 'Negocio', '📈'],
   ['plan', 'Plan', '🗺️'],
@@ -110,6 +111,7 @@ function estadoInicial() {
     inventario: [],
     packs: [],
     rubroSel: null,
+    vision: { rubro: 'construccion', fuente: 'totem', distanciaM: 3 },
     prospecto: { nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] },
     sup: Object.assign({}, SUPUESTOS_BASE),
     filtro: '',
@@ -141,8 +143,8 @@ export default function mount(shell) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      const { v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp } = estado;
-      Promise.resolve(shell.saveData({ v, tab, inventario, packs, prospecto, rubroSel, sup, urlApp })).catch(() => {});
+      const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp } = estado;
+      Promise.resolve(shell.saveData({ v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp })).catch(() => {});
     }, 800);
   }
 
@@ -169,6 +171,9 @@ export default function mount(shell) {
         patch.prospecto = Object.assign({ nombre: '', rubro: '', usuariosCampo: null, equipos: [], appsKimos: [] }, d.prospecto);
       }
       if (typeof d.rubroSel === 'string') patch.rubroSel = d.rubroSel;
+      if (d.vision && typeof d.vision === 'object') {
+        patch.vision = Object.assign({ rubro: 'construccion', fuente: 'totem', distanciaM: 3 }, d.vision);
+      }
       if (typeof d.urlApp === 'string') patch.urlApp = d.urlApp;
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
@@ -966,6 +971,104 @@ export default function mount(shell) {
       ], ordenadas(DATOS.integraciones), { key: (i) => i.app })));
   }
 
+
+  /* --------------------------------- visión --------------------------------- */
+
+  function setVision(patch) {
+    commit({ vision: Object.assign({}, estado.vision, patch) });
+  }
+
+  function vistaVision() {
+    const V = DATOS.vision;
+    const v = estado.vision || {};
+    const rubro = v.rubro || 'construccion';
+    const fuenteId = v.fuente || 'totem';
+    const distancia = v.distanciaM || 3;
+
+    const plan = planSupervision(V, { rubro: rubro, fuente: fuenteId, distanciaM: distancia });
+    const conReglas = V.reglasPorRubro.map((r) => r.rubro);
+
+    const filaAlcance = (e) => h('tr', { key: e.id },
+      h('td', null, h('b', null, e.icon + ' ' + e.nombre), h('div', { className: 'ld-mini' }, 'necesita ' + e.pxMinimos + ' px de alto')),
+      V.fuentes.map((f) => {
+        const d = distanciaMaxima(e, f);
+        return h('td', { key: f.id, className: 'ld-num' },
+          h('span', { className: d >= 5 ? 'ld-ok' : (d >= 2.5 ? 'ld-cond' : 'ld-no') }, d.toFixed(1) + ' m'));
+      }));
+
+    const controles = h('div', { className: 'ld-campos' },
+      h('label', { className: 'ld-campo' }, h('span', null, 'Rubro'),
+        h('select', { value: rubro, onChange: (e) => setVision({ rubro: e.target.value }) },
+          conReglas.map((id) => {
+            const r = DATOS.rubros.rubros.filter((x) => x.id === id)[0];
+            return h('option', { key: id, value: id }, r ? (r.icon || '') + ' ' + r.nombre : id);
+          }))),
+      h('label', { className: 'ld-campo' }, h('span', null, 'Cámara'),
+        h('select', { value: fuenteId, onChange: (e) => setVision({ fuente: e.target.value }) },
+          V.fuentes.map((f) => h('option', { key: f.id, value: f.id }, f.nombre)))),
+      h('label', { className: 'ld-campo' }, h('span', null, 'Distancia a la persona (m)'),
+        h('input', {
+          type: 'number', min: 0.5, max: 40, step: 0.5, value: distancia,
+          onChange: (e) => setVision({ distanciaM: Math.max(0.5, Number(e.target.value) || 1) }),
+        }),
+        h('small', null, 'Es el dato que decide todo: a 2,5 m se ve casi todo; a 12 m, casi nada.')));
+
+    const veredicto = plan.error ? null : h('div', null,
+      h('div', { className: 'ld-kpis' },
+        kpi('Se puede vigilar', plan.vigilables.length + ' de ' + plan.items.length, 'implementos del rubro'),
+        kpi('Fuera de alcance', plan.fueraDeAlcance.length, 'salen como "no evaluable"'),
+        kpi('Obligatorios cubiertos', plan.cubreObligatorios ? 'sí' : 'no', plan.cubreObligatorios ? '' : 'hay que acercar la cámara'),
+        kpi('Latencia', plan.fuente.latenciaMs == null ? 'no aplica' : (plan.fuente.latenciaMs / 1000).toFixed(1) + ' s', plan.fuente.latenciaMs > 1000 ? 'no sirve para detener a nadie' : 'sirve para avisar en el acto')),
+      h('ul', { className: 'ld-lista' }, plan.acciones.map((a, i) => h('li', { key: i }, a))),
+      tabla([
+        { k: 'epp', l: 'Implemento', cell: (i) => h('div', null, h('b', null, i.icon + ' ' + i.nombre), h('div', { className: 'ld-mini' }, i.nota)) },
+        { k: 'exig', l: 'Exigencia', cell: (i) => i.exigido },
+        { k: 'max', l: 'Alcance', num: true, cell: (i) => i.distanciaMaxM.toFixed(1) + ' m' },
+        { k: 'px', l: 'Px aquí', num: true, cell: (i) => Math.round(i.pxAqui) + ' / ' + i.pxMinimos },
+        { k: 'ver', l: 'A esta distancia', cell: (i) => h('span', { className: i.vigilable ? 'ld-ok' : 'ld-no' }, i.vigilable ? 'se vigila' : 'no evaluable') },
+      ], plan.items, { key: (i) => i.id }),
+      plan.notaRegla ? h('p', { className: 'ld-hint' }, plan.notaRegla) : null);
+
+    const usables = modelosViables(V, {});
+    const fuera = modelosDescartados(V);
+
+    return h('div', null,
+      card('👁️ Qué se puede reconocer, y a qué distancia',
+        h('div', null,
+          h('p', null, 'La pregunta "¿detecta si lleva guantes?" no tiene respuesta sí o no: tiene geometría. Un objeto de altura ',
+            h('b', null, 'H'), ' a distancia ', h('b', null, 'd'), ' ocupa ', h('b', null, 'H·R / (2·d·tan(F/2))'),
+            ' píxeles. Si no llegan al mínimo del detector, no hay modelo que lo arregle.'),
+          h('p', { className: 'ld-hint' }, 'Regla que hace confiable el módulo: lo que queda fuera de alcance se informa como "no evaluable", nunca como incumplimiento.'),
+          controles)),
+      card('Con esta cámara, a esta distancia', veredicto || h('p', null, plan.error)),
+      card('Alcance por implemento y por cámara',
+        h('div', { className: 'ld-tbl-wrap' },
+          h('table', { className: 'ld-tbl' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Implemento'),
+              V.fuentes.map((f) => h('th', { key: f.id, className: 'ld-num', title: f.nota }, f.nombre.split('(')[0])))),
+            h('tbody', null, V.epp.map(filaAlcance)))),
+        { hint: 'Distancia máxima a la que cada prenda sigue siendo reconocible. Verde: cómodo. Ámbar: solo de cerca. Rojo: hay que estar encima.' }),
+      card('Modelos que pueden entrar al producto',
+        h('div', null,
+          tabla([
+            { k: 'm', l: 'Modelo', cell: (m) => h('div', null, h('b', null, m.nombre), h('div', { className: 'ld-mini' }, m.nota)) },
+            { k: 'l', l: 'Licencia', cell: (m) => h('span', { className: 'ld-ok' }, m.licencia) },
+            { k: 'd', l: 'Dónde corre', cell: (m) => (m.dondeCorre || []).join(', ') },
+            { k: 'f', l: 'fps móvil', num: true, cell: (m) => (m.fpsMovil ? m.fpsMovil : '—') },
+            { k: 'fs', l: 'fps servidor', num: true, cell: (m) => (m.fpsServidor ? m.fpsServidor : '—') },
+          ], usables, { key: (m) => m.id }),
+          h('h4', null, 'Descartados por licencia'),
+          h('ul', { className: 'ld-lista' }, fuera.map((m) => h('li', { key: m.id },
+            h('b', null, m.nombre), ' — ', h('span', { className: 'ld-no' }, m.licencia), '. ', m.nota))))),
+      card('Dos líneas que este producto no cruza',
+        h('ul', { className: 'ld-lista' },
+          h('li', null, h('b', null, 'Temperatura de personas: no. '),
+            'Ninguna cámara RGB mide temperatura, y los sistemas térmicos para medir temperatura corporal son dispositivos regulados. El módulo térmico mide equipos y procesos.'),
+          h('li', null, h('b', null, 'Identidad: no. '),
+            'Se detecta y se sigue a una persona dentro de la escena, con un identificador que dura lo que dura el vídeo. Reconocimiento facial no, y ligar un incumplimiento a un trabajador concreto exige el trámite legal hecho.'))));
+  }
+
   /* ------------------------------- componente ------------------------------- */
 
   function Component() {
@@ -980,6 +1083,7 @@ export default function mount(shell) {
 
     const cuerpo = st.tab === 'rubros' ? vistaRubros(cob)
       : st.tab === 'prospeccion' ? vistaProspeccion(cob)
+      : st.tab === 'vision' ? vistaVision()
       : st.tab === 'ecosistema' ? vistaEcosistema()
       : st.tab === 'modulos' ? vistaModulos(cob)
       : st.tab === 'inventario' ? vistaInventario(cob)
@@ -1010,7 +1114,7 @@ export default function mount(shell) {
   if (shell && shell.agent && typeof shell.agent.register === 'function') {
     desregistrar = shell.agent.register({
       label: 'LiDARia',
-      description: 'Consola de captura 3D: qué puede escanear cada equipo, qué módulos quedan cubiertos con el parque de la organización, qué significa todo eso para cada rubro (con packs de conocimiento ampliables), cómo se prepara la visita a un prospecto, con qué apps de KIMOS se conecta de verdad, cuánto cuesta construir cada módulo y qué bibliotecas pueden entrar al producto.',
+      description: 'Consola de captura 3D y supervisión por cámara: qué puede escanear y reconocer cada equipo, qué implementos de protección se pueden vigilar con cada cámara y a qué distancia (geometría, no estimación), qué módulos cubre el parque de la organización, qué significa para cada rubro, cómo se prepara la visita a un prospecto, con qué apps de KIMOS se conecta de verdad y qué modelos y bibliotecas pueden entrar al producto sin problema legal.',
       tools: [
         {
           name: 'VER_PESTANA',
@@ -1074,6 +1178,28 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'PLAN_VISION',
+          description: 'Dice qué implementos de protección se pueden vigilar con una cámara concreta a una distancia concreta, para un rubro. Fuentes: ' + DATOS.vision.fuentes.map((f) => f.id).join(', ') + '.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              rubro: { type: 'string' },
+              fuente: { type: 'string', enum: DATOS.vision.fuentes.map((f) => f.id) },
+              distanciaM: { type: 'number' },
+            },
+            required: ['rubro', 'fuente'],
+          },
+        },
+        {
+          name: 'VER_ALCANCE',
+          description: 'Distancia máxima a la que cada implemento de protección sigue siendo reconocible con una cámara dada. Es geometría, no estimación.',
+          inputSchema: {
+            type: 'object',
+            properties: { fuente: { type: 'string', enum: DATOS.vision.fuentes.map((f) => f.id) } },
+            required: ['fuente'],
+          },
+        },
+        {
           name: 'VER_INTEGRACION',
           description: 'Explica la vinculación con una app del ecosistema KIMOS: qué dato viaja, por qué contrato, si se puede hacer hoy y si vale la pena construirla.',
           inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
@@ -1128,6 +1254,22 @@ export default function mount(shell) {
           })(),
           packsCargados: (estado.packs || []).map((p) => ({ id: p.id, nombre: p.nombre, version: p.version, rubros: (p.rubros || []).length })),
           prospecto: estado.prospecto && estado.prospecto.rubro ? registroParaCRM(fichaActual(cob).ficha) : null,
+          vision: (function () {
+            const v = estado.vision || {};
+            const plan = planSupervision(DATOS.vision, { rubro: v.rubro, fuente: v.fuente, distanciaM: v.distanciaM });
+            return {
+              seleccion: { rubro: v.rubro, fuente: v.fuente, distanciaM: v.distanciaM },
+              cubreObligatorios: plan.error ? null : plan.cubreObligatorios,
+              vigilables: plan.error ? [] : plan.vigilables,
+              noEvaluables: plan.error ? [] : plan.fueraDeAlcance,
+              fuentes: DATOS.vision.fuentes.map((f) => ({ id: f.id, resolucionV: f.resolucionV, latenciaMs: f.latenciaMs, veredicto: f.veredicto })),
+              modelosDescartados: modelosDescartados(DATOS.vision).map((m) => m.nombre + ' (' + m.licencia + ')'),
+              alcanceCasco: DATOS.vision.fuentes.reduce((a, f) => {
+                a[f.id] = Number(distanciaMaxima(eppPorId(DATOS.vision, 'casco'), f).toFixed(1));
+                return a;
+              }, {}),
+            };
+          })(),
           ecosistema: (function () {
             const r = resumen(DATOS.integraciones);
             return {
@@ -1208,6 +1350,30 @@ export default function mount(shell) {
                 + 'Propuesta ' + usd(f.economia.costoMensual) + '/mes contra un beneficio estimado de '
                 + usd(f.economia.beneficioMensual) + '/mes. Demostración: ' + f.demo
                 + (desconocidos.length ? ' (equipos ignorados por no estar en el catálogo: ' + desconocidos.join(', ') + ')' : ''),
+            };
+          }
+          if (t === 'PLAN_VISION') {
+            const plan = planSupervision(DATOS.vision, {
+              rubro: p.rubro, fuente: p.fuente,
+              distanciaM: Number(p.distanciaM) > 0 ? Number(p.distanciaM) : 3,
+            });
+            if (plan.error) return { success: false, error: plan.error };
+            commit({ tab: 'vision', vision: { rubro: p.rubro, fuente: p.fuente, distanciaM: plan.distanciaM } });
+            const nombres = (ids) => ids.map((id) => (plan.items.filter((i) => i.id === id)[0] || {}).nombre).join(', ') || 'nada';
+            return {
+              success: true,
+              message: plan.fuente.nombre + ' a ' + plan.distanciaM + ' m en ' + p.rubro + ': se vigila ' + nombres(plan.vigilables)
+                + '. Fuera de alcance (no evaluable): ' + nombres(plan.fueraDeAlcance) + '. ' + plan.acciones.join(' '),
+            };
+          }
+          if (t === 'VER_ALCANCE') {
+            const a = alcanceDeFuente(DATOS.vision, p.fuente);
+            if (!a) return { success: false, error: 'Fuente desconocida: ' + p.fuente };
+            commit({ tab: 'vision', vision: Object.assign({}, estado.vision, { fuente: p.fuente }) });
+            return {
+              success: true,
+              message: a.fuente.nombre + ' (' + a.fuente.resolucionV + 'p): '
+                + a.items.map((i) => i.nombre.toLowerCase() + ' ' + i.distanciaMaxM.toFixed(1) + ' m').join(', ') + '.',
             };
           }
           if (t === 'VER_INTEGRACION') {

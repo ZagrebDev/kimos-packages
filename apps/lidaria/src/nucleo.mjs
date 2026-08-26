@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.1.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.2.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -138,11 +138,43 @@ const CAPABILITIES = [
     evidencia: 'catalogo', desc: 'Equivalente en Android vía Servicios de Google para RA.',
   },
 
+  /* ---------------------------- visión ---------------------------- */
+  {
+    id: 'api.vision.ondevice', grupo: 'api', label: 'Inferencia de visión en el dispositivo', corto: 'Visión local',
+    evidencia: 'nativo',
+    desc: 'Detección de personas, objetos y equipo de protección corriendo en el propio equipo (Core ML en iOS, LiteRT/NNAPI en Android). Sin subir vídeo a ningún servidor.',
+  },
+  {
+    id: 'api.vision.servidor', grupo: 'api', label: 'Inferencia de visión en servidor', corto: 'Visión servidor',
+    evidencia: 'prueba',
+    desc: 'El vídeo se analiza fuera del equipo. Es la vía para cámaras que no ejecutan código propio (drones, cámaras IP, tótems antiguos) y para modelos que no caben en un teléfono.',
+  },
+  {
+    id: 'api.dji.msdk', grupo: 'api', label: 'DJI Mobile SDK (control y vídeo de dron)', corto: 'DJI MSDK',
+    evidencia: 'nativo',
+    desc: 'Control de vuelo, telemetría y vídeo desde una app propia. Solo Android y solo con aeronaves de la línea empresarial: los drones de consumo quedan fuera.',
+  },
+
   /* --------------------------- captura base --------------------------- */
   { id: 'media.camera', grupo: 'media', label: 'Cámara', corto: 'Cámara', evidencia: 'prueba', desc: 'Acceso a cámara (getUserMedia o nativo). Sin esto no hay captura de ningún tipo.' },
   { id: 'media.multicam', grupo: 'media', label: 'Varias cámaras traseras', corto: 'Multicámara', evidencia: 'mixta', desc: 'Permite estéreo y cambio de focal durante el escaneo.' },
   { id: 'sensor.imu', grupo: 'media', label: 'Acelerómetro y giróscopo', corto: 'IMU', evidencia: 'prueba', desc: 'Seguimiento de la pose del equipo entre fotogramas. Es lo que da escala real a la fotogrametría.' },
   { id: 'sensor.gnss', grupo: 'media', label: 'GNSS / GPS', corto: 'GNSS', evidencia: 'prueba', desc: 'Georreferenciar la captura para cruzarla con nubes de puntos públicas.' },
+  {
+    id: 'sensor.thermal', grupo: 'media', label: 'Cámara térmica', corto: 'Térmica',
+    evidencia: 'catalogo',
+    desc: 'Mide temperatura radiométrica por píxel. NINGÚN teléfono la trae de fábrica: exige accesorio (FLIR One, Seek) o un equipo con sensor térmico (dron o cámara fija).',
+  },
+  {
+    id: 'media.camera.remote', grupo: 'media', label: 'Cámara remota (dron, IP, tótem)', corto: 'Cámara remota',
+    evidencia: 'catalogo',
+    desc: 'La cámara no está en el equipo que corre la app: llega por vídeo. Cambia todo el diseño — hay latencia, no hay control de enfoque y la resolución la fija el emisor.',
+  },
+  {
+    id: 'media.stream.rtmp', grupo: 'media', label: 'Recepción de vídeo en vivo (RTMP/RTSP/WebRTC)', corto: 'Vídeo en vivo',
+    evidencia: 'prueba',
+    desc: 'Ingesta de un flujo en vivo para analizarlo. Es la vía real con drones de consumo: emiten a un servidor y el análisis ocurre ahí.',
+  },
 
   /* ------------------------------ cómputo ------------------------------ */
   { id: 'compute.webgpu', grupo: 'compute', label: 'WebGPU', corto: 'WebGPU', evidencia: 'prueba', desc: 'Cómputo en GPU desde el navegador: mallado, splatting y visores de millones de puntos.' },
@@ -155,6 +187,7 @@ const CAPABILITIES = [
   { id: 'runtime.native.android', grupo: 'runtime', label: 'App nativa Android', corto: 'Android nativo', evidencia: 'nativo', desc: 'Contenedor nativo: única vía a Raw Depth, semántica y geoespacial.' },
   { id: 'runtime.headset', grupo: 'runtime', label: 'Visor de realidad mixta', corto: 'Visor XR', evidencia: 'prueba', desc: 'Vision Pro, Quest y similares: sesión inmersiva con las manos libres.' },
   { id: 'runtime.kimos.shell', grupo: 'runtime', label: 'Escritorio KIMOS', corto: 'KIMOS', evidencia: 'prueba', desc: 'La app corre dentro del shell de KIMOS: consola de gestión, no de captura.' },
+  { id: 'runtime.servidor', grupo: 'runtime', label: 'Servidor de análisis', corto: 'Servidor', evidencia: 'nativo', desc: 'Proceso continuo que recibe vídeo y ejecuta los modelos. Es lo que sostiene drones, cámaras fijas y varias cámaras a la vez.' },
 
   /* -------------------------------- I/O -------------------------------- */
   { id: 'io.filesystem', grupo: 'io', label: 'Guardar archivos grandes', corto: 'Archivos', evidencia: 'prueba', desc: 'Exportar nubes y mallas sin pasar por el servidor.' },
@@ -1814,6 +1847,236 @@ function verificarCoherencia(catalogo, modules, rubros) {
   return { ok: !faltantes.length, faltantes, usados: [...usados] };
 }
 
+/* ===== src/core/vision.js ===== */
+/**
+ * vision.js — qué se puede reconocer, desde qué cámara y a qué distancia.
+ *
+ * Este módulo existe para evitar la promesa más fácil y más dañina de todo el
+ * proyecto: *"la app detecta si el trabajador lleva guantes"*. Depende. Depende
+ * de la resolución de la cámara, del ángulo, de la distancia y del tamaño real
+ * del objeto, y esa dependencia es GEOMETRÍA, no opinión:
+ *
+ *     píxeles aparentes = altura_real · resolución_vertical
+ *                         ────────────────────────────────
+ *                            2 · distancia · tan(fov/2)
+ *
+ * Si esos píxeles no llegan al mínimo que necesita un detector, no hay modelo
+ * que lo arregle. De ahí sale la regla que hace confiable al módulo de EPP:
+ * **lo que está fuera de alcance se informa como "no evaluable", nunca como
+ * incumplimiento**. Un sistema que acusa a alguien de no llevar guantes cuando
+ * no podía verle las manos se apaga a la semana.
+ */
+
+const rad = (grados) => (grados * Math.PI) / 180;
+
+/** Píxeles que ocupa un metro a `distancia` metros en esta cámara. */
+function pxPorMetro(resolucionV, fovVDeg, distanciaM) {
+  const d = Number(distanciaM);
+  if (!(d > 0) || !(resolucionV > 0) || !(fovVDeg > 0) || fovVDeg >= 180) return 0;
+  return resolucionV / (2 * d * Math.tan(rad(fovVDeg) / 2));
+}
+
+/** Altura aparente, en píxeles, de un objeto de `alturaM` a `distanciaM`. */
+function pxAparentes(alturaM, fuente, distanciaM) {
+  return alturaM * pxPorMetro(fuente.resolucionV, fuente.fovVDeg, distanciaM);
+}
+
+/** Distancia máxima a la que un implemento sigue siendo reconocible. */
+function distanciaMaxima(epp, fuente) {
+  if (!epp || !fuente) return 0;
+  const t = Math.tan(rad(fuente.fovVDeg) / 2);
+  if (!(t > 0) || !(epp.pxMinimos > 0)) return 0;
+  return (epp.alturaM * fuente.resolucionV) / (2 * epp.pxMinimos * t);
+}
+
+const buscar = (lista, id) => (lista || []).filter((x) => x.id === id)[0] || null;
+
+const eppPorId = (catalogo, id) => buscar(catalogo.epp, id);
+const fuentePorId = (catalogo, id) => buscar(catalogo.fuentes, id);
+const modeloPorId = (catalogo, id) => buscar(catalogo.modelos, id);
+
+/**
+ * Alcance de una fuente de cámara: hasta dónde sirve para cada implemento.
+ * Es la tabla que hay que enseñar antes de vender el módulo, no después.
+ */
+function alcanceDeFuente(catalogo, fuenteId) {
+  const fuente = fuentePorId(catalogo, fuenteId);
+  if (!fuente) return null;
+  const items = (catalogo.epp || []).map((e) => ({
+    id: e.id,
+    nombre: e.nombre,
+    icon: e.icon,
+    dificultad: e.dificultad,
+    distanciaMaxM: distanciaMaxima(e, fuente),
+  })).sort((a, b) => b.distanciaMaxM - a.distanciaMaxM);
+  return { fuente, items };
+}
+
+/** Reglas de EPP de un rubro, resueltas contra el catálogo. */
+function reglasDeRubro(catalogo, rubroId) {
+  const r = (catalogo.reglasPorRubro || []).filter((x) => x.rubro === rubroId)[0];
+  if (!r) return null;
+  const resolver = (ids) => (ids || []).map((id) => eppPorId(catalogo, id)).filter(Boolean);
+  return {
+    rubro: rubroId,
+    obligatorio: resolver(r.obligatorio),
+    segunTarea: resolver(r.segunTarea),
+    nota: r.nota || null,
+  };
+}
+
+/**
+ * Plan de supervisión: con esta cámara, a esta distancia y para este rubro,
+ * qué implementos se pueden vigilar de verdad y cuáles no.
+ */
+function planSupervision(catalogo, opciones) {
+  const op = opciones || {};
+  const fuente = fuentePorId(catalogo, op.fuente);
+  const reglas = reglasDeRubro(catalogo, op.rubro);
+  if (!fuente) return { error: 'Fuente de cámara desconocida: ' + op.fuente };
+  if (!reglas) return { error: 'El rubro "' + op.rubro + '" no tiene reglas de EPP declaradas.' };
+
+  const distancia = Number(op.distanciaM) > 0 ? Number(op.distanciaM) : 3;
+  const evaluar = (e, exigido) => {
+    const maxM = distanciaMaxima(e, fuente);
+    return {
+      id: e.id, nombre: e.nombre, icon: e.icon, exigido,
+      dificultad: e.dificultad,
+      distanciaMaxM: maxM,
+      pxAqui: pxAparentes(e.alturaM, fuente, distancia),
+      pxMinimos: e.pxMinimos,
+      vigilable: maxM >= distancia,
+      nota: e.nota,
+    };
+  };
+
+  const items = reglas.obligatorio.map((e) => evaluar(e, 'obligatorio'))
+    .concat(reglas.segunTarea.map((e) => evaluar(e, 'según tarea')));
+
+  const vigilables = items.filter((i) => i.vigilable);
+  const fuera = items.filter((i) => !i.vigilable);
+  const obligatoriosFuera = fuera.filter((i) => i.exigido === 'obligatorio');
+
+  const acciones = [];
+  if (obligatoriosFuera.length) {
+    const masCerca = Math.min(...obligatoriosFuera.map((i) => i.distanciaMaxM));
+    acciones.push('A ' + distancia.toFixed(1) + ' m esta cámara no alcanza para '
+      + obligatoriosFuera.map((i) => i.nombre.toLowerCase()).join(', ')
+      + '. Hay que acercar el punto de control a ' + masCerca.toFixed(1) + ' m o menos, o subir la resolución.');
+  }
+  if (fuente.latenciaMs != null && fuente.latenciaMs > 1000) {
+    acciones.push('La latencia de esta fuente ronda ' + (fuente.latenciaMs / 1000).toFixed(1)
+      + ' s: sirve para supervisar un área, no para detener a alguien en un acceso.');
+  }
+  if (!obligatoriosFuera.length && vigilables.length) {
+    acciones.push('Con esta cámara a esta distancia se puede vigilar todo lo obligatorio del rubro.');
+  }
+
+  return {
+    fuente: { id: fuente.id, nombre: fuente.nombre, resolucionV: fuente.resolucionV, fovVDeg: fuente.fovVDeg, latenciaMs: fuente.latenciaMs, veredicto: fuente.veredicto },
+    rubro: op.rubro,
+    distanciaM: distancia,
+    items,
+    vigilables: vigilables.map((i) => i.id),
+    fueraDeAlcance: fuera.map((i) => i.id),
+    cubreObligatorios: obligatoriosFuera.length === 0,
+    notaRegla: reglas.nota,
+    acciones,
+  };
+}
+
+/**
+ * Evaluación de una persona detectada.
+ *
+ * `detectados` son los ids de EPP que el modelo vio; `plan` es el resultado de
+ * planSupervision. Lo que no se podía ver NO cuenta como incumplimiento: sale
+ * como "no evaluable", que es la diferencia entre un sistema que se usa y uno
+ * que el jefe de turno apaga el segundo día.
+ */
+function evaluarPersona(plan, detectados) {
+  const vistos = new Set(detectados || []);
+  const obligatorios = (plan.items || []).filter((i) => i.exigido === 'obligatorio');
+
+  const cumple = [];
+  const faltan = [];
+  const noEvaluables = [];
+  for (const i of obligatorios) {
+    if (!i.vigilable) noEvaluables.push(i.id);
+    else if (vistos.has(i.id)) cumple.push(i.id);
+    else faltan.push(i.id);
+  }
+
+  const estado = faltan.length ? 'incumple' : (noEvaluables.length ? 'parcial' : 'cumple');
+  return {
+    estado,
+    cumple,
+    faltan,
+    noEvaluables,
+    // Lo que el sistema puede afirmar, dicho en una línea para el reporte.
+    resumen: faltan.length
+      ? 'Falta: ' + faltan.map((id) => nombreEpp(plan, id)).join(', ')
+      : (noEvaluables.length
+        ? 'Cumple lo verificable; no se pudo evaluar ' + noEvaluables.map((id) => nombreEpp(plan, id)).join(', ')
+        : 'Cumple todo lo exigido'),
+  };
+}
+
+function nombreEpp(plan, id) {
+  const i = (plan.items || []).filter((x) => x.id === id)[0];
+  return i ? i.nombre.toLowerCase() : id;
+}
+
+/** Fotogramas por segundo estimados de un modelo en una clase de cómputo. */
+function fpsEstimados(modelo, donde) {
+  const ms = modelo && modelo.latenciaMs ? modelo.latenciaMs[donde] : null;
+  return ms ? Math.round(1000 / ms) : null;
+}
+
+/**
+ * Modelos que pueden entrar al producto: primero por licencia, después por
+ * dónde pueden correr. El orden importa — un modelo con licencia incompatible
+ * no se evalúa técnicamente, se descarta.
+ */
+function modelosViables(catalogo, opciones) {
+  const op = opciones || {};
+  const donde = op.donde || null;
+  return (catalogo.modelos || [])
+    .filter((m) => m.veredicto !== 'prohibida')
+    .filter((m) => !donde || (m.dondeCorre || []).indexOf(donde) >= 0)
+    .map((m) => ({
+      id: m.id, nombre: m.nombre, tarea: m.tarea, licencia: m.licencia,
+      dondeCorre: m.dondeCorre,
+      fpsMovil: fpsEstimados(m, 'movilNpu'),
+      fpsServidor: fpsEstimados(m, 'servidorGpu'),
+      nota: m.nota,
+    }));
+}
+
+/** Los modelos descartados y por qué: se muestran, no se esconden. */
+function modelosDescartados(catalogo) {
+  return (catalogo.modelos || [])
+    .filter((m) => m.veredicto === 'prohibida')
+    .map((m) => ({ id: m.id, nombre: m.nombre, licencia: m.licencia, nota: m.nota }));
+}
+
+/** Qué fuentes de cámara puede usar un equipo, según sus capacidades activas. */
+function fuentesDisponibles(catalogo, caps) {
+  const tiene = (c) => (caps && typeof caps.has === 'function' ? caps.has(c) : false);
+  return (catalogo.fuentes || []).map((f) => {
+    const remota = f.id !== 'movil' && f.id !== 'totem';
+    const posible = remota
+      ? tiene('media.stream.rtmp') || tiene('api.vision.servidor') || tiene('api.dji.msdk')
+      : tiene('media.camera');
+    return {
+      id: f.id, nombre: f.nombre, veredicto: f.veredicto, remota,
+      disponible: posible,
+      motivo: posible ? null : (remota
+        ? 'Requiere ingesta de vídeo en vivo o un servidor de análisis.'
+        : 'Requiere acceso a la cámara del equipo.'),
+    };
+  });
+}
+
 /* Exportaciones para uso como módulo (las herramientas lo importan;
    el bundle de la app de KIMOS quita este bloque al incrustarlo). */
-export { validarPack, cargarPacks, leerKrub, planDeRubro, rubrosViables, cumpleTolerancia, apiCompatible, RUBRO_PACK_API, fichaProspecto, registroParaCRM, guionVisita, calificar, integracionDe, ordenadas, resumen, rutaDeConexion, verificarCoherencia, diagnosticar, identificar, resolver, detectar, economiaCartera, economiaModulo, SUPUESTOS_BASE, evaluar, auditar, CAP_POR_ID };
+export { validarPack, cargarPacks, leerKrub, planDeRubro, rubrosViables, cumpleTolerancia, apiCompatible, RUBRO_PACK_API, fichaProspecto, registroParaCRM, guionVisita, calificar, integracionDe, ordenadas, resumen, rutaDeConexion, verificarCoherencia, diagnosticar, identificar, resolver, detectar, planSupervision, evaluarPersona, alcanceDeFuente, reglasDeRubro, distanciaMaxima, modelosViables, modelosDescartados, fuentesDisponibles, fuentePorId, eppPorId, economiaCartera, economiaModulo, SUPUESTOS_BASE, evaluar, auditar, CAP_POR_ID };

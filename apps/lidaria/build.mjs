@@ -46,6 +46,8 @@ const NECESARIAS = ['function detectar', 'function identificar', 'function resol
   'function cargarPacks', 'function validarPack', 'function leerKrub', 'function planDeRubro', 'function rubrosViables',
   'function fichaProspecto', 'function registroParaCRM', 'function guionVisita',
   'function integracionDe', 'function ordenadas', 'function resumen', 'function rutaDeConexion',
+  'function planSupervision', 'function alcanceDeFuente', 'function distanciaMaxima',
+  'function modelosViables', 'function modelosDescartados', 'const eppPorId',
   'const SUPUESTOS_BASE', 'const CAP_POR_ID'];
 const faltan = NECESARIAS.filter((n) => !nucleo.includes(n));
 if (faltan.length) {
