@@ -5,7 +5,7 @@ corporativos y porterías**: un tótem táctil con avatar que atiende el acceso
 24/7 y una consola de seguridad que convierte cámaras, sensores y accesos en
 **incidentes contextualizados, trazables y accionables**.
 
-Versión actual: **1.0.0**
+Versión actual: **1.1.0**
 
 - **Contrato**: AppShell **v1** (`appShellApi: "1.x"`), `multiInstance: true`.
   Las capacidades v2 —⚙️ Configurar y `shell.config`— se usan solo si el host
@@ -22,13 +22,31 @@ Versión actual: **1.0.0**
 | Módulo | Lo esencial |
 |---|---|
 | 📊 **Panel** | Estado del acceso, incidentes en curso, sensores y los tres tiempos que importan (MTTD / MTTE / MTTR) |
-| 🪧 **Tótem** | La pantalla del visitante: avatar con voz, visitas, residentes, citofonía, encomiendas y botón de auxilio. Modo pantalla completa |
+| 🪧 **Tótem** | La pantalla del visitante: conserje virtual con voz **y espejo en vivo de quien está frente a la cámara**, teclado en pantalla, visitas, residentes, citofonía, encomiendas y botón de auxilio. Modo pantalla completa |
 | 🚨 **Incidentes** | Bitácora forense: nivel de riesgo, confianza, contexto, acciones, escalamiento y cierre |
 | 🚪 **Accesos** | Ingresos y salidas, decisiones pendientes de las visitas, búsqueda y exportación CSV |
 | 📦 **Encomiendas** | Recepción → código de retiro → notificación → retiro validado, sin que el repartidor entre |
 | 🏠 **Directorio** | Unidades, contacto y código de ingreso (sin biometría) |
 | 📞 **Emergencias** | Canales (131 · 132 · 133 · 134 · municipal · CRA · administración), protocolo por tipo de evento y el parte que se entrega |
 | ⚖️ **Cumplimiento** | Verificación de la cadena de sellos, retención, inventario de datos y marco legal chileno |
+
+## La pantalla del tótem
+
+Dos caras a la vez: **el conserje virtual y la persona que está frente al
+acceso**.
+
+- **Conserje virtual** — avatar humanizado, caricaturizado o abstracto, con
+  parpadeo, boca sincronizada y voz del navegador.
+- **Espejo en vivo** — la misma señal que analiza el sensor, mostrada bajo el
+  avatar y rotulada «Usted · vista en vivo · no se graba». Un acceso que te
+  devuelve la mirada disuade más que un cartel, y la persona ve exactamente qué
+  está mirando el sistema. Si la cámara está apagada, el recuadro ofrece
+  activarla (el navegador pide permiso con ese gesto).
+- **Teclado en pantalla** — QWERTY en español (con ñ y vocales acentuadas) y
+  teclado numérico para códigos, con mayúscula inicial automática, retroceso y
+  «✓ Listo». En **modo tótem** se despliega al tocar cualquier campo; en la
+  consola, solo con el botón ⌨ (ahí sí hay teclado físico). Cada campo tiene
+  además su propio botón ⌨.
 
 ## Las cuatro decisiones de diseño
 
@@ -115,4 +133,5 @@ siendo de la comunidad.
 
 | Versión | Cambios |
 |---|---|
+| 1.1.0 | El tótem muestra al conserje virtual **y** el espejo en vivo de quien está frente a la cámara; teclado en pantalla (QWERTY español y numérico) para escribir sin teclado físico; encender la cámara desde el propio tótem. |
 | 1.0.0 | Primera versión: tótem con avatar (humanizado / caricaturizado / abstracto), motor de riesgo de cinco niveles, detección local por cámara y micrófono, ingesta de cámaras externas, accesos, encomiendas, directorio, emergencias con validación humana, bitácora sellada con SHA-256 y pestaña de cumplimiento. |
