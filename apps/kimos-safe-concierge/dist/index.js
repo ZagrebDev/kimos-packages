@@ -45,7 +45,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json y con el catálogo raíz.
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
 
   const instanceId = shell.app && shell.app.instanceId;
 
@@ -1440,6 +1440,75 @@ export default function mount(shell) {
     );
   }
 
+  /**
+   * Espejo del acceso: lo que ve la cámara del tótem, en vivo, junto al
+   * conserje virtual. Es la misma señal que analiza el sensor — no se graba ni
+   * se sube — y sirve para dos cosas: que la persona se vea (un acceso que te
+   * devuelve la mirada disuade más que un cartel) y que sepa exactamente qué
+   * está mirando el sistema.
+   */
+  function Mirror(props) {
+    const ref = useRef(null);
+    const on = !!props.on;
+    useEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      try {
+        if (on && sensors.cam) {
+          el.srcObject = sensors.cam;
+          const p = el.play();
+          if (p && typeof p.catch === 'function') p.catch(() => { /* autoplay bloqueado: queda el póster */ });
+        } else { el.srcObject = null; }
+      } catch (e) { /* el navegador no entrega la señal */ }
+      return () => { try { if (el) el.srcObject = null; } catch (e) { /* noop */ } };
+    }, [on]);
+
+    return h('div', { className: 'sc-mirror' + (on ? ' sc-mirror-on' : '') },
+      h('video', { ref, className: 'sc-mirror-video', muted: true, playsInline: true, autoPlay: true }),
+      on ? null : h('div', { className: 'sc-mirror-off' },
+        h('span', { className: 'sc-mirror-icon' }, '🎥'),
+        h('span', null, 'Cámara apagada'),
+        btn({ className: 'sc-btn', onClick: () => startCamera() }, 'Activar cámara')),
+      h('div', { className: 'sc-mirror-bar' },
+        h('span', { className: 'sc-mirror-tag' }, on ? 'Usted · vista en vivo' : 'Sin señal'),
+        on ? h('span', { className: 'sc-mirror-live' }, '● en vivo · no se graba') : null),
+    );
+  }
+
+  /** Teclado en pantalla: el tótem no supone que haya un teclado físico. */
+  function Keyboard(props) {
+    const mode = props.mode === '123' ? '123' : 'abc';
+    const shift = !!props.shift;
+    const cap = (c) => (shift ? c.toUpperCase() : c);
+    const key = (label, onClick, cls) => h('button', {
+      key: 'k-' + label, type: 'button', className: 'sc-key' + (cls ? ' ' + cls : ''),
+      // El foco se queda en el campo: así el cursor no se pierde al teclear.
+      onMouseDown: (e) => { if (e && e.preventDefault) e.preventDefault(); },
+      onClick,
+    }, label);
+    const rows = mode === '123'
+      ? [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['*', '0', '#']]
+      : [['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+         ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ñ'],
+         ['z', 'x', 'c', 'v', 'b', 'n', 'm', 'á', 'é', 'í'],
+         ['ó', 'ú', 'ü', '@', '.', '-', '_', "'"]];
+    return h('div', { className: 'sc-kb' + (mode === '123' ? ' sc-kb-num' : '') },
+      h('div', { className: 'sc-kb-hd' },
+        h('span', { className: 'sc-kb-target' }, s(props.label) || 'Escribiendo'),
+        h('span', { className: 'sc-kb-val' }, s(props.value) ? (props.secret ? '•'.repeat(s(props.value).length) : s(props.value)) : '…'),
+        btn({ className: 'sc-btn sc-btn-ghost', onClick: props.onClose }, '✕ Cerrar')),
+      h('div', { className: 'sc-kb-rows' }, rows.map((row, ri) => h('div', { className: 'sc-kb-row', key: 'r' + ri },
+        row.map((c) => key(mode === '123' ? c : cap(c), () => props.onType(mode === '123' ? c : cap(c))))))),
+      h('div', { className: 'sc-kb-row sc-kb-bar' },
+        mode === 'abc' ? key(shift ? '⇧' : '⇧', props.onShift, shift ? 'sc-key-on sc-key-wide' : 'sc-key-wide') : null,
+        key(mode === '123' ? 'ABC' : '123', props.onMode, 'sc-key-wide'),
+        mode === 'abc' ? key('espacio', () => props.onType(' '), 'sc-key-space') : null,
+        key('⌫', props.onBack, 'sc-key-wide'),
+        key('✓ Listo', props.onClose, 'sc-key-ok'),
+      ),
+    );
+  }
+
   // ── Vista: tótem (lo que ve quien llega) ────────────────────────────────
   function Totem(props) {
     const m = props.m;
@@ -1449,14 +1518,51 @@ export default function mount(shell) {
     const [pin, setPin] = useState('');
     const [carrier, setCarrier] = useState('');
     const [pickCode, setPickCode] = useState('');
+    const [kb, setKb] = useState({ open: false, target: '', mode: 'abc', shift: true });
     const matches = useMemo(() => {
       const c = canon(unitQ);
       if (!c) return m.units.slice(0, 6);
       return m.units.filter((u) => canon(u.code).includes(c) || canon(u.name).includes(c) || canon(u.tower).includes(c)).slice(0, 8);
     }, [unitQ, m.units]);
 
+    // Campos que puede escribir el teclado en pantalla.
+    const FIELDS = {
+      who: { value: who, set: setWho, mode: 'abc', label: 'Tu nombre' },
+      unitQ: { value: unitQ, set: setUnitQ, mode: '123', label: 'Unidad' },
+      pin: { value: pin, set: setPin, mode: '123', label: 'Código de ingreso', secret: true },
+      carrier: { value: carrier, set: setCarrier, mode: 'abc', label: 'Empresa de reparto' },
+      pickCode: { value: pickCode, set: setPickCode, mode: '123', label: 'Código de retiro' },
+    };
+    const openKb = (name) => {
+      const f = FIELDS[name];
+      if (!f) return;
+      setKb({ open: true, target: name, mode: f.mode, shift: f.mode === 'abc' });
+    };
+    const closeKb = () => setKb((k) => Object.assign({}, k, { open: false }));
+    const kbType = (ch) => {
+      const f = FIELDS[kb.target];
+      if (!f) return;
+      f.set(s(f.value) + ch);
+      if (kb.mode === 'abc' && kb.shift) setKb((k) => Object.assign({}, k, { shift: false }));
+    };
+    const kbBack = () => { const f = FIELDS[kb.target]; if (f) f.set(s(f.value).slice(0, -1)); };
+
+    /**
+     * Campo del tótem. En modo tótem (pantalla del acceso) tocarlo despliega el
+     * teclado en pantalla; en la consola no, porque ahí sí hay teclado físico.
+     */
+    const tinput = (name, extra) => h('div', { className: 'sc-tot-input' },
+      h('input', Object.assign({
+        className: 'sc-input sc-input-big' + (kb.open && kb.target === name ? ' sc-input-kb' : ''),
+        value: s(FIELDS[name].value),
+        onChange: (e) => FIELDS[name].set(e.target.value),
+        onFocus: () => { if (m.kiosk) openKb(name); },
+      }, extra || {})),
+      btn({ className: 'sc-btn sc-btn-kb', title: 'Teclado en pantalla', onClick: () => (kb.open && kb.target === name ? closeKb() : openKb(name)) }, '⌨'),
+    );
+
     const say = t.message || (t.step === 'home' ? HELLO() : '');
-    const back = () => totemGo('home', {}, '');
+    const back = () => { closeKb(); totemGo('home', {}, ''); };
 
     const home = h('div', { className: 'sc-tot-menu' },
       btn({ className: 'sc-tot-b', onClick: () => totemGo('visit', {}, '¿A qué unidad vienes? Puedes escribir el número.') }, h('span', null, '🚶'), 'Vengo de visita'),
@@ -1468,10 +1574,9 @@ export default function mount(shell) {
     );
 
     const unitPicker = (onPick) => h('div', { className: 'sc-tot-form' },
-      h('input', { className: 'sc-input sc-input-big', value: unitQ, placeholder: 'Número de departamento, oficina o casa',
-        onChange: (e) => setUnitQ(e.target.value), autoFocus: true }),
+      tinput('unitQ', { placeholder: 'Número de departamento, oficina o casa', autoFocus: true }),
       h('div', { className: 'sc-tot-units' }, matches.length
-        ? matches.map((u) => btn({ key: u.id, className: 'sc-tot-unit', onClick: () => onPick(u) },
+        ? matches.map((u) => btn({ key: u.id, className: 'sc-tot-unit', onClick: () => { closeKb(); onPick(u); } },
             h('strong', null, s(u.code)), u.tower ? h('span', null, s(u.tower)) : null))
         : h('p', { className: 'sc-empty' }, m.units.length ? 'No hay coincidencias.' : 'El directorio está vacío: cárgalo en la pestaña Directorio.')),
     );
@@ -1480,7 +1585,7 @@ export default function mount(shell) {
     let body = home;
     if (step === 'visit') {
       body = h('div', { className: 'sc-tot-form' },
-        h('input', { className: 'sc-input sc-input-big', value: who, placeholder: '¿Cuál es tu nombre? (opcional)', onChange: (e) => setWho(e.target.value) }),
+        tinput('who', { placeholder: '¿Cuál es tu nombre? (opcional)' }),
         unitPicker((u) => { void totemAnnounce(u.code, who); setUnitQ(''); }),
         t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null,
       );
@@ -1488,15 +1593,15 @@ export default function mount(shell) {
       body = unitPicker((u) => { void totemCall(u.code, who); setUnitQ(''); });
     } else if (step === 'resident') {
       body = h('div', { className: 'sc-tot-form' },
-        h('input', { className: 'sc-input sc-input-big', value: unitQ, placeholder: 'Tu unidad', onChange: (e) => setUnitQ(e.target.value) }),
-        h('input', { className: 'sc-input sc-input-big', type: 'password', inputMode: 'numeric', value: pin, placeholder: 'Código de ingreso', onChange: (e) => setPin(e.target.value) }),
-        btn({ className: 'sc-btn sc-btn-primary sc-btn-big', onClick: () => { void totemPin(unitQ, pin); setPin(''); } }, 'Entrar'),
+        tinput('unitQ', { placeholder: 'Tu unidad' }),
+        tinput('pin', { type: 'password', inputMode: 'numeric', placeholder: 'Código de ingreso' }),
+        btn({ className: 'sc-btn sc-btn-primary sc-btn-big', onClick: () => { closeKb(); void totemPin(unitQ, pin); setPin(''); } }, 'Entrar'),
         t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null,
         h('p', { className: 'sc-note' }, 'Sin biometría: el ingreso se valida con un código de la unidad.'),
       );
     } else if (step === 'parcel') {
       body = h('div', { className: 'sc-tot-form' },
-        h('input', { className: 'sc-input sc-input-big', value: carrier, placeholder: 'Empresa de reparto', onChange: (e) => setCarrier(e.target.value) }),
+        tinput('carrier', { placeholder: 'Empresa de reparto' }),
         unitPicker(async (u) => {
           const r = await receiveParcel({ unit: u.code, carrier, receivedBy: 'Tótem' });
           setUnitQ(''); setCarrier('');
@@ -1511,8 +1616,9 @@ export default function mount(shell) {
         btn({ className: 'sc-btn sc-btn-primary sc-btn-big', onClick: back }, 'Listo'));
     } else if (step === 'pickup') {
       body = h('div', { className: 'sc-tot-form' },
-        h('input', { className: 'sc-input sc-input-big', inputMode: 'numeric', value: pickCode, placeholder: 'Código de retiro', onChange: (e) => setPickCode(e.target.value) }),
+        tinput('pickCode', { inputMode: 'numeric', placeholder: 'Código de retiro' }),
         btn({ className: 'sc-btn sc-btn-primary sc-btn-big', onClick: async () => {
+          closeKb();
           const p = m.parcels.find((x) => s(x.code) === s(pickCode).trim() && x.status !== 'delivered');
           if (!p) { totemGo('pickup', { error: 'Ese código no corresponde a una encomienda pendiente.' }, 'Ese código no corresponde a una encomienda pendiente.'); return; }
           await releaseParcel(p.id, pickCode, s(p.unit));
@@ -1546,23 +1652,43 @@ export default function mount(shell) {
         btn({ className: 'sc-btn sc-btn-big', onClick: back }, 'Volver'));
     }
 
+    const kbField = FIELDS[kb.target];
+    // El botón de teclado del pie escribe en el primer campo del paso.
+    const firstField = step === 'visit' ? 'who'
+      : step === 'resident' ? 'unitQ' : step === 'call' ? 'unitQ'
+      : step === 'parcel' ? 'carrier' : step === 'pickup' ? 'pickCode' : '';
+
     return h('div', { className: 'sc-view sc-totem' + (m.kiosk ? ' sc-kiosk' : '') },
       h('div', { className: 'sc-tot-stage' },
-        h('div', { className: 'sc-tot-avatar' },
-          h(Avatar, { style: m.settings.avatarStyle, speaking: m.avatar.speaking, mood: m.avatar.mood }),
-          h('div', { className: 'sc-tot-name' }, s(m.settings.avatarName) || 'Kim',
-            h('span', { className: 'sc-tot-live' + (m.avatar.speaking ? ' on' : '') }, m.avatar.speaking ? 'hablando' : 'en línea')),
+        h('div', { className: 'sc-tot-side' },
+          h('div', { className: 'sc-tot-avatar' },
+            h(Avatar, { style: m.settings.avatarStyle, speaking: m.avatar.speaking, mood: m.avatar.mood }),
+            h('div', { className: 'sc-tot-name' }, s(m.settings.avatarName) || 'Kim',
+              h('span', { className: 'sc-tot-live' + (m.avatar.speaking ? ' on' : '') },
+                m.avatar.speaking ? 'hablando' : 'conserje virtual · en línea')),
+          ),
+          h(Mirror, { on: !!m.sensor.cam }),
         ),
         h('div', { className: 'sc-tot-panelx' },
           h('p', { className: 'sc-tot-say' }, say || HELLO()),
           body,
+          kb.open && kbField ? h(Keyboard, {
+            mode: kb.mode, shift: kb.shift, value: kbField.value, label: kbField.label, secret: kbField.secret,
+            onType: kbType, onBack: kbBack, onClose: closeKb,
+            onShift: () => setKb((k) => Object.assign({}, k, { shift: !k.shift })),
+            onMode: () => setKb((k) => Object.assign({}, k, { mode: k.mode === '123' ? 'abc' : '123' })),
+          }) : null,
           step !== 'home' ? btn({ className: 'sc-btn sc-btn-ghost', onClick: back }, '← Inicio') : null,
         ),
       ),
       h('div', { className: 'sc-tot-foot' },
         h('span', null, '🔒 Acceso monitoreado. Se registran ingresos, salidas y eventos de seguridad. '
-          + 'Sin reconocimiento facial. Retención: ' + num(m.settings.retentionDays, LEGAL_RETENTION_DAYS) + ' días.'),
-        btn({ className: 'sc-btn sc-btn-ghost', onClick: () => setModel({ kiosk: !m.kiosk }) }, m.kiosk ? 'Salir del modo tótem' : 'Modo tótem (pantalla completa)'),
+          + 'La cámara se analiza en este equipo y no se graba. Sin reconocimiento facial. Retención: '
+          + num(m.settings.retentionDays, LEGAL_RETENTION_DAYS) + ' días.'),
+        h('span', { className: 'sc-row' },
+          firstField ? btn({ className: 'sc-btn' + (kb.open ? ' sc-btn-on' : ''), onClick: () => (kb.open ? closeKb() : openKb(firstField)) }, '⌨ Teclado') : null,
+          btn({ className: 'sc-btn' + (m.sensor.cam ? ' sc-btn-on' : ''), onClick: () => (m.sensor.cam ? stopCamera() : startCamera()) }, m.sensor.cam ? '🎥 Cámara encendida' : '🎥 Encender cámara'),
+          btn({ className: 'sc-btn sc-btn-ghost', onClick: () => setModel({ kiosk: !m.kiosk }) }, m.kiosk ? 'Salir del modo tótem' : 'Modo tótem (pantalla completa)')),
       ),
     );
   }
