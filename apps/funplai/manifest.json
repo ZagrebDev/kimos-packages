@@ -1,0 +1,55 @@
+{
+  "id": "funplai",
+  "name": "Kimos FunPlai",
+  "version": "1.7.0",
+  "description": "Once juegos interactivos para tótem, PC, tablet y móvil: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara, cuerpo completo), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando con mecánica estilo Golf Clash o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) 'Gato' (tres en línea: cada partida empieza eligiendo en pantalla si se juega contra el tótem o entre dos personas, y si cada jugador usa cruces o círculos), 'Mete gol' (penales con la patada leída por cámara contra un arquero que patrulla el arco y se lanza) 'Alas de cóndor' en dos versiones —lateral y 3D por la cordillera de los Andes—, donde se vuela moviendo los brazos como alas, se planea abriéndolos en cruz, se vira inclinando el torso y se comen frutas en el aire, y 'Esquiva y gana' en dos versiones, 2D lateral y 3D en profundidad, donde se salta y se agacha de verdad y el avatar puede ser el contorno del cuerpo del participante. Todos los juegos con cámara comparten una única zona marcada en el piso (2,2 m del tótem), así que se calibra una vez y nadie se mueve entre juego y juego; los que solo necesitan el medio cuerpo superior —torso, brazos y cabeza— siguen funcionando aunque no se vean los pies. Gráficos con estética de juego 3D de Dreamcast: cada juego ocurre en un escenario con cielo, cordillera y suelo en perspectiva, con sombreado por facetas, sombras de contacto y tipografía de marcador arcade. Todo editable desde la app: nombres, textos, colores, temática (que cambia el escenario completo), dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA. La cámara se declara desde un catálogo (integrada, gran angular, ultra ancha, PTZ con gimbal o de profundidad) y la app verifica si ese lente cubre el espacio con el montaje real; el seguimiento del participante es digital, sin mover el lente, para no perder la medición en centímetros.",
+  "icon": "🎉",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": ["instance.read", "instance.write", "agent.control"],
+  "configSchema": {
+    "title": "Preferencias de Kimos FunPlai",
+    "fields": [
+      {
+        "key": "theme",
+        "label": "Temática",
+        "type": "select",
+        "options": [
+          { "value": "fiestas-patrias", "label": "Fiestas Patrias de Chile" },
+          { "value": "neutro", "label": "Neutro Kimos" },
+          { "value": "verano", "label": "Verano / playa" }
+        ],
+        "help": "Cambia colores y adornos de todas las pantallas."
+      },
+      {
+        "key": "accent",
+        "label": "Color de acento",
+        "type": "color",
+        "help": "Color de marca del cliente; vacío usa el del tema."
+      },
+      {
+        "key": "idleSeconds",
+        "label": "Volver al inicio tras inactividad (s)",
+        "type": "number",
+        "min": 0,
+        "max": 900,
+        "help": "0 = nunca. Modo kiosco para ferias y eventos."
+      },
+      {
+        "key": "camaraHabilitada",
+        "label": "Permitir juegos con cámara",
+        "type": "boolean",
+        "help": "Desactívalo en tótems sin cámara o donde no se permita su uso."
+      }
+    ]
+  },
+  "defaultConfig": {
+    "theme": "fiestas-patrias",
+    "accent": "#D52B1E",
+    "idleSeconds": 120,
+    "camaraHabilitada": true
+  }
+}
