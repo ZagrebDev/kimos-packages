@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.5.0';
+  var VERSION = '6.5.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1002,10 +1002,12 @@
     big.src = images[0] || '';
     big.alt = altDe(images[0], 0);
     var mos = el('div', 'kc-panel-mosaico');
-    // Columnas del mosaico según el "tamaño de miniaturas" del estilo
-    // (pequeñas = 3 columnas, medianas = 2, grandes = 1); las filas se
-    // reparten TODO el alto (sin scroll interno).
-    var cols = pc.thumbSize === 's' ? 3 : pc.thumbSize === 'l' ? 1 : 2;
+    // Columnas del mosaico: manda "Fotos por fila" del estilo si está fijado
+    // (el usuario puso 2 y salían 3 — el control tiene que mandar); sin
+    // fijar, el "tamaño de miniaturas" decide (pequeñas = 3, medianas = 2,
+    // grandes = 1). Las filas se reparten TODO el alto, sin scroll interno.
+    var cols = pc.cols > 0 ? Math.min(6, Math.round(pc.cols))
+      : (pc.thumbSize === 's' ? 3 : pc.thumbSize === 'l' ? 1 : 2);
     mos.style.setProperty('--kc-panel-cols', String(cols));
     mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / cols))));
     var tiles = [];

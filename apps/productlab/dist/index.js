@@ -2525,7 +2525,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.5.0',
+      kitExpected: '6.5.1',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra

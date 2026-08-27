@@ -584,10 +584,12 @@
 /* Galería 'panel': foto elegida a todo alto sin marco ni flechas + mosaico
    lateral que llena el resto (la elegida, marcada). data-lado="izq" invierte
    los lados; data-main gradúa el alto de la sección. */
-.kimos-cfg .kc-fotos-panel {
-  /* El panel usa TODO el ancho disponible de la sección: el tope de ancho de
-     la galería clásica (max-width por data-size) aquí no aplica. */
-  max-width: none; width: 100%;
+.kimos-cfg .kc-fotos.kc-fotos-panel {
+  /* El panel usa TODO el ancho disponible de la sección. TRES clases a
+     propósito: la regla base de .kc-fotos (max-width 900, margin auto,
+     padding lateral) vive más abajo en este archivo y con dos clases
+     EMPATABA y ganaba por orden — el panel quedaba capado a 900 px. */
+  max-width: none; width: 100%; margin: 0;
   display: grid; grid-template-columns: 1fr minmax(220px, 42%);
   gap: 16px; align-items: stretch; padding: 26px 0;
   height: 460px;
