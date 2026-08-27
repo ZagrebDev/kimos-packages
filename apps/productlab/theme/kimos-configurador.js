@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.4.0';
+  var VERSION = '6.5.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1002,9 +1002,12 @@
     big.src = images[0] || '';
     big.alt = altDe(images[0], 0);
     var mos = el('div', 'kc-panel-mosaico');
-    // Filas del mosaico según cuántas fotos haya: 2 columnas y las filas se
-    // reparten el alto completo (sin scroll interno).
-    mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / 2))));
+    // Columnas del mosaico según el "tamaño de miniaturas" del estilo
+    // (pequeñas = 3 columnas, medianas = 2, grandes = 1); las filas se
+    // reparten TODO el alto (sin scroll interno).
+    var cols = pc.thumbSize === 's' ? 3 : pc.thumbSize === 'l' ? 1 : 2;
+    mos.style.setProperty('--kc-panel-cols', String(cols));
+    mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / cols))));
     var tiles = [];
     var mostrar = function (i) {
       big.src = images[i];
@@ -2997,6 +3000,24 @@
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
+          // Título propio y/o fondo de la sección (Fotos y Especificaciones):
+          // la caja envuelve al contenido para que el fondo cubra el bloque
+          // entero y el título comparta lenguaje con el resto de la página.
+          if (n && (s.kind === 'specs' || s.kind === 'fotos')
+              && (String(s.title || '').trim() || String(s.bgColor || '').trim())) {
+            var caja = el('div', 'kc-sec');
+            if (String(s.bgColor || '').trim()) { caja.classList.add('kc-sec-bg'); caja.style.background = String(s.bgColor).trim(); }
+            if (String(s.title || '').trim()) {
+              var tt = el('div', 'kc-sec-title', String(s.title).trim());
+              tt.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(s.titleSize) !== -1 ? s.titleSize : 'm');
+              tt.style.textAlign = s.titleAlign === 'center' ? 'center' : s.titleAlign === 'right' ? 'right' : 'left';
+              caja.appendChild(tt);
+            }
+            caja.appendChild(n);
+            if (s.kind === 'specs') anclas.specs = caja;
+            if (s.kind === 'fotos') anclas.fotos = caja;
+            n = caja;
+          }
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
       } else if (conPasos) {

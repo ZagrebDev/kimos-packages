@@ -1442,7 +1442,17 @@ export default function mount(shell) {
   function normalizePageSection(x) {
     if (!x || typeof x !== 'object') return null;
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
-      return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width) };
+      return {
+        id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width),
+        // Título propio de la sección (contenido, tamaño y alineación) y
+        // color de fondo del bloque — pedidos para integrar Fotos y
+        // Especificaciones al lenguaje del resto de la experiencia. Vacíos =
+        // como siempre. (Allowlist: lo que no esté aquí, se pierde al guardar.)
+        title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+      };
     }
     // Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas que el
     // cliente despliega una a una. Repetible, como los heros. (Pasa por esta
@@ -2515,7 +2525,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.4.0',
+      kitExpected: '6.5.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -3998,7 +4008,7 @@ export default function mount(shell) {
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false} — specs y fotos aceptan además título y fondo propios: {"title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional"}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -7372,6 +7382,31 @@ export default function mount(shell) {
           ];
           // ── Secciones fijas: especificaciones y nota (orden + mostrar) ──
           if (sec2.kind === 'specs' || sec2.kind === 'note' || sec2.kind === 'fotos') {
+            // Título propio (contenido/tamaño/alineación) y fondo de la
+            // sección: integran Fotos y Especificaciones al lenguaje del
+            // resto de la experiencia.
+            const controlesTitulo = (sec2.kind === 'fotos' || sec2.kind === 'specs')
+              ? h('div', { key: 'titbg', className: 'gp-grid2', style: { marginBottom: 8 } }, [
+                  h(Row, { key: 't', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: sec2.kind === 'fotos' ? 'Ej: Galería' : 'Ej: Especificaciones',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                ])
+              : null;
             return h('div', { key: sec2.id, className: 'gp-group' }, [
               h('div', { key: 'h', className: 'gp-group-head' }, [
                 h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
@@ -7399,7 +7434,9 @@ export default function mount(shell) {
                       const upPh = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { photos: Object.assign({}, ph, patch) }) }) });
                       return h('div', { key: 'ft' }, [
                         h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
-                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven.'),
+                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven. '
+                          + 'La DISPOSICIÓN (visor, mosaico, panel lateral…) se elige en el estilo: pestaña Estilos → Galería de fotos.'),
+                        controlesTitulo,
                         h('div', { key: 'g', className: 'gp-grid2' }, [
                           h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
                             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (e) => upPh({ size: e.target.value }) }, [
@@ -7415,13 +7452,16 @@ export default function mount(shell) {
                       ]);
                     })()
                   : sec2.kind === 'specs'
-                  ? (specRows.length
+                  ? h('div', { key: 'sp2' }, [
+                      controlesTitulo,
+                      (specRows.length
                       ? h('div', { key: 'pv', style: { maxWidth: viewMode === 'mob' ? 375 : 560 } },
                           specRows.slice(0, 6).map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
                             h('span', { key: 'l', className: 'gp-muted', style: { width: '40%' } }, sp.label),
                             h('span', { key: 'v' }, sp.value),
                           ])).concat(specRows.length > 6 ? [h('div', { key: 'more', className: 'gp-muted' }, '… +' + (specRows.length - 6) + ' filas')] : []))
-                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.'))
+                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.')),
+                    ])
                   : h('div', { key: 'note' }, [
                       h('div', { key: 'h2', className: 'gp-muted', style: { marginBottom: 6 } },
                         'Nota discreta (letra chica) con separador fino: condiciones o aclaraciones. Vacía = no se muestra.'),
