@@ -421,11 +421,20 @@ expectEq('ENLAZAR_COMPONENTES: valor con 2 componentes (tipos se suman)', eqEnl.
 expectEq('ENLAZAR_COMPONENTES: el resto del paso no se toca', eqEnl.groups[0].values[0].componentIds.length, 1);
 
 await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
-  pageSections: [{ kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } }],
+  pageSections: [
+    { kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } },
+    // Preguntas frecuentes: la vacía se poda y las respuestas sobreviven al
+    // guardado (misma trampa del allowlist que perdió nota/detalle).
+    { kind: 'faq', title: 'Dudas', items: [{ q: '¿Demora?', a: '5 días' }, { q: '  ', a: 'sin pregunta' }] },
+  ],
   specs: [{ label: 'Tela', value: 'Algodón' }], photosNote: 'Nota agente' });
 const sfAg = store.get(eqAg.id).storefront;
-expectEq('agente: ficha normalizada (hero + specs/fotos/nota fijas)', sfAg.pageSections.length, 4);
+expectEq('agente: ficha normalizada (hero + faq + specs/fotos/nota fijas)', sfAg.pageSections.length, 5);
 expectEq('agente: tamaño de texto inválido normalizado a l', sfAg.pageSections[0].slots.middle[0].size, 'l');
+const faqAg = sfAg.pageSections.find((x) => x.kind === 'faq');
+expectEq('faq: la pregunta vacía se poda', faqAg.items.length, 1);
+expectEq('faq: pregunta y respuesta sobreviven al guardado', faqAg.items[0].q + '·' + faqAg.items[0].a, '¿Demora?·5 días');
+expectEq('faq: el título sobrevive al guardado', faqAg.title, 'Dudas');
 expectEq('agente: nota guardada', sfAg.photosNote, 'Nota agente');
 if ((store.get(eqAg.id).galleryImages || []).indexOf('https://cdn/fondo-agente.jpg') === -1) throw new Error('el fondo usado no se cosechó en la galería del producto');
 
@@ -441,7 +450,7 @@ if (store.get('definition').public.enabled !== true) throw new Error('PUBLISH_CO
 const snapAg = agentReg.getSnapshot();
 const seAg = snapAg.productos.find((e) => e.name === 'Chaqueta Agente');
 if (!seAg.steps || seAg.steps[0].values[1].alternatives[0] !== 'Lino europeo (Prov. UE)') throw new Error('snapshot sin pasos/alternativas');
-if (!seAg.storefront || seAg.storefront.pageSections.length !== 4) throw new Error('snapshot sin storefront');
+if (!seAg.storefront || seAg.storefront.pageSections.length !== 5) throw new Error("snapshot sin storefront");
 if (!snapAg.builderRef || snapAg.builderRef.patterns.length !== 12 || snapAg.builderRef.blockTypes.indexOf('html') === -1) throw new Error('builderRef ausente o incompleto');
 const seN1 = snapAg.productos.find((e) => e.name === 'Camisa Clásica' && e.linked);
 expectEq('agente: galería del producto en snapshot', (seN1.productImages || []).length, 2);

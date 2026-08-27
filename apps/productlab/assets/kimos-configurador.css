@@ -569,6 +569,26 @@
   color: var(--kc-gris); font-size: 12px;
 }
 .kimos-cfg .kc-step-car { font-size: 11px; color: var(--kc-gris); }
+/* Preguntas frecuentes: acordeón sobrio, al estilo de la tabla de specs */
+.kimos-cfg .kc-faq { padding: 26px 0 8px; }
+.kimos-cfg .kc-faq-t {
+  font: 700 13px/1.2 var(--kc-font); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--kc-accent); margin: 0 0 10px;
+}
+.kimos-cfg .kc-faq-i { border-bottom: 1px solid var(--kc-line); }
+.kimos-cfg .kc-faq-q {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  border: 0; background: none; color: inherit; cursor: pointer; text-align: left;
+  font: 600 14px/1.4 var(--kc-font); padding: 12px 2px; user-select: none;
+}
+.kimos-cfg .kc-faq-qt { flex: 1; min-width: 0; }
+.kimos-cfg .kc-faq-q.on .kc-faq-qt { color: var(--kc-accent); }
+.kimos-cfg .kc-faq-car { font-size: 11px; color: var(--kc-gris); }
+.kimos-cfg .kc-faq-a {
+  font: 400 13.5px/1.6 var(--kc-font); color: var(--kc-gris);
+  padding: 0 2px 14px; max-width: 72ch; white-space: pre-line;
+}
+
 /* Comentario del paso (nota del dueño, bajo el título) */
 .kimos-cfg .kc-step-note {
   margin: -6px 0 12px; font-size: 12px; line-height: 1.45;

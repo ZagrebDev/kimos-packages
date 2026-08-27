@@ -1163,7 +1163,7 @@ export default function mount(shell) {
     return raw
       .map((t) => ({ id: s(t && t.id).trim() || newId('htpl'), name: s(t && t.name).trim() || 'Plantilla',
         section: normalizePageSection(t && t.section) }))
-      .filter((t) => t.section && (t.section.kind === 'hero' || t.section.kind === 'imagen'));
+      .filter((t) => t.section && (t.section.kind === 'hero' || t.section.kind === 'imagen' || t.section.kind === 'faq'));
   }
   // Copia profunda con TODOS los ids regenerados: insertar la misma plantilla
   // dos veces en un producto no puede duplicar ids (keys de React, selección
@@ -1439,6 +1439,25 @@ export default function mount(shell) {
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
       return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width) };
     }
+    // Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas que el
+    // cliente despliega una a una. Repetible, como los heros. (Pasa por esta
+    // normalización en CADA guardado: campo que no esté aquí, campo que se
+    // pierde — la lección del allowlist.)
+    if (x.kind === 'faq') {
+      return {
+        id: x.id || newId('ps'),
+        kind: 'faq',
+        title: s(x.title).trim(),
+        width: sectionWidth(x.width),
+        items: (Array.isArray(x.items) ? x.items : []).filter(Boolean)
+          .map((it) => ({
+            id: it.id || newId('fq'),
+            q: s(it.q != null ? it.q : it.pregunta).trim(),
+            a: s(it.a != null ? it.a : it.respuesta).trim(),
+          }))
+          .filter((it) => it.q),
+      };
+    }
     // Sección IMAGEN (ProductLab): solo una foto, a lo ancho, cuyo ALTO se
     // adapta a la imagen (sin recortes) — ideal para descripciones hechas de
     // muchas fotos apiladas con alturas distintas. Repetible, como los heros.
@@ -1697,7 +1716,7 @@ export default function mount(shell) {
       const seen = {};
       const out = (Array.isArray(sf.pageSections) ? sf.pageSections : [])
         .map(normalizePageSection).filter(Boolean)
-        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
+        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
       // Solo la primera vez, y solo si tampoco hay hero clásico con contenido:
       // si el usuario ya escribió titular ahí, sembrar otro sería duplicar.
       const heroClasico = s(hero.headline).trim() || s(hero.bgImageUrl).trim();
@@ -2491,7 +2510,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.2.0',
+      kitExpected: '6.3.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -3719,7 +3738,7 @@ export default function mount(shell) {
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
             heroIndex: { type: 'number', description: 'SOLO para REEMPLAZAR un hero existente: cuál (1 = el primero). OMÍTELO para AGREGAR un hero nuevo detrás de los que ya hay — que es lo que corresponde cuando piden "otra sección" o "un hero debajo". Reemplazar pisa el contenido anterior y no se puede deshacer.' },
           }, required: ['producto'] } },
-        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
+        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/faq/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string' },
             pageSections: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de secciones según builderRef.sectionShape; bloques en slots:{contenedor:[…]} según builderRef.blockSchema' },
@@ -3974,7 +3993,7 @@ export default function mount(shell) {
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -4471,8 +4490,13 @@ export default function mount(shell) {
                   if (!s(sec.imageUrl).trim()) issues.push('sección ' + (i + 1) + ' (imagen): falta imageUrl (usa IMPORT_IMAGE para subir una imagen y obtener su URL)');
                   return;
                 }
+                if (sec.kind === 'faq') {
+                  const its = Array.isArray(sec.items) ? sec.items.filter((x) => x && s(x.q != null ? x.q : x.pregunta).trim()) : [];
+                  if (!its.length) issues.push('sección ' + (i + 1) + ' (faq): necesita items [{q, a}] con al menos una pregunta no vacía');
+                  return;
+                }
                 const tag = 'sección ' + (i + 1);
-                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, specs, fotos, note)');
+                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, faq, specs, fotos, note)');
                 ['blocks', 'content', 'children', 'elements', 'bloques', 'body', 'sections'].forEach((wk) => {
                   if (sec[wk] !== undefined) issues.push(tag + ': la clave "' + wk + '" no existe — los bloques van en "slots": {contenedor: [bloques]}');
                 });
@@ -7396,6 +7420,65 @@ export default function mount(shell) {
                     ])),
             ]);
           }
+          // ── Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas ──
+          if (sec2.kind === 'faq') {
+            const faqItems = Array.isArray(sec2.items) ? sec2.items : [];
+            const upFaq = (items) => upPageX(sec2.id, { items });
+            return h('div', { key: sec2.id, className: 'gp-group' }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+                h('span', { key: 'k', className: 'gp-chip fuc' }, 'PREGUNTAS'),
+                (function (secId, val) {
+                  return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                    title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                    value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                    h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                    h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                    h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                  ]);
+                })(sec2.id, sec2.width),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+              ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar estas preguntas como PLANTILLA reutilizable en cualquier producto (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Preguntas frecuentes — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
+                h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
+              ])),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'En la tienda salen plegadas y el cliente las despliega una a una. Una pregunta sin texto no se publica.'),
+                h(Row, { key: 'tt', label: 'Título de la sección (vacío = sin título)' },
+                  h(TextInput, { value: sec2.title || '', placeholder: 'Preguntas frecuentes',
+                    onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                h(React.Fragment, { key: 'items' }, faqItems.map((it, fi) => h('div', { key: it.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
+                  h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h(TextInput, { key: 'q', value: it.q || '', placeholder: 'Pregunta (ej: ¿Cuánto demora el armado?)', style: { flex: 1, minWidth: 220 },
+                      onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { q: e.target.value }) : x))) }),
+                    fi > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi - 1]; xs[fi - 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↑') : null,
+                    fi < faqItems.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi + 1]; xs[fi + 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↓') : null,
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar pregunta',
+                      onClick: () => upFaq(faqItems.filter((x) => x.id !== it.id)) }, '✕'),
+                  ]),
+                  h('textarea', { key: 'a', className: 'gp-textarea', rows: 2, value: it.a || '',
+                    placeholder: 'Respuesta (los saltos de línea se respetan en la tienda)…',
+                    onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { a: e.target.value }) : x))) }),
+                ]))),
+                h('button', { key: 'add', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 },
+                  onClick: () => upFaq(faqItems.concat([{ id: newId('fq'), q: '', a: '' }])) }, '+ Pregunta'),
+              ]),
+            ]);
+          }
           // ── Sección IMAGEN (ProductLab): una foto, alto según la imagen ──
           if (sec2.kind === 'imagen') {
             return h('div', { key: sec2.id, className: 'gp-group' }, [
@@ -7787,6 +7870,10 @@ export default function mount(shell) {
           h('button', { key: 'addi', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
             title: 'Sección de solo foto: el alto se adapta a la imagen, sin recortes. Encadena varias para descripciones hechas de fotos apiladas.',
             onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
+          h('button', { key: 'addf', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
+            title: 'Acordeón de preguntas y respuestas: el cliente las despliega una a una.',
+            onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'faq', title: 'Preguntas frecuentes', width: 'auto',
+              items: [{ id: newId('fq'), q: '', a: '' }] }])) }, '+ Sección preguntas'),
         ]),
         // ── Insertar desde PLANTILLA o copiando de otro producto ──────────
         // Las plantillas se crean con "⧉ Plantilla" en cualquier sección
@@ -7795,7 +7882,7 @@ export default function mount(shell) {
         (function () {
           const tpls = heroTemplatesList();
           const otros = model.productos.filter((e) => e.id !== d.id)
-            .map((e) => ({ e, hs: (((e.storefront || {}).pageSections) || []).filter((x) => x && (x.kind === 'hero' || x.kind === 'imagen')) }))
+            .map((e) => ({ e, hs: (((e.storefront || {}).pageSections) || []).filter((x) => x && (x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq')) }))
             .filter((x) => x.hs.length);
           if (!tpls.length && !otros.length) {
             return h('div', { key: 'fromtpl', className: 'gp-muted', style: { marginTop: 8, fontSize: 12 } },
@@ -7816,11 +7903,11 @@ export default function mount(shell) {
               h('option', { key: '', value: '' }, 'Insertar desde plantilla o desde otro producto…'),
               tpls.length ? h('optgroup', { key: 'gt', label: 'Plantillas' },
                 tpls.map((t) => h('option', { key: t.id, value: 'tpl:' + t.id },
-                  t.name + ' (' + (t.section.kind === 'hero' ? (t.section.pattern || 'hero') : 'imagen') + ')'))) : null,
+                  t.name + ' (' + (t.section.kind === 'hero' ? (t.section.pattern || 'hero') : t.section.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))) : null,
               otros.length ? h('optgroup', { key: 'gp', label: 'Copiar de otro producto' },
                 otros.reduce((acc, x) => acc.concat(x.hs.map((hs2, hi) =>
                   h('option', { key: x.e.id + '::' + hs2.id, value: 'prod:' + x.e.id + '::' + hs2.id },
-                    s(x.e.name) + ' — sección ' + (hi + 1) + ' (' + (hs2.kind === 'hero' ? (hs2.pattern || 'hero') : 'imagen') + ')'))), [])) : null,
+                    s(x.e.name) + ' — sección ' + (hi + 1) + ' (' + (hs2.kind === 'hero' ? (hs2.pattern || 'hero') : hs2.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))), [])) : null,
             ]),
             h('button', { key: 'ins', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !tplSel,
               title: 'Inserta una COPIA al final de la página: edítala libremente sin afectar el origen.',

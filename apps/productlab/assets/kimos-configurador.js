@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.2.0';
+  var VERSION = '6.3.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1058,6 +1058,37 @@
   // Sección `imagen` (contrato v2): UNA foto a lo ancho con su ALTO NATURAL
   // (height auto, sin recortes). `width:'full'` sangra hasta el borde del
   // viewport; con `link` la imagen entera es un enlace. Repetible.
+  // ── Preguntas frecuentes: acordeón donde cada pregunta se pliega sola ────
+  // (varias pueden quedar abiertas a la vez; todo arranca plegado).
+  function renderFaq(sec) {
+    var items = ((sec && sec.items) || []).filter(function (x) { return x && String(x.q || '').trim(); });
+    if (!items.length) return null;
+    var wrap = el('div', 'kc-faq');
+    if (String(sec.title || '').trim()) wrap.appendChild(el('div', 'kc-faq-t', String(sec.title).trim()));
+    items.forEach(function (it) {
+      var fila = el('div', 'kc-faq-i');
+      var q = el('button', 'kc-faq-q');
+      q.type = 'button';
+      q.setAttribute('aria-expanded', 'false');
+      q.appendChild(el('span', 'kc-faq-qt', String(it.q).trim()));
+      q.appendChild(el('span', 'kc-faq-car', '▸'));
+      var a = el('div', 'kc-faq-a', String(it.a || '').trim());
+      a.style.display = 'none';
+      q.addEventListener('click', function () {
+        var abrir = a.style.display === 'none';
+        a.style.display = abrir ? '' : 'none';
+        q.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+        q.className = 'kc-faq-q' + (abrir ? ' on' : '');
+        var car = q.querySelector('.kc-faq-car');
+        if (car) car.textContent = abrir ? '▾' : '▸';
+      });
+      fila.appendChild(q);
+      fila.appendChild(a);
+      wrap.appendChild(fila);
+    });
+    return wrap;
+  }
+
   function renderImagen(sec) {
     if (!sec || !sec.imageUrl) return null;
     // El ancho (auto/container/full) lo aplica anchoSeccion() al insertarla.
@@ -2922,6 +2953,7 @@
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
+          else if (s.kind === 'faq') n = renderFaq(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
