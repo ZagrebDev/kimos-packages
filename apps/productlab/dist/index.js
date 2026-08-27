@@ -2435,7 +2435,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.1.0',
+      kitExpected: '6.2.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -7716,11 +7716,20 @@ export default function mount(shell) {
       h('div', { key: 'specs', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Tabla de especificaciones']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras.'),
-        h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
-          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 }, onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
+          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras. '
+          + 'Una fila SIN grupo pertenece al último grupo nombrado arriba de ella — el orden de aquí es el orden de la ficha (muévelas con ↑/↓).'),
+        h(React.Fragment, { key: 'rows' }, specRows.map((sp, si) => h('div', { key: sp.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 },
+            title: 'Vacío = la fila sigue en el grupo de arriba. Escribe un nombre para abrir un grupo nuevo desde esta fila.',
+            onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
           h(TextInput, { key: 'l', value: sp.label, placeholder: 'Etiqueta (ej: Material)', style: { width: 180 }, onChange: (e) => upSpecRow(sp.id, { label: e.target.value }) }),
           h(TextInput, { key: 'v', value: sp.value, placeholder: 'Valor (ej: 100% algodón · Roble macizo 18mm)', style: { flex: 1, minWidth: 160 }, onChange: (e) => upSpecRow(sp.id, { value: e.target.value }) }),
+          si > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si - 1]; xs[si - 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↑') : null,
+          si < specRows.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si + 1]; xs[si + 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↓') : null,
           h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upSpecs(specRows.filter((x) => x.id !== sp.id)) }, '✕'),
         ]))),
         h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [

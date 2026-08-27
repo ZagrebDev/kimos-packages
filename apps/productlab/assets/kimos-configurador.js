@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.1.0';
+  var VERSION = '6.2.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -959,22 +959,27 @@
   }
 
   function renderSpecsTable(specs) {
+    // SECUENCIAL, con herencia: una fila sin grupo pertenece al último grupo
+    // nombrado ARRIBA de ella (así se lee el editor: "CPU * Fan" y debajo sus
+    // filas). Antes se agrupaba por nombre en un diccionario: las filas sin
+    // grupo iban a parar todas a un bloque suelto pegado al primero — la fila
+    // de la Noctua aparecía bajo GENERAL en vez de bajo CPU * FAN, y el orden
+    // del editor no era el de la ficha (2026-08-25).
     var wrap = el('div', 'kc-specs');
-    var groups = {};
+    var actual = null;   // nombre del grupo vigente ('General' si nadie abrió uno)
+    var tbl = null;
     (specs || []).forEach(function (sp) {
-      var g = sp.group || '';
-      (groups[g] = groups[g] || []).push(sp);
-    });
-    Object.keys(groups).forEach(function (g) {
-      if (g) wrap.appendChild(el('div', 'kc-specs-g', g));
-      var tbl = el('table', 'kc-specs-t');
-      groups[g].forEach(function (sp) {
-        var tr = el('tr');
-        tr.appendChild(el('th', null, sp.label || ''));
-        tr.appendChild(el('td', null, sp.value || ''));
-        tbl.appendChild(tr);
-      });
-      wrap.appendChild(tbl);
+      var g = String(sp.group || '').trim();
+      if (tbl === null || (g && g !== actual)) {
+        actual = g || (actual == null ? 'General' : actual);
+        wrap.appendChild(el('div', 'kc-specs-g', actual));
+        tbl = el('table', 'kc-specs-t');
+        wrap.appendChild(tbl);
+      }
+      var tr = el('tr');
+      tr.appendChild(el('th', null, sp.label || ''));
+      tr.appendChild(el('td', null, sp.value || ''));
+      tbl.appendChild(tr);
     });
     return wrap;
   }
@@ -1137,6 +1142,18 @@
       var kg = kimosOf(entry, g);
       return !kg || isGroupVisible(entry, kg, selMap);
     });
+    // El ORDEN del paso a paso lo manda el CATÁLOGO (lo que el dueño ordenó
+    // en el Estudio), no el orden en que la tienda liste sus opciones
+    // nativas: una opción asociada tarde (Garantía, 2026-08-25) salía como
+    // PASO 01 en la ficha aunque en el Estudio fuera el último. Los pasos
+    // sin par en el catálogo conservan su orden nativo, al final.
+    var ordenK = {};
+    ((entry && entry.groups) || []).forEach(function (kg2, i) { ordenK[kg2.id] = i; });
+    visibles = visibles.map(function (g, i) {
+      var kg2 = kimosOf(entry, g);
+      var k = kg2 && ordenK[kg2.id] != null ? ordenK[kg2.id] : 1000 + i;
+      return { g: g, k: k };
+    }).sort(function (a, b) { return a.k - b.k; }).map(function (x) { return x.g; });
     // Estado de colapso persistente entre repintados.
     if (!ctx.stepsOpen) {
       ctx.stepsOpen = {};
