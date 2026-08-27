@@ -467,7 +467,10 @@
      al pie suma también el asa que sobresale y un colchón de aire real. */
   .kimos-cfg .kc-conf {
     grid-template-columns: 1fr;
-    padding-bottom: calc(var(--kc-panel-h, 150px) + 72px);
+    /* Alto real del panel + el asa que sobresale + aire de verdad + la zona
+       segura del teléfono: el último paso tiene que poder verse ENTERO por
+       encima de la barra flotante al llegar al final del scroll. */
+    padding-bottom: calc(var(--kc-panel-h, 150px) + 96px + env(safe-area-inset-bottom, 0px));
   }
   /* El padding derecho deja una FRANJA LIBRE para la burbuja de chat de la
      tienda (que flota fija en esa esquina): ni los textos ni los botones
@@ -650,24 +653,46 @@
 .kimos-cfg .kc-fotos-panel[data-fit="cover"] .kc-panel-tile { padding: 0; }
 .kimos-cfg .kc-fotos-panel[data-fit="cover"] .kc-panel-tile img { object-fit: cover; }
 @media (max-width: 720px) {
-  /* Móvil: la grande arriba y el mosaico como franja de 2 filas abajo,
-     cualquiera sea el lado elegido. */
-  .kimos-cfg .kc-fotos-panel,
-  .kimos-cfg .kc-fotos-panel[data-lado="izq"] { grid-template-columns: 1fr; height: auto; }
-  .kimos-cfg .kc-panel-big { height: 46vh; order: 1 !important; }
-  .kimos-cfg .kc-panel-mosaico {
-    order: 2 !important; height: auto;
-    grid-template-rows: none; grid-auto-flow: column; grid-auto-columns: minmax(72px, 1fr);
-    grid-template-columns: none; grid-template-rows: repeat(2, 64px);
-    overflow-x: auto;
+  /* Móvil: la grande arriba GRANDE (alto natural a todo el ancho, sin
+     encogerse) y el mosaico DEBAJO como grilla que aprovecha el alto del
+     teléfono. Los selectores repiten las TRES clases y cada data-* porque
+     las reglas de escritorio (tres clases, data-main, data-size) empatan o
+     ganan a dos clases: con el mosaico a la derecha este bloque no llegaba
+     a aplicarse y el teléfono mostraba el layout de escritorio apretado,
+     con la foto chica y huecos en blanco. */
+  .kimos-cfg .kc-fotos.kc-fotos-panel,
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-main="s"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-main="l"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-main="xl"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-main="auto"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-size="s"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-size="m"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-size="l"],
+  .kimos-cfg .kc-fotos.kc-fotos-panel[data-lado="izq"] {
+    grid-template-columns: 1fr; height: auto; max-width: none; margin: 0;
+    gap: 12px; padding: 18px 0 26px;
   }
-  /* En móvil la franja manda sobre el tamaño de miniaturas del escritorio
-     (las reglas data-thumb tienen más especificidad y la romperían). */
+  /* La grande manda: todo el ancho con su alto natural; el "tamaño de la
+     foto principal" del estilo gradúa el tope. */
+  .kimos-cfg .kc-fotos-panel .kc-panel-big {
+    width: 100%; height: auto; max-height: 58vh; order: 1 !important;
+  }
+  .kimos-cfg .kc-fotos-panel[data-main="s"] .kc-panel-big { max-height: 40vh; }
+  .kimos-cfg .kc-fotos-panel[data-main="l"] .kc-panel-big { max-height: 70vh; }
+  .kimos-cfg .kc-fotos-panel[data-main="xl"] .kc-panel-big { max-height: 82vh; }
+  /* Mosaico debajo: grilla por FILAS con las columnas del estilo, alto según
+     el tamaño de miniaturas — nada de franja con scroll lateral. */
+  .kimos-cfg .kc-fotos-panel .kc-panel-mosaico,
   .kimos-cfg .kc-fotos-panel[data-thumb="s"] .kc-panel-mosaico,
   .kimos-cfg .kc-fotos-panel[data-thumb="l"] .kc-panel-mosaico {
-    grid-template-rows: repeat(2, 64px); grid-auto-rows: auto;
-    align-content: start; gap: 10px;
+    order: 2 !important; width: 100%; height: auto; align-self: stretch;
+    grid-auto-flow: row;
+    grid-template-columns: repeat(var(--kc-panel-cols, 3), 1fr);
+    grid-template-rows: none; grid-auto-rows: minmax(84px, 112px);
+    align-content: start; gap: 10px; overflow: visible;
   }
+  .kimos-cfg .kc-fotos-panel[data-thumb="s"] .kc-panel-mosaico { grid-auto-rows: minmax(60px, 84px); }
+  .kimos-cfg .kc-fotos-panel[data-thumb="l"] .kc-panel-mosaico { grid-auto-rows: minmax(110px, 150px); }
 }
 
 /* Preguntas frecuentes: acordeón sobrio, al estilo de la tabla de specs.

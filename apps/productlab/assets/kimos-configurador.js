@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.7.0';
+  var VERSION = '6.7.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -2878,6 +2878,14 @@
             expandir.textContent = abierto ? '▼' : '▲';
           });
           panelBox.appendChild(expandir);
+          // El panel CRECE solo después de pintado (la entrega estimada llega
+          // más tarde, los textos parten en dos líneas, el detalle se
+          // despliega): cada cambio de tamaño re-mide el hueco al pie de los
+          // pasos. Sin esto --kc-panel-h quedaba con la medida vieja hasta el
+          // próximo scroll y el último paso aparecía tapado por la barra.
+          if (window.ResizeObserver) {
+            try { new ResizeObserver(alVueloBarra).observe(panelBox); } catch (e) {}
+          }
           confPanel.appendChild(confSteps);
           confPanel.appendChild(panelBox);
       }
