@@ -1584,10 +1584,18 @@ export default function mount(shell) {
         .map((v) => ({
           id: v.id || newId('val'),
           label: s(v.label).trim(),
+          // Detalle manual bajo el nombre en la tienda (vacío = automático).
+          // OJO: esta lista es un ALLOWLIST — un campo nuevo del valor que no
+          // se agregue aquí se PIERDE en cada guardado (pasó con este mismo:
+          // el usuario escribía el detalle y Guardar lo recortaba, 2026-08-25).
+          detalle: s(v.detalle).trim(),
           imageUrl: s(v.imageUrl).trim(),
           // Color del "puntito" (swatch) en la tienda para pasos de color.
           swatchColor: s(v.swatchColor).trim(),
           componentIds: (v.componentIds || []).filter((id) => compById(id)),
+          // Candado "componente exacto" (no acepta alternativos) — otro campo
+          // que este allowlist perdía en cada guardado.
+          soloExacto: (Array.isArray(v.soloExacto) ? v.soloExacto : []).filter((id) => compById(id)),
           // Cantidad de unidades del componente elegido (ej. 2 para "2×8GB");
           // multiplica el precio y exige stock suficiente.
           qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
@@ -1612,6 +1620,13 @@ export default function mount(shell) {
         id: g.id || newId('grp'),
         typeId: s(g.typeId) || 'other',
         label: s(g.label).trim(),
+        // Comentario del paso (bajo el título en la tienda). Mismo aviso que
+        // en los valores: campo fuera de este allowlist = campo que Guardar
+        // recorta.
+        nota: s(g.nota).trim(),
+        // Paso COMPONENTE BASE (el cliente no lo elige) — también faltaba en
+        // el allowlist: marcarlo y guardar lo desmarcaba.
+        baseStep: g.baseStep === true,
         // photoStep: la selección de este paso cambia la foto del producto en
         // la tienda (ej. color) usando la imagen del valor elegido.
         photoStep: g.photoStep === true,

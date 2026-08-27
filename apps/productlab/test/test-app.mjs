@@ -392,8 +392,8 @@ if (rVacio.success !== false || String(rVacio.error).indexOf('SIN componentes') 
   throw new Error('un valor sin componentes debe rechazar la llamada: ' + JSON.stringify(rVacio));
 }
 await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
-  { label: 'Tela', type: 'tela', default: 'Lino', values: [
-    { label: 'Algodón', components: ['Algodón 20/1 (Prov. Sur)'] },
+  { label: 'Tela', type: 'tela', default: 'Lino', nota: 'Elige según el clima de tu zona', values: [
+    { label: 'Algodón', detalle: 'Tejido 20/1 peinado', components: ['Algodón 20/1 (Prov. Sur)'] },
     { label: 'Lino', components: ['Lino europeo (Prov. UE)'] },
   ] },
   // Sin campo `components` y con label = nombre de componente → auto-enlace.
@@ -404,6 +404,11 @@ expectEq('agente: pasos creados', eqAg.groups.length, 2);
 expectEq('agente: default por label', eqAg.groups[0].defaultValueId, eqAg.groups[0].values[1].id);
 expectEq('agente: valor enlazado con su componente real', eqAg.groups[0].values[1].componentIds.length, 1);
 expectEq('agente: auto-enlace por nombre (sin campo components)', eqAg.groups[1].values[0].componentIds.length, 1);
+// IDA Y VUELTA por el guardado: `nota` (paso) y `detalle` (valor) tienen que
+// SOBREVIVIR a saveProducto — su allowlist los recortaba en silencio y el
+// usuario los perdía en cada Guardar/$ Precios/Rearmar (2026-08-25).
+expectEq('la nota del paso sobrevive al guardado', eqAg.groups[0].nota, 'Elige según el clima de tu zona');
+expectEq('el detalle del valor sobrevive al guardado', eqAg.groups[0].values[0].detalle, 'Tejido 20/1 peinado');
 // Reparación QUIRÚRGICA: ENLAZAR_COMPONENTES arregla UN valor sin reenviar
 // todos los pasos (y rechaza componentes inexistentes con pistas).
 const rEnl = await agentReg.dispatchAction({ type: 'ENLAZAR_COMPONENTES', payload: { producto: 'Chaqueta Agente', paso: 'Botones', valor: 'Botón nácar (Prov. B)', components: ['NoExiste QQQ'] } });
