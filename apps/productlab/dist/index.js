@@ -226,6 +226,10 @@ export default function mount(shell) {
       // defecto. Vacío = cada producto con su estilo propio.
       styleTemplates: [],
       styleDefaultId: '',
+      // Plantillas de HERO/secciones del builder: una sección guardada una
+      // vez y reutilizable en cualquier producto (se inserta como COPIA:
+      // después se le cambia el fondo o los textos sin afectar a los demás).
+      heroTemplates: [],
       // Bloque leído por el gateway público (theme de la tienda):
       public: { enabled: false, channels: [], data: null },
     };
@@ -1149,6 +1153,43 @@ export default function mount(shell) {
       name: s(t && t.name).trim() || 'Plantilla',
       style: normalizeStyle(t && t.style),
     })).filter((t) => t.name);
+  }
+  // ── Plantillas de HERO/secciones del builder (def.heroTemplates) ─────────
+  // Una sección de la Experiencia guardada UNA vez y reutilizable en todos
+  // los productos de la instancia. Se inserta como COPIA (ids regenerados):
+  // después se cambia el fondo o los textos sin afectar a quien la originó.
+  function heroTemplatesList() {
+    const raw = (model.def && Array.isArray(model.def.heroTemplates)) ? model.def.heroTemplates : [];
+    return raw
+      .map((t) => ({ id: s(t && t.id).trim() || newId('htpl'), name: s(t && t.name).trim() || 'Plantilla',
+        section: normalizePageSection(t && t.section) }))
+      .filter((t) => t.section && (t.section.kind === 'hero' || t.section.kind === 'imagen'));
+  }
+  // Copia profunda con TODOS los ids regenerados: insertar la misma plantilla
+  // dos veces en un producto no puede duplicar ids (keys de React, selección
+  // del builder y drag&drop se guían por ellos).
+  function clonarSeccionConIdsNuevos(secc) {
+    const c = JSON.parse(JSON.stringify(secc));
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o && typeof o === 'object') {
+        if (typeof o.id === 'string' && o.id) o.id = newId(o.id.split('-')[0] || 'ps');
+        Object.keys(o).forEach((k) => walk(o[k]));
+      }
+    };
+    walk(c);
+    return c;
+  }
+  async function guardarHeroTemplate(secc, nombre) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : [])
+      .concat([{ id: newId('htpl'), name: s(nombre).trim(), section: clonarSeccionConIdsNuevos(secc) }]);
+    return saveDefinition(next, ['heroTemplates']);
+  }
+  async function borrarHeroTemplate(id) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : []).filter((t) => t && t.id !== id);
+    return saveDefinition(next, ['heroTemplates']);
   }
   function styleTemplateById(id) {
     const k = s(id).trim();
@@ -6199,6 +6240,7 @@ export default function mount(shell) {
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
+    const [tplSel, setTplSel] = useState('');     // builder: plantilla/sección elegida para insertar
     const [blockSel, setBlockSel] = useState({}); // builder: sección id → tipo de bloque a agregar
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
@@ -7371,6 +7413,16 @@ export default function mount(shell) {
               })(sec2.id, sec2.width),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar esta sección como PLANTILLA reutilizable: podrás insertarla en cualquier producto desde "Insertar desde plantilla" (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Imagen — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
                 h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
               ])),
               h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7556,6 +7608,16 @@ export default function mount(shell) {
               ]),
               h('span', { key: 'sp', style: { flex: 1 } }),
             ].concat(moveBtns).concat([
+              h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                title: 'Guardar este hero como PLANTILLA reutilizable: podrás insertarlo en cualquier producto desde "Insertar desde plantilla" (se inserta como copia — cámbiale el fondo o los textos sin afectar a los demás).',
+                onClick: async () => {
+                  const nombre = window.prompt('Nombre de la plantilla:', 'Hero — ' + s(d.name));
+                  if (!nombre || !s(nombre).trim()) return;
+                  const r = await guardarHeroTemplate(hx, nombre);
+                  shell.notify(r.success !== false
+                    ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                    : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                } }, '⧉ Plantilla'),
               h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== hx.id)) }, 'Quitar'),
             ])),
             h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7726,6 +7788,59 @@ export default function mount(shell) {
             title: 'Sección de solo foto: el alto se adapta a la imagen, sin recortes. Encadena varias para descripciones hechas de fotos apiladas.',
             onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
         ]),
+        // ── Insertar desde PLANTILLA o copiando de otro producto ──────────
+        // Las plantillas se crean con "⧉ Plantilla" en cualquier sección
+        // hero/imagen. Todo se inserta como COPIA: cámbiale el fondo o los
+        // textos sin afectar al producto o plantilla de origen.
+        (function () {
+          const tpls = heroTemplatesList();
+          const otros = model.productos.filter((e) => e.id !== d.id)
+            .map((e) => ({ e, hs: (((e.storefront || {}).pageSections) || []).filter((x) => x && (x.kind === 'hero' || x.kind === 'imagen')) }))
+            .filter((x) => x.hs.length);
+          if (!tpls.length && !otros.length) {
+            return h('div', { key: 'fromtpl', className: 'gp-muted', style: { marginTop: 8, fontSize: 12 } },
+              'Tip: con "⧉ Plantilla" en cualquier sección hero/imagen la guardas como plantilla reutilizable para tus otros productos.');
+          }
+          const resolver = (clave) => {
+            if (clave.indexOf('tpl:') === 0) return (tpls.find((t) => t.id === clave.slice(4)) || {}).section || null;
+            if (clave.indexOf('prod:') === 0) {
+              const [eid, secId] = clave.slice(5).split('::');
+              const otro = otros.find((x) => x.e.id === eid);
+              return otro ? otro.hs.find((x) => x.id === secId) || null : null;
+            }
+            return null;
+          };
+          return h('div', { key: 'fromtpl', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
+            h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 260, maxWidth: 420 }, value: tplSel,
+              onChange: (e) => setTplSel(e.target.value) }, [
+              h('option', { key: '', value: '' }, 'Insertar desde plantilla o desde otro producto…'),
+              tpls.length ? h('optgroup', { key: 'gt', label: 'Plantillas' },
+                tpls.map((t) => h('option', { key: t.id, value: 'tpl:' + t.id },
+                  t.name + ' (' + (t.section.kind === 'hero' ? (t.section.pattern || 'hero') : 'imagen') + ')'))) : null,
+              otros.length ? h('optgroup', { key: 'gp', label: 'Copiar de otro producto' },
+                otros.reduce((acc, x) => acc.concat(x.hs.map((hs2, hi) =>
+                  h('option', { key: x.e.id + '::' + hs2.id, value: 'prod:' + x.e.id + '::' + hs2.id },
+                    s(x.e.name) + ' — sección ' + (hi + 1) + ' (' + (hs2.kind === 'hero' ? (hs2.pattern || 'hero') : 'imagen') + ')'))), [])) : null,
+            ]),
+            h('button', { key: 'ins', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !tplSel,
+              title: 'Inserta una COPIA al final de la página: edítala libremente sin afectar el origen.',
+              onClick: () => {
+                const secc = resolver(tplSel);
+                if (!secc) { shell.notify({ level: 'error', text: 'La plantilla o sección elegida ya no existe.' }); setTplSel(''); return; }
+                upPage(sfPage.concat([clonarSeccionConIdsNuevos(secc)]));
+                shell.notify({ level: 'success', text: 'Sección insertada al final (como copia editable). Recuerda Guardar.' });
+              } }, 'Insertar'),
+            tplSel.indexOf('tpl:') === 0 ? h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger',
+              title: 'Eliminar esta plantilla del catálogo (no toca las secciones ya insertadas: son copias).',
+              onClick: async () => {
+                const t = tpls.find((x) => 'tpl:' + x.id === tplSel);
+                if (!t || !window.confirm('¿Eliminar la plantilla «' + t.name + '»? Las secciones ya insertadas no se tocan (son copias).')) return;
+                const r = await borrarHeroTemplate(t.id);
+                setTplSel('');
+                shell.notify(r.success !== false ? { level: 'success', text: 'Plantilla eliminada.' } : { level: 'error', text: (r && r.error) || 'No se pudo eliminar.' });
+              } }, '✕ plantilla') : null,
+          ]);
+        })(),
       ]),
       // ── Ficha de tienda: tabla de especificaciones ──
       h('div', { key: 'specs', className: 'gp-card' }, [
