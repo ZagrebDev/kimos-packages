@@ -1122,7 +1122,12 @@ export default function mount(shell) {
           cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
           // visor = foto grande + miniaturas debajo · lado = miniaturas en
           // columna a la izquierda · mosaico = solo la grilla, sin visor
-          layout: ['lado', 'mosaico'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          layout: ['lado', 'mosaico', 'panel'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          // 'panel': la foto elegida a un lado usando TODO el alto, sin marco
+          // ni flechas, y el resto como mosaico que llena el ancho y alto
+          // restantes (la elegida queda marcada). El mosaico puede ir a la
+          // derecha o a la izquierda.
+          panelLado: f.panelLado === 'izq' ? 'izq' : 'der',
           mainSize: ['s', 'l', 'xl', 'auto'].indexOf(f.mainSize) !== -1 ? f.mainSize : 'm',
           thumbSize: ['s', 'l'].indexOf(f.thumbSize) !== -1 ? f.thumbSize : 'm',
           // contain = la foto entera · cover = recortada a un formato común
@@ -2510,7 +2515,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.3.0',
+      kitExpected: '6.4.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -5920,7 +5925,13 @@ export default function mount(shell) {
               h('option', { key: 'v', value: 'visor' }, 'Foto grande + miniaturas debajo'),
               h('option', { key: 'l', value: 'lado' }, 'Miniaturas en columna a la izquierda'),
               h('option', { key: 'm', value: 'mosaico' }, 'Mosaico (solo la grilla, sin foto grande)'),
+              h('option', { key: 'p', value: 'panel' }, 'Panel: foto grande a todo alto + mosaico al lado'),
             ])),
+          ph.layout === 'panel' ? h(Row, { key: 'plado', label: 'Lado del mosaico (panel)' },
+            h('select', { className: 'gp-select', value: ph.panelLado === 'izq' ? 'izq' : 'der', onChange: (ev) => upPh({ panelLado: ev.target.value }) }, [
+              h('option', { key: 'd', value: 'der' }, 'Mosaico a la derecha'),
+              h('option', { key: 'i', value: 'izq' }, 'Mosaico a la izquierda'),
+            ])) : null,
           h(Row, { key: 'sz', label: 'Ancho del bloque' },
             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (ev) => upPh({ size: ev.target.value }) }, [
               h('option', { key: 's', value: 's' }, 'Estrecho (560 px)'),

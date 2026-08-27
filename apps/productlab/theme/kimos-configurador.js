@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.3.0';
+  var VERSION = '6.4.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -989,10 +989,50 @@
   // La galería es SOLO la galería. La nota es su propia sección y se ve
   // únicamente si está en la lista de la experiencia: pintarla también aquí
   // dejaba texto bajo las fotos que no había forma de quitar.
+  // ── Galería 'panel': la foto elegida a un lado usando TODO el alto, sin
+  // marco de fondo ni flechas; el resto como MOSAICO que llena el ancho y el
+  // alto restantes, con la elegida marcada. El mosaico va a la derecha (o a
+  // la izquierda con panelLado: 'izq'). Con ancho de sección "contenedor",
+  // usa todo el ancho disponible del contenedor.
+  function renderPhotosPanel(images, pc, altDe) {
+    var wrap = el('div', 'kc-fotos kc-fotos-panel');
+    if (pc.panelLado === 'izq') wrap.setAttribute('data-lado', 'izq');
+    wrap.setAttribute('data-main', ['s', 'l', 'xl', 'auto'].indexOf(pc.mainSize) !== -1 ? pc.mainSize : 'm');
+    var big = el('img', 'kc-panel-big');
+    big.src = images[0] || '';
+    big.alt = altDe(images[0], 0);
+    var mos = el('div', 'kc-panel-mosaico');
+    // Filas del mosaico según cuántas fotos haya: 2 columnas y las filas se
+    // reparten el alto completo (sin scroll interno).
+    mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / 2))));
+    var tiles = [];
+    var mostrar = function (i) {
+      big.src = images[i];
+      big.alt = altDe(images[i], i);
+      tiles.forEach(function (t, k) { t.classList[k === i ? 'add' : 'remove']('on'); });
+    };
+    images.forEach(function (u, i) {
+      var t = el('button', 'kc-panel-tile' + (i === 0 ? ' on' : ''));
+      t.type = 'button';
+      t.setAttribute('aria-label', 'Ver foto ' + (i + 1));
+      var im = el('img');
+      im.src = u; im.alt = altDe(u, i); im.loading = 'lazy';
+      t.appendChild(im);
+      t.addEventListener('click', function () { mostrar(i); });
+      mos.appendChild(t);
+      tiles.push(t);
+    });
+    wrap.appendChild(big);
+    if (images.length > 1) wrap.appendChild(mos);
+    else wrap.setAttribute('data-sola', '1');
+    return wrap;
+  }
+
   function renderPhotos(images, cfg, altDe) {
     altDe = altDe || function () { return ''; };
-    var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
+    if (pc.layout === 'panel') return renderPhotosPanel(images, pc, altDe);
+    var wrap = el('div', 'kc-fotos');
     wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
     // Disposición: 'visor' (foto grande + miniaturas debajo), 'lado'
     // (miniaturas en columna a la izquierda) o 'mosaico' (solo la grilla, sin
