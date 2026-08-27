@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.5.1';
+  var VERSION = '6.6.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -998,6 +998,13 @@
     var wrap = el('div', 'kc-fotos kc-fotos-panel');
     if (pc.panelLado === 'izq') wrap.setAttribute('data-lado', 'izq');
     wrap.setAttribute('data-main', ['s', 'l', 'xl', 'auto'].indexOf(pc.mainSize) !== -1 ? pc.mainSize : 'm');
+    // El panel también honra el resto del estilo: el ANCHO del bloque
+    // (data-size), el TAMAÑO de miniaturas (data-thumb) y el ENCAJE
+    // (data-fit) — sin estos atributos el CSS no puede aplicarlos y los
+    // controles del editor quedaban muertos en este layout.
+    wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
+    wrap.setAttribute('data-thumb', ['s', 'l'].indexOf(pc.thumbSize) !== -1 ? pc.thumbSize : 'm');
+    wrap.setAttribute('data-fit', pc.fit === 'cover' ? 'cover' : 'contain');
     var big = el('img', 'kc-panel-big');
     big.src = images[0] || '';
     big.alt = altDe(images[0], 0);

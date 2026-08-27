@@ -2525,7 +2525,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.5.1',
+      kitExpected: '6.6.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -5949,8 +5949,17 @@ export default function mount(shell) {
               h('option', { key: 'l', value: 'l' }, 'Ancho (1200 px)'),
               h('option', { key: 'xl', value: 'xl' }, 'Sin límite'),
             ])),
-          h(Row, { key: 'ms', label: 'Alto de la foto grande' },
-            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, [
+          h(Row, { key: 'ms', label: ph.layout === 'panel' ? 'Tamaño de la foto principal' : 'Alto de la foto grande' },
+            // En el panel este control mueve el alto de la sección Y el
+            // reparto del ancho (foto más grande = mosaico más angosto): con
+            // fotos apaisadas subir solo el alto no se notaba.
+            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, ph.layout === 'panel' ? [
+              h('option', { key: 's', value: 's' }, 'Pequeña'),
+              h('option', { key: 'm', value: 'm' }, 'Media'),
+              h('option', { key: 'l', value: 'l' }, 'Grande'),
+              h('option', { key: 'xl', value: 'xl' }, 'Muy grande (80% de la pantalla)'),
+              h('option', { key: 'a', value: 'auto' }, 'Según la pantalla'),
+            ] : [
               h('option', { key: 's', value: 's' }, 'Baja (300 px)'),
               h('option', { key: 'm', value: 'm' }, 'Media (460 px)'),
               h('option', { key: 'l', value: 'l' }, 'Alta (620 px)'),
@@ -5971,10 +5980,14 @@ export default function mount(shell) {
               h('option', { key: 'c', value: 'contain' }, 'Completa (se ve entera)'),
               h('option', { key: 'v', value: 'cover' }, 'Recortada (todas del mismo formato)'),
             ])),
-          h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-            h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
-            h('span', { key: 's' }, 'Marco alrededor de las fotos'),
-          ]),
+          ph.layout === 'panel'
+            // El panel va sin marcos por diseño (solo se marca la elegida):
+            // mostrar el switch aquí sería un control muerto.
+            ? h('div', { key: 'fr', className: 'gp-muted', style: { alignSelf: 'end' } }, 'El panel va sin marcos: solo se marca la foto elegida.')
+            : h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
+                h('span', { key: 's' }, 'Marco alrededor de las fotos'),
+              ]),
         ]),
       ]),
     ]);

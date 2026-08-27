@@ -590,15 +590,26 @@
      padding lateral) vive más abajo en este archivo y con dos clases
      EMPATABA y ganaba por orden — el panel quedaba capado a 900 px. */
   max-width: none; width: 100%; margin: 0;
-  display: grid; grid-template-columns: 1fr minmax(220px, 42%);
+  /* --kc-panel-mos = cuánto del ancho se lleva el mosaico; el "tamaño de la
+     foto principal" (data-main) lo mueve: foto más grande = mosaico más
+     angosto. Con fotos APAISADAS subir solo el alto no cambiaba nada (la
+     foto quedaba limitada por el ancho de su mitad) y el control parecía
+     muerto. */
+  display: grid; grid-template-columns: 1fr minmax(220px, var(--kc-panel-mos, 42%));
   gap: 16px; align-items: stretch; padding: 26px 0;
   height: 460px;
 }
-.kimos-cfg .kc-fotos-panel[data-main="s"] { height: 340px; }
-.kimos-cfg .kc-fotos-panel[data-main="l"] { height: 600px; }
-.kimos-cfg .kc-fotos-panel[data-main="xl"] { height: min(80vh, 860px); }
+/* Ancho del bloque (data-size): el panel respeta el control del estilo igual
+   que las otras disposiciones — "Sin límite" (xl) queda a todo el ancho. */
+.kimos-cfg .kc-fotos.kc-fotos-panel[data-size="s"] { max-width: 560px; margin: 0 auto; }
+.kimos-cfg .kc-fotos.kc-fotos-panel[data-size="m"] { max-width: 900px; margin: 0 auto; }
+.kimos-cfg .kc-fotos.kc-fotos-panel[data-size="l"] { max-width: 1200px; margin: 0 auto; }
+/* Tamaño de la foto principal: alto de la sección + reparto del ancho. */
+.kimos-cfg .kc-fotos-panel[data-main="s"] { height: 340px; --kc-panel-mos: 55%; }
+.kimos-cfg .kc-fotos-panel[data-main="l"] { height: 600px; --kc-panel-mos: 34%; }
+.kimos-cfg .kc-fotos-panel[data-main="xl"] { height: min(80vh, 860px); --kc-panel-mos: 28%; }
 .kimos-cfg .kc-fotos-panel[data-main="auto"] { height: clamp(340px, 58vh, 720px); }
-.kimos-cfg .kc-fotos-panel[data-lado="izq"] { grid-template-columns: minmax(220px, 42%) 1fr; }
+.kimos-cfg .kc-fotos-panel[data-lado="izq"] { grid-template-columns: minmax(220px, var(--kc-panel-mos, 42%)) 1fr; }
 .kimos-cfg .kc-fotos-panel[data-lado="izq"] .kc-panel-big { order: 2; }
 .kimos-cfg .kc-fotos-panel[data-lado="izq"] .kc-panel-mosaico { order: 1; }
 .kimos-cfg .kc-fotos-panel[data-sola="1"] { grid-template-columns: 1fr; }
@@ -623,6 +634,21 @@
 .kimos-cfg .kc-panel-tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .kimos-cfg .kc-panel-tile:hover { outline: 1px solid var(--kc-line); outline-offset: -1px; }
 .kimos-cfg .kc-panel-tile.on { outline: 2px solid var(--kc-accent); outline-offset: -2px; }
+/* Tamaño de miniaturas (data-thumb): en el panel llenan su mitad, así que
+   "pequeñas" pasa a filas compactas centradas y "grandes" les quita el aire
+   para que ocupen toda la celda. "Medianas" es el reparto normal. */
+.kimos-cfg .kc-fotos-panel[data-thumb="s"] .kc-panel-mosaico {
+  grid-template-rows: none; grid-auto-rows: minmax(72px, 96px);
+  align-content: center; gap: 10px;
+}
+.kimos-cfg .kc-fotos-panel[data-thumb="s"] .kc-panel-tile { padding: 4px; }
+.kimos-cfg .kc-fotos-panel[data-thumb="l"] .kc-panel-mosaico { gap: 8px; }
+.kimos-cfg .kc-fotos-panel[data-thumb="l"] .kc-panel-tile { padding: 0; }
+/* Encaje "Recortada" (data-fit=cover): las fotos llenan su celda recortadas
+   a un formato común — mosaico de verdad, sin bordes blancos. */
+.kimos-cfg .kc-fotos-panel[data-fit="cover"] .kc-panel-big { object-fit: cover; }
+.kimos-cfg .kc-fotos-panel[data-fit="cover"] .kc-panel-tile { padding: 0; }
+.kimos-cfg .kc-fotos-panel[data-fit="cover"] .kc-panel-tile img { object-fit: cover; }
 @media (max-width: 720px) {
   /* Móvil: la grande arriba y el mosaico como franja de 2 filas abajo,
      cualquiera sea el lado elegido. */
@@ -634,6 +660,13 @@
     grid-template-rows: none; grid-auto-flow: column; grid-auto-columns: minmax(72px, 1fr);
     grid-template-columns: none; grid-template-rows: repeat(2, 64px);
     overflow-x: auto;
+  }
+  /* En móvil la franja manda sobre el tamaño de miniaturas del escritorio
+     (las reglas data-thumb tienen más especificidad y la romperían). */
+  .kimos-cfg .kc-fotos-panel[data-thumb="s"] .kc-panel-mosaico,
+  .kimos-cfg .kc-fotos-panel[data-thumb="l"] .kc-panel-mosaico {
+    grid-template-rows: repeat(2, 64px); grid-auto-rows: auto;
+    align-content: start; gap: 10px;
   }
 }
 
