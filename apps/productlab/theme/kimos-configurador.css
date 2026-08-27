@@ -670,12 +670,11 @@
   }
 }
 
-/* Preguntas frecuentes: acordeón sobrio, al estilo de la tabla de specs */
-.kimos-cfg .kc-faq { padding: 26px 0 8px; }
-.kimos-cfg .kc-faq-t {
-  font: 700 13px/1.2 var(--kc-font); letter-spacing: .08em; text-transform: uppercase;
-  color: var(--kc-accent); margin: 0 0 10px;
-}
+/* Preguntas frecuentes: acordeón sobrio, al estilo de la tabla de specs.
+   El TÍTULO ya no tiene estilo propio: lo pinta la caja kc-sec con el mismo
+   sistema (tamaño/alineación/fondo) que Fotos y Especificaciones. El padding
+   inferior da AIRE contra lo que venga después (antes quedaba apretado). */
+.kimos-cfg .kc-faq { padding: 26px 0 44px; }
 .kimos-cfg .kc-faq-i { border-bottom: 1px solid var(--kc-line); }
 .kimos-cfg .kc-faq-q {
   display: flex; align-items: baseline; gap: 10px; width: 100%;
@@ -689,6 +688,18 @@
   font: 400 13.5px/1.6 var(--kc-font); color: var(--kc-gris);
   padding: 0 2px 14px; max-width: 72ch; white-space: pre-line;
 }
+/* Diseño editable: tamaño de letra (data-fsize), alineación (data-align) y
+   ancho del bloque (data-w) — el acordeón centrado limita el ancho del texto
+   para que las respuestas no queden flotando de borde a borde. */
+.kimos-cfg .kc-faq[data-fsize="s"] .kc-faq-q { font-size: 13px; }
+.kimos-cfg .kc-faq[data-fsize="s"] .kc-faq-a { font-size: 12.5px; }
+.kimos-cfg .kc-faq[data-fsize="l"] .kc-faq-q { font-size: 17px; }
+.kimos-cfg .kc-faq[data-fsize="l"] .kc-faq-a { font-size: 15.5px; }
+.kimos-cfg .kc-faq[data-align="center"] .kc-faq-qt { text-align: center; }
+.kimos-cfg .kc-faq[data-align="center"] .kc-faq-a { text-align: center; margin: 0 auto; }
+.kimos-cfg .kc-faq[data-w="s"] { max-width: 560px; margin: 0 auto; }
+.kimos-cfg .kc-faq[data-w="m"] { max-width: 720px; margin: 0 auto; }
+.kimos-cfg .kc-faq[data-w="l"] { max-width: 900px; margin: 0 auto; }
 
 /* Comentario del paso (nota del dueño, bajo el título) */
 .kimos-cfg .kc-step-note {

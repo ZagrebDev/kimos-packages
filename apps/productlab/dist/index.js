@@ -1462,7 +1462,17 @@ export default function mount(shell) {
       return {
         id: x.id || newId('ps'),
         kind: 'faq',
+        // Título con el MISMO sistema que Fotos/Especificaciones (tamaño,
+        // alineación, fondo) + diseño propio del acordeón: tamaño de letra,
+        // alineación del texto y ancho del bloque. (Allowlist: campo que no
+        // esté aquí, campo que se pierde al guardar.)
         title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+        textSize: ['s', 'l'].indexOf(x.textSize) !== -1 ? x.textSize : 'm',
+        align: x.align === 'center' ? 'center' : 'left',
+        boxWidth: ['s', 'm', 'l'].indexOf(x.boxWidth) !== -1 ? x.boxWidth : '',
         width: sectionWidth(x.width),
         items: (Array.isArray(x.items) ? x.items : []).filter(Boolean)
           .map((it) => ({
@@ -2525,7 +2535,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.6.0',
+      kitExpected: '6.7.0',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -4008,7 +4018,7 @@ export default function mount(shell) {
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false} — specs y fotos aceptan además título y fondo propios: {"title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional"}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional","textSize":"s|m|l (letra de preguntas/respuestas)","align":"left|center (texto)","boxWidth":"\'\' todo el ancho|s 560px|m 720px|l 900px (centrado)","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false} — specs y fotos aceptan además título y fondo propios: {"title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional"}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -7518,9 +7528,46 @@ export default function mount(shell) {
               h('div', { key: 'b', className: 'gp-group-body' }, [
                 h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
                   'En la tienda salen plegadas y el cliente las despliega una a una. Una pregunta sin texto no se publica.'),
-                h(Row, { key: 'tt', label: 'Título de la sección (vacío = sin título)' },
-                  h(TextInput, { value: sec2.title || '', placeholder: 'Preguntas frecuentes',
-                    onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                // Título con el MISMO sistema que Fotos/Especificaciones y
+                // diseño propio del acordeón (letra, alineación, ancho).
+                h('div', { key: 'dz', className: 'gp-grid3' }, [
+                  h(Row, { key: 'tt', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: 'Preguntas frecuentes',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'fs', label: 'Tamaño de la letra' },
+                    h('select', { className: 'gp-select', value: sec2.textSize || 'm', onChange: (e) => upPageX(sec2.id, { textSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeña'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediana'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                    ])),
+                  h(Row, { key: 'al', label: 'Alineación del texto' },
+                    h('select', { className: 'gp-select', value: sec2.align || 'left', onChange: (e) => upPageX(sec2.id, { align: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                    ])),
+                  h(Row, { key: 'bw', label: 'Ancho del bloque' },
+                    h('select', { className: 'gp-select', value: sec2.boxWidth || '', onChange: (e) => upPageX(sec2.id, { boxWidth: e.target.value }) }, [
+                      h('option', { key: 'a', value: '' }, 'Todo el ancho de la sección'),
+                      h('option', { key: 's', value: 's' }, 'Estrecho (560 px, centrado)'),
+                      h('option', { key: 'm', value: 'm' }, 'Medio (720 px, centrado)'),
+                      h('option', { key: 'l', value: 'l' }, 'Ancho (900 px, centrado)'),
+                    ])),
+                ]),
                 h(React.Fragment, { key: 'items' }, faqItems.map((it, fi) => h('div', { key: it.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
                   h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
                     h(TextInput, { key: 'q', value: it.q || '', placeholder: 'Pregunta (ej: ¿Cuánto demora el armado?)', style: { flex: 1, minWidth: 220 },

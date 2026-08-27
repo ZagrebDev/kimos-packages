@@ -425,7 +425,9 @@ await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
     { kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } },
     // Preguntas frecuentes: la vacía se poda y las respuestas sobreviven al
     // guardado (misma trampa del allowlist que perdió nota/detalle).
-    { kind: 'faq', title: 'Dudas', items: [{ q: '¿Demora?', a: '5 días' }, { q: '  ', a: 'sin pregunta' }] },
+    { kind: 'faq', title: 'Dudas', titleSize: 'xl', titleAlign: 'center', bgColor: '#f4f4f4',
+      textSize: 'l', align: 'center', boxWidth: 'm',
+      items: [{ q: '¿Demora?', a: '5 días' }, { q: '  ', a: 'sin pregunta' }] },
   ],
   specs: [{ label: 'Tela', value: 'Algodón' }], photosNote: 'Nota agente' });
 const sfAg = store.get(eqAg.id).storefront;
@@ -435,6 +437,12 @@ const faqAg = sfAg.pageSections.find((x) => x.kind === 'faq');
 expectEq('faq: la pregunta vacía se poda', faqAg.items.length, 1);
 expectEq('faq: pregunta y respuesta sobreviven al guardado', faqAg.items[0].q + '·' + faqAg.items[0].a, '¿Demora?·5 días');
 expectEq('faq: el título sobrevive al guardado', faqAg.title, 'Dudas');
+// Diseño editable de la FAQ: título con el sistema de las demás secciones +
+// letra/alineación/ancho propios — todo debe sobrevivir al allowlist.
+expectEq('faq: diseño del título sobrevive (tamaño·alineación·fondo)',
+  faqAg.titleSize + '·' + faqAg.titleAlign + '·' + faqAg.bgColor, 'xl·center·#f4f4f4');
+expectEq('faq: diseño del acordeón sobrevive (letra·alineación·ancho)',
+  faqAg.textSize + '·' + faqAg.align + '·' + faqAg.boxWidth, 'l·center·m');
 expectEq('agente: nota guardada', sfAg.photosNote, 'Nota agente');
 if ((store.get(eqAg.id).galleryImages || []).indexOf('https://cdn/fondo-agente.jpg') === -1) throw new Error('el fondo usado no se cosechó en la galería del producto');
 

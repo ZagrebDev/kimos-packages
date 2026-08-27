@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.6.0';
+  var VERSION = '6.7.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -1116,7 +1116,13 @@
     var items = ((sec && sec.items) || []).filter(function (x) { return x && String(x.q || '').trim(); });
     if (!items.length) return null;
     var wrap = el('div', 'kc-faq');
-    if (String(sec.title || '').trim()) wrap.appendChild(el('div', 'kc-faq-t', String(sec.title).trim()));
+    // El TÍTULO ya no se pinta aquí: lo pone la caja kc-sec (paint), con el
+    // mismo sistema de tamaño/alineación/fondo que Fotos y Especificaciones —
+    // antes salía con un estilo propio distinto al resto de la página.
+    // Diseño editable del acordeón: letra, alineación y ancho del bloque.
+    wrap.setAttribute('data-fsize', ['s', 'l'].indexOf(sec.textSize) !== -1 ? sec.textSize : 'm');
+    if (sec.align === 'center') wrap.setAttribute('data-align', 'center');
+    if (['s', 'm', 'l'].indexOf(sec.boxWidth) !== -1) wrap.setAttribute('data-w', sec.boxWidth);
     items.forEach(function (it) {
       var fila = el('div', 'kc-faq-i');
       var q = el('button', 'kc-faq-q');
@@ -3009,10 +3015,11 @@
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
-          // Título propio y/o fondo de la sección (Fotos y Especificaciones):
-          // la caja envuelve al contenido para que el fondo cubra el bloque
-          // entero y el título comparta lenguaje con el resto de la página.
-          if (n && (s.kind === 'specs' || s.kind === 'fotos')
+          // Título propio y/o fondo de la sección (Fotos, Especificaciones y
+          // Preguntas frecuentes): la caja envuelve al contenido para que el
+          // fondo cubra el bloque entero y el título comparta lenguaje con el
+          // resto de la página.
+          if (n && (s.kind === 'specs' || s.kind === 'fotos' || s.kind === 'faq')
               && (String(s.title || '').trim() || String(s.bgColor || '').trim())) {
             var caja = el('div', 'kc-sec');
             if (String(s.bgColor || '').trim()) { caja.classList.add('kc-sec-bg'); caja.style.background = String(s.bgColor).trim(); }
