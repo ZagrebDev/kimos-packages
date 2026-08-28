@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.7.1';
+  var VERSION = '6.8.0';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -379,6 +379,13 @@
           var lb = g.closest && g.closest('label');
           nom = lb ? (lb.textContent || '').trim() : '';
         }
+        if (!nom && g.closest) {
+          // Checkbox sin label (ej. el que inyecta el RESCATE de abajo en un
+          // re-escaneo): el nombre vive en el título de su fieldset.
+          var fsx = g.closest('fieldset');
+          var ttx = fsx && fsx.querySelector('.product-options__title, legend');
+          nom = ttx ? (ttx.textContent || '').trim() : '';
+        }
         var corte = nom.indexOf(': ');
         if (corte === -1) return;   // checkbox ajeno al contrato: es del theme
         var paso = nom.slice(0, corte).trim();
@@ -412,6 +419,57 @@
       }
       reales.push({ el: g, id: optId, name: name, values: values });
     });
+    // ── RESCATE: themes que imprimen el checklist VACÍO ──────────────────────
+    // Jumpseller entrega las opciones addon al theme, pero algunas plantillas
+    // (ej. la de Keiko) pintan solo el título "paso: Valor" dentro de un
+    // <fieldset class="product-options__fieldset" data-optionid> SIN ningún
+    // checkbox — ni siquiera la ficha nativa puede elegirlas. Se inyecta aquí
+    // el control que falta, con el MISMO contrato de los themes que sí lo
+    // imprimen (input.prod-options type=checkbox, name = id de la opción,
+    // value = "Yes"): queda oculto, el resto del kit lo trata como cualquier
+    // addon y el submit del theme lo serializa con el form. El recargo se
+    // declara 0 solo para el TOTAL mostrado (este theme no lo publica en
+    // ninguna parte); lo que se cobra lo decide Jumpseller con la opción que
+    // viaja en el POST, como siempre.
+    var rescatados = [];
+    Array.prototype.forEach.call(document.querySelectorAll('fieldset[data-optionid]'), function (fs) {
+      var optId = fs.getAttribute('data-optionid');
+      if (!optId) return;
+      if (fs.querySelector('input, select')) return;   // ya tiene control: no es el caso
+      var ya = Object.keys(porPaso).some(function (k) { return porPaso[k].inputs[String(optId)]; });
+      if (ya) return;
+      var t = fs.querySelector('.product-options__title, legend');
+      var nom = t ? (t.textContent || '').trim() : '';
+      var corte = nom.indexOf(': ');
+      if (corte === -1) return;                        // no es un addon "paso: Valor"
+      var paso = nom.slice(0, corte).trim();
+      var valor = nom.slice(corte + 2).trim();
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'prod-options';
+      cb.name = String(optId);
+      cb.value = 'Yes';
+      cb.setAttribute('data-optionid', String(optId));
+      cb.setAttribute('data-addon-price', '0');
+      cb.setAttribute('data-kc-inyectado', '1');
+      // Oculto pero serializable: display:none también viaja en el form, pero
+      // así ni ocupa sitio ni puede recibir clics del theme.
+      cb.style.position = 'absolute'; cb.style.opacity = '0'; cb.style.pointerEvents = 'none';
+      cb.style.width = '1px'; cb.style.height = '1px';
+      fs.appendChild(cb);
+      var clave = norm(paso);
+      var vg = porPaso[clave];
+      if (!vg) {
+        vg = porPaso[clave] = { el: null, id: 'kc-addon:' + clave, name: paso, values: [], inputs: {}, virtual: true };
+        virtuales.push(vg);
+      }
+      vg.values.push({ id: String(optId), name: valor });
+      vg.inputs[String(optId)] = cb;
+      rescatados.push(nom);
+    });
+    if (rescatados.length) {
+      console.info(LOG, 'el theme imprimió ' + rescatados.length + ' opción(es) addon sin checkbox — se inyectaron: ' + rescatados.join(' · '));
+    }
     return reales.concat(virtuales);
   }
   // Solo los grupos que la TIENDA usa para casar variante (los addons no

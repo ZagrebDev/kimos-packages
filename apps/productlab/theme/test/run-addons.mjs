@@ -60,6 +60,14 @@ const addonHtml = [910, 911, 920, 921].map((id) => `
       <span>${OPTS.filter((o) => o.id === id)[0].name}</span>
     </label>
   </fieldset>`).join('');
+// Réplica del theme de KEIKO: la plantilla recibe las opciones addon pero las
+// pinta como fieldset VACÍO (solo el título "paso: Valor", sin checkbox) y su
+// product-json ni siquiera lista `options`. El kit debe RESCATARLAS inyectando
+// el control que falta.
+const keikoHtml = [[930, 'Acabado: Natural'], [931, 'Acabado: Celeste']].map(([id, nom]) => `
+  <fieldset id="fs${id}" class="product-options__fieldset" data-optionid="${id}">
+    <div class="product-options__title">${nom}</div>
+  </fieldset>`).join('');
 const prodInfo = {
   product: { id: 23008278, sku: 'PC-1', name: 'PC Gamer', options: OPTS, images: ['https://cdn.local/p1.jpg'] },
   variant: { id: 1, price: 100000 },
@@ -75,7 +83,7 @@ const pagina = () => `<!doctype html><html lang="es"><body>
   <div class="product-page__wrapper">
     <script type="application/json" class="product-form-json">${JSON.stringify({ options: {}, info: prodInfo })}</script>
     <script type="application/json" class="product-json">${JSON.stringify(VARIANTES)}</script>
-    <div class="product-options">${colorHtml}${addonHtml}</div>
+    <div class="product-options">${colorHtml}${addonHtml}${keikoHtml}</div>
     <form action="/cart/add" name="buy">
       <input type="number" id="input-qty" name="qty" value="1">
       <button type="button" class="button product-form__button" id="add-to-cart"><span>Añadir al carro</span></button>
@@ -99,6 +107,11 @@ const grupos = () => ([
     dependsOn: { groupId: 'g-gpu', valueIds: ['v-rtx'] }, values: [
     { id: 'v-std', name: 'Estándar', qty: 1, delta: 0, isDefault: true },
     { id: 'v-liq', name: 'Líquida', qty: 1, delta: 90000, isDefault: false },
+  ] },
+  // Paso cuyos addons el theme pinta VACÍOS (réplica Keiko, ver keikoHtml).
+  { id: 'g-acab', label: 'Acabado', type: 'other', affectsPhoto: false, dependsOn: null, values: [
+    { id: 'v-nat', name: 'Natural', qty: 1, delta: 0, isDefault: true },
+    { id: 'v-cel', name: 'Celeste', qty: 1, delta: 0, isDefault: false },
   ] },
 ]);
 
@@ -171,6 +184,20 @@ t('el valor no elegido está desmarcado', cb(911).checked === false);
 t('el paso oculto no deja checkboxes marcados', cb(920).checked === false && cb(921).checked === false);
 t('precio = variante Negro + addons marcados ($100.000)', /100\.000/.test(precioPanel()));
 t('no marca "No disponible" (la variante casa solo con el color)', precioPanel().indexOf('No disponible') === -1);
+
+console.log('— ancla+addons: rescate de addons sin checkbox (theme Keiko) —');
+{
+  t('el paso Acabado se pinta aunque el theme no imprimió checkboxes', !!pasoPorTitulo('Acabado'));
+  const iny = (id) => d.querySelector('#fs' + id + ' input[type=checkbox][data-kc-inyectado]');
+  t('se inyectó el checkbox que faltaba, dentro de su fieldset', !!iny(930) && !!iny(931));
+  t('el default del paso rescatado quedó marcado (Natural)', iny(930) && iny(930).checked === true);
+  const paso = pasoPorTitulo('Acabado');
+  const card = paso && cardDe(paso, 'Celeste');
+  if (card) card.dispatchEvent(new w.Event('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 50));
+  t('elegir Celeste marca su checkbox inyectado', iny(931) && iny(931).checked === true);
+  t('…y desmarca al hermano', iny(930) && iny(930).checked === false);
+}
 
 console.log('— ancla+addons: el recargo mostrado es el de la TIENDA —');
 {
