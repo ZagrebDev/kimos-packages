@@ -9322,7 +9322,11 @@ export default function mount(shell) {
     // Tabs del contexto: raíz → secciones; detalle → sus pestañas; config → sus 4.
     let tabs, activo, onTab;
     if (n.det && n.det.tipo === 'producto') {
-      tabs = PROD_TABS.concat((n.det.draft && n.det.draft.model3d) || n.tab === 'modelo3d' ? [['modelo3d', 'Visor 3D']] : []);
+      // La pestaña Visor 3D va SIEMPRE: condicionarla a que el producto ya
+      // tuviera model3d era un huevo-y-gallina — un producto sin 3D nunca
+      // mostraba la pestaña donde se activa (la card vacía ya explica que es
+      // opcional y trae el botón "+ Activar visor 3D").
+      tabs = PROD_TABS.concat([['modelo3d', 'Visor 3D']]);
       activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
     } else if (n.det && n.det.tipo === 'componente') {
       tabs = COMP_TABS; activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
