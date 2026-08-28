@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.8.0';
+  var VERSION = '6.8.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -2894,6 +2894,9 @@
                 if (ev.key === 'Escape' && grande) alternar();
               });
               confView.appendChild(exp);
+              // Cómo se sale, dicho en pantalla: solo visible en pantalla
+              // completa (CSS). El ✕ chico dejaba gente atrapada en el 3D.
+              confView.appendChild(el('span', 'kc-3d-full-hint', 'Esc o ✕ para volver'));
               return ponerModelo(viewer, entry.model3d).then(function () {
                 viewer.setFinishes(entry.model3d.finishes || []);
                 viewer.setState(build3dState(entry, groups));
@@ -3060,6 +3063,32 @@
       confSteps.appendChild(renderSteps(entry, groups, ctx));
     }
 
+    // ── Dónde vive el visor 3D según la pantalla ─────────────────────────────
+    // En escritorio va en el panel derecho. En MÓVIL ese panel es la barra
+    // inferior y su canvas queda oculto (solo aparecía desplegando el asa ▲):
+    // el cliente configuraba a ciegas. Con 3D, el visor se muda ARRIBA de los
+    // pasos, a todo el ancho — se ve girar el mueble mientras se eligen los
+    // colores, que es el punto de todo esto.
+    function colocarVisor() {
+      if (!confView || !confPanel || !panelBox) return;
+      var movil = window.matchMedia && window.matchMedia('(max-width: 991px)').matches;
+      var reencuadrar = function () {
+        if (viewer && viewer.resize) setTimeout(function () { viewer.resize(); }, 60);
+      };
+      if (movil && has3d) {
+        if (confView.parentNode !== confPanel) {
+          confView.classList.add('kc-3d-inline');
+          confPanel.insertBefore(confView, confPanel.firstChild);
+          reencuadrar();
+        }
+      } else if (confView.parentNode !== panelBox) {
+        confView.classList.remove('kc-3d-inline');
+        panelBox.insertBefore(confView, panelBox.firstChild);
+        reencuadrar();
+      }
+    }
+    window.addEventListener('resize', function () { colocarVisor(); });
+
     function paint() {
       paintBar();
       body.innerHTML = '';
@@ -3108,6 +3137,7 @@
         construirConf();
         body.appendChild(confPanel);
         hostearPanel();
+        colocarVisor();
         pintarPanel();
       }
       if (viewer && enConf) {
