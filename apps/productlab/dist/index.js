@@ -8853,7 +8853,7 @@ export default function mount(shell) {
             h('div', { key: 'fila', className: 'gp-compline', style: { borderBottom: 0 } }, [
               h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
               h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-                'descarga los 3 archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s))'),
+                'descarga los archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s)); el motor 3D solo hace falta si algún producto publica visor 3D'),
               h('span', { key: 'sp', className: 'grow' }),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
                 title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets). Sale con una marca de caché nueva: al subirlo, la tienda recarga los archivos del kit al instante.',
@@ -8868,6 +8868,11 @@ export default function mount(shell) {
                 onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
               h('button', { key: 's', className: 'gp-btn gp-btn-sm',
                 onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+              // El motor 3D faltaba en esta lista: quien seguía "descarga los
+              // archivos y súbelos" quedaba con ficha pero sin visor 3D.
+              h('button', { key: 'e3d', className: 'gp-btn gp-btn-sm',
+                title: 'Motor 3D del kit (three.js empaquetado). Súbelo a Assets si algún producto publica visor 3D: sin él la ficha funciona pero el 3D no se puede dibujar.',
+                onClick: () => bajarAsset('kimos-engine3d.js') }, 'kimos-engine3d.js (motor 3D)'),
             ]),
             // Otras instancias de ProductLab de esta misma tienda: sus URLs de
             // definición, para que el kit las fusione todas.
