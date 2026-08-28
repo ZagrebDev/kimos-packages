@@ -22,7 +22,7 @@ export default function mount(shell) {
   const { useState, useEffect } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
-  const APP_VERSION = '1.3.6'; // mantener en sincronía con manifest.json
+  const APP_VERSION = '1.3.7'; // mantener en sincronía con manifest.json
 
   // Base pública del API: shell.assetUrl devuelve `${API_URL}/api/apps/...`;
   // recortamos y resolvemos contra el origin por si API_URL es relativo.
@@ -455,6 +455,27 @@ export default function mount(shell) {
   }
 
   // ── Pestaña: Diseño ───────────────────────────────────────────────────────
+  // Input de opciones del campo "Selección". Mantiene el texto tal cual se
+  // escribe (comas y espacios incluidos) mientras el campo tiene el foco y
+  // solo lo normaliza al salir; si se re-renderizara el valor parseado en
+  // cada tecla, el trim/filter borraría la coma o el espacio recién escritos
+  // y sería imposible teclear opciones de más de una palabra.
+  const parseOptions = (text) => text.split(',').map((s) => s.trim()).filter(Boolean);
+  function OptionsInput({ options, onCommit }) {
+    const joined = (options || []).join(', ');
+    const [text, setText] = useState(joined);
+    const [focused, setFocused] = useState(false);
+    useEffect(() => { if (!focused) setText(joined); }, [focused, joined]);
+    return h('input', {
+      className: 'kcf-input', style: { marginTop: 6 },
+      placeholder: 'Opciones separadas por coma (ej: Muy bueno, No sé, Prefiero no decir)',
+      value: text,
+      onFocus: () => setFocused(true),
+      onBlur: () => { setFocused(false); setText(parseOptions(text).join(', ')); },
+      onChange: (e) => { setText(e.target.value); onCommit(parseOptions(e.target.value)); },
+    });
+  }
+
   function DesignTab({ state }) {
     const def = state.definition;
     const [draft, setDraft] = useState(def);
@@ -632,11 +653,10 @@ export default function mount(shell) {
                 h('span', { key: 's' }, 'Req.'),
               ]),
             ]),
-            f.type === 'select' && h('input', {
-              key: 'opts', className: 'kcf-input', style: { marginTop: 6 },
-              placeholder: 'Opciones separadas por coma',
-              value: (f.options || []).join(', '),
-              onChange: (e) => upField(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }),
+            f.type === 'select' && h(OptionsInput, {
+              key: 'opts',
+              options: f.options,
+              onCommit: (options) => upField(i, { options }),
             }),
             h('div', { key: 'act', className: 'kcf-field-actions' }, [
               h('button', { key: 'up', className: 'kcf-btn kcf-btn-ghost', disabled: i === 0, onClick: () => moveField(i, -1) }, '↑'),
