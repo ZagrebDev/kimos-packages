@@ -7164,6 +7164,66 @@ export default function mount(shell) {
         // edición SOBRE ella: ⚙ por paso abre el editor completo inline,
         // "+ Valor" agrega en el paso y "+ Agregar paso" al final. ──
         h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
+          // ── AL ABRIR EL PERSONALIZADOR: la combinación predeterminada como
+          // conjunto, con su precio contra el "desde" de la tienda. El
+          // predeterminado por paso ya existía (el círculo junto a cada
+          // valor), pero era invisible como COMBINACIÓN: la tienda anuncia
+          // "desde" (la más económica) y el personalizador podía abrirse en
+          // otro precio sin que el dueño viera dónde cambiarlo.
+          (function () {
+            const pasosP = gruposPersonalizables(d)
+              .map((g) => ({ g, vals: groupValues(g).filter(valueAvailable).filter((v) => v.fallback !== true) }))
+              .filter((x) => x.vals.length > 0);
+            if (!pasosP.length) return null;
+            const extraDe = (g, v) => (v.sintetico ? 0 : valueExtra(d, g, v));
+            const masBarato = (g, vals) => {
+              let best = null, e0 = null;
+              vals.forEach((v) => { const e = extraDe(g, v); if (e0 == null || e < e0) { e0 = e; best = v; } });
+              return best;
+            };
+            const precioAbre = productoComputedPrice(d);
+            // El "desde" se calcula con el MISMO motor que el precio de
+            // apertura (dependencias y redondeo incluidos): un clon del
+            // producto con el valor más económico como default de cada paso.
+            const gruposMin = (d.groups || []).map((g) => {
+              if (g.baseStep === true) return g;
+              const px = pasosP.find((x) => x.g.id === g.id);
+              const b = px ? masBarato(g, px.vals) : null;
+              return b && b.id !== g.defaultValueId ? Object.assign({}, g, { defaultValueId: b.id }) : g;
+            });
+            const precioDesde = productoComputedPrice(Object.assign({}, d, { groups: gruposMin }));
+            const iguales = precioAbre === precioDesde;
+            return h('div', { key: 'defsel', className: 'gp-group', style: { marginBottom: 10 } }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'AL ABRIR EL PERSONALIZADOR'),
+                h('span', { key: 'pp', className: 'gp-muted' },
+                  'Se abre en ' + fmtMoney(precioAbre) + (iguales
+                    ? ' — la combinación más económica (el "desde" de la tienda)'
+                    : ' · la tienda anuncia "desde ' + fmtMoney(precioDesde) + '"')),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+                !iguales ? h('button', { key: 'min', className: 'gp-btn gp-btn-sm',
+                  title: 'Poner como predeterminado el valor más económico de cada paso: el personalizador se abrirá exactamente en el precio "desde" que anuncia la tienda.',
+                  onClick: () => up({ groups: gruposMin }) }, '⤓ Usar la más económica') : null,
+              ]),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'Con qué valor llega preseleccionado cada paso cuando el cliente entra a configurar (también se marca con el círculo junto a cada valor, dentro del paso). Guarda y Rearma para llevarlo a la tienda.'
+                  + (priceModeOf(d) !== 'auto' ? ' OJO: con precio ' + (priceModeOf(d) === 'store' ? 'de la tienda' : 'fijo') + ' los recargos se calculan CONTRA el predeterminado — tras cambiarlo, vuelve a aplicar $ Precios.' : '')),
+                h('div', { key: 'g', className: 'gp-grid3' }, pasosP.map(({ g, vals }) => {
+                  let min0 = null;
+                  vals.forEach((v) => { const e = extraDe(g, v); min0 = min0 == null ? e : Math.min(min0, e); });
+                  const sel = vals.find((v) => v.id === g.defaultValueId) || vals[0];
+                  return h(Row, { key: g.id, label: s(g.label || typeLabel(g.typeId)).trim() },
+                    h('select', { className: 'gp-select', value: sel ? sel.id : '',
+                      onChange: (e) => upGroup(g.id, { defaultValueId: e.target.value }) },
+                      vals.map((v) => {
+                        const dd = Math.round(extraDe(g, v) - min0);
+                        return h('option', { key: v.id, value: v.id }, v.label + (dd > 0 ? ' · +' + fmtMoney(dd) : ' · más económico'));
+                      })));
+                })),
+              ]),
+            ]);
+          })(),
           h(ConfigPreview, { key: 'vivo', draft: d, edit: {
             abierto: pasoEdit,
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
