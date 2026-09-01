@@ -29,7 +29,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 /* ── Logos oficiales, extraídos del .docx del programa ────────────────── */
 const LOGO_AIEP = 'data:image/png;base64,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';
@@ -86,30 +86,56 @@ const PERSONAS = [
   {
     id: 'patricia-sandoval',
     nombre: 'Patricia Sandoval',
+    nombreLargo: '',
     rol: 'Directora Sede San Joaquín',
     org: 'aiep',
     destacada: false,
+    url: 'https://www.linkedin.com/in/patricia-s-287483160/',
+    qr: 'patricia-sandoval',
+    bio: '',
+    fuente: '',
   },
   {
     id: 'jack-esquenazi',
     nombre: 'Jack Esquenazi',
+    nombreLargo: 'Jack Esquenazi López',
     rol: 'Director Regional Metropolitano',
     org: 'sercotec',
     destacada: false,
+    url: 'https://www.linkedin.com/in/jack-esquenazi-l%C3%B3pez-5535aa15/',
+    qr: 'jack-esquenazi',
+    bio: 'Director Regional Metropolitano de SERCOTEC. Ha puesto el foco de su '
+      + 'gestión en el peso de las pequeñas y medianas empresas en la economía '
+      + 'nacional —cerca de dos millones de emprendedores en Chile— y en '
+      + 'fortalecer ese sector como motor de crecimiento y reactivación.',
+    fuente: 'Comunicaciones públicas de SERCOTEC y prensa',
   },
   {
     id: 'nicolas-seguel',
     nombre: 'Nicolás Seguel',
+    nombreLargo: '',
     rol: 'Expositor',
     org: null,
     destacada: true,
+    url: 'https://www.linkedin.com/in/nicolas-seguel/',
+    qr: 'nicolas-seguel',
+    bio: '',
+    fuente: '',
   },
   {
     id: 'marcos-mella',
+    // El programa oficial escribe «Marcos Mella»; su perfil profesional figura
+    // como «Marco Antonio Mella González». Se respeta el programa en el
+    // cronograma y se muestra el nombre completo en la ficha.
     nombre: 'Marcos Mella',
+    nombreLargo: 'Marco Antonio Mella González',
     rol: 'Expositor',
     org: null,
     destacada: true,
+    url: 'https://www.linkedin.com/in/marco-antonio-mella-gonz%C3%A1lez-212331274/',
+    qr: 'marcos-mella',
+    bio: '',
+    fuente: '',
   },
 ];
 
@@ -275,6 +301,10 @@ const QR = {
   'mapa': { n: 57, b: '/r3m8vkvP8FtuEL/zpBuvs6xnVfLt06X6dmfpdus6fv4YxLsEfcXENLRB/qqqqqqqv4AnltG4XgAn5kvflqIS/BzJ1nvE9u0yuSqViT1bjTeC8XPUWcnCJ2Py+TaTzzImtVHmhiDoeQ9kLnS726sbJVsXyR1Ir4Y0bAb33laE01avGRgF5ck4QBNtqrq81ZpALaEmFDXD2x1bV2fQ9lWJN79ON+bfZusvNgns5vffEivGC5TCHuN8vtH6iKft6E/iRbMLFRH0dWo/cK45rrIxHvfEW20b36xgv6C5+uDZ3hgHKguK62BsxCSWHYJ10TRaW2dxpQ0+Fromp2lMN8HZ0I1qOeqmbcYaWNu/vuDGv9R90nqUiFYYEQoKfx8dhioO9i5Dyiutd/bMd1YqwSk54Y9uoYCOJgWuOktr4QyjCRfwJK0fd8b+pj/vXqhU8vw+JXXoMw1AlUHP8rB+YBu/tG5+MW/vtG63MNrUFGclEvlUfuuXBvr8/+N1RqBO0NcEugSBGJm4m8ElZr/DYv3/rnIGCqz+AA=' },
   'sercotec': { n: 25, b: '/oW/wSpQbpwLt1jV26967BZlB/qq/gGFAIuofL7f5r7HZ460VmlnLn7vXkhJfHgKonbnyP4AU0Q/qSoQRVHrr4/l0V2e6e+VBNB+/psDgA==' },
   'aiep': { n: 25, b: '/t4/wW0QbqWLt021269i7BPVB/qq/gDMAJ+5S7wHr56/bTwTQvIleg5CXkvcDb9xna2aOPsAaEW/s6owUrEbqV+d1m0O6dU/BPg3/pzEgA==' },
+  'patricia-sandoval': { n: 33, b: '/oC9P8FJJpBumaqrt1ImtdujDlLsES4RB/qqqv4B4+QAt2NlJeabepthuypXezUp8oP2KfnPoxB/K9lR9NgBOgnsm5Iubh6wxZbWosqGxYi9FQtmeC11Y55JBDtN98bjRlNps+Rz+QBoyka/pR1qEFntMcunXj+91LacjuqXP9kELNT5/pr0CgA=' },
+  'jack-esquenazi': { n: 37, b: '/mkqy/wSyJLQbr7Hrrt1XqXl26khmK7BVdUJB/qqqq/gFVEFAL4EP+vjTpwACJnFG2+HqDUOSBc9JD999D1qhoF5RTB/OA6O5vGS5pVPt88pVSqos+yP7hCiOTiVsD0PamSlTIYhybaoR2qvojczXnMuy7UPnAMCKPGC5694HQ54qrYkP/8ARX6MY/itMqqwUdzlG7rihd+l1TlW1K65ZBoDBNY6GR/vVT1tgA==' },
+  'nicolas-seguel': { n: 33, b: '/gi9P8EkklBuoKeLt1kGtduu+KLsFAOtB/qqqv4BNT4AvnZTviJ+eJtM3/CyxxCfLc9vKf3bQ8sHH32nKZ2hrgrMdztD3PZmHvt1tcsW2ZxQ6/t0o03fpS5dFkkQQzUwJTznq75z+IBNfMV/l3Dq0FLtMfupiO/F1ksqZuofP9kEngyc/pdD1QA=' },
+  'marcos-mella': { n: 37, b: '/mTBy/wRcFLQbraBrLt1LYXl26jHXK7BW+QZB/qqqq/gEq+BAL55lWvgqLlAKafk7W+32BI/axpm9S9/iq8ehoCpFrDnYZeSJjOy2i9ivEtuEcmkyBKv9wkxSDsdKiQPbmhsbqYhGi8JX2ukrrPzYzSERrWOaUIaKslk5+d7PnxKiKL1r/8AclysY/iMqqrwVFAlG7rUL5+11E4P1a6tk7oDBE0NFR/uJC1PgA==' },
 };
 
 const DEFAULT_CONFIG = { modo: 'auto', segundosInactividad: 90, mostrarContexto: true };
@@ -555,9 +585,15 @@ export default function mount(shell) {
             detalle: b.detalle, quienes: quienesDe(b), duracion: b.duracion,
           })),
           personas: PERSONAS.map((p) => ({
-            id: p.id, nombre: p.nombre, rol: p.rol,
+            id: p.id,
+            nombre: p.nombreLargo || p.nombre,
+            nombreEnPrograma: p.nombre,
+            rol: p.rol,
             organizacion: p.org ? ORGS[p.org].nombre : null,
-            nota: 'El programa oficial no incluye biografía de esta persona.',
+            perfil: p.url,
+            bio: p.bio || '(el programa oficial no incluye biografía de esta persona '
+              + 'y no se encontró fuente verificable; su perfil profesional está en `perfil`)',
+            fuente: p.fuente || null,
           })),
           contexto: CONTEXTO.map((c) => ({
             id: c.id, titulo: c.titulo, bajada: c.bajada, datos: c.datos, puntos: c.puntos,
@@ -624,10 +660,12 @@ export default function mount(shell) {
 
   /* ── Piezas de UI ──────────────────────────────────────────────────── */
 
+  // Envoltura <span>: las fichas son <button>, cuyo contenido debe ser
+  // phrasing content. El CSS le da display:block.
   function Qr(props) {
     const m = matrizQR(props.clave);
     if (!m) return null;
-    return h('div', { className: 'ai-qr' },
+    return h('span', { className: 'ai-qr' },
       h('svg', {
         viewBox: '-2 -2 ' + (m.n + 4) + ' ' + (m.n + 4),
         role: 'img', 'aria-label': 'Código QR: ' + (props.alt || props.titulo || ''),
@@ -780,9 +818,21 @@ export default function mount(shell) {
           bloques.map((b) => h('span', { className: 'ai-tag largo', key: b.id }, b.ini + ' · ' + b.tema))),
         abierta ? h('span', { className: 'ai-sp-mas' },
           h('span', { className: 'ai-sp-bio' },
-            'El programa oficial del seminario no incluye una biografía de '
-            + p.nombre + '. Lo que sí consta: ' + p.rol.toLowerCase()
-            + (org ? ' en ' + org.largo : '') + '.')) : null);
+            p.nombreLargo && p.nombreLargo !== p.nombre
+              ? h('span', { style: { display: 'block', fontWeight: 800, marginBottom: '.3em' } }, p.nombreLargo)
+              : null,
+            // Sin fuente verificada no se inventa biografía: se dice lo que
+            // consta y se remite al QR del perfil.
+            p.bio || ('El programa oficial del seminario no incluye una biografía de '
+              + p.nombre + '. Lo que sí consta: ' + p.rol.toLowerCase()
+              + (org ? ' en ' + org.largo : '') + '. Escanea el QR para ver su perfil profesional.'),
+            p.fuente
+              ? h('span', {
+                className: 'ai-qr-t',
+                style: { display: 'block', textAlign: 'left', letterSpacing: '.06em', marginTop: '.7em' },
+              }, 'Fuente: ' + p.fuente)
+              : null),
+          h(Qr, { clave: p.qr, titulo: 'Ver perfil', alt: p.url })) : null);
       })));
   }
 

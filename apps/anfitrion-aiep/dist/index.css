@@ -268,7 +268,11 @@
 .kimos-anfitrion-aiep .ai-tag.largo { white-space: normal; text-align: left; line-height: 1.4; }
 
 /* ───────────────────────── Personas ───────────────────────── */
-.kimos-anfitrion-aiep .ai-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: calc(var(--pad) * .55); }
+/* align-items:start para que una ficha desplegada no estire a sus vecinas. */
+.kimos-anfitrion-aiep .ai-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: calc(var(--pad) * .55); align-items: start;
+}
 .modo-totem.kimos-anfitrion-aiep .ai-grid { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
 .kimos-anfitrion-aiep .ai-sp {
   display: flex; flex-direction: column; gap: .9em; padding: var(--pad); text-align: left; width: 100%;
@@ -289,11 +293,17 @@
 .kimos-anfitrion-aiep .ai-sp-nom { font-size: var(--f-lg); font-weight: 800; color: #fff; line-height: 1.2; }
 .kimos-anfitrion-aiep .ai-sp-rol { font-size: var(--f-base); color: var(--ai-soft); margin-top: .2em; }
 .kimos-anfitrion-aiep .ai-sp-org { font-size: var(--f-base); font-weight: 800; color: #FFD9DC; margin-top: .2em; }
-.kimos-anfitrion-aiep .ai-sp-mas { border-top: 1px solid var(--ai-linea); padding-top: .9em; }
-.kimos-anfitrion-aiep .ai-sp-bio { font-size: var(--f-base); line-height: 1.55; }
+/* Biografía arriba a todo el ancho y QR debajo: en las tarjetas de la rejilla
+   (~490px en totem) ponerlos lado a lado dejaba la reseña en una columna
+   demasiado angosta. */
+.kimos-anfitrion-aiep .ai-sp-mas {
+  border-top: 1px solid var(--ai-linea); padding-top: .9em;
+  display: flex; flex-direction: column; gap: 1em; align-items: flex-start;
+}
+.kimos-anfitrion-aiep .ai-sp-bio { width: 100%; min-width: 0; font-size: var(--f-base); line-height: 1.55; }
 
 /* ───────────────────────── QR ───────────────────────── */
-.kimos-anfitrion-aiep .ai-qr { text-align: center; flex-shrink: 0; }
+.kimos-anfitrion-aiep .ai-qr { display: block; text-align: center; flex-shrink: 0; }
 .kimos-anfitrion-aiep .ai-qr svg {
   display: block; width: 9em; height: 9em; background: #fff; border-radius: 8px; padding: .4em;
 }

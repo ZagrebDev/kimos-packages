@@ -5,7 +5,7 @@ Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquí
 organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 1.0.0**
+**Versión actual: 1.1.0**
 
 ---
 
@@ -38,11 +38,19 @@ Independencia.
 | Programa, horarios, sede y personas | Documento oficial «Programa Seminario IA» del organizador |
 | Título, subtítulo, fecha e identidad visual | Afiche oficial del seminario |
 | Logos AIEP y Centros de Negocios SERCOTEC | Extraídos del propio `.docx` del programa |
+| Perfiles profesionales de los cuatro expositores | URLs entregadas por el organizador |
 | Sección «Contexto» | Fuentes públicas — marcado en pantalla como material complementario |
 
-**Nada está inventado.** El programa oficial no incluye biografías, así que las
-fichas de las cuatro personas **no las inventan**: dicen explícitamente que el
-programa no las trae y muestran solo el cargo que sí consta.
+**Nada está inventado.** El programa oficial no incluye biografías. De las cuatro
+personas, solo **Jack Esquenazi** tiene material público verificable, así que es
+la única con biografía —y su ficha declara la fuente en pantalla—. Las otras tres
+**no la inventan**: dicen que el programa no la trae, muestran el cargo que sí
+consta y remiten al QR de su perfil.
+
+**Un nombre a confirmar:** el programa escribe «Marcos Mella» y su perfil
+profesional figura como «Marco Antonio Mella González». El cronograma respeta el
+programa y la ficha muestra el nombre completo; conviene verificar cuál va en el
+material impreso.
 
 ### Dos inconsistencias del documento original
 
@@ -75,7 +83,8 @@ agente:
    barra de avance y el siguiente. Fecha, horario, sede y QR del mapa.
 2. **Programa** — los siete bloques, el actual resaltado en rojo y los pasados
    atenuados.
-3. **Expositores** — las cuatro personas, con el bloque en que participan.
+3. **Expositores** — las cuatro personas, con el bloque en que participan; al
+   tocar una ficha se abre su reseña y el QR a su perfil profesional.
 4. **Contexto** — Ley 21.719 y qué es un Centro de Negocios SERCOTEC. Se puede
    ocultar entera desde ⚙️ Configurar.
 5. **Consulta** — dos preguntas y una recomendación de qué bloques ver, con
@@ -113,13 +122,16 @@ la franja inferior del afiche.
 
 ## QR
 
-Tres códigos precalculados en build (paquete `qrcode`, nivel M) y embebidos como
-matriz de bits en base64: mapa de la sede, `sercotec.cl` y `aiep.cl`. El totem no
-carga un generador ni depende de la red. Se rinden como un único `<path>` SVG
-por código.
+Siete códigos precalculados en build (paquete `qrcode`, nivel M) y embebidos como
+matriz de bits en base64: mapa de la sede, `sercotec.cl`, `aiep.cl` y el perfil
+profesional de cada uno de los cuatro expositores. El totem no carga un generador
+ni depende de la red. Se rinden como un único `<path>` SVG por código.
+
+Los cuatro QR de perfil se verificaron **decodificándolos con `jsQR`** a la
+resolución a la que se pintan: los cuatro devuelven su URL exacta.
 
 > El organizador no entregó una URL de landing del seminario. Si aparece, se
-> añade un cuarto QR en un minuto.
+> añade un octavo QR en un minuto.
 
 ## Persistencia
 
@@ -177,4 +189,5 @@ node tools/pack.mjs apps/anfitrion-aiep
 
 | Versión | Cambios |
 |---------|---------|
+| 1.1.0 | Perfiles profesionales de los cuatro expositores: QR por persona en la ficha desplegable (verificados con `jsQR`), biografía de Jack Esquenazi con su fuente, y nombre completo de Marco Antonio Mella González junto al «Marcos Mella» del programa. |
 | 1.0.0 | Primera versión: seis secciones, programa de siete bloques con bloque en vivo, cuatro expositores, contexto complementario, consulta guiada, tablón de preguntas y encuesta colectivos, tres QR embebidos, logos oficiales extraídos del `.docx` y reinicio por inactividad. |
