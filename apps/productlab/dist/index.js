@@ -226,6 +226,10 @@ export default function mount(shell) {
       // defecto. Vacío = cada producto con su estilo propio.
       styleTemplates: [],
       styleDefaultId: '',
+      // Plantillas de HERO/secciones del builder: una sección guardada una
+      // vez y reutilizable en cualquier producto (se inserta como COPIA:
+      // después se le cambia el fondo o los textos sin afectar a los demás).
+      heroTemplates: [],
       // Bloque leído por el gateway público (theme de la tienda):
       public: { enabled: false, channels: [], data: null },
     };
@@ -481,8 +485,13 @@ export default function mount(shell) {
   }
   // Costo neto en moneda base: costo de proveedor (convertido si viene en otra
   // moneda) + impuesto adicional % (aduana/importación, servicio externo…).
+  // Si el costo se cargó CON el impuesto de venta incluido (boleta con IVA en
+  // vez de factura neta), primero se le descuenta: el margen siempre se aplica
+  // sobre el neto, y el IVA de venta se suma una sola vez en componentGross.
   function componentNetCost(c) {
-    return costBase(c.cost, c.currency) * (1 + Math.max(0, num(c.taxPct)) / 100);
+    const base = costBase(c.cost, c.currency);
+    const neto = c.costConIva ? base / (1 + Math.max(0, num(rules().salesTaxPct, 19)) / 100) : base;
+    return neto * (1 + Math.max(0, num(c.taxPct)) / 100);
   }
   // Precio bruto de venta de un componente (sin redondear): margen del tipo +
   // impuesto de venta.
@@ -600,13 +609,19 @@ export default function mount(shell) {
     const bc = bundleComps(v);
     return bc ? bc[0] : null;
   }
-  // Foto del valor: la propia y, si no tiene, la del primer componente DEL
-  // CONJUNTO que tenga foto. Antes solo se miraba el primer componente a
-  // secas: un valor "CPU + placa" cuya CPU no tiene foto salía en blanco
-  // aunque la placa sí tuviera.
-  function valueImage(v) {
+  // Foto del valor: la propia y, si no tiene, la de un componente del TIPO
+  // DEL PASO (pasando el grupo). Los componentes de OTROS tipos que el valor
+  // suma (una fuente de poder colgando de un paso de GPU) NO prestan su foto:
+  // el valor "Integrada" (GPU sin foto + fuente asociada) salía con la foto
+  // de la fuente — comportamiento explícitamente no deseado (2026-08-22). Si
+  // el componente del tipo propio no tiene foto, la card va SIN imagen; la
+  // escotilla es v.imageUrl (foto manual del valor), que siempre manda.
+  // Sin grupo (llamadas viejas) se conserva el barrido por todo el conjunto.
+  function valueImage(v, g) {
     if (s(v && v.imageUrl).trim()) return s(v.imageUrl).trim();
-    const con = valueComps(v).find((c) => s(c.imageUrl).trim());
+    const comps = valueComps(v);
+    const pool = g ? comps.filter((c) => c.type === g.typeId) : comps;
+    const con = pool.find((c) => s(c.imageUrl).trim());
     return con ? s(con.imageUrl).trim() : '';
   }
   /** Componentes que este valor INCLUYE de verdad: uno por tipo, sumados. */
@@ -881,6 +896,9 @@ export default function mount(shell) {
       imageUrl: s(draft.imageUrl).trim(),
       currency: normCurrency(draft.currency),
       cost: num(draft.cost, 0),
+      // true = el costo se cargó CON el impuesto de venta (IVA) incluido; se
+      // descuenta antes de aplicar margen. false/ausente = costo neto (histórico).
+      costConIva: draft.costConIva === true || /^(s[ií]|true|1|x)$/i.test(s(draft.costConIva).trim()),
       // Impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin impuesto.
       taxPct: Math.max(0, num(draft.taxPct, 0)),
       supplierName: s(draft.supplierName).trim(),
@@ -1104,7 +1122,12 @@ export default function mount(shell) {
           cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
           // visor = foto grande + miniaturas debajo · lado = miniaturas en
           // columna a la izquierda · mosaico = solo la grilla, sin visor
-          layout: ['lado', 'mosaico'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          layout: ['lado', 'mosaico', 'panel'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          // 'panel': la foto elegida a un lado usando TODO el alto, sin marco
+          // ni flechas, y el resto como mosaico que llena el ancho y alto
+          // restantes (la elegida queda marcada). El mosaico puede ir a la
+          // derecha o a la izquierda.
+          panelLado: f.panelLado === 'izq' ? 'izq' : 'der',
           mainSize: ['s', 'l', 'xl', 'auto'].indexOf(f.mainSize) !== -1 ? f.mainSize : 'm',
           thumbSize: ['s', 'l'].indexOf(f.thumbSize) !== -1 ? f.thumbSize : 'm',
           // contain = la foto entera · cover = recortada a un formato común
@@ -1135,6 +1158,43 @@ export default function mount(shell) {
       name: s(t && t.name).trim() || 'Plantilla',
       style: normalizeStyle(t && t.style),
     })).filter((t) => t.name);
+  }
+  // ── Plantillas de HERO/secciones del builder (def.heroTemplates) ─────────
+  // Una sección de la Experiencia guardada UNA vez y reutilizable en todos
+  // los productos de la instancia. Se inserta como COPIA (ids regenerados):
+  // después se cambia el fondo o los textos sin afectar a quien la originó.
+  function heroTemplatesList() {
+    const raw = (model.def && Array.isArray(model.def.heroTemplates)) ? model.def.heroTemplates : [];
+    return raw
+      .map((t) => ({ id: s(t && t.id).trim() || newId('htpl'), name: s(t && t.name).trim() || 'Plantilla',
+        section: normalizePageSection(t && t.section) }))
+      .filter((t) => t.section && (t.section.kind === 'hero' || t.section.kind === 'imagen' || t.section.kind === 'faq'));
+  }
+  // Copia profunda con TODOS los ids regenerados: insertar la misma plantilla
+  // dos veces en un producto no puede duplicar ids (keys de React, selección
+  // del builder y drag&drop se guían por ellos).
+  function clonarSeccionConIdsNuevos(secc) {
+    const c = JSON.parse(JSON.stringify(secc));
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o && typeof o === 'object') {
+        if (typeof o.id === 'string' && o.id) o.id = newId(o.id.split('-')[0] || 'ps');
+        Object.keys(o).forEach((k) => walk(o[k]));
+      }
+    };
+    walk(c);
+    return c;
+  }
+  async function guardarHeroTemplate(secc, nombre) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : [])
+      .concat([{ id: newId('htpl'), name: s(nombre).trim(), section: clonarSeccionConIdsNuevos(secc) }]);
+    return saveDefinition(next, ['heroTemplates']);
+  }
+  async function borrarHeroTemplate(id) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : []).filter((t) => t && t.id !== id);
+    return saveDefinition(next, ['heroTemplates']);
   }
   function styleTemplateById(id) {
     const k = s(id).trim();
@@ -1382,7 +1442,46 @@ export default function mount(shell) {
   function normalizePageSection(x) {
     if (!x || typeof x !== 'object') return null;
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
-      return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width) };
+      return {
+        id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width),
+        // Título propio de la sección (contenido, tamaño y alineación) y
+        // color de fondo del bloque — pedidos para integrar Fotos y
+        // Especificaciones al lenguaje del resto de la experiencia. Vacíos =
+        // como siempre. (Allowlist: lo que no esté aquí, se pierde al guardar.)
+        title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+      };
+    }
+    // Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas que el
+    // cliente despliega una a una. Repetible, como los heros. (Pasa por esta
+    // normalización en CADA guardado: campo que no esté aquí, campo que se
+    // pierde — la lección del allowlist.)
+    if (x.kind === 'faq') {
+      return {
+        id: x.id || newId('ps'),
+        kind: 'faq',
+        // Título con el MISMO sistema que Fotos/Especificaciones (tamaño,
+        // alineación, fondo) + diseño propio del acordeón: tamaño de letra,
+        // alineación del texto y ancho del bloque. (Allowlist: campo que no
+        // esté aquí, campo que se pierde al guardar.)
+        title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+        textSize: ['s', 'l'].indexOf(x.textSize) !== -1 ? x.textSize : 'm',
+        align: x.align === 'center' ? 'center' : 'left',
+        boxWidth: ['s', 'm', 'l'].indexOf(x.boxWidth) !== -1 ? x.boxWidth : '',
+        width: sectionWidth(x.width),
+        items: (Array.isArray(x.items) ? x.items : []).filter(Boolean)
+          .map((it) => ({
+            id: it.id || newId('fq'),
+            q: s(it.q != null ? it.q : it.pregunta).trim(),
+            a: s(it.a != null ? it.a : it.respuesta).trim(),
+          }))
+          .filter((it) => it.q),
+      };
     }
     // Sección IMAGEN (ProductLab): solo una foto, a lo ancho, cuyo ALTO se
     // adapta a la imagen (sin recortes) — ideal para descripciones hechas de
@@ -1570,10 +1669,18 @@ export default function mount(shell) {
         .map((v) => ({
           id: v.id || newId('val'),
           label: s(v.label).trim(),
+          // Detalle manual bajo el nombre en la tienda (vacío = automático).
+          // OJO: esta lista es un ALLOWLIST — un campo nuevo del valor que no
+          // se agregue aquí se PIERDE en cada guardado (pasó con este mismo:
+          // el usuario escribía el detalle y Guardar lo recortaba, 2026-08-25).
+          detalle: s(v.detalle).trim(),
           imageUrl: s(v.imageUrl).trim(),
           // Color del "puntito" (swatch) en la tienda para pasos de color.
           swatchColor: s(v.swatchColor).trim(),
           componentIds: (v.componentIds || []).filter((id) => compById(id)),
+          // Candado "componente exacto" (no acepta alternativos) — otro campo
+          // que este allowlist perdía en cada guardado.
+          soloExacto: (Array.isArray(v.soloExacto) ? v.soloExacto : []).filter((id) => compById(id)),
           // Cantidad de unidades del componente elegido (ej. 2 para "2×8GB");
           // multiplica el precio y exige stock suficiente.
           qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
@@ -1598,6 +1705,13 @@ export default function mount(shell) {
         id: g.id || newId('grp'),
         typeId: s(g.typeId) || 'other',
         label: s(g.label).trim(),
+        // Comentario del paso (bajo el título en la tienda). Mismo aviso que
+        // en los valores: campo fuera de este allowlist = campo que Guardar
+        // recorta.
+        nota: s(g.nota).trim(),
+        // Paso COMPONENTE BASE (el cliente no lo elige) — también faltaba en
+        // el allowlist: marcarlo y guardar lo desmarcaba.
+        baseStep: g.baseStep === true,
         // photoStep: la selección de este paso cambia la foto del producto en
         // la tienda (ej. color) usando la imagen del valor elegido.
         photoStep: g.photoStep === true,
@@ -1627,7 +1741,7 @@ export default function mount(shell) {
       const seen = {};
       const out = (Array.isArray(sf.pageSections) ? sf.pageSections : [])
         .map(normalizePageSection).filter(Boolean)
-        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
+        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
       // Solo la primera vez, y solo si tampoco hay hero clásico con contenido:
       // si el usuario ya escribió titular ahí, sembrar otro sería duplicar.
       const heroClasico = s(hero.headline).trim() || s(hero.bgImageUrl).trim();
@@ -2037,7 +2151,7 @@ export default function mount(shell) {
           else { vv.stock = st; vv.stockUnlimited = false; }
           // Foto del color: el backend la asegura como imagen del producto y
           // la asocia a la variante (image_id) — es la miniatura del carro.
-          const img = v.sintetico ? '' : valueImage(v);
+          const img = v.sintetico ? '' : valueImage(v, x.g);
           if (img) vv.imageUrl = img;
           const ex = exBySig.get(sig(opts));
           if (ex && ex.sourceVariantId) vv.sourceVariantId = ex.sourceVariantId;
@@ -2093,6 +2207,30 @@ export default function mount(shell) {
   // La descripción del producto vive EN LA TIENDA (item de la app Productos):
   // editarla desde ProductLab la escribe allí y la empuja a Jumpseller —
   // sin abrir la app Productos.
+  // PULL: la tienda manda en descripción y stock. Trae a KIMOS lo que hay
+  // allá ahora mismo — sin escribir nada en la tienda. Es la dirección que
+  // faltaba: sin ella la copia local envejecía con cada edición de la ficha
+  // y con cada venta.
+  async function traerDeLaTienda(eq) {
+    const ref = storeRefOf(eq);
+    if (!ref) return { success: false, error: 'El producto no está enlazado a la tienda.' };
+    if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
+    try {
+      const r = await fetchReintento(API + '/api/app-instances/' + ref.instanceId + '/items/' + ref.itemId + '/pull-from-store', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }, 2);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return { success: false, error: s(d.detail) || ('HTTP ' + r.status) };
+      const campos = Object.keys((d && d.cambios) || {});
+      await loadCatalog();   // el item vive en la app Productos: recargar para verlo
+      return {
+        success: true, cambios: campos.length,
+        message: campos.length
+          ? 'Traído de la tienda: ' + campos.join(', ') + ' (lo anterior quedó registrado en la auditoría).'
+          : 'Ya estaba al día con la tienda.',
+      };
+    } catch (e) { return { success: false, error: (e && e.message) || 'error de red' }; }
+  }
   async function pushDescripcionTienda(eq, html) {
     const ref = storeRefOf(eq);
     if (!ref || !shell.authFetch) return { success: false };
@@ -2145,7 +2283,10 @@ export default function mount(shell) {
     } catch (e) { return { success: false }; }
   }
 
-  async function applyToStore(eq) {
+  async function applyToStore(eq, opts) {
+    // `conStock: true` = el usuario PIDIÓ escribir el stock en la tienda
+    // (botón dedicado). Por defecto NO se escribe: ver el comentario del PUT.
+    const conStock = !!(opts && opts.conStock);
     const ref = storeRefOf(eq);
     if (!ref) return { success: false, error: 'El producto no está enlazado a un producto de la tienda (usa "Enlazar producto…").' };
     if (!shell.authFetch) return { success: false, error: 'authFetch no disponible en este host.' };
@@ -2156,6 +2297,12 @@ export default function mount(shell) {
     const hasSteps = gruposPersonalizables(eq).length > 0;
     const n = comboCount(eq);
     if (hasSteps && n === 0) return { success: false, error: 'Hay pasos sin componentes activos.' };
+    // PRIMERO LEER LA TIENDA. Escribir sobre una copia envejecida es cómo se
+    // pierde trabajo: quien editó la ficha en el ecommerce (o vendió una
+    // unidad) tiene la verdad. El pull refresca descripción/stock/nombre en
+    // el item ANTES de calcular nada. Best-effort: si la tienda no responde
+    // se sigue con lo que hay (aplicar no puede quedar bloqueado por esto).
+    await traerDeLaTienda(eq).catch(() => null);
     const existing = await fetchProductItem(ref);
     // Sin el estado actual del item NO se aplica: se regenerarían opciones y
     // variantes sin sourceIds y el push las recrearía en Jumpseller (ids
@@ -2201,16 +2348,20 @@ export default function mount(shell) {
         // El backend asegura el custom field en
         // Jumpseller tras el push — activa la vista personalizada del theme
         // sin pasos manuales.
-        // STOCK: calculado de los componentes base — ∞ (nadie controla) se
-        // publica como stock ilimitado en la tienda; con control, el mínimo.
-        // Sin componentes base no se toca (manda lo que gestione la tienda).
+        // STOCK: NO viaja al aplicar. Su verdad la lleva la tienda, que lo
+        // baja con CADA VENTA; escribirlo de rebote al cambiar un precio
+        // "des-vendía" lo vendido y era la misma pérdida de datos que la de
+        // la descripción. Se escribe SOLO cuando alguien lo pide (opción
+        // `conStock`, botón "Escribir stock en la tienda"), viendo antes las
+        // dos cifras. Gestionar pedidos/ventas será otra app; esto solo evita
+        // perder el dato mientras tanto.
         // NOMBRE: el de ProductLab manda — renombrar aquí renombra en la
         // tienda al aplicar (antes solo viajaban precio/opciones y el nombre
         // viejo se quedaba en Jumpseller para siempre).
         body: JSON.stringify(Object.assign(
           s(eq.name).trim() ? { name: s(eq.name).trim() } : {},
           { price, options, variants, customFields: storeCustomFields(), syncStatus: 'pending' },
-          ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true))
+          (conStock && ((eq.baseComponentIds || []).length || (eq.groups || []).some((g) => g && g.baseStep === true)))
             ? (productoStock(eq) == null
                 ? { stockUnlimited: true }
                 : { stock: productoStock(eq), stockUnlimited: false })
@@ -2380,6 +2531,21 @@ export default function mount(shell) {
       // storefront.style; el theme acepta version 1 sin cambios (degradación).
       version: 2,
       updatedAt: nowIso(),
+      // Versión del kit que acompaña a ESTA app (los archivos de assets/, los
+      // mismos del KIT MANUAL). El kit del theme la compara con la suya y
+      // grita en consola si quedó viejo — un theme activado desde un zip
+      // puede traer assets antiguos. Mantener sincronizada en cada release.
+      kitExpected: '6.8.1',
+      // Vencimiento local del kit (licencia, opción b del usuario): días de
+      // gracia desde la última publicación; pasado el plazo el kit del theme
+      // deja de montar la experiencia y queda la ficha nativa (que cobra
+      // bien). 0 = no vence. Se fija en la pestaña Publicación; publicar
+      // renueva el plazo solo. Es 100% local en el kit: ninguna caída de
+      // KIMOS puede gatillarlo.
+      kitTtlDias: (function () {
+        const v = ((model.def || {}).public || {}).kitTtlDias;
+        return v == null || v === '' ? 90 : Math.max(0, num(v, 90));
+      })(),
       currency: rules().currency,
       store: s((model.def || {}).storeName).trim() || s(instanceId),
       productos: model.productos.filter((eq) => eq.status !== 'inactive').map((eq) => {
@@ -2472,6 +2638,10 @@ export default function mount(shell) {
             return {
               id: g.id,
               label: g.label || typeLabel(g.typeId),
+              // Comentario del paso, escrito a mano: el kit lo muestra bajo
+              // el título — es la voz del dueño en el paso a paso (aclarar
+              // criterios, compatibilidades, recomendaciones).
+              nota: s(g.nota).trim(),
               type: g.typeId,
               affectsPhoto: g.photoStep === true,
               // Dependencia: el theme oculta este paso salvo que el paso
@@ -2486,14 +2656,24 @@ export default function mount(shell) {
               // (la más económica disponible) al momento de publicar.
               values: groupValues(g).filter(valueAvailable).map((v) => {
                 const alt = valueChosen(v);
+                // Detalle bajo el nombre de la card. El NOMBRE es del dueño
+                // (verbatim, el kit ya no le antepone nada); la transparencia
+                // de qué lleva el valor va AQUÍ: "2× <componente/specs>". El
+                // detalle manual (v.detalle) manda tal cual si existe.
+                const q = valueQty(v);
+                const detalleAuto = (function () {
+                  const base = alt ? s(alt.specs).trim() || s(alt.name).trim() : '';
+                  if (!base) return q > 1 ? q + '×' : '';
+                  return (q > 1 ? q + '× ' : '') + base;
+                })();
                 return {
                   id: v.id,
                   name: v.label,
-                  // Cantidad informativa (el nombre ya debería decirlo: "2×8GB").
-                  qty: valueQty(v),
-                  desc: alt ? alt.specs || '' : '',
+                  // Cantidad informativa (el detalle ya la dice: "2× 8GB…").
+                  qty: q,
+                  desc: s(v.detalle).trim() || detalleAuto,
                   swatchColor: v.swatchColor || '',
-                  imageUrl: valueImage(v),
+                  imageUrl: valueImage(v, g),
                   delta: deltaFor(g, v, eq),
                   deliveryDays: valueDeliveryDays(v),
                   tags: alt ? alt.tags || [] : [],
@@ -2520,6 +2700,11 @@ export default function mount(shell) {
   // Republicación automática: cualquier cambio que afecte lo publicado
   // (componentes, productos, reglas) regenera el JSON público solo, con un
   // pequeño debounce para agrupar ediciones seguidas. Cero botón "Republicar".
+  // SOLO KIMOS (modelo de 3 velocidades del usuario): GUARDAR no escribe en
+  // Jumpseller — ni fotos, ni páginas, ni precios; eso lo hacen los botones
+  // explícitos "Actualizar precios" y "Rearmar producto". Aquí solo se
+  // refresca la copia barata en KIMOS (para el agente y el respaldo de
+  // arranque), con debounce.
   let republishTimer = null;
   function scheduleRepublish() {
     const pub = model.def && model.def.public;
@@ -2527,7 +2712,7 @@ export default function mount(shell) {
     if (republishTimer) clearTimeout(republishTimer);
     republishTimer = setTimeout(() => {
       republishTimer = null;
-      void publish(true);
+      void publish(true, { soloKimos: true });
     }, 1200);
   }
   // ── Canal "la tienda se sirve sola": copia del JSON en una PÁGINA de la
@@ -2539,7 +2724,14 @@ export default function mount(shell) {
     return ('kimos-productlab-' + s(instanceId)).toLowerCase()
       .replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
   }
-  async function pushPaginaTienda(data) {
+  // Página POR PRODUCTO: `<página de la instancia>-p<id de producto en la
+  // tienda>`. El kit la deriva igual (conoce el id del producto en cuya ficha
+  // corre), así que no necesita a KIMOS para encontrarla. Publicar UN
+  // producto toca SU página y nada más.
+  function permalinkProducto(sourceId) {
+    return (permalinkTienda() + '-p' + s(sourceId)).slice(0, 80);
+  }
+  async function pushPaginaTienda(data, permalink, titulo) {
     if (!shell.authFetch) return { ok: false, error: 'authFetch no disponible en este host.' };
     // `data` null = despublicar: la página queda con el marcador vacío y el
     // kit cae a KIMOS (que responde 403) — la tienda deja de configurar.
@@ -2556,7 +2748,7 @@ export default function mount(shell) {
     try {
       const r = await fetchReintento(API + '/api/integrations/jumpseller/config-page', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permalink: permalinkTienda(), title: 'KIMOS ProductLab (datos)', body: cuerpo }),
+        body: JSON.stringify({ permalink: s(permalink) || permalinkTienda(), title: s(titulo) || 'KIMOS ProductLab (datos)', body: cuerpo }),
       }, 2);
       const d2 = await r.json().catch(() => ({}));
       if (!r.ok) return { ok: false, error: s(d2.detail) || ('HTTP ' + r.status) };
@@ -2587,9 +2779,14 @@ export default function mount(shell) {
   function urlsDeKimos(nodo, out) {
     out = out || [];
     if (typeof nodo === 'string') {
-      const esKimos = nodo.indexOf(API + '/api/public/') === 0;
-      const esImagenExterna = /^https?:\/\//i.test(nodo)
-        && /\.(jpe?g|png|webp|gif|avif)([?#]|$)/i.test(nodo)
+      // SOLO strings con pinta de IMAGEN — también para las de KIMOS: sin el
+      // filtro, un .glb (o cualquier archivo servido por /api/public/)
+      // entraba al espejo, el backend lo descartaba en silencio y la app lo
+      // contaba como "pendiente" para siempre (caso real: 4 pendientes
+      // eternas e inexplicables, 2026-08-22).
+      const esImagen = /\.(jpe?g|png|webp|gif|avif|svg|jfif|bmp)([?#]|$)/i.test(nodo);
+      const esKimos = nodo.indexOf(API + '/api/public/') === 0 && esImagen;
+      const esImagenExterna = /^https?:\/\//i.test(nodo) && esImagen
         && !/^https?:\/\/[^/]*jumpseller\.(com|cl)\//i.test(nodo);
       if ((esKimos || esImagenExterna) && out.indexOf(nodo) === -1) out.push(nodo);
     } else if (Array.isArray(nodo)) {
@@ -2610,80 +2807,218 @@ export default function mount(shell) {
     return nodo;
   }
   // Cada producto aloja LO SUYO en su propio producto de la tienda.
-  async function alojarImagenesFicha(data) {
-    if (!shell.authFetch || !data || !Array.isArray(data.productos)) {
-      return { data, copiadas: 0, pendientes: 0, errores: [] };
+  // Espejo de imágenes de UN producto: sus fotos alojables (KIMOS + externas)
+  // van como adjuntos de SU producto en la tienda y el nodo vuelve reescrito.
+  // Pasada corta por diseño: una llamada por producto, con presupuesto de
+  // tiempo en el backend — la respuesta con el mapa SIEMPRE vuelve (era el
+  // 502 del gateway en las pasadas largas lo que dejaba los archivos subidos
+  // pero el catálogo sin reescribir, publicación tras publicación).
+  async function alojarImagenesProducto(p, mapaPrevio, pendPrevio) {
+    // Del nodo CRUDO salen las fotos alojables; las que el mapa persistente
+    // ya cubre viajan como `alojadas` para VERIFICARSE (¿el adjunto sigue en
+    // la tienda?) y solo las demás van a subida. Sin la verificación, un
+    // adjunto borrado de la tienda (el "borrón y cuenta nueva") dejaba la
+    // ficha con la foto ROTA para siempre: el mapa se aplicaba sin red y el
+    // espejo excluye las URLs de Jumpseller — Rearmar jamás la recuperaba.
+    const mapa0 = mapaPrevio || {};
+    const urlsRaw = urlsDeKimos(p);
+    const alojadas = {};
+    const urls = [];
+    urlsRaw.forEach((u) => { if (mapa0[u]) alojadas[u] = mapa0[u]; else urls.push(u); });
+    const nodo = reemplazarUrls(p, mapa0);
+    const sid = s(nodo && nodo.productId).trim();
+    // `urlsEspejo` son las URLs cuyo rastreo (assetPend) queda a cargo de ESTA
+    // llamada: el caller borra sus entradas y adopta las devueltas en `pend`.
+    // Si el espejo NO llegó a correr (sin enlace, sin red, HTTP no-ok), se
+    // devuelve vacío para NO borrar un rastreo que nadie actualizó.
+    const out = { p: nodo, copiadas: 0, pendientes: urls.length, enProceso: 0, avisos: [], motor: '', nuevos: {}, pend: {}, muertas: [], sinMapear: [], urlsEspejo: [] };
+    if (!shell.authFetch || !sid || (!urls.length && !Object.keys(alojadas).length)) {
+      if (!sid && urls.length) out.avisos.push('sin enlace a la tienda: sus imágenes no pueden alojarse (aplica el producto primero)');
+      if (!urls.length) out.pendientes = 0;
+      return out;
     }
-    let copiadas = 0; let pendientes = 0; const errores = [];
-    const productos = [];
-    for (const p of data.productos) {
-      const sid = s(p && p.productId).trim();
-      const urls = urlsDeKimos(p);
-      if (!sid || !urls.length) { productos.push(p); pendientes += urls.length; continue; }
-      try {
-        const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-product-assets', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sourceId: sid, urls }),
-        }, 2);
-        const d = await r.json().catch(() => ({}));
-        const mapa = (d && d.map) || {};
-        const n = Object.keys(mapa).length;
-        copiadas += n; pendientes += urls.length - n;
-        // El DIAG del backend (la forma real del listado de adjuntos) se
-        // muestra SIEMPRE: recortar a los 2 primeros errores lo dejaba fuera
-        // justo cuando más falta hacía.
-        if (d && d.errors && d.errors.length) {
-          const diag = d.errors.filter((x) => String(x).indexOf('DIAG') === 0);
-          const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
-          errores.push(...otros.slice(0, 2), ...diag.slice(0, 1));
-        } else if (!r.ok) errores.push(s(d.detail) || ('HTTP ' + r.status));
-        productos.push(n ? reemplazarUrls(p, mapa) : p);
-      } catch (e) {
-        pendientes += urls.length;
-        errores.push((e && e.message) || 'error de red');
-        productos.push(p);
+    // Rastreo POR ID de lo aún en proceso (assetPend, persistido junto al
+    // mapa): el listado de adjuntos de la tienda no trae nombre de archivo,
+    // así que un adjunto sin URL es anónimo — solo con el id que devolvió su
+    // subida el backend puede recogerlo después SIN re-subirlo (re-subir
+    // re-encolaba el procesado y las URLs no salían nunca).
+    const pending = {};
+    urls.forEach((u) => { if (pendPrevio && pendPrevio[u]) pending[u] = pendPrevio[u]; });
+    try {
+      const r = await fetchReintento(API + '/api/integrations/jumpseller/mirror-product-assets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceId: sid, urls, pending, alojadas }),
+      }, 2);
+      const d = await r.json().catch(() => ({}));
+      const mapaNuevo = (d && d.map) || {};
+      const n = Object.keys(mapaNuevo).length;
+      out.muertas = (d && Array.isArray(d.dead)) ? d.dead : [];
+      out.copiadas = n; out.pendientes = Math.max(0, urls.length + out.muertas.length - n);
+      // Solo una respuesta REAL del espejo asume el rastreo de estas URLs;
+      // un HTTP no-ok conserva el rastreo previo tal cual.
+      if (r.ok) {
+        out.pend = (d && d.pending) || {};
+        out.urlsEspejo = urls.concat(out.muertas);
       }
+      out.enProceso = Object.keys(out.pend).length;
+      out.motor = s(d && d.motor);
+      // El DIAG del backend (la forma real del listado de adjuntos) se
+      // muestra SIEMPRE: recortar a los 2 primeros errores lo dejaba fuera
+      // justo cuando más falta hacía.
+      if (d && d.errors && d.errors.length) {
+        const diag = d.errors.filter((x) => String(x).indexOf('DIAG') === 0);
+        const otros = d.errors.filter((x) => String(x).indexOf('DIAG') !== 0);
+        out.avisos.push(...otros.slice(0, 3), ...diag.slice(0, 1));
+      } else if (!r.ok) out.avisos.push(s(d.detail) || ('HTTP ' + r.status));
+      // Nombres de lo que quedó SIN alojar y SIN rastreo: la diferencia entre
+      // "13 pendientes" a secas y saber QUÉ archivos son (y poder actuar).
+      out.sinMapear = urls.filter((u) => !mapaNuevo[u] && !out.pend[u])
+        .map((u) => u.split('?')[0].split('#')[0].split('/').pop());
+      if (n || out.muertas.length) {
+        // Mapa efectivo de ESTA entrada: lo vivo verificado + lo recién
+        // alojado. Lo muerto sin reemplazo queda SIN mapear: la foto vuelve a
+        // servirse desde su origen (KIMOS/proveedor) hasta que el re-alojado
+        // la recoja — rota jamás.
+        const efectivo = Object.assign({}, alojadas, mapaNuevo);
+        out.muertas.forEach((u) => { if (!mapaNuevo[u]) delete efectivo[u]; });
+        out.p = reemplazarUrls(p, efectivo);
+        out.nuevos = mapaNuevo;
+      }
+    } catch (e) {
+      out.avisos.push((e && e.message) || 'error de red');
     }
-    return { data: Object.assign({}, data, { productos }), copiadas, pendientes, errores };
+    return out;
   }
-  async function publish(enabled) {
+  // Publica UN producto de punta a punta: aloja SUS fotos, sella su versión
+  // (pubAt) y escribe SU página en la tienda (permalink -p<id>). Es la unidad
+  // del enfoque por producto: pasadas cortas, con resultado visible por
+  // producto, en vez de una carga monolítica de minutos.
+  async function publicarUno(entry0, marco, mapaPrevio, pendPrevio) {
+    const al = await alojarImagenesProducto(entry0, mapaPrevio, pendPrevio);
+    const pubAt = nowIso();
+    const entry = Object.assign({}, al.p, { pubAt });
+    const sid = s(entry.productId).trim();
+    let page = { ok: false, aviso: 'sin enlace a la tienda: sin página propia' };
+    if (sid) {
+      const defProd = {
+        version: marco.version, updatedAt: pubAt, kitExpected: marco.kitExpected,
+        kitTtlDias: marco.kitTtlDias, currency: marco.currency, store: marco.store, productos: [entry],
+      };
+      const rp = await pushPaginaTienda(defProd, permalinkProducto(sid),
+        'KIMOS ProductLab (datos · ' + (s(entry.sku) || s(entry.name)) + ')');
+      page = { ok: rp.ok === true, permalink: s(rp.permalink), bytes: num(rp.bytes),
+        aviso: s(rp.aviso || (rp.ok ? '' : rp.error)), kitTienda: s(rp.kitTienda) };
+    }
+    const avisos = al.avisos.slice();
+    if (!page.ok && page.aviso) avisos.push('página del producto: ' + page.aviso);
+    return { entry, copiadas: al.copiadas, pendientes: al.pendientes, enProceso: al.enProceso,
+      avisos, motor: al.motor, page, nuevos: al.nuevos || {}, pend: al.pend || {},
+      muertas: al.muertas || [], sinMapear: al.sinMapear || [], urlsEspejo: al.urlsEspejo || [] };
+  }
+  // ¿La entrada del producto cambió respecto de lo YA publicado? (se compara
+  // sin el sello pubAt). Si no cambió, republicar no toca ni el espejo ni su
+  // página: el auto-refresco tras cada guardado deja de escribir de más.
+  function entradaIgualPublicada(entry0, previa, mapaPrevio) {
+    if (!previa) return null;
+    const sinSello = (e) => { const c = Object.assign({}, e); delete c.pubAt; return JSON.stringify(c); };
+    return sinSello(reemplazarUrls(entry0, mapaPrevio || {})) === sinSello(previa) ? previa : null;
+  }
+  async function publish(enabled, opts) {
+    const soloKimos = !!(opts && opts.soloKimos);
     const def = Object.assign({}, model.def || defaultDefinition());
     const antes = def.public || {};
     const data = enabled ? buildPublicData() : (antes.data || null);
     // Se CONSERVA todo lo demás de `public` (extraDefs, pushPage, …):
     // publicar solo actualiza enabled/data/pagePush, no resetea el resto.
     const pub = Object.assign({}, antes, { enabled: !!enabled, channels: antes.channels || [], pushPage: antes.pushPage === true, data });
-    if (pub.pushPage) {
-      // Las fotos primero: lo que se copia a la tienda entra ya reescrito en el
-      // catálogo, tanto en la página como en el que sirve KIMOS. Así la ficha
-      // toma sus imágenes de la tienda por cualquiera de los dos caminos.
-      // AQUÍ SE INTENTÓ copiar las fotos al CDN de la tienda colgándolas de
-      // esta misma página, y no se puede: Jumpseller admite UNA imagen por
-      // página ("Sólo se permite una imagen por página"), así que todas menos
-      // la primera fallaban y cada publicación dejaba una ristra de errores
-      // sin que nada mejorara.
-      //
-      // Las fotos del producto sí se alojan en la tienda, pero por la vía que
-      // ya existía y que decide una persona: el botón de la Galería que las
-      // sube al producto. El resto —fondos de hero, swatches, fotos de valor—
-      // se sirve desde KIMOS con caché de un año (nombre único por archivo, ver
-      // publicFilesAPI), así que el CDN las entrega tras la primera visita.
-      // Para independencia total van a Assets del theme, como el kit y los .glb.
-      // Primero se alojan las imágenes de la ficha: lo que se copie entra ya
-      // reescrito en el catálogo, tanto en la página como en el que sirve
-      // KIMOS, así la ficha las toma de la tienda por cualquiera de los dos.
+    if (soloKimos && enabled && data) {
+      // Refresco BARATO tras guardar: solo la copia en KIMOS, cero llamadas a
+      // Jumpseller. Las entradas se reescriben con el mapa de fotos ya
+      // alojadas, y las que no cambiaron conservan su sello pubAt.
+      const mapa = antes.assetMap || {};
+      const previos = ((antes.data || {}).productos || []);
+      pub.data = Object.assign({}, data, {
+        productos: (data.productos || []).map((p0) => {
+          const previa = previos.find((e) => (s(p0.sku) && s(e.sku) === s(p0.sku)) || s(e.name) === s(p0.name));
+          return entradaIgualPublicada(p0, previa, mapa) || reemplazarUrls(p0, mapa);
+        }),
+      });
+    } else if (pub.pushPage) {
+      // POR PRODUCTO: cada producto aloja sus fotos y recibe SU página en la
+      // tienda; recién después se escribe la página agregada (respaldo y
+      // compatibilidad) y el catálogo de KIMOS. Todo lo que se copió entra ya
+      // reescrito en ambos caminos.
       let aPublicar = enabled ? data : null;
       if (enabled && aPublicar) {
-        const al = await alojarImagenesFicha(aPublicar);
-        aPublicar = al.data;
-        pub.data = al.data;
-        pub.assetMirror = { at: nowIso(), copiadas: al.copiadas, pendientes: al.pendientes };
-        if (al.errores.length) {
-          shell.notify({ level: 'warn', text: 'Algunas imágenes de la ficha no se alojaron en la tienda: '
-            + al.errores.slice(0, 2).join(' · ') + ' — esas seguirán sirviéndose desde KIMOS.' });
+        const porProducto = ((antes.assetMirror || {}).porProducto || []).slice();
+        const mapa = Object.assign({}, antes.assetMap || {});
+        // Rastreo por id de los adjuntos aún en proceso (assetPend): viaja al
+        // backend en cada pasada y vuelve actualizado — es lo que permite
+        // recoger sus URLs después SIN re-subirlos.
+        const pendMap = Object.assign({}, antes.assetPend || {});
+        const previos = ((antes.data || {}).productos || []);
+        const productos = [];
+        const avisos = [];
+        let copiadas = 0; let pendientes = 0; let enProceso = 0; let motor = ''; let sinCambios = 0;
+        for (const p0 of (aPublicar.productos || [])) {
+          // Sin cambios respecto de lo ya publicado → ni espejo ni página:
+          // el auto-refresco tras cada guardado solo escribe lo que cambió.
+          const previa = previos.find((e) => (s(p0.sku) && s(e.sku) === s(p0.sku)) || s(e.name) === s(p0.name));
+          const intacta = entradaIgualPublicada(p0, previa, mapa);
+          // "Sin cambios" solo vale si la pasada anterior no dejó fotos
+          // pendientes: si las dejó, hay que volver al espejo a recogerlas.
+          const lineaPrev = porProducto.find((x) => s(x.name) === s(p0.name));
+          if (intacta && !(lineaPrev && num(lineaPrev.pendientes) > 0)) { productos.push(intacta); sinCambios++; continue; }
+          const res = await publicarUno(p0, aPublicar, mapa, pendMap);
+          // Mapeos cuyo adjunto ya no existe en la tienda: se olvidan (si su
+          // re-alojado ya salió, vuelve enseguida vía `nuevos`).
+          (res.muertas || []).forEach((u) => { delete mapa[u]; });
+          Object.assign(mapa, res.nuevos);
+          // El rastreo de SUS fotos se reemplaza entero por lo que devolvió
+          // el backend: lo mapeado sale, lo aún en proceso entra con su id.
+          (res.urlsEspejo || []).forEach((u) => { delete pendMap[u]; });
+          Object.assign(pendMap, res.pend || {});
+          productos.push(res.entry);
+          copiadas += res.copiadas; pendientes += res.pendientes; enProceso += num(res.enProceso);
+          if (res.motor) motor = res.motor;
+          res.avisos.forEach((a) => avisos.push(s(p0.name) + ': ' + a));
+          const linea = {
+            name: s(p0.name), productId: s(p0.productId), at: res.entry.pubAt,
+            copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
+            page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
+          };
+          const i = porProducto.findIndex((x) => s(x.name) === linea.name);
+          if (i === -1) porProducto.push(linea); else porProducto[i] = linea;
+        }
+        aPublicar = Object.assign({}, aPublicar, { productos });
+        pub.data = aPublicar;
+        pub.assetMap = mapa;
+        pub.assetPend = pendMap;
+        // Los avisos del alojado se GUARDAN (no solo la notificación pasajera):
+        // la pestaña Publicación los muestra como "última publicación" y se
+        // pueden leer y copiar con calma después.
+        pub.assetMirror = { at: nowIso(), copiadas, pendientes, enProceso, motor, sinCambios,
+          porProducto, avisos: avisos.slice(0, 12) };
+        if (avisos.length) {
+          shell.notify({ level: 'warn', text: 'Publicación con avisos (detalle en la pestaña Publicación): '
+            + avisos.slice(0, 2).join(' · ') });
         }
       }
       const rp = await pushPaginaTienda(aPublicar);
+      // El chequeo externo mira además qué versión del kit corre el THEME
+      // ACTIVO. Si es más vieja que la que trae esta app, publicar lo DICE
+      // aquí mismo (incidente real: un theme activado desde zip corría un
+      // kit de hace cinco versiones y nadie lo sabía).
+      const kitApp = s((aPublicar || data || {}).kitExpected);
+      const versionMenor = (a, b) => {
+        const A = s(a).split('.').map(Number), B = s(b).split('.').map(Number);
+        for (let i = 0; i < 3; i++) { if ((A[i] || 0) < (B[i] || 0)) return true; if ((A[i] || 0) > (B[i] || 0)) return false; }
+        return false;
+      };
+      if (rp && rp.kitTienda && kitApp && versionMenor(rp.kitTienda, kitApp)) {
+        rp.aviso = '⚠ EL THEME CORRE UN KIT VIEJO (v' + s(rp.kitTienda) + '; esta publicación espera v' + kitApp
+          + '). Actualiza los archivos del theme activo desde el KIT MANUAL de ProductLab.' + (rp.aviso ? ' · ' + rp.aviso : '');
+      }
       pub.pagePush = Object.assign({ at: nowIso() }, rp);
       if (!rp.ok) shell.notify({ level: 'warn', text: 'La copia en la tienda falló: ' + rp.error + ' — el theme seguirá leyendo desde KIMOS.' });
       else if (rp.aviso) shell.notify({ level: 'warn', text: 'Copia en la tienda: ' + rp.aviso });
@@ -2692,6 +3027,74 @@ export default function mount(shell) {
     // Solo `public`: publicar es lo que MÁS se escribe (auto-republish) y no
     // debe arrastrar el resto de la definición de esta copia.
     return saveDefinition(def, ['public']);
+  }
+  // ── LAS TRES VELOCIDADES (modelo del usuario) ─────────────────────────────
+  //  1. GUARDAR         → solo KIMOS (instantáneo; scheduleRepublish refresca
+  //                        la copia barata, sin tocar Jumpseller).
+  //  2. ACTUALIZAR PRECIOS → lo que es plata: ancla + addons + variantes, vía
+  //                        app Productos. Rápido y sin fotos ni páginas.
+  //  3. REARMAR PRODUCTO → la carga pesada: paso a paso + fotos (SOLO las que
+  //                        faltan; lo alojado sale del mapa sin red) + su
+  //                        página -p<id>. Rearmar dos veces seguidas sin
+  //                        cambios = solo la página (segundos).
+  async function actualizarPrecios(eq) {
+    if (!storeRefOf(eq)) return { success: false, error: 'sin enlace a la tienda (impórtalo o enlázalo primero)' };
+    const t0 = Date.now();
+    const r = await applyToStore(eq);
+    if (!r.success) return r;
+    return { success: true, message: r.message + ' · ' + Math.round((Date.now() - t0) / 1000) + ' s' };
+  }
+  async function rearmarProducto(eq) {
+    const def = Object.assign({}, model.def || defaultDefinition());
+    const pub = Object.assign({}, def.public || {});
+    if (pub.enabled !== true) return { success: false, error: 'La publicación está desactivada: activa Publicar primero.' };
+    if (pub.pushPage !== true) return { success: false, error: 'Activa "Copiar el JSON a una página de la tienda" primero.' };
+    const t0 = Date.now();
+    const data = buildPublicData();
+    const match = (e) => (s(eq.sku) && s(e.sku) === s(eq.sku)) || s(e.name) === s(eq.name);
+    const entry0 = (data.productos || []).find(match);
+    if (!entry0) return { success: false, error: 'El producto no está en el catálogo publicable (¿está inactivo?).' };
+    const mapa = Object.assign({}, pub.assetMap || {});
+    const pendMap = Object.assign({}, pub.assetPend || {});
+    const res = await publicarUno(entry0, data, mapa, pendMap);
+    (res.muertas || []).forEach((u) => { delete mapa[u]; });
+    Object.assign(mapa, res.nuevos);
+    (res.urlsEspejo || []).forEach((u) => { delete pendMap[u]; });
+    Object.assign(pendMap, res.pend || {});
+    // Su entrada se funde en el catálogo YA PUBLICADO: los demás productos
+    // quedan tal cual estaban (sus pubAt, sus fotos, sus páginas).
+    const base = (pub.data && Array.isArray(pub.data.productos)) ? pub.data : data;
+    let visto = false;
+    const productos = (base.productos || []).map((e) => { if (match(e)) { visto = true; return res.entry; } return e; });
+    if (!visto) productos.push(res.entry);
+    pub.data = Object.assign({}, base, { productos, kitExpected: data.kitExpected, kitTtlDias: data.kitTtlDias });
+    pub.assetMap = mapa;
+    pub.assetPend = pendMap;
+    const linea = {
+      name: s(entry0.name), productId: s(entry0.productId), at: res.entry.pubAt,
+      copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
+      page: res.page.ok ? '/' + res.page.permalink : (res.page.aviso || 'sin página'),
+    };
+    const antesPP = ((pub.assetMirror || {}).porProducto || []).filter((x) => s(x.name) !== linea.name);
+    pub.assetMirror = Object.assign({}, pub.assetMirror || {}, {
+      at: nowIso(), motor: res.motor || (pub.assetMirror || {}).motor,
+      porProducto: antesPP.concat([linea]),
+      avisos: res.avisos.map((a) => s(entry0.name) + ': ' + a).slice(0, 12),
+      copiadas: res.copiadas, pendientes: res.pendientes, enProceso: num(res.enProceso),
+    });
+    def.public = pub;
+    const r = await saveDefinition(def, ['public']);
+    if (r.success === false) return { success: false, error: r.error || 'No se pudo guardar la publicación.' };
+    const seg = Math.round((Date.now() - t0) / 1000);
+    return {
+      success: res.page.ok,
+      error: res.page.ok ? '' : (res.page.aviso || 'página no escrita'),
+      message: '"' + s(entry0.name) + '" rearmado en ' + seg + ' s — fotos: ' + num(res.copiadas) + ' subidas'
+        + (num(res.enProceso) ? ' (' + num(res.enProceso) + ' en proceso en la tienda, rastreadas por id: rearma de nuevo en unos segundos para recogerlas, no se re-suben)' : '')
+        + ((res.sinMapear || []).length ? ' (sin alojar: ' + res.sinMapear.slice(0, 4).join(', ')
+            + (res.sinMapear.length > 4 ? '…' : '') + ' — el detalle está en la pestaña Publicación)' : '')
+        + ' · ' + (res.page.ok ? 'página /' + s(res.page.permalink) + ' ✓' : 'página: ' + (res.page.aviso || 'no escrita')),
+    };
   }
   // Payload exacto que se escribe en el item de la app products al aplicar
   // (inspección/depuración desde la pestaña Publicación).
@@ -2786,6 +3189,7 @@ export default function mount(shell) {
     ['specs', (c) => s(c.specs)],
     ['costo', (c) => s(num(c.cost, 0))],
     ['moneda', (c) => s(c.currency || rules().currency)],
+    ['costoConIva', (c) => (c.costConIva ? 'si' : 'no')],
     ['impuestoPct', (c) => s(num(c.taxPct, 0))],
     ['stock', (c) => (c.stock == null ? '' : s(num(c.stock)))],
     ['diasEntrega', (c) => s(num(c.deliveryDays, 0))],
@@ -2847,7 +3251,8 @@ export default function mount(shell) {
     if (iName === -1) return { error: 'Falta la columna "nombre" (encabezados encontrados: ' + rows[0].join(', ') + ').' };
     const cols = {
       id: idx('id'), type: idx('tipo', 'type'), brand: idx('marca', 'brand'), specs: idx('specs', 'descripcion', 'descripción'),
-      cost: idx('costo', 'cost', 'precio'), currency: idx('moneda', 'currency'), taxPct: idx('impuestopct', 'impuesto', 'taxpct'),
+      cost: idx('costo', 'cost', 'precio'), currency: idx('moneda', 'currency'),
+      costConIva: idx('costoconiva', 'coniva', 'ivaincluido'), taxPct: idx('impuestopct', 'impuesto', 'taxpct'),
       stock: idx('stock'), deliveryDays: idx('diasentrega', 'dias', 'deliverydays'),
       supplierName: idx('proveedor', 'suppliername'), supplierUrl: idx('urlproveedor', 'link', 'supplierurl'),
       verifiedAt: idx('verificadoen', 'verifiedat'), tags: idx('aporta', 'tags'), requires: idx('requiere', 'requires'),
@@ -2866,6 +3271,7 @@ export default function mount(shell) {
       c.brand = get(r, cols.brand); c.specs = get(r, cols.specs);
       c.cost = num(get(r, cols.cost).replace(/\./g, '').replace(',', '.'), 0);
       c.currency = get(r, cols.currency) || rules().currency;
+      c.costConIva = get(r, cols.costConIva);   // normalizeComponent entiende si/sí/true/1/x
       c.taxPct = num(get(r, cols.taxPct), 0);
       const stk = get(r, cols.stock);
       c.stock = stk === '' ? null : Math.max(0, num(stk, 0));
@@ -3127,6 +3533,12 @@ export default function mount(shell) {
         return {
           id: (exv && exv.id) || newId('val'),
           label: vLabel,
+          // Detalle manual bajo el nombre (vacío = automático: cantidad +
+          // specs del componente). Si no viene, se conserva el existente.
+          detalle: (function () {
+            const dt = pick(vo, ['detalle', 'detail', 'desc', 'descripcion']);
+            return dt === undefined ? s(exv && exv.detalle).trim() : s(dt).trim();
+          })(),
           imageUrl: s(pick(vo, ['imageUrl', 'imagen', 'foto'])).trim(),
           swatchColor: s(pick(vo, ['swatchColor', 'color'])).trim(),
           qty: Math.max(1, Math.round(num(pick(vo, ['qty', 'cantidad']), exv ? num(exv.qty, 1) : 1)) || 1),
@@ -3156,6 +3568,12 @@ export default function mount(shell) {
         id: (ex && ex.id) || newId('grp'),
         typeId,
         label,
+        // Comentario del paso (bajo el título en la tienda); si no viene,
+        // se conserva el existente.
+        nota: (function () {
+          const nt = pick(st, ['nota', 'comentario', 'note', 'comment']);
+          return nt === undefined ? s(ex && ex.nota).trim() : s(nt).trim();
+        })(),
         photoStep: st.photoStep === true,
         values,
         defaultValueId: defVal ? defVal.id : null,
@@ -3287,6 +3705,7 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: {
             name: { type: 'string' }, type: { type: 'string', description: 'id de un tipo definido en la app (ver snapshot.types); los tipos los define cada empresa según su rubro' },
             cost: { type: 'number' }, currency: { type: 'string', description: 'CLP|USD' },
+            costConIva: { type: 'boolean', description: 'true = el costo trae el impuesto de venta (IVA) INCLUIDO y se descuenta antes del margen; omitir/false = costo neto' },
             taxPct: { type: 'number', description: 'impuesto adicional % que se SUMA al costo (aduana/importación); 0 = sin' },
             supplierName: { type: 'string' }, supplierUrl: { type: 'string' },
             specs: { type: 'string' }, imageUrl: { type: 'string' }, deliveryDays: { type: 'number' },
@@ -3321,7 +3740,7 @@ export default function mount(shell) {
             priceMode: { type: 'string', description: 'CÓMO se fija el precio: "auto" = calculado desde los costos y las reglas de margen (por defecto) | "fixed" = precio decidido a mano, exacto, sin depender de costos | "store" = el precio que ya tiene el producto en la app Productos/Jumpseller. Con fixed y store los pasos siguen funcionando (y el 3D también), pero todas las combinaciones valen igual salvo que algún valor declare un recargo.' },
             fixedPrice: { type: 'number', description: 'precio para priceMode "fixed" (en la moneda base)' },
           }, required: ['name'] } },
-        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, type?, photoStep?, default?, dependsOn?, values: [{label, qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. LEY ÚNICA DEL PASO A PASO: se construye SOBRE el catálogo. CADA valor lleva `components` con 1 o más componentes EXISTENTES (id o nombre, snapshot.components) — el enlace es lo que da precio, foto y stock. Un valor puede llevar VARIOS componentes: de TIPOS DISTINTOS se SUMAN (ej. "Ryzen 5 7600 + Placa B650M" incluye ambos) y del MISMO tipo son alternativas (gana la más económica disponible). Un valor sin campo `components` se enlaza solo si su label ES un componente del catálogo. Un valor que quede sin componentes RECHAZA toda la llamada (el error trae candidatos); para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. EXCEPCIÓN ÚNICA: los valores con efectos `model3d` (acabados del visor 3D) no llevan componentes — su elección es visual y se cobra con `priceDelta`. `priceDelta` es un recargo ADICIONAL sobre el costo de los componentes. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
+        { name: 'SET_PRODUCTO_STEPS', description: 'Reemplaza los pasos de configuración de un producto. Cada paso: {label, nota? (comentario bajo el título del paso en la tienda), type?, photoStep?, default?, dependsOn?, values: [{label, detalle? (texto bajo el nombre en la card; vacío = automático: cantidad + specs del componente), qty?, imageUrl?, swatchColor?, priceDelta?, components?: [nombre o id, …], model3d?: [{partId, type:"color"|"finish"|"hide", color?, finishId?}]}]}. El campo model3d de un valor aplica efectos al visor 3D (solo si el producto tiene modelo; ver SET_MODEL3D); si se omite, se conservan los efectos actuales. qty = cantidad del componente elegido en ese valor (ej. 2 para "2×8GB": multiplica el precio y exige stock suficiente). dependsOn = {step: <label de un paso ANTERIOR>, values: [<labels que lo hacen visible>]}: paso condicional que la tienda oculta si no se cumple. OJO: un paso oculto SIGUE aportando su valor por defecto a la variante (Jumpseller exige un valor de cada opción en cada combinación), así que su default debe ser un valor sin costo Y marcado `fallback: true` — "relleno": existe solo para esas combinaciones y la ficha NO lo ofrece cuando el paso se ve, de modo que nadie pueda comprar "sin <lo que sea>" habiendo elegido la opción que abre el paso. `bundle: true` (alias `conjunto`) hace que los `components` del valor se SUMEN en lugar de ser alternativas — ej. un paso "Procesador" cuyo valor "Ryzen 5" incluye CPU + su placa madre, evitando pasos dependientes. Los componentes con tags `requires`/`excludes` filtran solos las combinaciones: las que violan compatibilidades NO se publican. LEY ÚNICA DEL PASO A PASO: se construye SOBRE el catálogo. CADA valor lleva `components` con 1 o más componentes EXISTENTES (id o nombre, snapshot.components) — el enlace es lo que da precio, foto y stock. Un valor puede llevar VARIOS componentes: de TIPOS DISTINTOS se SUMAN (ej. "Ryzen 5 7600 + Placa B650M" incluye ambos) y del MISMO tipo son alternativas (gana la más económica disponible). Un valor sin campo `components` se enlaza solo si su label ES un componente del catálogo. Un valor que quede sin componentes RECHAZA toda la llamada (el error trae candidatos); para una opción que no agrega costo, crea antes un componente de costo 0 con UPSERT_COMPONENT (ej. "Sin grabado") y enlázalo. EXCEPCIÓN ÚNICA: los valores con efectos `model3d` (acabados del visor 3D) no llevan componentes — su elección es visual y se cobra con `priceDelta`. `priceDelta` es un recargo ADICIONAL sobre el costo de los componentes. Se reusan los ids de pasos/valores existentes con el mismo label (preserva el matching con la tienda). CADA PASO DEBE LLEVAR SUS VALORES: si un paso llega sin `values` se rechaza TODA la llamada con el detalle (no se guardan pasos vacíos). Lee el snapshot (productos[].steps) para la estructura actual.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string', description: 'id o nombre' },
             steps: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de pasos (reemplaza los actuales)' },
@@ -3344,7 +3763,7 @@ export default function mount(shell) {
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
             heroIndex: { type: 'number', description: 'SOLO para REEMPLAZAR un hero existente: cuál (1 = el primero). OMÍTELO para AGREGAR un hero nuevo detrás de los que ya hay — que es lo que corresponde cuando piden "otra sección" o "un hero debajo". Reemplazar pisa el contenido anterior y no se puede deshacer.' },
           }, required: ['producto'] } },
-        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
+        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/faq/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string' },
             pageSections: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de secciones según builderRef.sectionShape; bloques en slots:{contenedor:[…]} según builderRef.blockSchema' },
@@ -3479,7 +3898,8 @@ export default function mount(shell) {
         rules: rules(),
         types: types(),
         components: model.components.map((c) => ({
-          id: c.id, name: c.name, type: c.type, cost: c.cost, currency: c.currency, taxPct: num(c.taxPct, 0),
+          id: c.id, name: c.name, type: c.type, cost: c.cost, currency: c.currency,
+          costConIva: c.costConIva === true, taxPct: num(c.taxPct, 0),
           salePrice: componentSale(c), deliveryDays: num(c.deliveryDays, 0),
           supplierUrl: c.supplierUrl, supplierName: c.supplierName,
           verifiedAt: c.verifiedAt, staleDays: daysSince(c.verifiedAt) === Infinity ? null : daysSince(c.verifiedAt),
@@ -3525,7 +3945,7 @@ export default function mount(shell) {
               };
             })(),
             values: groupValues(g).map((v) => ({
-              label: v.label, isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
+              label: v.label, detalle: s(v.detalle).trim(), isDefault: g.defaultValueId === v.id, available: valueAvailable(v), qty: valueQty(v),
               delta: deltaFor(g, v, eq), alternatives: valueAlts(v).map((c) => c.name), priceDelta: num(v.priceDelta, 0),
               // Conjunto/relleno y precio de venta del valor, para razonar sin recalcular.
               bundle: v.bundle === true, fallback: v.fallback === true, salePrice: valueSale(v),
@@ -3598,7 +4018,7 @@ export default function mount(shell) {
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional","textSize":"s|m|l (letra de preguntas/respuestas)","align":"left|center (texto)","boxWidth":"\'\' todo el ancho|s 560px|m 720px|l 900px (centrado)","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false} — specs y fotos aceptan además título y fondo propios: {"title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional"}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -4095,8 +4515,13 @@ export default function mount(shell) {
                   if (!s(sec.imageUrl).trim()) issues.push('sección ' + (i + 1) + ' (imagen): falta imageUrl (usa IMPORT_IMAGE para subir una imagen y obtener su URL)');
                   return;
                 }
+                if (sec.kind === 'faq') {
+                  const its = Array.isArray(sec.items) ? sec.items.filter((x) => x && s(x.q != null ? x.q : x.pregunta).trim()) : [];
+                  if (!its.length) issues.push('sección ' + (i + 1) + ' (faq): necesita items [{q, a}] con al menos una pregunta no vacía');
+                  return;
+                }
                 const tag = 'sección ' + (i + 1);
-                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, specs, fotos, note)');
+                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, faq, specs, fotos, note)');
                 ['blocks', 'content', 'children', 'elements', 'bloques', 'body', 'sections'].forEach((wk) => {
                   if (sec[wk] !== undefined) issues.push(tag + ': la clave "' + wk + '" no existe — los bloques van en "slots": {contenedor: [bloques]}');
                 });
@@ -4924,7 +5349,7 @@ export default function mount(shell) {
   function ComponentForm({ initial, onDone, sec }) {
     sec = sec || 'general';
     const [d, setD] = useState(() => Object.assign({
-      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, taxPct: 0,
+      name: '', type: types()[0].id, brand: '', specs: '', imageUrl: '', currency: rules().currency, cost: 0, costConIva: false, taxPct: 0,
       supplierName: '', supplierUrl: '', deliveryDays: 0, stock: null, storeRef: null,
       tags: [], requires: [], excludes: [], altIds: [], active: true, notes: '',
     }, initial || {}));
@@ -5041,6 +5466,14 @@ export default function mount(shell) {
         h(Row, { key: 'c', label: 'Costo proveedor *' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.cost, onChange: (e) => up({ cost: e.target.value }) })),
         h(Row, { key: 'm', label: 'Moneda' }, h('select', { className: 'gp-select', value: d.currency, onChange: (e) => up({ currency: e.target.value }) },
           costCurrencies().map((c) => h('option', { key: c, value: c }, c)))),
+        // El costo puede venir de una factura (neto) o de una boleta / precio
+        // web (con IVA). Se declara aquí y el cálculo descuenta el impuesto
+        // antes del margen — sin que nadie tenga que dividir a mano.
+        h(Row, { key: 'iva', label: '¿El costo incluye ' + rules().salesTaxLabel + '?' },
+          h('select', { className: 'gp-select', value: d.costConIva ? 'si' : 'no', onChange: (e) => up({ costConIva: e.target.value === 'si' }) }, [
+            h('option', { key: 'no', value: 'no' }, 'No — es costo neto (sin ' + rules().salesTaxLabel + ')'),
+            h('option', { key: 'si', value: 'si' }, 'Sí — incluye ' + rules().salesTaxLabel + ' ' + num(rules().salesTaxPct, 19) + '% (se descuenta antes del margen)'),
+          ])),
         h(Row, { key: 'tx', label: 'Impuesto adicional % sobre el costo (aduana, importación, recargo del proveedor; 0 = sin)' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.taxPct == null ? 0 : d.taxPct, onChange: (e) => up({ taxPct: e.target.value }) })),
         h(Row, { key: 'st', label: 'Stock (vacío = sin control; 0 = no elegible)' }, h(TextInput, { mono: true, type: 'number', min: 0, value: d.stock == null ? '' : d.stock, onChange: (e) => up({ stock: e.target.value === '' ? null : e.target.value }) })),
@@ -5332,7 +5765,8 @@ export default function mount(shell) {
                     h('div', { key: '2', className: 'gp-muted' }, [c.brand, c.specs].filter(Boolean).join(' · ')),
                   ]),
                   h('td', { key: 't' }, h('span', { className: 'gp-chip neg' }, typeLabel(c.type))),
-                  h('td', { key: 'c', className: 'gp-price' }, fmtMoney(costBase(c.cost, c.currency)) + (c.currency && c.currency !== r.currency ? ' (' + c.currency + ' ' + num(c.cost) + ')' : '')),
+                  h('td', { key: 'c', className: 'gp-price', title: c.costConIva ? 'Costo cargado CON ' + r.salesTaxLabel + ' incluido: se descuenta antes del margen (neto ' + fmtMoney(componentNetCost(c)) + ')' : null },
+                    fmtMoney(costBase(c.cost, c.currency)) + (c.currency && c.currency !== r.currency ? ' (' + c.currency + ' ' + num(c.cost) + ')' : '') + (c.costConIva ? ' c/' + r.salesTaxLabel : '')),
                   h('td', { key: 'v', className: 'gp-price', title: 'margen ' + marginFor(c.type) + '% (' + (r.marginBasis === 'sale' ? 'sobre venta' : 'sobre costo') + ') + ' + r.salesTaxLabel }, fmtMoney(componentSale(c))),
                   h('td', { key: 'stk' }, h(TextInput, { mono: true, type: 'number', min: 0,
                     value: stockDrafts[c.id] != null ? stockDrafts[c.id] : (c.stock == null ? '' : c.stock),
@@ -5511,7 +5945,13 @@ export default function mount(shell) {
               h('option', { key: 'v', value: 'visor' }, 'Foto grande + miniaturas debajo'),
               h('option', { key: 'l', value: 'lado' }, 'Miniaturas en columna a la izquierda'),
               h('option', { key: 'm', value: 'mosaico' }, 'Mosaico (solo la grilla, sin foto grande)'),
+              h('option', { key: 'p', value: 'panel' }, 'Panel: foto grande a todo alto + mosaico al lado'),
             ])),
+          ph.layout === 'panel' ? h(Row, { key: 'plado', label: 'Lado del mosaico (panel)' },
+            h('select', { className: 'gp-select', value: ph.panelLado === 'izq' ? 'izq' : 'der', onChange: (ev) => upPh({ panelLado: ev.target.value }) }, [
+              h('option', { key: 'd', value: 'der' }, 'Mosaico a la derecha'),
+              h('option', { key: 'i', value: 'izq' }, 'Mosaico a la izquierda'),
+            ])) : null,
           h(Row, { key: 'sz', label: 'Ancho del bloque' },
             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (ev) => upPh({ size: ev.target.value }) }, [
               h('option', { key: 's', value: 's' }, 'Estrecho (560 px)'),
@@ -5519,8 +5959,17 @@ export default function mount(shell) {
               h('option', { key: 'l', value: 'l' }, 'Ancho (1200 px)'),
               h('option', { key: 'xl', value: 'xl' }, 'Sin límite'),
             ])),
-          h(Row, { key: 'ms', label: 'Alto de la foto grande' },
-            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, [
+          h(Row, { key: 'ms', label: ph.layout === 'panel' ? 'Tamaño de la foto principal' : 'Alto de la foto grande' },
+            // En el panel este control mueve el alto de la sección Y el
+            // reparto del ancho (foto más grande = mosaico más angosto): con
+            // fotos apaisadas subir solo el alto no se notaba.
+            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, ph.layout === 'panel' ? [
+              h('option', { key: 's', value: 's' }, 'Pequeña'),
+              h('option', { key: 'm', value: 'm' }, 'Media'),
+              h('option', { key: 'l', value: 'l' }, 'Grande'),
+              h('option', { key: 'xl', value: 'xl' }, 'Muy grande (80% de la pantalla)'),
+              h('option', { key: 'a', value: 'auto' }, 'Según la pantalla'),
+            ] : [
               h('option', { key: 's', value: 's' }, 'Baja (300 px)'),
               h('option', { key: 'm', value: 'm' }, 'Media (460 px)'),
               h('option', { key: 'l', value: 'l' }, 'Alta (620 px)'),
@@ -5541,10 +5990,14 @@ export default function mount(shell) {
               h('option', { key: 'c', value: 'contain' }, 'Completa (se ve entera)'),
               h('option', { key: 'v', value: 'cover' }, 'Recortada (todas del mismo formato)'),
             ])),
-          h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-            h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
-            h('span', { key: 's' }, 'Marco alrededor de las fotos'),
-          ]),
+          ph.layout === 'panel'
+            // El panel va sin marcos por diseño (solo se marca la elegida):
+            // mostrar el switch aquí sería un control muerto.
+            ? h('div', { key: 'fr', className: 'gp-muted', style: { alignSelf: 'end' } }, 'El panel va sin marcos: solo se marca la foto elegida.')
+            : h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
+                h('span', { key: 's' }, 'Marco alrededor de las fotos'),
+              ]),
         ]),
       ]),
     ]);
@@ -5764,10 +6217,13 @@ export default function mount(shell) {
                       h('span', { key: 'l' }, ' · ' + (g.label || typeLabel(g.typeId))),
                       btnCfg,
                     ]),
+                    // Comentario del paso: el previsualizador muestra lo mismo
+                    // que verá la tienda.
+                    s(g.nota).trim() ? h('div', { key: 'nota', className: 'gp-muted', style: { fontSize: 12, margin: '-2px 0 6px' } }, s(g.nota).trim()) : null,
                     h('div', { key: 'vals', style: asList ? { display: 'flex', flexDirection: 'column', gap: 6 } : { display: 'flex', flexWrap: 'wrap', gap: 8 } }, vals.map((v) => {
                       const on = selMap[g.id] === v.id;
                       const dlt = deltaVs(g, v);
-                      const img = valueImage(v);
+                      const img = valueImage(v, g);
                       const deltaTxt = st.showDeltas === 'none' || on ? '' : st.showDeltas === 'total' ? fmtMoney(fixed ? Math.round(gross + dlt) : roundFinal(gross + dlt)) : (dlt === 0 ? '' : fmtDelta(dlt));
                       return h('div', {
                         key: v.id,
@@ -5784,7 +6240,21 @@ export default function mount(shell) {
                           : img
                             ? h('img', { key: 'i', src: img, alt: '', style: asList ? { width: 40, height: 40, objectFit: 'cover' } : { width: '100%', height: compact ? 44 : 64, objectFit: 'cover' } })
                             : (asList || compact ? null : h('div', { key: 'i', style: { width: '100%', height: 44, background: 'var(--gp-plata)' } })),
-                        h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label + (valueQty(v) > 1 ? ' (×' + valueQty(v) + ')' : '')),
+                        // Contrato 6.1: el NOMBRE va tal cual (nada de "(×2)"
+                        // pegado — "16GB" con qty 2 se leía como 32GB); la
+                        // cantidad vive en el DETALLE bajo el nombre, igual
+                        // que en la tienda.
+                        h('div', { key: 'n', style: { fontSize: compact ? 10.5 : 11.5, fontWeight: 600, marginTop: asList ? 0 : 4, minWidth: 0 } }, v.label),
+                        (function () {
+                          if (compact) return null;
+                          const det = s(v.detalle).trim() || (function () {
+                            const q = valueQty(v);
+                            const alt = valueChosen(v);
+                            const base = alt ? s(alt.specs).trim() || s(alt.name).trim() : '';
+                            return base ? (q > 1 ? q + '× ' : '') + base : (q > 1 ? q + '×' : '');
+                          })();
+                          return det ? h('div', { key: 'dd', style: { fontSize: 9.5, opacity: .7, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, det) : null;
+                        })(),
                         deltaTxt ? h('div', { key: 'd', style: { fontSize: 10, opacity: .8, marginLeft: asList ? 'auto' : 0, whiteSpace: 'nowrap' } }, deltaTxt) : null,
                       ]);
                     }).concat(edit ? [h('button', { key: '__addv', className: 'gp-vivo-addval',
@@ -5834,10 +6304,11 @@ export default function mount(shell) {
     const [picking, setPicking] = useState(false);
     const [skuLibre, setSkuLibre] = useState(false);   // candado del SKU (heredado de la tienda)
     const [editUrl, setEditUrl] = useState(false);     // editor manual de la URL de tienda
-    const [descTienda, setDescTienda] = useState(null); // descripción editada (null = sin tocar)
+    // (La descripción ya no se edita aquí: es de la tienda. Ver la card TIENDA.)
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
+    const [tplSel, setTplSel] = useState('');     // builder: plantilla/sección elegida para insertar
     const [blockSel, setBlockSel] = useState({}); // builder: sección id → tipo de bloque a agregar
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
@@ -6020,14 +6491,9 @@ export default function mount(shell) {
               ? { level: 'success', text: 'Nombre actualizado también en el producto de la tienda.' }
               : { level: 'warn', text: 'El nombre se guardó en ProductLab, pero no se pudo escribir en la tienda.' });
           }
-          // Descripción de la tienda editada aquí → al item + push a Jumpseller.
-          if (r.success && ref && descTienda != null && descTienda !== s((productItemFor(d) || {}).description)) {
-            const rd = await pushDescripcionTienda(d, descTienda);
-            shell.notify(rd.success
-              ? { level: 'success', text: 'Descripción actualizada en el producto de la tienda.' }
-              : { level: 'warn', text: 'No se pudo escribir la descripción en la tienda.' });
-            if (rd.success) setDescTienda(null);
-          }
+          // La DESCRIPCIÓN ya no se escribe desde aquí: es de la tienda (se
+          // edita en la app Productos / el panel). Guardar en ProductLab no
+          // puede pisarla — así se perdió un texto el 2026-08-20.
           setBusy(false);
           if (r.success) {
             if (r.item) adoptar(r.item);
@@ -6035,15 +6501,28 @@ export default function mount(shell) {
             onDone();
           }
         },
-        aplicar: async () => {
+        // Las tres velocidades: Guardar (arriba) · Actualizar precios ·
+        // Rearmar producto. Ambos botones guardan primero y AVISAN el
+        // guardado al tiro — lo lento es la tienda, no KIMOS.
+        precios: async () => {
           setBusy(true);
           const saved = await saveProducto(d);
           if (!saved.success) { setBusy(false); return; }
           if (saved.item) adoptar(saved.item);
-          const r = await applyToStore(saved.item);
+          shell.notify({ level: 'info', text: 'Guardado ✓ — escribiendo precios en la tienda…' });
+          const r = await actualizarPrecios(saved.item);
           setBusy(false);
-          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error });
-          if (r.success) onDone();
+          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error || r.message });
+        },
+        rearmar: async () => {
+          setBusy(true);
+          const saved = await saveProducto(d);
+          if (!saved.success) { setBusy(false); return; }
+          if (saved.item) adoptar(saved.item);
+          shell.notify({ level: 'info', text: 'Guardado ✓ — rearmando la ficha en la tienda (fotos nuevas + página)…' });
+          const r = await rearmarProducto(saved.item);
+          setBusy(false);
+          shell.notify(r.success ? { level: 'success', text: r.message } : { level: 'error', text: r.error || r.message });
         },
       });
     });
@@ -6142,6 +6621,16 @@ export default function mount(shell) {
             h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => up({ groups: d.groups.filter((x) => x.id !== g.id) }) }, 'Quitar paso'),
           ]),
           h('div', { key: 'b', className: 'gp-group-body' }, [
+            // Comentario del paso: texto del dueño bajo el título en la
+            // tienda (criterios de elección, compatibilidades, lo que sea).
+            h('div', { key: 'nota', className: 'gp-compline', style: { borderBottom: 0 } }, [
+              h('span', { key: 'l', className: 'gp-label',
+                title: 'Se muestra bajo el título del paso en el paso a paso de la tienda. Vacío = no se muestra nada.' }, 'comentario del paso'),
+              h(TextInput, { key: 'i', style: { flex: 1, minWidth: 260 },
+                value: g.nota == null ? '' : g.nota,
+                placeholder: 'Ej: Elige según tus programas: 16GB para ofimática, 32GB para edición…',
+                onChange: (e) => upGroup(g.id, { nota: e.target.value }) }),
+            ]),
             // Editor de la condición del paso dependiente
             (function () {
               const dep = groupDependsOn(g);
@@ -6226,6 +6715,23 @@ export default function mount(shell) {
                     h('input', { key: 'c', type: 'checkbox', checked: v.bundle === true, onChange: (e) => upValue(v.id, { bundle: e.target.checked }) }),
                     h('span', { key: 's' }, 'conjunto (suman)'),
                   ]) : null,
+                ]),
+                // Detalle bajo el nombre en la card de la tienda. El NOMBRE
+                // del valor es tuyo y va tal cual; el detalle automático es
+                // "«cantidad»× «specs/nombre del componente elegido»" — este
+                // campo lo reemplaza por lo que tú quieras mostrar.
+                det && h('div', { key: 'ldesc', className: 'gp-compline', style: { borderBottom: 0, paddingLeft: 26 } }, [
+                  h('span', { key: 'dl', className: 'gp-label',
+                    title: 'Texto bajo el nombre en la card del paso a paso. Vacío = automático: la cantidad (si es >1) y las specs del componente elegido — ej. "2× 8GB DDR5 DIMM 5600 MT/s".' }, 'detalle en la tienda'),
+                  h(TextInput, { key: 'dv', style: { width: 360 },
+                    value: v.detalle == null ? '' : v.detalle,
+                    placeholder: (function () {
+                      const q = valueQty(v);
+                      const base = chosen ? s(chosen.specs).trim() || s(chosen.name).trim() : '';
+                      const auto = base ? (q > 1 ? q + '× ' : '') + base : (q > 1 ? q + '×' : '');
+                      return auto ? 'auto: ' + auto : 'texto bajo el nombre (vacío = automático)';
+                    })(),
+                    onChange: (e) => upValue(v.id, { detalle: e.target.value }) }),
                 ]),
                 det && h('div', { key: 'limg', style: { paddingLeft: 26, maxWidth: 560 } },
                   h(ImgField, { value: v.imageUrl || '', gallery: productoGallery, onChange: (u) => upValue(v.id, { imageUrl: u }), placeholder: g.photoStep ? 'Foto del producto en este color' : 'Foto propia del valor (si no, usa la de la alternativa elegida)' })),
@@ -6559,30 +7065,82 @@ export default function mount(shell) {
                   : 'Escribe el precio fijo aquí arriba.')),
           ]);
         })(),
-        // ── Stock vendible (informativo): sale de los componentes base y se
-        // publica en la tienda al Aplicar (∞ = venta sin control de stock).
+        // ── Stock: DOS cifras, y la de la tienda manda ──────────────────
+        // Aquí se calcula desde los componentes en bodega; allá lo baja cada
+        // venta. Aplicar NO lo escribe (pisaría lo vendido): se muestran
+        // ambas y se escribe solo si tú lo pides, viendo la diferencia.
         (function () {
           const stk = productoStock(d);
           const conBase = (d.baseComponentIds || []).length || (d.groups || []).some((g) => g && g.baseStep === true);
           if (!conBase) return null;
-          return h('div', { key: 'stk', className: 'gp-compline', style: { borderBottom: 0 } }, [
-            h('span', { key: 'l', className: 'gp-label' }, 'STOCK VENDIBLE'),
+          const itemT = productItemFor(d) || {};
+          const enTienda = itemT.stockUnlimited === true ? null
+            : (itemT.stock == null || itemT.stock === '' ? undefined : num(itemT.stock));
+          const difiere = enTienda !== undefined && !(stk == null && enTienda == null) && num(stk) !== num(enTienda);
+          return h('div', { key: 'stk', className: 'gp-compline', style: { flexWrap: 'wrap', gap: 8 } }, [
+            h('span', { key: 'l', className: 'gp-label' }, 'STOCK'),
             stk == null
-              ? h('span', { key: 'v', className: 'gp-chip gris', title: 'Ningún componente base controla stock: al Aplicar, la tienda queda en venta sin control de stock.' }, '∞ sin control')
-              : h('span', { key: 'v', className: 'gp-chip ' + (stk > 0 ? 'ok' : 'err'), title: 'El mínimo entre los componentes base. Se escribe en la tienda al Aplicar. Para cambiarlo, edita el stock de los componentes.' }, stk + ' unidad(es)'),
-            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-              stk == null ? 'se publica como stock ilimitado al Aplicar' : 'mínimo de los componentes base — se publica al Aplicar'),
+              ? h('span', { key: 'v', className: 'gp-chip gris', title: 'Ningún componente base controla stock: en KIMOS este producto se considera de venta sin control.' }, 'aquí: ∞ sin control')
+              : h('span', { key: 'v', className: 'gp-chip ' + (stk > 0 ? 'ok' : 'err'), title: 'El mínimo entre los componentes base (lo que hay en bodega). Para cambiarlo, edita el stock de los componentes.' }, 'aquí: ' + stk),
+            enTienda === undefined
+              ? h('span', { key: 't', className: 'gp-chip gris', title: 'Usa "Traer de la tienda" para leerlo.' }, 'tienda: ?')
+              : h('span', { key: 't', className: 'gp-chip ' + (difiere ? 'warn' : 'gris'),
+                  title: 'Lo que la tienda tiene AHORA. Baja con cada venta; esa cifra manda.' },
+                  'tienda: ' + (enTienda == null ? '∞' : enTienda)),
+            difiere ? h('span', { key: 'd', className: 'gp-muted', style: { fontSize: 12 } },
+              'difieren — puede ser que se haya vendido. Revisa antes de escribir.') : null,
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'w', className: 'gp-btn gp-btn-sm', disabled: busy,
+              title: 'Escribe en la tienda el stock calculado aquí. Pide confirmación: aplicar precios o pasos NUNCA lo toca.',
+              onClick: async () => {
+                const actual = enTienda === undefined ? '(sin leer)' : (enTienda == null ? '∞' : enTienda);
+                if (!window.confirm('La tienda tiene ' + actual + ' y aquí se calcula '
+                  + (stk == null ? '∞ (sin control)' : stk) + '.\n\nEscribir el valor de KIMOS reemplaza el de la tienda — si hubo ventas, se perderá ese descuento.\n\n¿Escribir de todas formas?')) return;
+                setBusy(true);
+                const saved = await saveProducto(d);
+                if (saved.success && saved.item) adoptar(saved.item);
+                const r = await applyToStore(saved.item || d, { conStock: true });
+                setBusy(false);
+                shell.notify(r.success
+                  ? { level: 'success', text: 'Stock escrito en la tienda. ' + r.message }
+                  : { level: 'error', text: r.error });
+              } }, 'Escribir stock en la tienda'),
+            h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12, flexBasis: '100%' } },
+              'Aplicar precios o pasos NO toca el stock de la tienda: lo baja cada venta y ese dato manda. Usa "Traer de la tienda" para ver el actual.'),
           ]);
         })(),
         // ── Descripción del producto EN LA TIENDA: editable aquí mismo (al
         // guardar se escribe en el item y se empuja a Jumpseller). ──
+        // ── Descripción del producto EN LA TIENDA: SOLO LECTURA ──
+        // Su dueña es la tienda (se edita en la app Productos / el panel de
+        // Jumpseller). Aquí se muestra RENDERIZADA —era un textarea con HTML
+        // crudo, ilegible— y con un botón para traer lo que hay allá ahora
+        // mismo: la copia de KIMOS envejece cada vez que alguien edita la
+        // ficha en el ecommerce.
         ref ? h('div', { key: 'desct', className: 'gp-card' }, [
-          h(Row, { key: 'r', label: 'Descripción del producto en la tienda (HTML permitido' + (descTienda != null ? ' · sin guardar' : '') + ')' },
-            h('textarea', { className: 'gp-textarea gp-mono', rows: 5,
-              value: descTienda != null ? descTienda : s((productItemFor(d) || {}).description),
-              placeholder: 'La descripción que muestra la ficha de la tienda…',
-              onChange: (e) => setDescTienda(e.target.value) })),
-          h('div', { key: 'h', className: 'gp-muted' }, 'Se guarda con el botón Guardar del header: escribe en el producto de la tienda (no hace falta abrir la app Productos). El bloque "descripción" de la Experiencia la muestra renderizada.'),
+          h('div', { key: 't', className: 'gp-card-title' }, [
+            h('span', { key: 'n', className: 'gp-num' }, 'TIENDA'), 'Descripción del producto',
+            h('span', { key: 'sp', className: 'grow' }),
+            h('button', { key: 'pull', className: 'gp-btn gp-btn-sm', disabled: busy,
+              title: 'Lee el producto en la tienda AHORA y actualiza aquí su descripción y stock. No escribe nada en la tienda.',
+              onClick: async () => {
+                setBusy(true);
+                const r = await traerDeLaTienda(d);
+                setBusy(false);
+                shell.notify(r.success
+                  ? { level: r.cambios ? 'success' : 'info', text: r.message }
+                  : { level: 'error', text: r.error });
+              } }, 'Traer de la tienda'),
+          ]),
+          (function () {
+            const html = s((productItemFor(d) || {}).description).trim();
+            if (!html) return h('div', { key: 'v', className: 'gp-muted' }, 'Sin descripción en la tienda.');
+            return h('div', { key: 'v', className: 'gp-desc-render',
+              style: { border: '1px solid var(--gp-linea)', padding: '10px 12px', maxHeight: 260, overflowY: 'auto', background: 'var(--gp-blanco)' },
+              dangerouslySetInnerHTML: { __html: html } });
+          })(),
+          h('div', { key: 'h', className: 'gp-muted', style: { marginTop: 8 } },
+            'Se edita en la app Productos o en el panel de la tienda — no aquí: así ProductLab nunca pisa lo que escribiste allá. Aplicar pasos o precios NO la toca.'),
         ]) : null,
         h(Row, { key: 'dd', label: 'Días propios de preparación/producción (vacío = regla global: ' + rules().leadTimeDays + ')' },
           h(TextInput, { mono: true, type: 'number', min: 0, value: d.deliveryExtraDays == null ? '' : d.deliveryExtraDays, onChange: (e) => up({ deliveryExtraDays: e.target.value === '' ? null : e.target.value }) })),
@@ -6606,6 +7164,66 @@ export default function mount(shell) {
         // edición SOBRE ella: ⚙ por paso abre el editor completo inline,
         // "+ Valor" agrega en el paso y "+ Agregar paso" al final. ──
         h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
+          // ── AL ABRIR EL PERSONALIZADOR: la combinación predeterminada como
+          // conjunto, con su precio contra el "desde" de la tienda. El
+          // predeterminado por paso ya existía (el círculo junto a cada
+          // valor), pero era invisible como COMBINACIÓN: la tienda anuncia
+          // "desde" (la más económica) y el personalizador podía abrirse en
+          // otro precio sin que el dueño viera dónde cambiarlo.
+          (function () {
+            const pasosP = gruposPersonalizables(d)
+              .map((g) => ({ g, vals: groupValues(g).filter(valueAvailable).filter((v) => v.fallback !== true) }))
+              .filter((x) => x.vals.length > 0);
+            if (!pasosP.length) return null;
+            const extraDe = (g, v) => (v.sintetico ? 0 : valueExtra(d, g, v));
+            const masBarato = (g, vals) => {
+              let best = null, e0 = null;
+              vals.forEach((v) => { const e = extraDe(g, v); if (e0 == null || e < e0) { e0 = e; best = v; } });
+              return best;
+            };
+            const precioAbre = productoComputedPrice(d);
+            // El "desde" se calcula con el MISMO motor que el precio de
+            // apertura (dependencias y redondeo incluidos): un clon del
+            // producto con el valor más económico como default de cada paso.
+            const gruposMin = (d.groups || []).map((g) => {
+              if (g.baseStep === true) return g;
+              const px = pasosP.find((x) => x.g.id === g.id);
+              const b = px ? masBarato(g, px.vals) : null;
+              return b && b.id !== g.defaultValueId ? Object.assign({}, g, { defaultValueId: b.id }) : g;
+            });
+            const precioDesde = productoComputedPrice(Object.assign({}, d, { groups: gruposMin }));
+            const iguales = precioAbre === precioDesde;
+            return h('div', { key: 'defsel', className: 'gp-group', style: { marginBottom: 10 } }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'AL ABRIR EL PERSONALIZADOR'),
+                h('span', { key: 'pp', className: 'gp-muted' },
+                  'Se abre en ' + fmtMoney(precioAbre) + (iguales
+                    ? ' — la combinación más económica (el "desde" de la tienda)'
+                    : ' · la tienda anuncia "desde ' + fmtMoney(precioDesde) + '"')),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+                !iguales ? h('button', { key: 'min', className: 'gp-btn gp-btn-sm',
+                  title: 'Poner como predeterminado el valor más económico de cada paso: el personalizador se abrirá exactamente en el precio "desde" que anuncia la tienda.',
+                  onClick: () => up({ groups: gruposMin }) }, '⤓ Usar la más económica') : null,
+              ]),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'Con qué valor llega preseleccionado cada paso cuando el cliente entra a configurar (también se marca con el círculo junto a cada valor, dentro del paso). Guarda y Rearma para llevarlo a la tienda.'
+                  + (priceModeOf(d) !== 'auto' ? ' OJO: con precio ' + (priceModeOf(d) === 'store' ? 'de la tienda' : 'fijo') + ' los recargos se calculan CONTRA el predeterminado — tras cambiarlo, vuelve a aplicar $ Precios.' : '')),
+                h('div', { key: 'g', className: 'gp-grid3' }, pasosP.map(({ g, vals }) => {
+                  let min0 = null;
+                  vals.forEach((v) => { const e = extraDe(g, v); min0 = min0 == null ? e : Math.min(min0, e); });
+                  const sel = vals.find((v) => v.id === g.defaultValueId) || vals[0];
+                  return h(Row, { key: g.id, label: s(g.label || typeLabel(g.typeId)).trim() },
+                    h('select', { className: 'gp-select', value: sel ? sel.id : '',
+                      onChange: (e) => upGroup(g.id, { defaultValueId: e.target.value }) },
+                      vals.map((v) => {
+                        const dd = Math.round(extraDe(g, v) - min0);
+                        return h('option', { key: v.id, value: v.id }, v.label + (dd > 0 ? ' · +' + fmtMoney(dd) : ' · más económico'));
+                      })));
+                })),
+              ]),
+            ]);
+          })(),
           h(ConfigPreview, { key: 'vivo', draft: d, edit: {
             abierto: pasoEdit,
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
@@ -6847,6 +7465,31 @@ export default function mount(shell) {
           ];
           // ── Secciones fijas: especificaciones y nota (orden + mostrar) ──
           if (sec2.kind === 'specs' || sec2.kind === 'note' || sec2.kind === 'fotos') {
+            // Título propio (contenido/tamaño/alineación) y fondo de la
+            // sección: integran Fotos y Especificaciones al lenguaje del
+            // resto de la experiencia.
+            const controlesTitulo = (sec2.kind === 'fotos' || sec2.kind === 'specs')
+              ? h('div', { key: 'titbg', className: 'gp-grid2', style: { marginBottom: 8 } }, [
+                  h(Row, { key: 't', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: sec2.kind === 'fotos' ? 'Ej: Galería' : 'Ej: Especificaciones',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                ])
+              : null;
             return h('div', { key: sec2.id, className: 'gp-group' }, [
               h('div', { key: 'h', className: 'gp-group-head' }, [
                 h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
@@ -6874,7 +7517,9 @@ export default function mount(shell) {
                       const upPh = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { photos: Object.assign({}, ph, patch) }) }) });
                       return h('div', { key: 'ft' }, [
                         h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
-                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven.'),
+                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven. '
+                          + 'La DISPOSICIÓN (visor, mosaico, panel lateral…) se elige en el estilo: pestaña Estilos → Galería de fotos.'),
+                        controlesTitulo,
                         h('div', { key: 'g', className: 'gp-grid2' }, [
                           h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
                             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (e) => upPh({ size: e.target.value }) }, [
@@ -6890,13 +7535,16 @@ export default function mount(shell) {
                       ]);
                     })()
                   : sec2.kind === 'specs'
-                  ? (specRows.length
+                  ? h('div', { key: 'sp2' }, [
+                      controlesTitulo,
+                      (specRows.length
                       ? h('div', { key: 'pv', style: { maxWidth: viewMode === 'mob' ? 375 : 560 } },
                           specRows.slice(0, 6).map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
                             h('span', { key: 'l', className: 'gp-muted', style: { width: '40%' } }, sp.label),
                             h('span', { key: 'v' }, sp.value),
                           ])).concat(specRows.length > 6 ? [h('div', { key: 'more', className: 'gp-muted' }, '… +' + (specRows.length - 6) + ' filas')] : []))
-                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.'))
+                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.')),
+                    ])
                   : h('div', { key: 'note' }, [
                       h('div', { key: 'h2', className: 'gp-muted', style: { marginBottom: 6 } },
                         'Nota discreta (letra chica) con separador fino: condiciones o aclaraciones. Vacía = no se muestra.'),
@@ -6904,6 +7552,102 @@ export default function mount(shell) {
                         placeholder: 'Ej: Las fotos son referenciales; la configuración interna corresponde a lo seleccionado en el personalizador.',
                         onChange: (e) => up({ storefront: Object.assign({}, sf, { photosNote: e.target.value }) }) }),
                     ])),
+            ]);
+          }
+          // ── Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas ──
+          if (sec2.kind === 'faq') {
+            const faqItems = Array.isArray(sec2.items) ? sec2.items : [];
+            const upFaq = (items) => upPageX(sec2.id, { items });
+            return h('div', { key: sec2.id, className: 'gp-group' }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+                h('span', { key: 'k', className: 'gp-chip fuc' }, 'PREGUNTAS'),
+                (function (secId, val) {
+                  return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                    title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                    value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                    h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                    h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                    h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                  ]);
+                })(sec2.id, sec2.width),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+              ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar estas preguntas como PLANTILLA reutilizable en cualquier producto (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Preguntas frecuentes — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
+                h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
+              ])),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'En la tienda salen plegadas y el cliente las despliega una a una. Una pregunta sin texto no se publica.'),
+                // Título con el MISMO sistema que Fotos/Especificaciones y
+                // diseño propio del acordeón (letra, alineación, ancho).
+                h('div', { key: 'dz', className: 'gp-grid3' }, [
+                  h(Row, { key: 'tt', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: 'Preguntas frecuentes',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'fs', label: 'Tamaño de la letra' },
+                    h('select', { className: 'gp-select', value: sec2.textSize || 'm', onChange: (e) => upPageX(sec2.id, { textSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeña'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediana'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                    ])),
+                  h(Row, { key: 'al', label: 'Alineación del texto' },
+                    h('select', { className: 'gp-select', value: sec2.align || 'left', onChange: (e) => upPageX(sec2.id, { align: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                    ])),
+                  h(Row, { key: 'bw', label: 'Ancho del bloque' },
+                    h('select', { className: 'gp-select', value: sec2.boxWidth || '', onChange: (e) => upPageX(sec2.id, { boxWidth: e.target.value }) }, [
+                      h('option', { key: 'a', value: '' }, 'Todo el ancho de la sección'),
+                      h('option', { key: 's', value: 's' }, 'Estrecho (560 px, centrado)'),
+                      h('option', { key: 'm', value: 'm' }, 'Medio (720 px, centrado)'),
+                      h('option', { key: 'l', value: 'l' }, 'Ancho (900 px, centrado)'),
+                    ])),
+                ]),
+                h(React.Fragment, { key: 'items' }, faqItems.map((it, fi) => h('div', { key: it.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
+                  h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h(TextInput, { key: 'q', value: it.q || '', placeholder: 'Pregunta (ej: ¿Cuánto demora el armado?)', style: { flex: 1, minWidth: 220 },
+                      onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { q: e.target.value }) : x))) }),
+                    fi > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi - 1]; xs[fi - 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↑') : null,
+                    fi < faqItems.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi + 1]; xs[fi + 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↓') : null,
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar pregunta',
+                      onClick: () => upFaq(faqItems.filter((x) => x.id !== it.id)) }, '✕'),
+                  ]),
+                  h('textarea', { key: 'a', className: 'gp-textarea', rows: 2, value: it.a || '',
+                    placeholder: 'Respuesta (los saltos de línea se respetan en la tienda)…',
+                    onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { a: e.target.value }) : x))) }),
+                ]))),
+                h('button', { key: 'add', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 },
+                  onClick: () => upFaq(faqItems.concat([{ id: newId('fq'), q: '', a: '' }])) }, '+ Pregunta'),
+              ]),
             ]);
           }
           // ── Sección IMAGEN (ProductLab): una foto, alto según la imagen ──
@@ -6923,6 +7667,16 @@ export default function mount(shell) {
               })(sec2.id, sec2.width),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar esta sección como PLANTILLA reutilizable: podrás insertarla en cualquier producto desde "Insertar desde plantilla" (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Imagen — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
                 h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
               ])),
               h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7108,6 +7862,16 @@ export default function mount(shell) {
               ]),
               h('span', { key: 'sp', style: { flex: 1 } }),
             ].concat(moveBtns).concat([
+              h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                title: 'Guardar este hero como PLANTILLA reutilizable: podrás insertarlo en cualquier producto desde "Insertar desde plantilla" (se inserta como copia — cámbiale el fondo o los textos sin afectar a los demás).',
+                onClick: async () => {
+                  const nombre = window.prompt('Nombre de la plantilla:', 'Hero — ' + s(d.name));
+                  if (!nombre || !s(nombre).trim()) return;
+                  const r = await guardarHeroTemplate(hx, nombre);
+                  shell.notify(r.success !== false
+                    ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                    : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                } }, '⧉ Plantilla'),
               h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== hx.id)) }, 'Quitar'),
             ])),
             h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7277,17 +8041,83 @@ export default function mount(shell) {
           h('button', { key: 'addi', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
             title: 'Sección de solo foto: el alto se adapta a la imagen, sin recortes. Encadena varias para descripciones hechas de fotos apiladas.',
             onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
+          h('button', { key: 'addf', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
+            title: 'Acordeón de preguntas y respuestas: el cliente las despliega una a una.',
+            onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'faq', title: 'Preguntas frecuentes', width: 'auto',
+              items: [{ id: newId('fq'), q: '', a: '' }] }])) }, '+ Sección preguntas'),
         ]),
+        // ── Insertar desde PLANTILLA o copiando de otro producto ──────────
+        // Las plantillas se crean con "⧉ Plantilla" en cualquier sección
+        // hero/imagen. Todo se inserta como COPIA: cámbiale el fondo o los
+        // textos sin afectar al producto o plantilla de origen.
+        (function () {
+          const tpls = heroTemplatesList();
+          const otros = model.productos.filter((e) => e.id !== d.id)
+            .map((e) => ({ e, hs: (((e.storefront || {}).pageSections) || []).filter((x) => x && (x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq')) }))
+            .filter((x) => x.hs.length);
+          if (!tpls.length && !otros.length) {
+            return h('div', { key: 'fromtpl', className: 'gp-muted', style: { marginTop: 8, fontSize: 12 } },
+              'Tip: con "⧉ Plantilla" en cualquier sección hero/imagen la guardas como plantilla reutilizable para tus otros productos.');
+          }
+          const resolver = (clave) => {
+            if (clave.indexOf('tpl:') === 0) return (tpls.find((t) => t.id === clave.slice(4)) || {}).section || null;
+            if (clave.indexOf('prod:') === 0) {
+              const [eid, secId] = clave.slice(5).split('::');
+              const otro = otros.find((x) => x.e.id === eid);
+              return otro ? otro.hs.find((x) => x.id === secId) || null : null;
+            }
+            return null;
+          };
+          return h('div', { key: 'fromtpl', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
+            h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 260, maxWidth: 420 }, value: tplSel,
+              onChange: (e) => setTplSel(e.target.value) }, [
+              h('option', { key: '', value: '' }, 'Insertar desde plantilla o desde otro producto…'),
+              tpls.length ? h('optgroup', { key: 'gt', label: 'Plantillas' },
+                tpls.map((t) => h('option', { key: t.id, value: 'tpl:' + t.id },
+                  t.name + ' (' + (t.section.kind === 'hero' ? (t.section.pattern || 'hero') : t.section.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))) : null,
+              otros.length ? h('optgroup', { key: 'gp', label: 'Copiar de otro producto' },
+                otros.reduce((acc, x) => acc.concat(x.hs.map((hs2, hi) =>
+                  h('option', { key: x.e.id + '::' + hs2.id, value: 'prod:' + x.e.id + '::' + hs2.id },
+                    s(x.e.name) + ' — sección ' + (hi + 1) + ' (' + (hs2.kind === 'hero' ? (hs2.pattern || 'hero') : hs2.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))), [])) : null,
+            ]),
+            h('button', { key: 'ins', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !tplSel,
+              title: 'Inserta una COPIA al final de la página: edítala libremente sin afectar el origen.',
+              onClick: () => {
+                const secc = resolver(tplSel);
+                if (!secc) { shell.notify({ level: 'error', text: 'La plantilla o sección elegida ya no existe.' }); setTplSel(''); return; }
+                upPage(sfPage.concat([clonarSeccionConIdsNuevos(secc)]));
+                shell.notify({ level: 'success', text: 'Sección insertada al final (como copia editable). Recuerda Guardar.' });
+              } }, 'Insertar'),
+            tplSel.indexOf('tpl:') === 0 ? h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger',
+              title: 'Eliminar esta plantilla del catálogo (no toca las secciones ya insertadas: son copias).',
+              onClick: async () => {
+                const t = tpls.find((x) => 'tpl:' + x.id === tplSel);
+                if (!t || !window.confirm('¿Eliminar la plantilla «' + t.name + '»? Las secciones ya insertadas no se tocan (son copias).')) return;
+                const r = await borrarHeroTemplate(t.id);
+                setTplSel('');
+                shell.notify(r.success !== false ? { level: 'success', text: 'Plantilla eliminada.' } : { level: 'error', text: (r && r.error) || 'No se pudo eliminar.' });
+              } }, '✕ plantilla') : null,
+          ]);
+        })(),
       ]),
       // ── Ficha de tienda: tabla de especificaciones ──
       h('div', { key: 'specs', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Tabla de especificaciones']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras.'),
-        h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
-          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 }, onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
+          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras. '
+          + 'Una fila SIN grupo pertenece al último grupo nombrado arriba de ella — el orden de aquí es el orden de la ficha (muévelas con ↑/↓).'),
+        h(React.Fragment, { key: 'rows' }, specRows.map((sp, si) => h('div', { key: sp.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 },
+            title: 'Vacío = la fila sigue en el grupo de arriba. Escribe un nombre para abrir un grupo nuevo desde esta fila.',
+            onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
           h(TextInput, { key: 'l', value: sp.label, placeholder: 'Etiqueta (ej: Material)', style: { width: 180 }, onChange: (e) => upSpecRow(sp.id, { label: e.target.value }) }),
           h(TextInput, { key: 'v', value: sp.value, placeholder: 'Valor (ej: 100% algodón · Roble macizo 18mm)', style: { flex: 1, minWidth: 160 }, onChange: (e) => upSpecRow(sp.id, { value: e.target.value }) }),
+          si > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si - 1]; xs[si - 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↑') : null,
+          si < specRows.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si + 1]; xs[si + 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↓') : null,
           h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upSpecs(specRows.filter((x) => x.id !== sp.id)) }, '✕'),
         ]))),
         h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
@@ -7705,7 +8535,8 @@ export default function mount(shell) {
               'Ejemplo con el margen por defecto (' + m + '%): costo ' + dfmt(ex) + ' → neto ' + dfmt(net) + ' → con ' + taxLbl + ' ' + taxPct + '% = ' + dfmt(net * (1 + taxPct / 100)) + '. ' +
               (basis === 'sale'
                 ? 'Con base "sobre la venta", el ' + m + '% del precio neto de venta es tu ganancia.'
-                : 'Con base "sobre el costo", ganas el ' + m + '% de lo que te costó.')),
+                : 'Con base "sobre el costo", ganas el ' + m + '% de lo que te costó.')
+              + ' El costo del componente se asume NETO; si lo cargaste con ' + taxLbl + ' incluido (boleta o precio web), márcalo en el componente ("¿El costo incluye ' + taxLbl + '?") y se descuenta solo antes del margen.'),
           ]);
         })(),
         // ── Moneda y formato ──
@@ -8022,7 +8853,7 @@ export default function mount(shell) {
             h('div', { key: 'fila', className: 'gp-compline', style: { borderBottom: 0 } }, [
               h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
               h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-                'descarga los 3 archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s))'),
+                'descarga los archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s)); el motor 3D solo hace falta si algún producto publica visor 3D'),
               h('span', { key: 'sp', className: 'grow' }),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
                 title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets). Sale con una marca de caché nueva: al subirlo, la tienda recarga los archivos del kit al instante.',
@@ -8037,6 +8868,11 @@ export default function mount(shell) {
                 onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
               h('button', { key: 's', className: 'gp-btn gp-btn-sm',
                 onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+              // El motor 3D faltaba en esta lista: quien seguía "descarga los
+              // archivos y súbelos" quedaba con ficha pero sin visor 3D.
+              h('button', { key: 'e3d', className: 'gp-btn gp-btn-sm',
+                title: 'Motor 3D del kit (three.js empaquetado). Súbelo a Assets si algún producto publica visor 3D: sin él la ficha funciona pero el 3D no se puede dibujar.',
+                onClick: () => bajarAsset('kimos-engine3d.js') }, 'kimos-engine3d.js (motor 3D)'),
             ]),
             // Otras instancias de ProductLab de esta misma tienda: sus URLs de
             // definición, para que el kit las fusione todas.
@@ -8081,6 +8917,49 @@ export default function mount(shell) {
                 '/' + s(pub.pagePush.permalink) + ' · ' + Math.round(num(pub.pagePush.bytes) / 1024) + ' KB')
             : h('span', { key: 'st', className: 'gp-chip err', title: s(pub.pagePush.error) }, 'copia falló')) : null,
         ]),
+        // ── Vencimiento local del kit (licencia) ────────────────────────────
+        h('div', { key: 'ttl', className: 'gp-compline' }, [
+          h('span', { key: 'l', className: 'gp-label',
+            title: 'Cada publicación sella su fecha y este plazo. Si la tienda pasa más días que esto SIN publicar, el kit del theme deja de montar la experiencia y queda la ficha nativa (que cobra bien). Es 100% local: una caída de KIMOS no lo gatilla; publicar lo renueva solo. 0 = no vence.' },
+            'la experiencia vence tras (días sin publicar)'),
+          h(TextInput, { key: 'i', mono: true, type: 'number', min: 0, style: { width: 90 },
+            defaultValue: pub.kitTtlDias == null || pub.kitTtlDias === '' ? 90 : num(pub.kitTtlDias, 90),
+            onBlur: async (e) => {
+              const v = e.target.value === '' ? 90 : Math.max(0, num(e.target.value, 90));
+              if (v === (pub.kitTtlDias == null || pub.kitTtlDias === '' ? 90 : num(pub.kitTtlDias, 90))) return;
+              const next = Object.assign({}, state.def || defaultDefinition());
+              next.public = Object.assign({}, next.public || {}, { kitTtlDias: v });
+              const r = await saveDefinition(next, ['public']);
+              if (r.success) shell.notify({ level: 'success', text: v === 0 ? 'La experiencia ya no vence.' : 'Vencimiento fijado en ' + v + ' días sin publicar (se renueva con cada publicación).' });
+            } }),
+          h('span', { key: 'h', className: 'gp-muted', style: { fontSize: 12 } }, '0 = no vence · se renueva con cada publicación'),
+        ]),
+        // ── Bitácora de la ÚLTIMA publicación ──────────────────────────────
+        // Lo que antes solo pasaba como notificación fugaz queda aquí escrito:
+        // cuántas imágenes se alojaron, cuántas quedaron pendientes y cada
+        // aviso textual (copiables con calma, no hay que cazarlos al vuelo).
+        (pub.assetMirror || (pub.pagePush && (pub.pagePush.aviso || pub.pagePush.error))) ? h('div', { key: 'bitacora', className: 'gp-compline', style: { flexDirection: 'column', alignItems: 'stretch', gap: 4 } }, [
+          h('div', { key: 't', className: 'gp-muted', style: { fontSize: 12, fontWeight: 600 } },
+            'Última publicación' + (pub.assetMirror ? ' · ' + fmtDateTime(pub.assetMirror.at)
+              + ' — imágenes alojadas en la tienda: ' + num(pub.assetMirror.copiadas)
+              + (num(pub.assetMirror.enProceso) ? ' · en proceso en la tienda: ' + num(pub.assetMirror.enProceso) + ' (rastreadas por id, se recogen al republicar sin re-subir)' : '')
+              + (num(pub.assetMirror.pendientes) ? ' · pendientes: ' + num(pub.assetMirror.pendientes) + ' (se retoman al republicar)' : '')
+              + (s(pub.assetMirror.motor) ? ' · ' + s(pub.assetMirror.motor) : '') : '')),
+          // Una línea por producto: qué se alojó y en qué página quedó su
+          // catálogo — el resultado de publicar deja de ser una caja negra.
+          ...(((pub.assetMirror || {}).porProducto || []).map((pp, i) =>
+            h('div', { key: 'pp' + i, className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } },
+              '· ' + s(pp.name) + ' — fotos: ' + num(pp.copiadas) + ' alojadas'
+              + (num(pp.enProceso) ? ', ' + num(pp.enProceso) + ' en proceso' : '')
+              + (num(pp.pendientes) ? ', ' + num(pp.pendientes) + ' pendientes' : '')
+              + ' · página: ' + s(pp.page) + (pp.at ? ' · ' + fmtDateTime(pp.at) : '')))),
+          ...(((pub.assetMirror || {}).avisos || []).map((a, i) =>
+            h('div', { key: 'a' + i, className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } }, '· ' + s(a)))),
+          (pub.pagePush && (pub.pagePush.aviso || pub.pagePush.error))
+            ? h('div', { key: 'pp', className: 'gp-muted gp-mono', style: { fontSize: 11, userSelect: 'text' } },
+                '· copia en la tienda: ' + s(pub.pagePush.aviso || pub.pagePush.error))
+            : null,
+        ]) : null,
         // Identidad de la empresa: marca visible en la app y nombre corto que
         // viaja en el JSON público (el theme puede usarlo para distinguir tiendas).
         h('div', { key: 'ident', className: 'gp-grid2' }, [
@@ -8126,7 +9005,41 @@ export default function mount(shell) {
       h('div', { key: 'plan', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'JUMPSELLER'), 'Opciones y variantes por producto']),
         h('div', { key: 'd', className: 'gp-muted', style: { marginBottom: 10 } },
-          'Al usar "Aplicar a la tienda" se escriben el precio ANCLA (configuración más económica), una opción addon por cada valor de paso (con su recargo) y las variantes del paso de color (van al item de la app Productos y su sync-push las empuja a Jumpseller). Aquí puedes inspeccionar el payload exacto que se generaría ahora.'),
+          'TRES VELOCIDADES. GUARDAR: queda en KIMOS, no toca la tienda — puedes editar varios productos tranquilo. ACTUALIZAR PRECIOS: escribe lo que es plata (ancla, recargos de cada valor, variantes de color) vía app Productos; rápido. REARMAR: la carga pesada — paso a paso, fotos que falten (lo ya alojado NUNCA se re-sube) y la página de datos del producto. Cada una existe por producto (su fila) y para todo el catálogo (abajo).'),
+        h('div', { key: 'todo', className: 'gp-compline' }, [
+          h('button', { key: 'bp', className: 'gp-btn', disabled: busy,
+            title: 'Escribe los precios de TODOS los productos enlazados (lo guardado en cada uno, aunque no esté rearmado). Uno por uno.',
+            onClick: async () => {
+              const lista = state.productos.filter((eq) => eq.status !== 'inactive' && storeRefOf(eq));
+              if (!window.confirm('Esto escribe los PRECIOS de ' + lista.length + ' producto(s) en la tienda VIVA. ¿Continuar?')) return;
+              setBusy(true);
+              let ok = 0; const malos = [];
+              for (const eq of lista) {
+                const r = await actualizarPrecios(eq);
+                if (r.success) ok++; else malos.push(eq.name + ': ' + (r.error || r.message));
+              }
+              setBusy(false);
+              shell.notify(malos.length
+                ? { level: 'warn', text: 'Precios: ' + ok + ' producto(s) al día; con problemas: ' + malos.slice(0, 2).join(' · ') }
+                : { level: 'success', text: 'Precios de ' + ok + ' producto(s) al día en la tienda.' });
+            } }, busy ? 'Actualizando…' : 'Actualizar precios de TODO'),
+          h('button', { key: 'br', className: 'gp-btn gp-btn-primary', disabled: busy,
+            title: 'Rearma las fichas de TODOS los productos que cambiaron desde su último rearmado (fotos que falten + páginas). Lo que no cambió no se toca — por eso repetirlo es barato.',
+            onClick: async () => {
+              if (!window.confirm('Esto rearma en la tienda VIVA las fichas de los productos que cambiaron (fotos + páginas). ¿Continuar?')) return;
+              setBusy(true);
+              const r = await publish(true);
+              setBusy(false);
+              if (r.success) {
+                const am = ((model.def || {}).public || {}).assetMirror || {};
+                shell.notify({ level: 'success', text: 'Rearmado: fichas al día'
+                  + (num(am.sinCambios) ? ' (' + num(am.sinCambios) + ' sin cambios, no se tocaron)' : '')
+                  + (num(am.pendientes) ? ' · ' + num(am.pendientes) + ' foto(s) pendientes: rearma de nuevo en unos segundos' : '') + '.' });
+              }
+            } }, busy ? 'Rearmando…' : 'Rearmar TODO'),
+          h('span', { key: 'h', className: 'gp-muted', style: { fontSize: 12 } },
+            'Resultado por producto en la bitácora de abajo.'),
+        ]),
         state.productos.length === 0
           ? h('div', { key: 'e', className: 'gp-muted' }, 'Sin productos.')
           : state.productos.map((eq) => h('div', { key: eq.id, className: 'gp-compline' }, [
@@ -8135,6 +9048,24 @@ export default function mount(shell) {
               h('span', { key: 'cnt', className: 'gp-chip gris' }, comboCount(eq) + ' variantes'),
               h('span', { key: 'st' }, h(SyncBadge, { eq })),
               h('span', { key: 'sp', className: 'grow' }),
+              h('button', { key: 'pre1', className: 'gp-btn gp-btn-sm', disabled: busy,
+                title: 'Escribe SOLO los precios de este producto en la tienda (ancla, recargos y variantes). Rápido.',
+                onClick: async () => {
+                  setBusy(true);
+                  const r = await actualizarPrecios(eq);
+                  setBusy(false);
+                  shell.notify(r.success ? { level: 'success', text: r.message }
+                    : { level: 'error', text: 'Precios de "' + eq.name + '": ' + (r.error || r.message) });
+                } }, 'Actualizar precios'),
+              h('button', { key: 'rea1', className: 'gp-btn gp-btn-sm gp-btn-primary', disabled: busy,
+                title: 'Rearma la ficha de este producto en la tienda: paso a paso, fotos que falten (lo alojado no se re-sube) y su página de datos -p<id>. La carga pesada, solo de este producto.',
+                onClick: async () => {
+                  setBusy(true);
+                  const r = await rearmarProducto(eq);
+                  setBusy(false);
+                  shell.notify(r.success ? { level: 'success', text: r.message }
+                    : { level: 'error', text: 'Rearmar "' + eq.name + '": ' + (r.error || r.message) });
+                } }, 'Rearmar producto'),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm', onClick: () => copy(JSON.stringify(storePlan(eq), null, 2)) }, 'Copiar payload JSON'),
             ])),
       ]),
@@ -8366,10 +9297,22 @@ export default function mount(shell) {
   const ICONO_ATRAS = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
     [h('path', { key: 'p', d: 'M15 5l-7 7 7 7' })]);
   void ICONO_ATRAS;
-  // Bolsa de tienda: el icono de "Aplicar a la tienda".
+  // Bolsa de tienda: el icono de "Rearmar" (la ficha se re-arma EN LA TIENDA).
   const ICONO_TIENDA = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
     h('path', { key: 'b', d: 'M6 7h12l1.2 13H4.8L6 7z' }),
     h('path', { key: 'a', d: 'M9 10V6a3 3 0 0 1 6 0v4' }),
+  ]);
+  // Las acciones del header van SOLO CON ICONO (pedido del usuario: con texto
+  // eran demasiado anchas y se peleaban el espacio con la miga y las
+  // pestañas). El nombre y la explicación viven en el title/aria-label.
+  const ICONO_GUARDAR = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
+    h('path', { key: 'c', d: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z' }),
+    h('path', { key: 'i', d: 'M17 21v-8H7v8' }),
+    h('path', { key: 's', d: 'M7 3v5h8' }),
+  ]);
+  const ICONO_PRECIOS = () => h('svg', { width: 19, height: 19, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, [
+    h('path', { key: 'v', d: 'M12 2v20' }),
+    h('path', { key: 's', d: 'M17 5.5H9.5a3.25 3.25 0 0 0 0 6.5h5a3.25 3.25 0 0 1 0 6.5H6' }),
   ]);
   function Header({ state }) {
     const n = useNav();
@@ -8384,7 +9327,11 @@ export default function mount(shell) {
     // Tabs del contexto: raíz → secciones; detalle → sus pestañas; config → sus 4.
     let tabs, activo, onTab;
     if (n.det && n.det.tipo === 'producto') {
-      tabs = PROD_TABS.concat((n.det.draft && n.det.draft.model3d) || n.tab === 'modelo3d' ? [['modelo3d', 'Visor 3D']] : []);
+      // La pestaña Visor 3D va SIEMPRE: condicionarla a que el producto ya
+      // tuviera model3d era un huevo-y-gallina — un producto sin 3D nunca
+      // mostraba la pestaña donde se activa (la card vacía ya explica que es
+      // opcional y trae el botón "+ Activar visor 3D").
+      tabs = PROD_TABS.concat([['modelo3d', 'Visor 3D']]);
       activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
     } else if (n.det && n.det.tipo === 'componente') {
       tabs = COMP_TABS; activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
@@ -8419,21 +9366,35 @@ export default function mount(shell) {
             h('span', { key: 'p', className: 'gp-hd-precio-n' }, extra.precio),
             h('span', { key: 's', className: 'gp-hd-precio-s' }, extra.sub),
           ]),
-          h('button', { key: 'g', className: 'gp-btn' + (extra.conTienda ? '' : ' gp-btn-primary'),
-            disabled: !extra.puedeGuardar, onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : extra.etiquetaGuardar),
-          extra.conTienda ? h('button', { key: 'ap', className: 'gp-btn gp-btn-primary gp-hd-aplicar', disabled: !extra.puedeAplicar,
-            title: extra.busy ? 'Aplicando…' : 'Aplicar a la tienda (precio, opciones y variantes en Jumpseller)',
-            'aria-label': 'Aplicar a la tienda',
-            onClick: extra.aplicar }, extra.busy ? '…' : h(ICONO_TIENDA)) : null,
+          // Solo iconos: con texto, tres botones no cabían junto a la miga y
+          // las pestañas. El nombre viaja en title/aria-label; el busy se ve
+          // en el propio botón ('…') y en el disabled.
+          h('button', { key: 'g', className: 'gp-btn gp-btn-ico' + (extra.conTienda ? '' : ' gp-btn-primary'),
+            disabled: !extra.puedeGuardar, title: extra.etiquetaGuardar + ' (solo KIMOS, instantáneo)',
+            'aria-label': extra.etiquetaGuardar,
+            onClick: extra.guardar }, extra.busy && !extra.conTienda ? '…' : h(ICONO_GUARDAR)),
+          extra.conTienda && extra.precios ? h('button', { key: 'pr', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: !extra.puedeAplicar,
+            title: 'Actualizar precios: guarda y escribe SOLO los precios en la tienda (ancla, recargos y variantes de color, vía app Productos). Rápido; no toca fotos ni páginas.',
+            'aria-label': 'Actualizar precios en la tienda',
+            onClick: extra.precios }, extra.busy ? '…' : h(ICONO_PRECIOS)) : null,
+          extra.conTienda && extra.rearmar ? h('button', { key: 're', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: !extra.puedeAplicar,
+            title: 'Rearmar: guarda y REARMA la ficha en la tienda — paso a paso, fotos (solo las que falten; lo alojado no se re-sube) y su página de datos. Es la carga pesada; hazla cuando cambies fotos o estructura.',
+            'aria-label': 'Rearmar producto en la tienda',
+            onClick: extra.rearmar }, extra.busy ? '…' : h(ICONO_TIENDA)) : null,
         ]) : null,
-        !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-hd-pub', disabled: pubBusy,
-          title: 'Publicar el JSON del configurador para la tienda, sin pasar por Parámetros → Publicación',
+        !n.det ? h('button', { key: 'pub', className: 'gp-btn gp-btn-primary gp-btn-ico', disabled: pubBusy,
+          title: 'Rearmar tienda: REARMA las fichas de todos los productos que hayan cambiado desde su último rearmado (fotos que falten + páginas de datos). Lo que no cambió no se toca. Los PRECIOS van aparte: en cada producto o "Actualizar precios de TODO" en Publicación.',
+          'aria-label': 'Rearmar tienda',
           onClick: async () => {
             setPubBusy(true);
             const r = await publish(true);
             setPubBusy(false);
-            if (r.success) shell.notify({ level: 'success', text: 'Publicado (' + buildPublicData().productos.length + ' productos).' });
-          } }, pubBusy ? 'Publicando…' : 'Publicar') : null,
+            if (r.success) {
+              const am = ((model.def || {}).public || {}).assetMirror || {};
+              shell.notify({ level: 'success', text: 'Fichas rearmadas en la tienda'
+                + (num(am.sinCambios) ? ' (' + num(am.sinCambios) + ' sin cambios, no se tocaron)' : '') + '.' });
+            }
+          } }, pubBusy ? '…' : h(ICONO_TIENDA)) : null,
         h('button', { key: 'r', className: 'gp-hd-ico', title: 'Actualizar datos',
           onClick: () => { void load(); void loadCatalog(); void loadHermanas(); } }, '⟳'),
       ]),

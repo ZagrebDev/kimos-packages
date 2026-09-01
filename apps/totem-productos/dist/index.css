@@ -1,0 +1,439 @@
+/* Totem de Productos — estilos con scope .kimos-totem-productos (prefijo tp-).
+ *
+ * Dos capas:
+ *  1) Chrome de escritorio (header, pestañas Catálogo/Estilos/Publicación):
+ *     tokens del tema del host (shadcn/HSL) con fallback al tema claro.
+ *  2) Vista de tótem (.tp-totem): colores gobernados por el estilo editable
+ *     (--tp-acc, --tp-radius, --tp-fscale, --tp-bg/--tp-ink) para que la
+ *     pestaña Estilos controle la visualización.
+ *
+ * Convivencia con la vitrina: en .modo-totem se reserva la franja inferior
+ * (--tp-dock: 350px) para el dock de voz del agente — el cuerpo desplazable y
+ * los overlays la respetan, igual que la app evento-ciberseguridad.
+ */
+
+.kimos-totem-productos {
+  /* Tokens del host */
+  --tp-fg: hsl(var(--foreground, 220 25% 6%));
+  --tp-mut: hsl(var(--muted-foreground, 220 9% 42%));
+  --tp-vidrio: hsl(var(--card, 0 0% 100%) / .6);
+  --tp-vidrio-alto: hsl(var(--card, 0 0% 100%) / .82);
+  --tp-linea: hsl(var(--border, 214.3 18% 72%) / .45);
+  --tp-primario: hsl(var(--primary, 178 96% 40%));
+  --tp-primario-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --tp-r: var(--radius, .5rem);
+  --tp-sombra: var(--shadow-sm, 0 1px 2px rgb(0 0 0 / .08));
+
+  /* Estilo editable de la vitrina (defaults; el bundle los pisa inline) */
+  --tp-acc: #19ACB1;
+  --tp-acc-fg: #ffffff;
+  --tp-radius: 18px;
+  --tp-fscale: 1;
+  --tp-bg: #101A2E;
+  --tp-ink: #ffffff;
+
+  /* Escala táctil (escritorio) */
+  --f-base: calc(15px * var(--tp-fscale));
+  --f-sm: calc(13px * var(--tp-fscale));
+  --f-lg: calc(18px * var(--tp-fscale));
+  --f-h1: calc(30px * var(--tp-fscale));
+  --f-h2: calc(21px * var(--tp-fscale));
+  --tap: 52px;
+  --pad: 20px;
+  --tp-dock: 0px;
+
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  color: var(--tp-fg);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: var(--f-base);
+}
+.kimos-totem-productos *, .kimos-totem-productos *::before, .kimos-totem-productos *::after {
+  box-sizing: border-box;
+}
+
+/* Tótem: tipografía y objetivos táctiles XL + franja del dock de voz. */
+.kimos-totem-productos.modo-totem {
+  --f-base: calc(21px * var(--tp-fscale));
+  --f-sm: calc(16px * var(--tp-fscale));
+  --f-lg: calc(26px * var(--tp-fscale));
+  --f-h1: calc(52px * var(--tp-fscale));
+  --f-h2: calc(32px * var(--tp-fscale));
+  --tap: 80px;
+  --pad: 34px;
+  /* Alto reservado abajo para el dock de voz de la vitrina (mic + ondas).
+     En 9:16 el widget flota a ~200px del borde inferior. */
+  --tp-dock: 350px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* ── Fondos de la vista de tótem ── */
+.kimos-totem-productos .tp-lienzo,
+.kimos-totem-productos.publica {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kimos-totem-productos .tp-fondo-vidrio { background: transparent; color: var(--tp-fg); --tp-ink-loc: var(--tp-fg); }
+.kimos-totem-productos .tp-fondo-oscuro,
+.kimos-totem-productos.publica.tp-fondo-oscuro {
+  background: linear-gradient(172deg, #0C1424 0%, #101A2E 55%, #0B1C26 100%);
+  color: #fff; --tp-ink-loc: #fff;
+}
+.kimos-totem-productos .tp-fondo-claro,
+.kimos-totem-productos.publica.tp-fondo-claro {
+  background: linear-gradient(172deg, #F4F6F9 0%, #EDF1F6 100%);
+  color: #141821; --tp-ink-loc: #141821;
+}
+.kimos-totem-productos .tp-fondo-color,
+.kimos-totem-productos.publica.tp-fondo-color {
+  background: var(--tp-bg);
+  color: var(--tp-ink); --tp-ink-loc: var(--tp-ink);
+}
+/* Superficies sobre fondo oscuro / claro */
+.kimos-totem-productos .tp-fondo-oscuro { --tp-panel: rgb(255 255 255 / .07); --tp-panel-alto: #16202F; --tp-linea-t: rgb(255 255 255 / .16); --tp-mut-t: rgb(255 255 255 / .66); }
+.kimos-totem-productos.publica.tp-fondo-oscuro { --tp-panel: rgb(255 255 255 / .07); --tp-panel-alto: #16202F; --tp-linea-t: rgb(255 255 255 / .16); --tp-mut-t: rgb(255 255 255 / .66); }
+.kimos-totem-productos .tp-fondo-claro,
+.kimos-totem-productos.publica.tp-fondo-claro { --tp-panel: rgb(255 255 255 / .8); --tp-panel-alto: #ffffff; --tp-linea-t: rgb(20 24 33 / .14); --tp-mut-t: rgb(20 24 33 / .6); }
+.kimos-totem-productos .tp-fondo-color,
+.kimos-totem-productos.publica.tp-fondo-color { --tp-panel: rgb(255 255 255 / .1); --tp-panel-alto: rgb(255 255 255 / .16); --tp-linea-t: rgb(255 255 255 / .2); --tp-mut-t: rgb(255 255 255 / .7); }
+.kimos-totem-productos .tp-fondo-vidrio { --tp-panel: var(--tp-vidrio); --tp-panel-alto: var(--tp-vidrio-alto); --tp-linea-t: var(--tp-linea); --tp-mut-t: var(--tp-mut); }
+
+/* ── Chrome de escritorio ── */
+.kimos-totem-productos .tp-hd {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--tp-vidrio);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--tp-linea);
+}
+.kimos-totem-productos .tp-hd-titulo { font-weight: 700; font-size: var(--f-base); display: flex; align-items: center; gap: 8px; }
+.kimos-totem-productos .tp-ver { font-size: var(--f-sm); color: var(--tp-mut); opacity: .7; font-variant-numeric: tabular-nums; font-weight: 500; }
+.kimos-totem-productos .tp-tabs {
+  display: flex; gap: 4px; padding: 4px;
+  background: hsl(var(--muted, 210 20% 92%) / .7);
+  border-radius: calc(var(--tp-r) + 4px);
+}
+.kimos-totem-productos .tp-tab-b {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 7px 16px; border-radius: var(--tp-r);
+  font: 600 var(--f-sm) inherit; font-family: inherit; color: var(--tp-mut);
+}
+.kimos-totem-productos .tp-tab-b.activa { background: var(--tp-vidrio-alto); color: var(--tp-fg); box-shadow: var(--tp-sombra); }
+.kimos-totem-productos .tp-hd-acc { display: flex; justify-content: flex-end; gap: 6px; }
+
+.kimos-totem-productos .tp-mini {
+  min-width: 30px; height: 30px; padding: 0 8px;
+  border: 1px solid var(--tp-linea); border-radius: var(--tp-r);
+  background: var(--tp-vidrio); color: var(--tp-fg); cursor: pointer; font-size: 14px;
+}
+.kimos-totem-productos .tp-mini:disabled { opacity: .4; cursor: default; }
+.kimos-totem-productos .tp-btn {
+  min-height: 38px; padding: 8px 16px;
+  border: 1px solid var(--tp-linea); border-radius: var(--tp-r);
+  background: var(--tp-vidrio-alto); color: var(--tp-fg);
+  font: 600 var(--f-sm) inherit; font-family: inherit; cursor: pointer;
+  box-shadow: var(--tp-sombra);
+}
+.kimos-totem-productos .tp-btn:disabled { opacity: .5; cursor: default; }
+.kimos-totem-productos .tp-btn-acc { background: var(--tp-acc); border-color: var(--tp-acc); color: var(--tp-acc-fg); }
+.kimos-totem-productos .tp-danger { color: #C2413B; border-color: #C2413B66; }
+.dark .kimos-totem-productos .tp-danger { color: #F87171; border-color: #F8717166; }
+
+/* ── Pestañas de gestión ── */
+.kimos-totem-productos .tp-tab { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.kimos-totem-productos .tp-bloque {
+  max-width: 980px; margin: 0 auto 14px;
+  background: var(--tp-vidrio); backdrop-filter: blur(10px);
+  border: 1px solid var(--tp-linea); border-radius: calc(var(--tp-r) + 4px);
+  padding: 14px 16px; box-shadow: var(--tp-sombra);
+}
+.kimos-totem-productos .tp-bloque-h { font-weight: 700; margin-bottom: 8px; }
+.kimos-totem-productos .tp-mut { color: var(--tp-mut); font-size: var(--f-sm); margin: 4px 0; }
+.kimos-totem-productos .tp-err { color: #C2413B; font-size: var(--f-sm); }
+.kimos-totem-productos .tp-ok { color: #1E8E4B; font-size: var(--f-sm); margin-top: 8px; }
+.kimos-totem-productos .tp-warn { color: #A3690B; font-size: var(--f-sm); margin-top: 8px; }
+.dark .kimos-totem-productos .tp-err { color: #F87171; }
+.dark .kimos-totem-productos .tp-ok { color: #4ADE80; }
+.dark .kimos-totem-productos .tp-warn { color: #FBBF24; }
+
+.kimos-totem-productos .tp-form-fila { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.kimos-totem-productos .tp-campo { display: flex; flex-direction: column; gap: 4px; font-size: var(--f-sm); color: var(--tp-mut); min-width: 180px; flex: 1; }
+.kimos-totem-productos .tp-input {
+  min-height: 34px; padding: 6px 10px;
+  border: 1px solid var(--tp-linea); border-radius: var(--tp-r);
+  background: var(--tp-vidrio-alto); color: var(--tp-fg);
+  font: 400 var(--f-sm) inherit; font-family: inherit;
+}
+.kimos-totem-productos .tp-color { width: 64px; height: 34px; padding: 2px; border: 1px solid var(--tp-linea); border-radius: var(--tp-r); background: var(--tp-vidrio-alto); }
+.kimos-totem-productos .tp-switch { display: flex; align-items: center; gap: 6px; font-size: var(--f-sm); color: var(--tp-fg); cursor: pointer; }
+.kimos-totem-productos .tp-fuente { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: var(--f-sm); }
+.kimos-totem-productos .tp-fuente em { color: var(--tp-mut); font-style: normal; }
+.kimos-totem-productos .tp-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: hsl(var(--muted, 210 20% 92%) / .7); border: 1px solid var(--tp-linea);
+  border-radius: var(--tp-r); padding: 6px 10px; word-break: break-all;
+}
+.kimos-totem-productos .tp-pub-fila { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+
+/* Curación de productos */
+.kimos-totem-productos .tp-lista-cur { display: flex; flex-direction: column; gap: 6px; }
+.kimos-totem-productos .tp-cur {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--tp-linea); border-radius: var(--tp-r);
+  padding: 6px 10px; background: var(--tp-vidrio-alto);
+}
+.kimos-totem-productos .tp-cur.apagado { opacity: .5; }
+.kimos-totem-productos .tp-cur-thumb { width: 40px; height: 40px; border-radius: calc(var(--tp-r) - 2px); object-fit: cover; display: flex; align-items: center; justify-content: center; background: hsl(var(--muted, 210 20% 92%) / .7); flex-shrink: 0; }
+.kimos-totem-productos .tp-cur-info { flex: 1; min-width: 0; }
+.kimos-totem-productos .tp-cur-nombre { font-weight: 600; font-size: var(--f-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kimos-totem-productos .tp-input-cat { width: 150px; flex-shrink: 0; }
+.kimos-totem-productos .tp-cur-orden { display: flex; gap: 4px; }
+
+/* Estilos: formulario + previsualización */
+.kimos-totem-productos .tp-estilos { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; max-width: 1240px; margin: 0 auto; }
+.kimos-totem-productos .tp-estilos-form { min-width: 0; }
+.kimos-totem-productos .tp-estilos-prev { position: sticky; top: 0; }
+.kimos-totem-productos .tp-prev-marco {
+  border: 1px solid var(--tp-linea); border-radius: 18px; overflow: hidden;
+  aspect-ratio: 9 / 16; box-shadow: var(--tp-sombra); background: #000;
+}
+.kimos-totem-productos .tp-prev-lienzo { height: 100%; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; --f-base: 12px; --f-sm: 10.5px; --f-lg: 14px; --f-h1: 20px; --f-h2: 15px; --tap: 40px; --pad: 12px; --tp-dock: 0px; }
+
+/* ── Vista de tótem ── */
+.kimos-totem-productos .tp-totem { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+.kimos-totem-productos .tp-hero { flex-shrink: 0; padding: calc(var(--pad) * .9) var(--pad) calc(var(--pad) * .4); }
+.kimos-totem-productos .tp-hero-titulo { font-size: var(--f-h1); font-weight: 800; letter-spacing: -.02em; line-height: 1.05; }
+.kimos-totem-productos .tp-hero-sub { font-size: var(--f-lg); color: var(--tp-mut-t); margin-top: .25em; }
+
+.kimos-totem-productos .tp-cats {
+  flex-shrink: 0; display: flex; gap: 10px; overflow-x: auto;
+  padding: calc(var(--pad) * .45) var(--pad);
+  scrollbar-width: none;
+}
+.kimos-totem-productos .tp-cats::-webkit-scrollbar { display: none; }
+.kimos-totem-productos .tp-cat {
+  flex-shrink: 0; min-height: calc(var(--tap) * .72);
+  padding: .35em 1em; border-radius: 999px;
+  border: 1.5px solid var(--tp-linea-t); background: var(--tp-panel);
+  color: inherit; font: 600 var(--f-sm) inherit; font-family: inherit; cursor: pointer;
+}
+.kimos-totem-productos .tp-cat.activa { background: var(--tp-acc); border-color: var(--tp-acc); color: var(--tp-acc-fg); }
+
+.kimos-totem-productos .tp-cuerpo {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: calc(var(--pad) * .4) var(--pad) var(--pad);
+  -webkit-overflow-scrolling: touch;
+}
+/* En vitrina vertical el dock de voz flota sobre la app: reservamos ese alto
+   para que el final del contenido nunca quede tapado por el micrófono. */
+.modo-totem.kimos-totem-productos .tp-cuerpo { padding-bottom: calc(var(--pad) + var(--tp-dock)); }
+
+.kimos-totem-productos .tp-grid { display: grid; grid-template-columns: repeat(var(--tp-cols, 2), minmax(0, 1fr)); gap: calc(var(--pad) * .6); }
+.kimos-totem-productos .tp-grid-lista { grid-template-columns: 1fr; }
+
+.kimos-totem-productos .tp-card {
+  display: flex; flex-direction: column; text-align: left;
+  border: 1px solid var(--tp-linea-t); border-radius: var(--tp-radius);
+  background: var(--tp-panel); color: inherit;
+  overflow: hidden; cursor: pointer; padding: 0;
+  font-family: inherit; font-size: var(--f-base);
+  transition: transform .15s ease, border-color .15s ease;
+  backdrop-filter: blur(8px);
+}
+.kimos-totem-productos .tp-card:active { transform: scale(.985); border-color: var(--tp-acc); }
+.kimos-totem-productos .tp-card-img { aspect-ratio: 4 / 3; }
+.kimos-totem-productos .tp-img { position: relative; width: 100%; height: 100%; background: rgb(127 127 127 / .12); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.kimos-totem-productos .tp-img img { width: 100%; height: 100%; display: block; }
+.kimos-totem-productos .tp-img-vacia { font-size: 2.2em; opacity: .5; min-height: 3em; }
+.kimos-totem-productos .tp-card-img.tp-img, .kimos-totem-productos .tp-card-img .tp-img { height: auto; }
+.kimos-totem-productos .tp-card .tp-card-img { width: 100%; aspect-ratio: 4 / 3; height: auto; }
+.kimos-totem-productos .tp-card-body { padding: calc(var(--pad) * .5) calc(var(--pad) * .55) calc(var(--pad) * .55); display: flex; flex-direction: column; gap: .25em; }
+.kimos-totem-productos .tp-card-nombre { font-weight: 700; font-size: var(--f-lg); line-height: 1.15; overflow-wrap: anywhere; }
+.kimos-totem-productos .tp-card-sku { font-size: var(--f-sm); color: var(--tp-mut-t); font-family: ui-monospace, Menlo, monospace; }
+.kimos-totem-productos .tp-card-cat { font-size: var(--f-sm); color: var(--tp-mut-t); }
+.kimos-totem-productos .tp-card-stock { font-size: var(--f-sm); color: var(--tp-mut-t); }
+.kimos-totem-productos .tp-precio { display: flex; align-items: baseline; gap: .45em; font-weight: 800; font-size: var(--f-lg); color: var(--tp-acc); }
+.kimos-totem-productos .tp-precio-antes { font-weight: 500; font-size: .72em; color: var(--tp-mut-t); }
+.kimos-totem-productos .tp-precio-desde { font-weight: 500; font-size: .62em; color: var(--tp-mut-t); }
+.kimos-totem-productos .tp-card-badge {
+  align-self: flex-start; margin-top: .2em;
+  font-size: var(--f-sm); font-weight: 700;
+  color: var(--tp-acc); border: 1.5px solid var(--tp-acc);
+  border-radius: 999px; padding: .12em .7em;
+}
+
+/* Tarjeta en modo lista */
+.kimos-totem-productos .tp-card-lista { flex-direction: row; align-items: center; }
+.kimos-totem-productos .tp-card-lista .tp-card-thumb { width: calc(var(--tap) * 1.6); height: calc(var(--tap) * 1.6); flex-shrink: 0; }
+.kimos-totem-productos .tp-card-lista .tp-card-body { flex: 1; min-width: 0; }
+
+.kimos-totem-productos .tp-vacio {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--tp-mut-t, var(--tp-mut)); text-align: center; padding: var(--pad);
+  font-size: var(--f-lg);
+}
+.kimos-totem-productos .tp-vacio-ico { font-size: 3em; opacity: .6; }
+
+/* ── Overlays (ficha / configurador / resumen) ── */
+.kimos-totem-productos .tp-overlay {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(var(--pad) * .7) var(--pad);
+  /* El overlay respeta la franja del dock de voz de la vitrina. */
+  padding-bottom: calc(var(--pad) * .7 + var(--tp-dock));
+  background: rgb(8 10 18 / .66);
+  backdrop-filter: blur(6px);
+  animation: tp-fade .18s ease;
+}
+.kimos-totem-productos .tp-overlay-int { z-index: 50; }
+.kimos-totem-productos .tp-panel {
+  position: relative; width: 100%; max-width: 860px; max-height: 100%;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--tp-panel-alto, #fff); color: inherit;
+  border: 1px solid var(--tp-linea-t); border-radius: calc(var(--tp-radius) + 4px);
+  box-shadow: 0 18px 50px rgb(0 0 0 / .4);
+  animation: tp-pop .2s ease;
+}
+.kimos-totem-productos .tp-panel-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--pad); -webkit-overflow-scrolling: touch; }
+.kimos-totem-productos .tp-panel-pie {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: calc(var(--pad) * .5) var(--pad);
+  border-top: 1px solid var(--tp-linea-t);
+  background: var(--tp-panel);
+}
+.kimos-totem-productos .tp-cerrar {
+  position: absolute; top: calc(var(--pad) * .4); right: calc(var(--pad) * .4); z-index: 5;
+  width: calc(var(--tap) * .8); height: calc(var(--tap) * .8);
+  border-radius: 999px; border: 1px solid var(--tp-linea-t);
+  background: var(--tp-panel); color: inherit; font-size: var(--f-lg); cursor: pointer;
+}
+.kimos-totem-productos .tp-btn-xl { min-height: var(--tap); font-size: var(--f-lg); padding: .4em 1.4em; border-radius: calc(var(--tp-radius) * .7 + 6px); }
+
+/* Ficha */
+.kimos-totem-productos .tp-visor { margin-bottom: calc(var(--pad) * .5); }
+.kimos-totem-productos .tp-visor-img { aspect-ratio: 4 / 3; border-radius: var(--tp-radius); }
+.kimos-totem-productos .tp-visor-thumbs { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; }
+.kimos-totem-productos .tp-thumb {
+  width: calc(var(--tap) * 1.05); height: calc(var(--tap) * 1.05); flex-shrink: 0;
+  border: 2px solid transparent; border-radius: calc(var(--tp-radius) * .5);
+  overflow: hidden; padding: 0; cursor: pointer; background: rgb(127 127 127 / .12);
+}
+.kimos-totem-productos .tp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kimos-totem-productos .tp-thumb.activa { border-color: var(--tp-acc); }
+.kimos-totem-productos .tp-det-nombre { font-size: var(--f-h2); font-weight: 800; line-height: 1.1; }
+.kimos-totem-productos .tp-det-sku { font-size: var(--f-sm); color: var(--tp-mut-t); font-family: ui-monospace, Menlo, monospace; margin-top: .2em; }
+.kimos-totem-productos .tp-det-precio { display: flex; align-items: baseline; gap: .5em; font-size: var(--f-h2); font-weight: 800; color: var(--tp-acc); margin: .25em 0; }
+.kimos-totem-productos .tp-det-meta { font-size: var(--f-base); color: var(--tp-mut-t); margin: .2em 0; }
+.kimos-totem-productos .tp-det-desc { font-size: var(--f-base); line-height: 1.5; white-space: pre-line; margin: .6em 0; }
+.kimos-totem-productos .tp-det-seccion { margin-top: calc(var(--pad) * .6); }
+.kimos-totem-productos .tp-det-h { font-weight: 700; font-size: var(--f-lg); margin-bottom: .4em; }
+.kimos-totem-productos .tp-det-nota {
+  margin-top: calc(var(--pad) * .6); padding: calc(var(--pad) * .5);
+  border: 1.5px dashed var(--tp-linea-t); border-radius: var(--tp-radius);
+  color: var(--tp-mut-t); font-size: var(--f-base);
+}
+.kimos-totem-productos .tp-spec-grupo { font-size: var(--f-sm); font-weight: 700; color: var(--tp-mut-t); text-transform: uppercase; letter-spacing: .06em; margin: .6em 0 .2em; }
+.kimos-totem-productos .tp-specs { width: 100%; border-collapse: collapse; font-size: var(--f-base); }
+.kimos-totem-productos .tp-specs td { padding: .45em .4em; border-bottom: 1px solid var(--tp-linea-t); vertical-align: top; }
+.kimos-totem-productos .tp-specs td:first-child { color: var(--tp-mut-t); width: 38%; }
+.kimos-totem-productos .tp-presets { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.kimos-totem-productos .tp-preset {
+  flex-shrink: 0; display: flex; align-items: center; gap: .5em;
+  min-height: calc(var(--tap) * .8); padding: .3em .9em;
+  border: 1.5px solid var(--tp-linea-t); border-radius: 999px;
+  background: var(--tp-panel); color: inherit; cursor: pointer;
+  font: 600 var(--f-base) inherit; font-family: inherit;
+}
+.kimos-totem-productos .tp-preset img { width: 1.8em; height: 1.8em; border-radius: 999px; object-fit: cover; }
+.kimos-totem-productos .tp-preset em { font-style: normal; color: var(--tp-acc); font-weight: 800; }
+
+/* Configurador */
+.kimos-totem-productos .tp-panel-cfg { max-width: 920px; height: 100%; }
+.kimos-totem-productos .tp-cfg-head { display: flex; gap: calc(var(--pad) * .6); align-items: center; margin-bottom: calc(var(--pad) * .5); }
+.kimos-totem-productos .tp-cfg-foto { width: 38%; min-width: 160px; aspect-ratio: 1; border-radius: var(--tp-radius); flex-shrink: 0; }
+.kimos-totem-productos .tp-cfg-titulo { min-width: 0; }
+.kimos-totem-productos .tp-cfg-sub { color: var(--tp-mut-t); font-size: var(--f-base); margin-top: .3em; }
+.kimos-totem-productos .tp-paso { margin-bottom: calc(var(--pad) * .7); }
+.kimos-totem-productos .tp-paso-h { display: flex; align-items: center; gap: .5em; margin-bottom: .35em; }
+.kimos-totem-productos .tp-paso-num {
+  width: 1.7em; height: 1.7em; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--tp-acc); color: var(--tp-acc-fg);
+  font-weight: 800; font-size: var(--f-base);
+}
+.kimos-totem-productos .tp-paso-label { font-size: var(--f-lg); font-weight: 700; }
+.kimos-totem-productos .tp-paso-nota { font-size: var(--f-sm); color: var(--tp-mut-t); margin: 0 0 .4em 2.4em; }
+.kimos-totem-productos .tp-ops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--pad) * .35); }
+.kimos-totem-productos .tp-op {
+  display: flex; align-items: center; gap: .55em; text-align: left;
+  min-height: var(--tap); padding: .45em .6em;
+  border: 2px solid var(--tp-linea-t); border-radius: calc(var(--tp-radius) * .8);
+  background: var(--tp-panel); color: inherit; cursor: pointer;
+  font-family: inherit; font-size: var(--f-base);
+  transition: border-color .15s ease, background .15s ease;
+}
+.kimos-totem-productos .tp-op.activa { border-color: var(--tp-acc); box-shadow: 0 0 0 1.5px var(--tp-acc) inset; }
+.kimos-totem-productos .tp-op-img { width: 2.6em; height: 2.6em; flex-shrink: 0; border-radius: calc(var(--tp-radius) * .5); overflow: hidden; background: rgb(127 127 127 / .12); }
+.kimos-totem-productos .tp-op-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kimos-totem-productos .tp-op-swatch { width: 1.7em; height: 1.7em; flex-shrink: 0; border-radius: 999px; border: 2px solid var(--tp-linea-t); }
+.kimos-totem-productos .tp-op-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.kimos-totem-productos .tp-op-nombre { font-weight: 700; overflow-wrap: anywhere; }
+.kimos-totem-productos .tp-op-desc { font-size: var(--f-sm); color: var(--tp-mut-t); overflow-wrap: anywhere; }
+.kimos-totem-productos .tp-op-delta { flex-shrink: 0; font-size: var(--f-sm); font-weight: 700; color: var(--tp-mut-t); }
+.kimos-totem-productos .tp-op-delta.activa { color: var(--tp-acc); }
+.kimos-totem-productos .tp-cfg-final { color: var(--tp-mut-t); font-size: var(--f-sm); margin-top: .4em; }
+.kimos-totem-productos .tp-cfg-pie { justify-content: space-between; }
+.kimos-totem-productos .tp-cfg-total { display: flex; flex-direction: column; line-height: 1.15; }
+.kimos-totem-productos .tp-cfg-total strong { font-size: var(--f-h2); color: var(--tp-acc); }
+.kimos-totem-productos .tp-cfg-total span { font-size: var(--f-sm); color: var(--tp-mut-t); }
+
+/* Resumen */
+.kimos-totem-productos .tp-panel-resumen { max-width: 680px; }
+.kimos-totem-productos .tp-resumen-nombre { margin-bottom: .4em; }
+.kimos-totem-productos .tp-resumen-tabla td:last-child { text-align: right; }
+.kimos-totem-productos .tp-resumen-delta { color: var(--tp-mut-t); font-variant-numeric: tabular-nums; }
+.kimos-totem-productos .tp-resumen-total { font-size: var(--f-h2); font-weight: 800; color: var(--tp-acc); margin-top: .5em; }
+
+/* ── Pantalla de conexión (vitrina sin catálogo) ── */
+.kimos-totem-productos .tp-setup { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--pad); padding-bottom: calc(var(--pad) + var(--tp-dock)); }
+.kimos-totem-productos .tp-setup-card {
+  width: 100%; max-width: 560px; text-align: center;
+  background: var(--tp-panel-alto, #fff); border: 1px solid var(--tp-linea-t);
+  border-radius: calc(var(--tp-radius) + 4px); padding: calc(var(--pad) * 1.2);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.kimos-totem-productos .tp-setup-ico { font-size: 3em; }
+.kimos-totem-productos .tp-setup-t { font-size: var(--f-h2); font-weight: 800; }
+.kimos-totem-productos .tp-setup-card p { color: var(--tp-mut-t); font-size: var(--f-base); margin: 0; }
+.kimos-totem-productos .tp-setup-err { color: #F87171; font-size: var(--f-sm); }
+.kimos-totem-productos .tp-setup-card .tp-input { min-height: var(--tap); font-size: var(--f-base); text-align: center; }
+.kimos-totem-productos .tp-setup-ver { color: var(--tp-mut-t); font-size: var(--f-sm); opacity: .7; }
+
+/* ── Animaciones ── */
+@keyframes tp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tp-pop { from { transform: translateY(12px) scale(.98); opacity: .6; } to { transform: none; opacity: 1; } }
+
+/* ── Angosto (ventana pequeña de escritorio) ── */
+@media (max-width: 860px) {
+  .kimos-totem-productos .tp-hd { grid-template-columns: 1fr; gap: 8px; }
+  .kimos-totem-productos .tp-hd-acc { justify-content: flex-start; }
+  .kimos-totem-productos .tp-tabs { overflow-x: auto; }
+  .kimos-totem-productos .tp-estilos { grid-template-columns: 1fr; }
+  .kimos-totem-productos .tp-estilos-prev { position: static; max-width: 360px; }
+  .kimos-totem-productos .tp-ops { grid-template-columns: 1fr; }
+  .kimos-totem-productos .tp-cfg-head { flex-direction: column; align-items: stretch; }
+  .kimos-totem-productos .tp-cfg-foto { width: 100%; aspect-ratio: 16 / 10; }
+}

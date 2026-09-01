@@ -392,8 +392,8 @@ if (rVacio.success !== false || String(rVacio.error).indexOf('SIN componentes') 
   throw new Error('un valor sin componentes debe rechazar la llamada: ' + JSON.stringify(rVacio));
 }
 await act('SET_PRODUCTO_STEPS', { producto: 'Chaqueta Agente', steps: [
-  { label: 'Tela', type: 'tela', default: 'Lino', values: [
-    { label: 'Algodón', components: ['Algodón 20/1 (Prov. Sur)'] },
+  { label: 'Tela', type: 'tela', default: 'Lino', nota: 'Elige según el clima de tu zona', values: [
+    { label: 'Algodón', detalle: 'Tejido 20/1 peinado', components: ['Algodón 20/1 (Prov. Sur)'] },
     { label: 'Lino', components: ['Lino europeo (Prov. UE)'] },
   ] },
   // Sin campo `components` y con label = nombre de componente → auto-enlace.
@@ -404,6 +404,11 @@ expectEq('agente: pasos creados', eqAg.groups.length, 2);
 expectEq('agente: default por label', eqAg.groups[0].defaultValueId, eqAg.groups[0].values[1].id);
 expectEq('agente: valor enlazado con su componente real', eqAg.groups[0].values[1].componentIds.length, 1);
 expectEq('agente: auto-enlace por nombre (sin campo components)', eqAg.groups[1].values[0].componentIds.length, 1);
+// IDA Y VUELTA por el guardado: `nota` (paso) y `detalle` (valor) tienen que
+// SOBREVIVIR a saveProducto — su allowlist los recortaba en silencio y el
+// usuario los perdía en cada Guardar/$ Precios/Rearmar (2026-08-25).
+expectEq('la nota del paso sobrevive al guardado', eqAg.groups[0].nota, 'Elige según el clima de tu zona');
+expectEq('el detalle del valor sobrevive al guardado', eqAg.groups[0].values[0].detalle, 'Tejido 20/1 peinado');
 // Reparación QUIRÚRGICA: ENLAZAR_COMPONENTES arregla UN valor sin reenviar
 // todos los pasos (y rechaza componentes inexistentes con pistas).
 const rEnl = await agentReg.dispatchAction({ type: 'ENLAZAR_COMPONENTES', payload: { producto: 'Chaqueta Agente', paso: 'Botones', valor: 'Botón nácar (Prov. B)', components: ['NoExiste QQQ'] } });
@@ -416,11 +421,28 @@ expectEq('ENLAZAR_COMPONENTES: valor con 2 componentes (tipos se suman)', eqEnl.
 expectEq('ENLAZAR_COMPONENTES: el resto del paso no se toca', eqEnl.groups[0].values[0].componentIds.length, 1);
 
 await act('SET_STOREFRONT', { producto: 'Chaqueta Agente',
-  pageSections: [{ kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } }],
+  pageSections: [
+    { kind: 'hero', pattern: 'apilado', bgImageUrl: 'https://cdn/fondo-agente.jpg', slots: { middle: [{ type: 'text', text: 'Hola', size: 'zz' }] } },
+    // Preguntas frecuentes: la vacía se poda y las respuestas sobreviven al
+    // guardado (misma trampa del allowlist que perdió nota/detalle).
+    { kind: 'faq', title: 'Dudas', titleSize: 'xl', titleAlign: 'center', bgColor: '#f4f4f4',
+      textSize: 'l', align: 'center', boxWidth: 'm',
+      items: [{ q: '¿Demora?', a: '5 días' }, { q: '  ', a: 'sin pregunta' }] },
+  ],
   specs: [{ label: 'Tela', value: 'Algodón' }], photosNote: 'Nota agente' });
 const sfAg = store.get(eqAg.id).storefront;
-expectEq('agente: ficha normalizada (hero + specs/fotos/nota fijas)', sfAg.pageSections.length, 4);
+expectEq('agente: ficha normalizada (hero + faq + specs/fotos/nota fijas)', sfAg.pageSections.length, 5);
 expectEq('agente: tamaño de texto inválido normalizado a l', sfAg.pageSections[0].slots.middle[0].size, 'l');
+const faqAg = sfAg.pageSections.find((x) => x.kind === 'faq');
+expectEq('faq: la pregunta vacía se poda', faqAg.items.length, 1);
+expectEq('faq: pregunta y respuesta sobreviven al guardado', faqAg.items[0].q + '·' + faqAg.items[0].a, '¿Demora?·5 días');
+expectEq('faq: el título sobrevive al guardado', faqAg.title, 'Dudas');
+// Diseño editable de la FAQ: título con el sistema de las demás secciones +
+// letra/alineación/ancho propios — todo debe sobrevivir al allowlist.
+expectEq('faq: diseño del título sobrevive (tamaño·alineación·fondo)',
+  faqAg.titleSize + '·' + faqAg.titleAlign + '·' + faqAg.bgColor, 'xl·center·#f4f4f4');
+expectEq('faq: diseño del acordeón sobrevive (letra·alineación·ancho)',
+  faqAg.textSize + '·' + faqAg.align + '·' + faqAg.boxWidth, 'l·center·m');
 expectEq('agente: nota guardada', sfAg.photosNote, 'Nota agente');
 if ((store.get(eqAg.id).galleryImages || []).indexOf('https://cdn/fondo-agente.jpg') === -1) throw new Error('el fondo usado no se cosechó en la galería del producto');
 
@@ -436,7 +458,7 @@ if (store.get('definition').public.enabled !== true) throw new Error('PUBLISH_CO
 const snapAg = agentReg.getSnapshot();
 const seAg = snapAg.productos.find((e) => e.name === 'Chaqueta Agente');
 if (!seAg.steps || seAg.steps[0].values[1].alternatives[0] !== 'Lino europeo (Prov. UE)') throw new Error('snapshot sin pasos/alternativas');
-if (!seAg.storefront || seAg.storefront.pageSections.length !== 4) throw new Error('snapshot sin storefront');
+if (!seAg.storefront || seAg.storefront.pageSections.length !== 5) throw new Error("snapshot sin storefront");
 if (!snapAg.builderRef || snapAg.builderRef.patterns.length !== 12 || snapAg.builderRef.blockTypes.indexOf('html') === -1) throw new Error('builderRef ausente o incompleto');
 const seN1 = snapAg.productos.find((e) => e.name === 'Camisa Clásica' && e.linked);
 expectEq('agente: galería del producto en snapshot', (seN1.productImages || []).length, 2);
@@ -654,7 +676,18 @@ expectEq('redondeo ending (terminación 990)', priceOf(), 11990);
 // El impuesto de venta es un parámetro, no un 19% fijo.
 await reload({ roundMode: 'none', salesTaxPct: 21 });
 expectEq('impuesto de venta parametrizable (21%)', priceOf(), Math.round(11000 * 1.21));
-console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo e impuesto parametrizable OK');
+
+// Costo cargado CON el impuesto de venta incluido (boleta / precio web): se
+// descuenta antes del margen. Round-trip sin margen: 119.000 c/IVA → neto
+// 100.000 → venta con IVA 19% = 119.000 de vuelta. Con margen 25%: 148.750.
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 0 });
+await act('UPSERT_COMPONENT', { name: 'Tela boleta', type: 'tela', cost: 119000, currency: 'CLP', costConIva: true });
+const boleta = () => agentReg.getSnapshot().components.find((c) => c.name === 'Tela boleta');
+expectEq('costo c/IVA sin margen: la venta reproduce el costo de boleta', boleta().salePrice, 119000);
+expectEq('el snapshot expone costConIva', boleta().costConIva, true);
+await reload({ roundMode: 'none', salesTaxPct: 19, marginDefaultPct: 25, marginBasis: 'cost' });
+expectEq('costo c/IVA con margen 25%: neto 100.000 × 1.25 × 1.19', boleta().salePrice, 148750);
+console.log('genérico: multi-moneda (EUR/GBP), 4 modos de redondeo, impuesto parametrizable y costo c/IVA OK');
 
 // ── 10. Visor 3D OPCIONAL ────────────────────────────────────────────────
 // Nada de lo anterior tiene modelo 3D: eso ya demuestra que la app funciona
@@ -1211,7 +1244,7 @@ if (csvText.indexOf('Ryzen 5 8500G') === -1) throw new Error('CSV sin los compon
 // Editar el CSV como en una planilla: cambio de costo y componente nuevo.
 const editado = csvText.split('\r\n')
   .map((ln) => (ln.indexOf('cmp-r5') === 0 ? ln.replace('110000', '125000') : ln))
-  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,0,7,4,PC Factory,https://p/9,,,,,si,,'])
+  .concat([',Gabinete NZXT,Chasis,NZXT,ATX vidrio,39990,CLP,si,0,7,4,PC Factory,https://p/9,,,,,si,,'])
   .join('\r\n');
 uploads.set(csvUrl, editado);
 const impCsv = await act('IMPORT_DATA', { url: csvUrl });
@@ -1223,6 +1256,8 @@ if (!nuevoCsv) throw new Error('el componente agregado en el CSV no llegó');
 expectEq('stock del componente nuevo (columna stock)', nuevoCsv.stock, 7);
 expectEq('días de entrega del componente nuevo', nuevoCsv.deliveryDays, 4);
 expectEq('costo del componente nuevo', nuevoCsv.cost, 39990);
+expectEq('columna costoConIva del CSV (si → true)', nuevoCsv.costConIva, true);
+expectEq('los componentes exportados sin marcar siguen netos', snapCsv.components.find((c) => c.id === 'cmp-r5').costConIva, false);
 if (!agentReg.getSnapshot().types.some((t) => t.label === 'Chasis')) throw new Error('el tipo nuevo del CSV debía crearse solo');
 
 // Export JSON completo y reimportación en modo "skip" (no toca lo existente).

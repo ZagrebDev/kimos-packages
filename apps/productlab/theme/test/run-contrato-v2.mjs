@@ -319,10 +319,14 @@ console.log('— v2: dependencias, style, secciones imagen, hero/photo auto —'
   t('solo 1 paso visible (dependencias ocultan 2)', pasos.length === 1);
   t('renumeración: el visible es el 01', !!pasos[0] && pasos[0].querySelector('.kc-step-num').textContent === '01');
   t('showDeltas none → sin precios en las cards', d.querySelectorAll('.kc-card-price').length === 0);
-  // La cantidad va DELANTE ("2× Pro"), y solo si el nombre no la dice ya.
-  const qty = d.querySelector('.kc-card-qty');
-  t('qty > 1 → "2×" delante del nombre', !!qty && qty.textContent.trim() === '2×'
-    && /2×\s*Pro/.test(qty.parentNode.textContent));
+  // Contrato 6.1: el NOMBRE de la card es del dueño y va TAL CUAL (anteponer
+  // la cantidad lo rompía: "16GB DDR5" con qty 2 se leía "2× 16GB DDR5" =
+  // 32GB). La cantidad vive en el DETALLE bajo el nombre.
+  const cardPro = Array.prototype.find.call(d.querySelectorAll('.kc-card'),
+    (c) => { const n = c.querySelector('.kc-card-n'); return n && n.textContent.trim() === 'Pro'; });
+  t('qty > 1 → el nombre va tal cual, sin "2×" delante', !!cardPro && !d.querySelector('.kc-card-qty'));
+  t('qty > 1 → el "2×" vive en el detalle bajo el nombre', !!cardPro
+    && /(^|\s)2×/.test((cardPro.querySelector('.kc-card-d') || {}).textContent || ''));
   t('stepsCollapsed: el primer paso visible arranca abierto', !pasos[0].classList.contains('kc-closed'));
 
   const card = (nombre) => Array.prototype.find.call(

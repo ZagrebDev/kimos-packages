@@ -1,0 +1,184 @@
+{
+"paths": {
+"monitor": "<rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/>",
+"bot": "<rect x=\"3\" y=\"11\" width=\"18\" height=\"10\" rx=\"2\"/><circle cx=\"12\" cy=\"5\" r=\"2\"/><path d=\"M12 7v4M8 16h.01M16 16h.01\"/>",
+"message": "<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>",
+"folder": "<path d=\"M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z\"/>",
+"book": "<path d=\"M4 19.5A2.5 2.5 0 0 1 6.5 17H20\"/><path d=\"M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z\"/>",
+"users": "<path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/>",
+"columns": "<rect x=\"3\" y=\"3\" width=\"6\" height=\"18\" rx=\"1\"/><rect x=\"15\" y=\"3\" width=\"6\" height=\"12\" rx=\"1\"/>",
+"calendar": "<rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18\"/>",
+"note": "<path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><path d=\"M14 2v6h6M9 13h6M9 17h4\"/>",
+"chart": "<path d=\"M3 3v18h18\"/><path d=\"M7 15l4-5 3 3 5-7\"/>",
+"flow": "<rect x=\"2\" y=\"3\" width=\"7\" height=\"6\" rx=\"1\"/><rect x=\"15\" y=\"15\" width=\"7\" height=\"6\" rx=\"1\"/><path d=\"M5.5 9v5a4 4 0 0 0 4 4h5.5\"/>",
+"cpu": "<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\"/><path d=\"M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4\"/>",
+"form": "<rect x=\"4\" y=\"2\" width=\"16\" height=\"20\" rx=\"2\"/><path d=\"M8 7h8M8 12h8M8 17h4\"/>",
+"target": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"5\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/>",
+"share": "<circle cx=\"18\" cy=\"5\" r=\"3\"/><circle cx=\"6\" cy=\"12\" r=\"3\"/><circle cx=\"18\" cy=\"19\" r=\"3\"/><path d=\"M8.6 13.5l6.8 4M15.4 6.5l-6.8 4\"/>",
+"palette": "<circle cx=\"13.5\" cy=\"6.5\" r=\"1.5\"/><circle cx=\"17.5\" cy=\"10.5\" r=\"1.5\"/><circle cx=\"8.5\" cy=\"7.5\" r=\"1.5\"/><circle cx=\"6.5\" cy=\"12.5\" r=\"1.5\"/><path d=\"M12 2a10 10 0 1 0 0 20c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.5-1.1-.3-.3-.4-.6-.4-1 0-.9.7-1.6 1.6-1.6H16a6 6 0 0 0 6-6c0-4.9-4.5-8.7-10-8.7z\"/>",
+"game": "<path d=\"M6 12h4M8 10v4M15 13h.01M18 11h.01\"/><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"5\"/>",
+"flask": "<path d=\"M9 2v6.5L4 19a2 2 0 0 0 1.8 3h12.4A2 2 0 0 0 20 19l-5-10.5V2\"/><path d=\"M8 2h8M7 15h10\"/>",
+"box": "<path d=\"M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z\"/><path d=\"M3.3 7L12 12l8.7-5M12 22V12\"/>",
+"cart": "<circle cx=\"9\" cy=\"21\" r=\"1\"/><circle cx=\"20\" cy=\"21\" r=\"1\"/><path d=\"M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6\"/>",
+"store": "<path d=\"M3 9l1.5-5h15L21 9M3 9h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z\"/><path d=\"M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0\"/>",
+"coins": "<circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M18.1 10.4a6 6 0 1 1-7.7 7.7\"/><path d=\"M7 6h2v4M9.5 14H7\"/>",
+"ticket": "<path d=\"M2 9a3 3 0 0 0 0 6v3a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3a3 3 0 0 1 0-6V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z\"/><path d=\"M13 5v14\"/>",
+"plug": "<path d=\"M12 22v-5M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z\"/>"
+},
+"scores": [
+{
+"dim": "Amplitud funcional de la suite",
+"nota": 9,
+"texto": "24 módulos cubriendo desde CRM hasta PIM. Ningún competidor de este tamaño ofrece tanto bajo un mismo login."
+},
+{
+"dim": "Integración entre módulos",
+"nota": 8,
+"texto": "Es la ventaja real y la única defendible: el dato fluye sin conectores. Todo el pricing debe apoyarse aquí."
+},
+{
+"dim": "Capa de IA y agentes",
+"nota": 8,
+"texto": "Escritorio con agentes, chatbots web y automatización de datos ya integrados. La competencia vende el asistente aparte."
+},
+{
+"dim": "Profundidad por módulo",
+"nota": 4,
+"texto": "Aquí está la debilidad. Contra Shopify, Notion, Canva o Salesforce, cada módulo individual es más pobre. Es el precio inevitable de la amplitud."
+},
+{
+"dim": "Ecosistema y comunidad",
+"nota": 3,
+"texto": "Sin app store, sin partners, sin plantillas de comunidad. Shopify y Notion construyeron eso en una década."
+},
+{
+"dim": "Posición de precio",
+"nota": 8,
+"texto": "Entrar al 28% del gasto actual del cliente con ahorro demostrable es una posición comercial muy sólida."
+},
+{
+"dim": "Escalabilidad del soporte",
+"nota": 4,
+"texto": "24 módulos significan 24 frentes de soporte, documentación y roadmap. Es el mayor riesgo operativo del modelo."
+},
+{
+"dim": "Defensa ante grandes",
+"nota": 5,
+"texto": "Microsoft y Google regalan piezas del stack. La defensa no es funcional, es el costo de cambio de tener todo integrado."
+}
+],
+"tldr": [
+{
+"titulo": "El número que importa",
+"color": "orange",
+"texto": "Un cliente del tamaño tipo gasta hoy <b>{stack} al mes</b> armando el stack por su cuenta. Ese es el ancla de la negociación, no el precio de cada competidor suelto."
+},
+{
+"titulo": "Dónde está la plata",
+"color": "fuchsia",
+"texto": "<b>{top3}</b> concentran la disposición a pagar. Kanban, Formularios, Vitrina e Integraciones son commodities: sirven para entrar a la cuenta, no para facturar."
+},
+{
+"titulo": "La suma de partes no es un precio",
+"color": "violet",
+"texto": "Sin descuento de bundle la suite daría <b>{aLaCarta}/mes</b>. Nadie paga eso. El descuento por plan no es una concesión comercial: es el modelo de precio."
+},
+{
+"titulo": "No todo se cobra por asiento",
+"color": "cyan",
+"texto": "Cashflow, PIM, Tienda, BPM y Eventos se cobran plano en todo el mercado. Cobrarlos por usuario deja a KIMOS fuera de comparación en la evaluación del cliente."
+},
+{
+"titulo": "Dos categorías a no pelear",
+"color": "red",
+"texto": "Chat de equipo (Slack/Teams) y e-commerce (Shopify) tienen efecto de red y ecosistemas imposibles de igualar en el corto plazo. Integrarse rinde más que competir."
+},
+{
+"titulo": "El riesgo real",
+"color": "amber",
+"texto": "24 módulos es una superficie de producto enorme para mantener. La amenaza no es el precio de la competencia: es quedarse a medias en veinte frentes a la vez."
+}
+],
+"sugerencias": [
+{
+"titulo": "Fusiona Digitai con Agentes",
+"color": "fuchsia",
+"texto": "Son la misma promesa para el cliente: automatizar con IA. Dos SKUs que se solapan generan fricción en la venta y canibalizan precio. Un solo módulo con niveles de consumo es más claro y más caro de vender bien."
+},
+{
+"titulo": "No pelees el chat ni el e-commerce",
+"color": "red",
+"texto": "Equipos compite con Slack y Teams, que tienen efecto de red; Tienda compite con Shopify y su app store. Integrarse con ellos convierte dos debilidades en dos argumentos de venta. Insistir cuesta roadmap que rinde más en BPM o PIM."
+},
+{
+"titulo": "Concentra el roadmap en 5 módulos",
+"color": "violet",
+"texto": "Prospección, PIM, BPM, Dashboards y Agentes Web concentran la disposición a pagar. Los demás son de retención, no de ingreso. Repartir esfuerzo por igual entre 24 módulos es la forma más rápida de quedar mediocre en todos."
+},
+{
+"titulo": "Cobra por unidad de valor, no por asiento",
+"color": "cyan",
+"texto": "Cashflow por empresa, PIM por volumen de SKU, Social Planner por canal, Eventos por evento, Agentes por crédito. Forzar todo a \"por usuario\" deja a KIMOS fuera de comparación justo cuando el cliente arma su planilla."
+},
+{
+"titulo": "Vende kits antes que la suite completa",
+"color": "teal",
+"texto": "El Enterprise de {enterprise}/mes exige un comité de compra y un ciclo largo. Los kits de {kitMin}–{kitMax} los aprueba un gerente de área con presupuesto propio. Entra por el kit, expande después: el costo de adquisición es una fracción."
+},
+{
+"titulo": "Publica precios",
+"color": "orange",
+"texto": "Pipedrive, Shopify, Notion y Plytix publican todo. Los que no publican (Agicap, Cvent, Salsify) juegan en enterprise con equipo de ventas. Si KIMOS apunta a PyME y no publica precios, pierde antes de la primera reunión."
+},
+{
+"titulo": "Instrumenta el uso por módulo",
+"color": "blue",
+"texto": "Sin datos de adopción por módulo, el pricing es una hipótesis. Medir qué se usa de verdad permite mover módulos entre planes con evidencia y detectar cuáles no justifican su costo de mantención."
+},
+{
+"titulo": "Cierra la brecha de datos",
+"color": "amber",
+"texto": "{estimados} de {totalPlanes} precios siguen estimados y Agicap, Cvent y Salsify no publican tarifas. Antes de fijar lista definitiva conviene cerrar esa brecha: una mediana mal calculada arrastra el error a todo el modelo aguas abajo."
+}
+],
+"conclusiones": [
+{
+"color": "green",
+"titulo": "Desarrollo: la apuesta es correcta, la ejecución es el riesgo",
+"texto": "KIMOS no está compitiendo con Trello ni con Pipedrive. Está compitiendo con <b>la suma de doce suscripciones sueltas</b>, y ahí la posición es genuinamente buena: {stack} al mes de gasto disperso contra {enterprise} integrados. Ese diferencial es real y defendible. Pero la amplitud que hoy es la ventaja es también la amenaza: ninguna organización pequeña mantiene 24 módulos al nivel de sus especialistas. La pregunta no es si KIMOS puede construirlos —evidentemente ya lo hizo— sino si puede sostenerlos sin que la calidad promedio caiga por debajo del umbral en que el cliente empieza a recomprar herramientas sueltas por fuera. Ese es el punto de quiebre a vigilar."
+},
+{
+"color": "cyan",
+"titulo": "Implementación: el producto se vende solo si el onboarding no lo hunde",
+"texto": "Los módulos de mayor valor —PIM, BPM, Cashflow— son justamente los que exigen migración de datos, integración con bancos o ERPs locales y consultoría de procesos. En PIM, la industria entera sabe que el proyecto se juega en la preparación de datos, no en el software. Si KIMOS los vende como autoservicio, el churn se lo come en el primer trimestre. Recomendación concreta: precio de licencia agresivo y <b>onboarding pagado y obligatorio</b> en esos tres módulos, al estilo del fee de USD 1.500 de HubSpot. Eso filtra clientes que no están listos y financia el costo real de implementar."
+},
+{
+"color": "fuchsia",
+"titulo": "Escalabilidad: el modelo escala, la organización es la duda",
+"texto": "Comercialmente el modelo escala bien: la estructura de kits permite entrar barato y expandir sin renegociar el contrato, y el precio por unidad de valor —SKU, canal, evento, crédito— crece con el cliente sin castigar la adopción interna, que es el error clásico del cobro por asiento. Técnicamente, la capa de IA introduce <b>costo variable que KIMOS no controla</b>: si el precio del token sube, el margen se comprime en silencio; conviene modelar ese costo por plan antes de publicar tarifas. El cuello real es organizacional: 24 módulos son 24 backlogs, 24 documentaciones y 24 filas de soporte. Sin instrumentar la adopción por módulo y sin la disciplina de congelar o discontinuar los que no rinden, el producto se vuelve inmanejable mucho antes de volverse rentable."
+},
+{
+"color": "orange",
+"titulo": "La decisión de precio, en una línea",
+"texto": "Entrar entre el <b>28% y el 35% del gasto actual</b> del cliente, vender kits en lugar de la suite completa, cobrar cada módulo en su unidad natural de valor y financiar la implementación aparte. Con ese esquema el ahorro anual para el cliente supera los {ahorroAnual} y KIMOS conserva margen para sostener el roadmap. Lo que hundiría el modelo no es un precio mal puesto: es prometer veinticuatro productos y entregar veinticuatro medianías."
+}
+],
+"notas": {
+"resumen": {
+"titulo": "Cómo leer esto.",
+"texto": "Todo lo que ves se recalcula solo. Mueve los controles de la pestaña Precios por App o edita cualquier precio de la competencia y el modelo completo se actualiza, incluidos los planes, los kits y el configurador. El número que importa no es el precio de cada competidor por separado, sino cuánto gasta hoy un cliente sumando todas las herramientas que KIMOS reemplaza."
+},
+"factor": {
+"titulo": "Factor de posicionamiento.",
+"texto": "0,55 significa entrar un 45% bajo la mediana del mercado: estrategia challenger, se gana por precio. Súbelo a 0,80–0,90 si la venta se gana por integración de suite y no por ser el más barato. Es la palanca más sensible de todo el modelo."
+},
+"banda": {
+"titulo": "Regla de calibración.",
+"texto": "La banda sana es 25%–60% del gasto actual del cliente. Sobre 60% se cae el argumento de ahorro y la venta se vuelve una discusión de features. Bajo 25% estás dejando margen sobre la mesa y además generas dudas sobre la calidad del producto."
+},
+"proscontras": {
+"titulo": "Sin adornos.",
+"texto": "Cada tarjeta dice qué tiene KIMOS a favor y qué tiene en contra frente a la competencia real de esa categoría. Donde la posición es mala, lo dice. Un estudio que solo lista fortalezas no sirve para decidir precios."
+}
+}
+}

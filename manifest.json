@@ -169,7 +169,7 @@
       "name": "ProductLab",
       "description": "Laboratorio de productos personalizables para cualquier rubro: componentes e insumos (telas, materias primas, piezas, mano de obra o procesos externalizados) con costo de proveedor y verificación integrada, stock, compatibilidades, márgenes parametrizables (sobre costo o sobre venta), impuestos, monedas y redondeos configurables, valores genéricos con alternativas de varios proveedores (siempre se usa la más económica disponible), cantidades por valor (2×8), pasos dependientes, valores sin costo y recargos, modos de precio auto/fijo/tienda, configurador paso a paso con previsualizador en vivo, ficha visual con builder de descripción (heros, secciones de imagen de alto adaptable), visor 3D opcional con AR (el modelo se personaliza en vivo por paso), estilo del configurador por producto, y aplicación a la tienda vía la app Productos (precio + opciones + variantes: precio ancla + un addon por valor, con variantes solo para el color — sin tope de combinaciones). Publica además el JSON que alimenta el configurador del theme. Incluye migración de datos desde otro catálogo (p. ej. la app de computadores) y exportación/importación de componentes en CSV y del catálogo completo en JSON. Evolución de las apps gestion-productos (personalizador) y computadores.",
       "icon": "🧪",
-      "version": "3.44.2",
+      "version": "3.64.1",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -293,7 +293,7 @@
       "name": "Formularios de Contacto",
       "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",
       "icon": "📬",
-      "version": "1.3.6",
+      "version": "1.3.7",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -412,9 +412,9 @@
     {
       "id": "evento-ciberseguridad",
       "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
-      "description": "Anfitrión consultivo para el totem del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: agenda en vivo, expositores, marco legal (Leyes 21.663 y 21.719), consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
+      "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: pantalla \"Ahora\" con la sesión en curso y la siguiente en tiempo real, agenda compacta con fichas de expositores en modal (QR de contacto y de sitio web), marco legal en tarjetas con detalle en modal, Diagnóstico Rápido de Cumplimiento y pie con el logo de Kimos.",
       "icon": "🛡️",
-      "version": "2.0.0",
+      "version": "2.9.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -468,8 +468,510 @@
       "defaultConfig": {
         "modo": "auto",
         "segundosInactividad": 90,
-        "acento": "#05E0CE",
+        "acento": "#00E4D0",
         "mostrarFotos": true
+      }
+    },
+    {
+      "id": "estudio-mercado",
+      "name": "Estudio de Mercado",
+      "description": "Estudio del mercado competitivo de KIMOS como tablero interactivo: 24 módulos frente a 154 planes de precio de la competencia, con precio sugerido por módulo, gráficos en vivo, precios de la competencia editables, planes y kits con descuento ajustable, configurador de suscripción con cotización instantánea contra el gasto actual del cliente, mercado por región y por país con filtros de idioma y prioridad comercial, economía por cliente (LTV, CAC, payback, proyección a 3 años), diagnóstico por dimensión y las decisiones que cruzan oferta y demanda. Tres modos visuales (dashboard, compacto y tema de KIMOS), adaptado a PC, tablet, movil y totem. Todos los supuestos son editables y todo se recalcula en vivo; control por agente IA.",
+      "icon": "🎯",
+      "version": "1.2.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
+    },
+    {
+      "id": "kimos.tarjetas",
+      "name": "Tarjetas Virtuales",
+      "description": "Genera tarjetas de presentación virtuales desde los usuarios reales del sistema KIMOS (foto de perfil, correo, cargo y teléfono), con código QR vCard funcional que guarda el contacto en el móvil al escanearlo y logo de la marca aplicado a cada tarjeta generada.",
+      "icon": "🪪",
+      "version": "1.3.0",
+      "author": "Kimos Apps",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Tarjetas",
+        "fields": [
+          {
+            "key": "defaultFormat",
+            "label": "Formato por defecto",
+            "type": "select",
+            "options": [
+              {
+                "value": "horizontal",
+                "label": "Horizontal (1050 x 600 px)"
+              },
+              {
+                "value": "vertical",
+                "label": "Vertical (600 x 950 px)"
+              }
+            ]
+          },
+          {
+            "key": "exportScale",
+            "label": "Resolución de descarga",
+            "type": "select",
+            "options": [
+              {
+                "value": "2",
+                "label": "2x Alta definición (HD)"
+              },
+              {
+                "value": "3",
+                "label": "3x Ultra nítida (Impresión)"
+              },
+              {
+                "value": "1",
+                "label": "1x Estándar"
+              }
+            ]
+          }
+        ]
+      },
+      "defaultConfig": {
+        "defaultFormat": "horizontal",
+        "exportScale": "2"
+      }
+    },
+    {
+      "id": "workoffice",
+      "name": "Kimos WorkOffice",
+      "description": "Suite ofimática de KIMOS: un espacio de trabajo con Documentos, Hojas de cálculo con motor de fórmulas, Presentaciones con modo presentador, Notas y Calendario, todo dentro de la misma ventana y guardado archivo por archivo (dos personas editando archivos distintos nunca se pisan). Explorador con recientes, favoritos, búsqueda global y papelera; paleta de comandos (Ctrl+K); autoguardado con estado a la vista; exportación e importación en CSV, Markdown y HTML; impresión y modo presentación. Se integra con el resto de KIMOS: trae filas de Productos, Clientes y Pedidos a una hoja, muestra las tareas de Planificación en el calendario y las Notas de Equipo junto a las personales, siempre en solo lectura y respetando el RBAC del usuario. Control total por agente IA.",
+      "icon": "🧰",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "data.read:products",
+        "data.read:customers",
+        "data.read:orders",
+        "data.read:gantt",
+        "data.read:notas-equipo"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos WorkOffice",
+        "fields": [
+          {
+            "key": "startModule",
+            "label": "Al abrir, mostrar",
+            "type": "select",
+            "options": [
+              {
+                "value": "drive",
+                "label": "Inicio (mis archivos)"
+              },
+              {
+                "value": "docs",
+                "label": "Documentos"
+              },
+              {
+                "value": "sheets",
+                "label": "Hojas de cálculo"
+              },
+              {
+                "value": "slides",
+                "label": "Presentaciones"
+              },
+              {
+                "value": "notes",
+                "label": "Notas"
+              },
+              {
+                "value": "calendar",
+                "label": "Calendario"
+              }
+            ],
+            "help": "Módulo que se abre al montar la ventana."
+          },
+          {
+            "key": "autosave",
+            "label": "Autoguardado",
+            "type": "boolean",
+            "help": "Guarda solo unos segundos después de dejar de escribir. Si lo apagas, el guardado es con Ctrl+S."
+          },
+          {
+            "key": "dense",
+            "label": "Interfaz compacta",
+            "type": "boolean",
+            "help": "Más filas y tarjetas por pantalla; útil en monitores pequeños."
+          },
+          {
+            "key": "weekStart",
+            "label": "La semana empieza en",
+            "type": "select",
+            "options": [
+              {
+                "value": "1",
+                "label": "Lunes"
+              },
+              {
+                "value": "0",
+                "label": "Domingo"
+              }
+            ]
+          },
+          {
+            "key": "currency",
+            "label": "Moneda de las hojas",
+            "type": "select",
+            "options": [
+              {
+                "value": "CLP",
+                "label": "Peso chileno (CLP)"
+              },
+              {
+                "value": "USD",
+                "label": "Dólar (USD)"
+              },
+              {
+                "value": "EUR",
+                "label": "Euro (EUR)"
+              },
+              {
+                "value": "MXN",
+                "label": "Peso mexicano (MXN)"
+              },
+              {
+                "value": "COP",
+                "label": "Peso colombiano (COP)"
+              },
+              {
+                "value": "ARS",
+                "label": "Peso argentino (ARS)"
+              }
+            ]
+          },
+          {
+            "key": "kimosData",
+            "label": "Traer datos de otras apps de KIMOS",
+            "type": "boolean",
+            "help": "Muestra las tareas de Planificación en el calendario y permite importar Productos, Clientes y Pedidos a una hoja. Siempre en solo lectura."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "startModule": "drive",
+        "autosave": true,
+        "dense": false,
+        "weekStart": "1",
+        "currency": "CLP",
+        "kimosData": true
+      },
+      "appShellApi": "1.x"
+    },
+    {
+      "id": "lidaria",
+      "name": "LiDARia",
+      "description": "Consola de captura 3D, supervisión por cámara, captura de movimiento y ampliación por sensores de KIMOS. Qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), qué trae de verdad cada uno —cámaras, micrófono, altavoz, radios, sensores— y cuáles de esos componentes se alcanzan desde el navegador y cuáles exigen contenedor nativo. Mide personas con una cámara común: con la altura del lente, su inclinación y su campo de visión declarados, convierte píxeles en centímetros —motor adoptado de Kimos FunPlai y validado en tótem— y entrega distancia, estatura, alturas de trabajo, alcances y talla de arnés y de ropa, diciendo también qué NO se puede derivar (talla de casco, peso, perímetros). Calcula el montaje de cámara: a qué distancia marcar la zona, cuánto inclinar el lente y si con ese campo de visión hay montaje posible. A qué distancia se puede vigilar cada implemento de protección —calculado por geometría—, y qué capacidades se pueden sumar en el futuro (reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado) con su puerta de cumplimiento: las funciones con dato sensible se distribuyen apagadas y el software no las enciende hasta que el expediente de la Ley 21.719 está completo y firmado. Incluye manual de uso paso a paso, catálogo de 20 accesorios y sensores conectables (ESP32, térmicas, básculas, webcams gran angular, cámaras de profundidad, drones) con su forma de conexión por plataforma, 14 rubros ampliables con packs .krub, matriz de 24 equipos contra 16 módulos, inventario, prospección, ecosistema, negocio y licencias. Control por agente IA con diecisiete herramientas.",
+      "icon": "🛰️",
+      "version": "1.4.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
+    },
+    {
+      "id": "kimos-safe-concierge",
+      "name": "KIMOS Safe Concierge",
+      "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil que muestra al conserje virtual —avatar humanizado o caricaturizado— junto al espejo en vivo de quien está frente a la cámara, con teclado en pantalla para escribir sin teclado físico. Atiende visitas, residentes, citofonía y encomiendas 24/7, y su consola convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
+      "icon": "🛡️",
+      "version": "1.1.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "public.submit"
+      ],
+      "configSchema": {
+        "title": "Preferencias de KIMOS Safe Concierge",
+        "fields": [
+          {
+            "key": "siteName",
+            "label": "Nombre de la comunidad o empresa",
+            "type": "string",
+            "help": "Aparece en el tótem y en el parte que se entrega a emergencias."
+          },
+          {
+            "key": "siteAddress",
+            "label": "Dirección exacta del acceso",
+            "type": "textarea",
+            "help": "Calle, número, comuna y referencias de ingreso. Es lo primero que piden SAMU, Bomberos y Carabineros."
+          },
+          {
+            "key": "startView",
+            "label": "Al abrir, mostrar",
+            "type": "select",
+            "options": [
+              {
+                "value": "panel",
+                "label": "Centro de operaciones"
+              },
+              {
+                "value": "totem",
+                "label": "Tótem (modo atención)"
+              },
+              {
+                "value": "incidents",
+                "label": "Incidentes"
+              },
+              {
+                "value": "access",
+                "label": "Accesos"
+              }
+            ]
+          },
+          {
+            "key": "avatarStyle",
+            "label": "Avatar del tótem",
+            "type": "select",
+            "options": [
+              {
+                "value": "human",
+                "label": "Humanizado"
+              },
+              {
+                "value": "cartoon",
+                "label": "Caricaturizado"
+              },
+              {
+                "value": "minimal",
+                "label": "Abstracto (sin rostro)"
+              }
+            ]
+          },
+          {
+            "key": "avatarName",
+            "label": "Nombre del avatar",
+            "type": "string"
+          },
+          {
+            "key": "voice",
+            "label": "Voz del avatar",
+            "type": "boolean",
+            "help": "Síntesis de voz del navegador; no envía audio a ningún servidor."
+          },
+          {
+            "key": "cameraSensor",
+            "label": "Analizar la cámara del tótem",
+            "type": "boolean",
+            "help": "Detección local de agitación y forcejeo. Los cuadros se procesan en el dispositivo y nunca se suben."
+          },
+          {
+            "key": "audioSensor",
+            "label": "Analizar el micrófono del tótem",
+            "type": "boolean",
+            "help": "Detección local de gritos e impactos por energía acústica. No transcribe ni graba conversaciones."
+          },
+          {
+            "key": "sensitivity",
+            "label": "Sensibilidad de la detección",
+            "type": "select",
+            "options": [
+              {
+                "value": "low",
+                "label": "Baja (menos falsos positivos)"
+              },
+              {
+                "value": "medium",
+                "label": "Media"
+              },
+              {
+                "value": "high",
+                "label": "Alta (más avisos, más ruido)"
+              }
+            ]
+          },
+          {
+            "key": "autoWarn",
+            "label": "Aviso disuasivo automático",
+            "type": "boolean",
+            "help": "Nivel 3 o superior: el tótem advierte por el parlante que se está avisando al personal de seguridad. Nunca llama solo a un servicio de emergencia."
+          },
+          {
+            "key": "retentionDays",
+            "label": "Retención de registros (días)",
+            "type": "number",
+            "min": 30,
+            "max": 3650,
+            "help": "La Ley 21.659 exige conservar los registros de vigilancia al menos 120 días."
+          },
+          {
+            "key": "privacyMode",
+            "label": "Modo privacidad (sin identificar por defecto)",
+            "type": "boolean",
+            "help": "Las detecciones se registran como «Persona 1» y solo se asocian a una identidad cuando alguien lo justifica."
+          },
+          {
+            "key": "accent",
+            "label": "Color del tótem",
+            "type": "color"
+          }
+        ]
+      },
+      "defaultConfig": {
+        "siteName": "",
+        "siteAddress": "",
+        "startView": "panel",
+        "avatarStyle": "human",
+        "avatarName": "Kim",
+        "voice": true,
+        "cameraSensor": false,
+        "audioSensor": false,
+        "sensitivity": "medium",
+        "autoWarn": true,
+        "retentionDays": 120,
+        "privacyMode": true,
+        "accent": "#19ACB1"
+      },
+      "appShellApi": "1.x"
+    },
+    {
+      "id": "totem-productos",
+      "name": "Totem de Productos",
+      "description": "Vitrina táctil vertical (9:16) del catálogo para tótems de atención al cliente: toma los productos de las apps Productos y ProductLab (incluidos los personalizables, con paso a paso, recargos por opción y fotos por valor), fichas touch con galería, especificaciones y configurador informativo con resumen para el equipo, pestaña Estilos para editar la visualización (colores, bordes rectos o redondeados, columnas, tipografía, precios), publicación del catálogo curado para usarla con la app Vitrinas (reserva la franja del dock de voz) y agente IA cuyas respuestas actúan en pantalla (mostrar producto, filtrar, personalizar paso a paso).",
+      "icon": "🛍️",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "data.read:products",
+        "data.read:productlab"
+      ],
+      "configSchema": {
+        "title": "Preferencias del totem",
+        "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la ventana es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          }
+        ]
+      },
+      "defaultConfig": {
+        "modo": "auto",
+        "segundosInactividad": 90
+      }
+    },
+    {
+      "id": "funplai",
+      "name": "Kimos FunPlai",
+      "description": "Once juegos interactivos para tótem, PC, tablet y móvil: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara, cuerpo completo), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando con mecánica estilo Golf Clash o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) 'Gato' (tres en línea: cada partida empieza eligiendo en pantalla si se juega contra el tótem o entre dos personas, y si cada jugador usa cruces o círculos), 'Mete gol' (penales con la patada leída por cámara contra un arquero que patrulla el arco y se lanza) 'Alas de cóndor' en dos versiones —lateral y 3D por la cordillera de los Andes—, donde se vuela moviendo los brazos como alas, se planea abriéndolos en cruz, se vira inclinando el torso y se comen frutas en el aire, y 'Esquiva y gana' en dos versiones, 2D lateral y 3D en profundidad, donde se salta y se agacha de verdad y el avatar puede ser el contorno del cuerpo del participante. Todos los juegos con cámara comparten una única zona marcada en el piso (2,2 m del tótem), así que se calibra una vez y nadie se mueve entre juego y juego; los que solo necesitan el medio cuerpo superior —torso, brazos y cabeza— siguen funcionando aunque no se vean los pies. Gráficos con estética de juego 3D de Dreamcast: cada juego ocurre en un escenario con cielo, cordillera y suelo en perspectiva, con sombreado por facetas, sombras de contacto y tipografía de marcador arcade. Todo editable desde la app: nombres, textos, colores, temática (que cambia el escenario completo), dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA. La cámara se declara desde un catálogo (integrada, gran angular, ultra ancha, PTZ con gimbal o de profundidad) y la app verifica si ese lente cubre el espacio con el montaje real; el seguimiento del participante es digital, sin mover el lente, para no perder la medición en centímetros.",
+      "icon": "🎉",
+      "version": "1.7.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos FunPlai",
+        "fields": [
+          {
+            "key": "theme",
+            "label": "Temática",
+            "type": "select",
+            "options": [
+              {
+                "value": "fiestas-patrias",
+                "label": "Fiestas Patrias de Chile"
+              },
+              {
+                "value": "neutro",
+                "label": "Neutro Kimos"
+              },
+              {
+                "value": "verano",
+                "label": "Verano / playa"
+              }
+            ],
+            "help": "Cambia colores y adornos de todas las pantallas."
+          },
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca del cliente; vacío usa el del tema."
+          },
+          {
+            "key": "idleSeconds",
+            "label": "Volver al inicio tras inactividad (s)",
+            "type": "number",
+            "min": 0,
+            "max": 900,
+            "help": "0 = nunca. Modo kiosco para ferias y eventos."
+          },
+          {
+            "key": "camaraHabilitada",
+            "label": "Permitir juegos con cámara",
+            "type": "boolean",
+            "help": "Desactívalo en tótems sin cámara o donde no se permita su uso."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "theme": "fiestas-patrias",
+        "accent": "#D52B1E",
+        "idleSeconds": 120,
+        "camaraHabilitada": true
       }
     },
     {

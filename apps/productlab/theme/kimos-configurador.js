@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '5.34.0';
+  var VERSION = '6.8.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -149,26 +149,31 @@
     return out.id == null ? null : out;
   }
 
-  // El JSON público se pide SIEMPRE fresco a la red: publicar en ProductLab
-  // se ve en la tienda en la visita siguiente, sin TTL ni CDN de por medio
-  // (el velo de arranque ya tapa esa espera, y la copia local es una página
-  // del mismo origen: rapidísima). La copia en localStorage queda SOLO de
-  // respaldo: si ni la página ni KIMOS responden, la tienda usa la última
-  // buena y no se queda sin ficha.
-  // La clave lleva el producto: desde que el gateway puede devolver el
-  // catálogo recortado a uno solo, una copia guardada bajo una clave común
-  // dejaría a las demás fichas leyendo un catálogo donde su producto no está.
-  function defCacheKey(ref) { return 'kc-def::' + CFG_URLS.join('|') + (ref ? '::' + ref : ''); }
-  function defCacheRead(ref) {
-    try {
-      var raw = localStorage.getItem(defCacheKey(ref));
-      if (!raw) return null;
-      var c = JSON.parse(raw);
-      return (c && c.def) ? c : null;
-    } catch (e) { return null; }
+  // REGLA DE ORO (decisión del usuario): la ficha KIMOS solo se muestra con
+  // datos CONFIRMADOS — la página publicada en la tienda (la publicación ES
+  // esa página) o una copia cuya versión confirmó el faro. Jamás una copia
+  // vieja "por si acaso": si no hay fuente confiable, manda la ficha nativa
+  // del theme, que cobra siempre los precios REALES de Jumpseller. Vender feo
+  // es aceptable; vender con datos de ayer no.
+  // (Aquí vivía un caché defCache que servía "la última buena" sin confirmar
+  // versión: eliminado por esa regla.)
+  // La publicación declara qué versión de kit espera (def.kitExpected): si el
+  // theme corre una anterior, se grita en consola — un theme activado desde
+  // un zip puede traer assets viejos y revivir bugs ya corregidos.
+  function kitViejo(esperado) {
+    if (!esperado) return false;
+    var a = String(VERSION).split('.').map(Number), b = String(esperado).split('.').map(Number);
+    for (var i = 0; i < 3; i++) { if ((a[i] || 0) < (b[i] || 0)) return true; if ((a[i] || 0) > (b[i] || 0)) return false; }
+    return false;
   }
-  function defCacheWrite(ref, def) {
-    try { localStorage.setItem(defCacheKey(ref), JSON.stringify({ t: Date.now(), def: def })); } catch (e) {}
+  function avisarKitViejo(def) {
+    if (def && kitViejo(def.kitExpected)) {
+      console.error(LOG, '⚠ EL KIT DEL THEME ESTÁ DESACTUALIZADO: corre v' + VERSION
+        + ' pero la publicación espera v' + def.kitExpected
+        + '. Actualiza los archivos del theme desde ProductLab (KIT MANUAL) — un theme activado desde zip trae assets viejos.');
+      try { window.KIMOS_KIT_DESACTUALIZADO = def.kitExpected; } catch (e) {}
+    }
+    return def;
   }
   // Copia LOCAL del catálogo: ProductLab puede publicar el JSON en una
   // página de la propia tienda (permalink derivado de la instancia). Se
@@ -188,56 +193,25 @@
     // completo —es un solo archivo servido por el CDN de Jumpseller— y se
     // intenta primero, así que esto solo aligera el camino de respaldo.
     var refProd = prod ? String(prod.id || prod.sku || prod.name || '').trim() : '';
-    var hit = defCacheRead(refProd);
-    // CACHÉ DEL CATÁLOGO. Aquí había una marca única por carga (`_t=Date.now()`)
-    // que garantizaba ver siempre lo último — al precio de que NADA pudiera
-    // guardarse: ni el navegador, ni el CDN de la tienda, ni el de KIMOS. Cada
-    // visita a cada ficha era una descarga completa desde el origen.
-    //
-    // Eso no escala: en un día de tráfico alto, cada visitante golpea el
-    // backend en vez de que el CDN absorba la carga. Ahora el catálogo se pide
-    // de forma normal y quien decide cuánto dura la copia es la cabecera que
-    // manda el servidor (unos segundos, con revalidación en segundo plano):
-    // publicar sigue llegando a todos enseguida, pero mil visitantes en el
-    // mismo minuto son UNA petición al origen, no mil.
-    //
-    // Para forzar una recarga inmediata en pruebas, define en custom.js
-    // `window.KIMOS_CATALOG_V = 'loQueSea'` y cámbialo.
-    var ver = String(window.KIMOS_CATALOG_V || '').trim();
-    // FARO DE VERSIÓN: publicar TIENE que verse, sin que nadie limpie cachés.
-    // Antes de pedir el catálogo se pregunta al backend cuál es la versión
-    // vigente (una respuesta de ~40 bytes con caché de 5 s) y esa versión
-    // viaja EN LA URL del catálogo: cada publicación produce una URL nueva,
-    // así que ninguna caché del camino —navegador, proxy, VPN, service
-    // worker, CDN— puede servir un catálogo viejo. Y como la URL identifica
-    // el contenido, el catálogo pesado se cachea largo sin riesgo.
-    // Si el faro no responde (backend caído, red), se sigue por el camino de
-    // siempre: la ficha jamás se queda sin catálogo por culpa del faro.
-    var pedirVersion = function (u) {
-      var base = u.replace(/\/definition(\?.*)?$/, '/definition/version');
-      if (base === u) return Promise.resolve({ v: '', page: '' });
-      return fetch(base, { credentials: 'omit', cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (j) {
-          // `page` es el permalink REAL de la copia en la tienda (lo devuelve
-          // la última publicación): se usa tal cual en vez de adivinarlo.
-          return { v: String((j && j.v) || '').trim(), page: String((j && j.page) || '').trim() };
-        })
-        .catch(function () { return { v: '', page: '' }; });
-    };
-    var conVer = function (u, marca) {
-      var v = String(marca || ver || '').trim();
-      if (!v) return u;
-      return u + (u.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(v);
-    };
-    var pedirLocal = function (u, marca, pagina) {
-      var p = String(pagina || '').trim() || permalinkLocal(u);
+    // LECTURA SIMPLE (v6, decisión del usuario): la ficha se sirve de la
+    // PÁGINA publicada en la propia tienda, y de nada más. Sin faro, sin
+    // versiones, sin copias en el navegador: publicar = actualizar la página,
+    // y cada visita la lee fresca del MISMO Jumpseller que sirve la ficha
+    // (una petición, mismo origen). Los PRECIOS ni pasan por aquí: los cobra
+    // y los muestra la tienda con sus opciones nativas, así que este catálogo
+    // no puede cobrar mal — solo verse como su última publicación.
+    // KIMOS aparece únicamente como respaldo de ARRANQUE (una tienda que aún
+    // no publica su página), con tope de espera.
+    var pedirPagina = function (permalink) {
+      var p = String(permalink || '').trim();
       if (!p) return Promise.reject(new Error('sin permalink'));
       // MISMO ORIGEN y CON COOKIES ('same-origin'): en una tienda protegida
       // con contraseña, pedir la página sin la cookie de sesión choca contra
       // el muro y responde 404 — parecía que la copia local no existía cuando
       // en realidad existía y el visitante (que ya pasó el muro) SÍ podía verla.
-      return fetch(conVer('/' + p.replace(/^\/+/, ''), marca), { credentials: 'same-origin' })
+      // 'no-store': publicar se ve en la visita siguiente, garantizado por
+      // construcción — la frescura ya no depende de ningún sistema de versiones.
+      return fetch('/' + p.replace(/^\/+/, ''), { credentials: 'same-origin', cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function (html) {
           // Dos envases posibles: el <script> clásico y el <textarea> oculto
@@ -248,20 +222,41 @@
           if (!m) throw new Error('la página existe pero viene SIN el bloque de datos (¿republicar?)');
           var def = JSON.parse(m[1]);
           if (!def || !(def.productos || def.equipos)) throw new Error('datos vacíos');
-          // La copia de la tienda declara su versión (updatedAt). Si el faro
-          // dice que hay una más nueva, esta copia está desactualizada (caché
-          // de página de la tienda, o falta re-publicar): manda lo fresco.
-          if (marca && def.updatedAt && String(def.updatedAt) !== String(marca)) {
-            throw new Error('copia local desactualizada');
-          }
           return def;
         });
     };
-    var pedirRemoto = function (u, marca) {
+    var pedirLocal = function (u) {
+      // PÁGINA POR PRODUCTO primero (permalink derivado: -p<id del producto
+      // de esta ficha>): es la unidad que publica ProductLab. Después la
+      // página agregada de la instancia (respaldo y compat).
+      var agregada = permalinkLocal(u);
+      var propia = refProd && agregada ? agregada + '-p' + refProd : '';
+      if (!propia) return pedirPagina(agregada);
+      return pedirPagina(propia).catch(function (e1) {
+        return pedirPagina(agregada).catch(function (e2) {
+          throw new Error('producto: ' + (e1 && e1.message || '?') + ' · instancia: ' + (e2 && e2.message || '?'));
+        });
+      });
+    };
+    var pedirRemoto = function (u) {
       if (refProd) u += (u.indexOf('?') === -1 ? '?' : '&') + 'product=' + encodeURIComponent(refProd);
-      return fetch(conVer(u, marca), { credentials: 'omit' })
+      return fetch(u, { credentials: 'omit' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return j && j.data ? j.data : j; });
+    };
+    // VENCIMIENTO LOCAL (licencia, decisión del usuario): cada publicación
+    // sella su fecha (updatedAt) y declara su plazo (kitTtlDias, lo fija el
+    // dueño en ProductLab; 0 = no vence; ausente = 90). Si la última
+    // publicación es más vieja que el plazo, el kit NO monta y queda la ficha
+    // nativa — que cobra bien. Es 100% local: ninguna caída de KIMOS puede
+    // gatillarlo, solo meses sin publicar (una tienda que dejó de operar el
+    // sistema). Publicar de nuevo lo renueva solo.
+    var vencida = function (def) {
+      var dias = def && def.kitTtlDias != null ? Number(def.kitTtlDias) : 90;
+      if (!isFinite(dias) || dias <= 0) return false;
+      var t = Date.parse(String((def && def.updatedAt) || ''));
+      if (!isFinite(t)) return false;   // sin fecha legible no se veta (compat)
+      return (Date.now() - t) > dias * 86400000;
     };
     // Un catálogo que NO EXISTE es el peor caso de todos: una tienda puede
     // quedar con el kit apuntando a una instancia borrada o despublicada, y
@@ -283,6 +278,17 @@
     var marcarAusente = function (u) {
       try { localStorage.setItem(claveAusente(u), String(Date.now())); } catch (e) {}
     };
+    // Tope de espera para lo que viene de KIMOS. La DISPONIBILIDAD de la
+    // tienda no puede depender de que KIMOS responda: un backend colgado o en
+    // arranque en frío (30 s) dejaba al comprador mirando el spinner. Con el
+    // tope, KIMOS que no responde A TIEMPO cuenta como KIMOS caído y queda la
+    // ficha nativa.
+    var REMOTO_MS = 8000;
+    var conTope = function (p, ms) {
+      return Promise.race([p, new Promise(function (_, rj) {
+        setTimeout(function () { rj(new Error('sin respuesta en ' + ms + ' ms')); }, ms);
+      })]);
+    };
     var pedir = function (u) {
       if (estaAusente(u)) {
         console.warn(LOG, 'catálogo marcado como ausente hace poco; no se vuelve a pedir:', u);
@@ -292,40 +298,29 @@
       // De DÓNDE salió el catálogo, en una línea de consola: es la respuesta
       // verificable a "¿estoy sirviéndome de la tienda o de KIMOS?".
       var cuenta = function (def, origen) {
-        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · versión ' + (def && def.updatedAt || '?'));
+        console.info(LOG, 'catálogo: ' + origen + ' · ' + (Date.now() - t0) + ' ms · publicado ' + (def && def.updatedAt || '?'));
         return def;
       };
-      // Copia POR URL en localStorage, con su versión: si el faro confirma que
-      // no cambió nada, no se baja ni un byte de catálogo — también en tiendas
-      // con varias instancias (la copia fusionada de defCache no servía ahí).
-      var claveUrl = 'kc-defu::' + u + (refProd ? '::' + refProd : '');
-      var leerUrl = function () {
-        try { var c = JSON.parse(localStorage.getItem(claveUrl) || 'null'); return c && c.def ? c : null; }
-        catch (e) { return null; }
-      };
-      var guardarUrl = function (def) {
-        try { localStorage.setItem(claveUrl, JSON.stringify({ v: String((def && def.updatedAt) || ''), def: def })); } catch (e) {}
-        return def;
-      };
-      return pedirVersion(u)
-        .then(function (faro) {
-          var marca = faro.v;
-          var enCache = leerUrl();
-          if (marca && enCache && enCache.v === String(marca)) {
-            return cuenta(enCache.def, 'copia del navegador (versión vigente confirmada por el faro)');
-          }
-          return pedirLocal(u, marca, faro.page)
-            .then(guardarUrl)
-            .then(function (def) { return cuenta(def, 'PÁGINA DE LA TIENDA (' + (faro.page || permalinkLocal(u)) + ') — independiente de KIMOS'); })
-            .catch(function (eLocal) {
-              // El MOTIVO por el que se descartó la copia local va en la
-              // línea: "respaldo" a secas obligaba a adivinar (¿404?, ¿sin
-              // bloque de datos?, ¿desactualizada?).
-              return pedirRemoto(u, marca).then(guardarUrl).then(function (def) {
-                return cuenta(def, 'KIMOS (respaldo — copia local: '
-                  + ((eLocal && eLocal.message) || '?') + (marca ? '' : ' · faro sin respuesta') + ')');
-              });
-            });
+      return pedirLocal(u)
+        .then(function (def) {
+          return cuenta(def, 'PÁGINA DE LA TIENDA — sin KIMOS');
+        })
+        .catch(function (eLocal) {
+          // El MOTIVO por el que se descartó la página va en la línea:
+          // "respaldo" a secas obligaba a adivinar (¿404?, ¿sin bloque?).
+          return conTope(pedirRemoto(u), REMOTO_MS).then(function (def) {
+            return cuenta(def, 'KIMOS (respaldo de arranque — página: '
+              + ((eLocal && eLocal.message) || '?') + ')');
+          });
+          // Si tampoco KIMOS responde, AQUÍ TERMINA: la ficha nativa del
+          // theme queda al mando, con los precios reales de Jumpseller.
+        })
+        .then(function (def) {
+          // Vencimiento local (licencia): publicación más vieja que su plazo
+          // → ficha nativa. Ver `vencida`.
+          if (vencida(def)) throw new Error('publicación vencida (más de '
+            + (def.kitTtlDias != null ? def.kitTtlDias : 90) + ' días sin publicar): ficha nativa');
+          return def;
         })
         .catch(function (err) {
           if (/HTTP (403|404)/.test(err && err.message)) marcarAusente(u);
@@ -342,18 +337,17 @@
     };
     return Promise.all(CFG_URLS.map(pedir)).then(function (defs) {
       defs = defs.filter(function (x) { return !!x; });
-      if (!defs.length) {
-        if (hit) { console.warn(LOG, 'ningún catálogo responde; usando copia local'); return hit.def; }
-        throw new Error('ningún catálogo respondió');
-      }
+      // Sin fuente confirmada NO se inventa nada: error → la ficha nativa
+      // del theme queda al mando (regla de oro).
+      if (!defs.length) throw new Error('ningún catálogo respondió');
       var def = defs[0];
       if (defs.length > 1) {
         var prods = [];
         for (var i = 0; i < defs.length; i++) prods = prods.concat((defs[i].productos || defs[i].equipos) || []);
-        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store, productos: prods };
+        def = { version: def.version, updatedAt: def.updatedAt, currency: def.currency, store: def.store,
+          kitExpected: def.kitExpected, productos: prods };
       }
-      defCacheWrite(refProd, def);
-      return def;
+      return avisarKitViejo(def);
     });
   }
 
@@ -384,6 +378,13 @@
         if (!nom) {
           var lb = g.closest && g.closest('label');
           nom = lb ? (lb.textContent || '').trim() : '';
+        }
+        if (!nom && g.closest) {
+          // Checkbox sin label (ej. el que inyecta el RESCATE de abajo en un
+          // re-escaneo): el nombre vive en el título de su fieldset.
+          var fsx = g.closest('fieldset');
+          var ttx = fsx && fsx.querySelector('.product-options__title, legend');
+          nom = ttx ? (ttx.textContent || '').trim() : '';
         }
         var corte = nom.indexOf(': ');
         if (corte === -1) return;   // checkbox ajeno al contrato: es del theme
@@ -418,6 +419,57 @@
       }
       reales.push({ el: g, id: optId, name: name, values: values });
     });
+    // ── RESCATE: themes que imprimen el checklist VACÍO ──────────────────────
+    // Jumpseller entrega las opciones addon al theme, pero algunas plantillas
+    // (ej. la de Keiko) pintan solo el título "paso: Valor" dentro de un
+    // <fieldset class="product-options__fieldset" data-optionid> SIN ningún
+    // checkbox — ni siquiera la ficha nativa puede elegirlas. Se inyecta aquí
+    // el control que falta, con el MISMO contrato de los themes que sí lo
+    // imprimen (input.prod-options type=checkbox, name = id de la opción,
+    // value = "Yes"): queda oculto, el resto del kit lo trata como cualquier
+    // addon y el submit del theme lo serializa con el form. El recargo se
+    // declara 0 solo para el TOTAL mostrado (este theme no lo publica en
+    // ninguna parte); lo que se cobra lo decide Jumpseller con la opción que
+    // viaja en el POST, como siempre.
+    var rescatados = [];
+    Array.prototype.forEach.call(document.querySelectorAll('fieldset[data-optionid]'), function (fs) {
+      var optId = fs.getAttribute('data-optionid');
+      if (!optId) return;
+      if (fs.querySelector('input, select')) return;   // ya tiene control: no es el caso
+      var ya = Object.keys(porPaso).some(function (k) { return porPaso[k].inputs[String(optId)]; });
+      if (ya) return;
+      var t = fs.querySelector('.product-options__title, legend');
+      var nom = t ? (t.textContent || '').trim() : '';
+      var corte = nom.indexOf(': ');
+      if (corte === -1) return;                        // no es un addon "paso: Valor"
+      var paso = nom.slice(0, corte).trim();
+      var valor = nom.slice(corte + 2).trim();
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'prod-options';
+      cb.name = String(optId);
+      cb.value = 'Yes';
+      cb.setAttribute('data-optionid', String(optId));
+      cb.setAttribute('data-addon-price', '0');
+      cb.setAttribute('data-kc-inyectado', '1');
+      // Oculto pero serializable: display:none también viaja en el form, pero
+      // así ni ocupa sitio ni puede recibir clics del theme.
+      cb.style.position = 'absolute'; cb.style.opacity = '0'; cb.style.pointerEvents = 'none';
+      cb.style.width = '1px'; cb.style.height = '1px';
+      fs.appendChild(cb);
+      var clave = norm(paso);
+      var vg = porPaso[clave];
+      if (!vg) {
+        vg = porPaso[clave] = { el: null, id: 'kc-addon:' + clave, name: paso, values: [], inputs: {}, virtual: true };
+        virtuales.push(vg);
+      }
+      vg.values.push({ id: String(optId), name: valor });
+      vg.inputs[String(optId)] = cb;
+      rescatados.push(nom);
+    });
+    if (rescatados.length) {
+      console.info(LOG, 'el theme imprimió ' + rescatados.length + ' opción(es) addon sin checkbox — se inyectaron: ' + rescatados.join(' · '));
+    }
     return reales.concat(virtuales);
   }
   // Solo los grupos que la TIENDA usa para casar variante (los addons no
@@ -965,22 +1017,27 @@
   }
 
   function renderSpecsTable(specs) {
+    // SECUENCIAL, con herencia: una fila sin grupo pertenece al último grupo
+    // nombrado ARRIBA de ella (así se lee el editor: "CPU * Fan" y debajo sus
+    // filas). Antes se agrupaba por nombre en un diccionario: las filas sin
+    // grupo iban a parar todas a un bloque suelto pegado al primero — la fila
+    // de la Noctua aparecía bajo GENERAL en vez de bajo CPU * FAN, y el orden
+    // del editor no era el de la ficha (2026-08-25).
     var wrap = el('div', 'kc-specs');
-    var groups = {};
+    var actual = null;   // nombre del grupo vigente ('General' si nadie abrió uno)
+    var tbl = null;
     (specs || []).forEach(function (sp) {
-      var g = sp.group || '';
-      (groups[g] = groups[g] || []).push(sp);
-    });
-    Object.keys(groups).forEach(function (g) {
-      if (g) wrap.appendChild(el('div', 'kc-specs-g', g));
-      var tbl = el('table', 'kc-specs-t');
-      groups[g].forEach(function (sp) {
-        var tr = el('tr');
-        tr.appendChild(el('th', null, sp.label || ''));
-        tr.appendChild(el('td', null, sp.value || ''));
-        tbl.appendChild(tr);
-      });
-      wrap.appendChild(tbl);
+      var g = String(sp.group || '').trim();
+      if (tbl === null || (g && g !== actual)) {
+        actual = g || (actual == null ? 'General' : actual);
+        wrap.appendChild(el('div', 'kc-specs-g', actual));
+        tbl = el('table', 'kc-specs-t');
+        wrap.appendChild(tbl);
+      }
+      var tr = el('tr');
+      tr.appendChild(el('th', null, sp.label || ''));
+      tr.appendChild(el('td', null, sp.value || ''));
+      tbl.appendChild(tr);
     });
     return wrap;
   }
@@ -990,10 +1047,62 @@
   // La galería es SOLO la galería. La nota es su propia sección y se ve
   // únicamente si está en la lista de la experiencia: pintarla también aquí
   // dejaba texto bajo las fotos que no había forma de quitar.
+  // ── Galería 'panel': la foto elegida a un lado usando TODO el alto, sin
+  // marco de fondo ni flechas; el resto como MOSAICO que llena el ancho y el
+  // alto restantes, con la elegida marcada. El mosaico va a la derecha (o a
+  // la izquierda con panelLado: 'izq'). Con ancho de sección "contenedor",
+  // usa todo el ancho disponible del contenedor.
+  function renderPhotosPanel(images, pc, altDe) {
+    var wrap = el('div', 'kc-fotos kc-fotos-panel');
+    if (pc.panelLado === 'izq') wrap.setAttribute('data-lado', 'izq');
+    wrap.setAttribute('data-main', ['s', 'l', 'xl', 'auto'].indexOf(pc.mainSize) !== -1 ? pc.mainSize : 'm');
+    // El panel también honra el resto del estilo: el ANCHO del bloque
+    // (data-size), el TAMAÑO de miniaturas (data-thumb) y el ENCAJE
+    // (data-fit) — sin estos atributos el CSS no puede aplicarlos y los
+    // controles del editor quedaban muertos en este layout.
+    wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
+    wrap.setAttribute('data-thumb', ['s', 'l'].indexOf(pc.thumbSize) !== -1 ? pc.thumbSize : 'm');
+    wrap.setAttribute('data-fit', pc.fit === 'cover' ? 'cover' : 'contain');
+    var big = el('img', 'kc-panel-big');
+    big.src = images[0] || '';
+    big.alt = altDe(images[0], 0);
+    var mos = el('div', 'kc-panel-mosaico');
+    // Columnas del mosaico: manda "Fotos por fila" del estilo si está fijado
+    // (el usuario puso 2 y salían 3 — el control tiene que mandar); sin
+    // fijar, el "tamaño de miniaturas" decide (pequeñas = 3, medianas = 2,
+    // grandes = 1). Las filas se reparten TODO el alto, sin scroll interno.
+    var cols = pc.cols > 0 ? Math.min(6, Math.round(pc.cols))
+      : (pc.thumbSize === 's' ? 3 : pc.thumbSize === 'l' ? 1 : 2);
+    mos.style.setProperty('--kc-panel-cols', String(cols));
+    mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / cols))));
+    var tiles = [];
+    var mostrar = function (i) {
+      big.src = images[i];
+      big.alt = altDe(images[i], i);
+      tiles.forEach(function (t, k) { t.classList[k === i ? 'add' : 'remove']('on'); });
+    };
+    images.forEach(function (u, i) {
+      var t = el('button', 'kc-panel-tile' + (i === 0 ? ' on' : ''));
+      t.type = 'button';
+      t.setAttribute('aria-label', 'Ver foto ' + (i + 1));
+      var im = el('img');
+      im.src = u; im.alt = altDe(u, i); im.loading = 'lazy';
+      t.appendChild(im);
+      t.addEventListener('click', function () { mostrar(i); });
+      mos.appendChild(t);
+      tiles.push(t);
+    });
+    wrap.appendChild(big);
+    if (images.length > 1) wrap.appendChild(mos);
+    else wrap.setAttribute('data-sola', '1');
+    return wrap;
+  }
+
   function renderPhotos(images, cfg, altDe) {
     altDe = altDe || function () { return ''; };
-    var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
+    if (pc.layout === 'panel') return renderPhotosPanel(images, pc, altDe);
+    var wrap = el('div', 'kc-fotos');
     wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
     // Disposición: 'visor' (foto grande + miniaturas debajo), 'lado'
     // (miniaturas en columna a la izquierda) o 'mosaico' (solo la grilla, sin
@@ -1059,6 +1168,43 @@
   // Sección `imagen` (contrato v2): UNA foto a lo ancho con su ALTO NATURAL
   // (height auto, sin recortes). `width:'full'` sangra hasta el borde del
   // viewport; con `link` la imagen entera es un enlace. Repetible.
+  // ── Preguntas frecuentes: acordeón donde cada pregunta se pliega sola ────
+  // (varias pueden quedar abiertas a la vez; todo arranca plegado).
+  function renderFaq(sec) {
+    var items = ((sec && sec.items) || []).filter(function (x) { return x && String(x.q || '').trim(); });
+    if (!items.length) return null;
+    var wrap = el('div', 'kc-faq');
+    // El TÍTULO ya no se pinta aquí: lo pone la caja kc-sec (paint), con el
+    // mismo sistema de tamaño/alineación/fondo que Fotos y Especificaciones —
+    // antes salía con un estilo propio distinto al resto de la página.
+    // Diseño editable del acordeón: letra, alineación y ancho del bloque.
+    wrap.setAttribute('data-fsize', ['s', 'l'].indexOf(sec.textSize) !== -1 ? sec.textSize : 'm');
+    if (sec.align === 'center') wrap.setAttribute('data-align', 'center');
+    if (['s', 'm', 'l'].indexOf(sec.boxWidth) !== -1) wrap.setAttribute('data-w', sec.boxWidth);
+    items.forEach(function (it) {
+      var fila = el('div', 'kc-faq-i');
+      var q = el('button', 'kc-faq-q');
+      q.type = 'button';
+      q.setAttribute('aria-expanded', 'false');
+      q.appendChild(el('span', 'kc-faq-qt', String(it.q).trim()));
+      q.appendChild(el('span', 'kc-faq-car', '▸'));
+      var a = el('div', 'kc-faq-a', String(it.a || '').trim());
+      a.style.display = 'none';
+      q.addEventListener('click', function () {
+        var abrir = a.style.display === 'none';
+        a.style.display = abrir ? '' : 'none';
+        q.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+        q.className = 'kc-faq-q' + (abrir ? ' on' : '');
+        var car = q.querySelector('.kc-faq-car');
+        if (car) car.textContent = abrir ? '▾' : '▸';
+      });
+      fila.appendChild(q);
+      fila.appendChild(a);
+      wrap.appendChild(fila);
+    });
+    return wrap;
+  }
+
   function renderImagen(sec) {
     if (!sec || !sec.imageUrl) return null;
     // El ancho (auto/container/full) lo aplica anchoSeccion() al insertarla.
@@ -1143,6 +1289,18 @@
       var kg = kimosOf(entry, g);
       return !kg || isGroupVisible(entry, kg, selMap);
     });
+    // El ORDEN del paso a paso lo manda el CATÁLOGO (lo que el dueño ordenó
+    // en el Estudio), no el orden en que la tienda liste sus opciones
+    // nativas: una opción asociada tarde (Garantía, 2026-08-25) salía como
+    // PASO 01 en la ficha aunque en el Estudio fuera el último. Los pasos
+    // sin par en el catálogo conservan su orden nativo, al final.
+    var ordenK = {};
+    ((entry && entry.groups) || []).forEach(function (kg2, i) { ordenK[kg2.id] = i; });
+    visibles = visibles.map(function (g, i) {
+      var kg2 = kimosOf(entry, g);
+      var k = kg2 && ordenK[kg2.id] != null ? ordenK[kg2.id] : 1000 + i;
+      return { g: g, k: k };
+    }).sort(function (a, b) { return a.k - b.k; }).map(function (x) { return x.g; });
     // Estado de colapso persistente entre repintados.
     if (!ctx.stepsOpen) {
       ctx.stepsOpen = {};
@@ -1172,6 +1330,11 @@
         ctx.refresh();
       });
       sec.appendChild(head);
+      // Comentario del paso (escrito por el dueño en ProductLab): bajo el
+      // título, solo cuando el paso está abierto.
+      if (abierto && kg && String(kg.nota || '').trim()) {
+        sec.appendChild(el('div', 'kc-step-note', String(kg.nota).trim()));
+      }
 
       var cards = el('div', 'kc-cards');
       // Paso de COLOR: si sus valores traen swatch y ninguno foto, las cards
@@ -1196,16 +1359,21 @@
           sw.style.background = kv.swatchColor;
           c.appendChild(sw);
         }
-        // Cantidad: "2× Kingston 8GB". Si el nombre YA dice la cantidad
-        // ("16GB (2×8)"), no se repite nada — "16GB (2×8) ×2" era leerlo dos
-        // veces y entender cuatro módulos.
+        // El NOMBRE de la card es del dueño y va TAL CUAL: anteponerle la
+        // cantidad lo rompía — un valor "16GB DDR5" (2×8GB) salía como
+        // "2× 16GB DDR5", que se lee como 32GB. La cantidad vive en el
+        // DETALLE: los catálogos nuevos ya la traen en `desc` ("2× 8GB…");
+        // a los viejos (desc = specs a secas) se les antepone aquí, salvo
+        // que el nombre o el detalle ya la digan.
         var q = kv ? Math.round(Number(kv.qty) || 1) : 1;
-        var dice = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i').test(v.name || '');
         var nombre = el('span', 'kc-card-n');
-        if (q > 1 && !dice) nombre.appendChild(el('span', 'kc-card-qty', q + '× '));
         nombre.appendChild(document.createTextNode(v.name));
         c.appendChild(nombre);
-        if (kv && kv.desc) c.appendChild(el('span', 'kc-card-d', kv.desc));
+        var det = kv ? String(kv.desc || '').trim() : '';
+        var diceQ = q > 1 && new RegExp('(^|[^0-9])' + q + '\\s*[x×]|[x×]\\s*' + q + '([^0-9]|$)', 'i')
+          .test(det + ' ' + (v.name || ''));
+        if (q > 1 && !diceQ) det = (q + '× ' + det).trim();
+        if (det) c.appendChild(el('span', 'kc-card-d', det));
         // Recargo REAL de esta card según la tienda: addons por su
         // data-addon-price; color por la diferencia de precio entre variantes.
         var dltTienda = null;
@@ -2726,6 +2894,9 @@
                 if (ev.key === 'Escape' && grande) alternar();
               });
               confView.appendChild(exp);
+              // Cómo se sale, dicho en pantalla: solo visible en pantalla
+              // completa (CSS). El ✕ chico dejaba gente atrapada en el 3D.
+              confView.appendChild(el('span', 'kc-3d-full-hint', 'Esc o ✕ para volver'));
               return ponerModelo(viewer, entry.model3d).then(function () {
                 viewer.setFinishes(entry.model3d.finishes || []);
                 viewer.setState(build3dState(entry, groups));
@@ -2768,6 +2939,14 @@
             expandir.textContent = abierto ? '▼' : '▲';
           });
           panelBox.appendChild(expandir);
+          // El panel CRECE solo después de pintado (la entrega estimada llega
+          // más tarde, los textos parten en dos líneas, el detalle se
+          // despliega): cada cambio de tamaño re-mide el hueco al pie de los
+          // pasos. Sin esto --kc-panel-h quedaba con la medida vieja hasta el
+          // próximo scroll y el último paso aparecía tapado por la barra.
+          if (window.ResizeObserver) {
+            try { new ResizeObserver(alVueloBarra).observe(panelBox); } catch (e) {}
+          }
           confPanel.appendChild(confSteps);
           confPanel.appendChild(panelBox);
       }
@@ -2884,6 +3063,32 @@
       confSteps.appendChild(renderSteps(entry, groups, ctx));
     }
 
+    // ── Dónde vive el visor 3D según la pantalla ─────────────────────────────
+    // En escritorio va en el panel derecho. En MÓVIL ese panel es la barra
+    // inferior y su canvas queda oculto (solo aparecía desplegando el asa ▲):
+    // el cliente configuraba a ciegas. Con 3D, el visor se muda ARRIBA de los
+    // pasos, a todo el ancho — se ve girar el mueble mientras se eligen los
+    // colores, que es el punto de todo esto.
+    function colocarVisor() {
+      if (!confView || !confPanel || !panelBox) return;
+      var movil = window.matchMedia && window.matchMedia('(max-width: 991px)').matches;
+      var reencuadrar = function () {
+        if (viewer && viewer.resize) setTimeout(function () { viewer.resize(); }, 60);
+      };
+      if (movil && has3d) {
+        if (confView.parentNode !== confPanel) {
+          confView.classList.add('kc-3d-inline');
+          confPanel.insertBefore(confView, confPanel.firstChild);
+          reencuadrar();
+        }
+      } else if (confView.parentNode !== panelBox) {
+        confView.classList.remove('kc-3d-inline');
+        panelBox.insertBefore(confView, panelBox.firstChild);
+        reencuadrar();
+      }
+    }
+    window.addEventListener('resize', function () { colocarVisor(); });
+
     function paint() {
       paintBar();
       body.innerHTML = '';
@@ -2901,9 +3106,29 @@
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
+          else if (s.kind === 'faq') n = renderFaq(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
+          // Título propio y/o fondo de la sección (Fotos, Especificaciones y
+          // Preguntas frecuentes): la caja envuelve al contenido para que el
+          // fondo cubra el bloque entero y el título comparta lenguaje con el
+          // resto de la página.
+          if (n && (s.kind === 'specs' || s.kind === 'fotos' || s.kind === 'faq')
+              && (String(s.title || '').trim() || String(s.bgColor || '').trim())) {
+            var caja = el('div', 'kc-sec');
+            if (String(s.bgColor || '').trim()) { caja.classList.add('kc-sec-bg'); caja.style.background = String(s.bgColor).trim(); }
+            if (String(s.title || '').trim()) {
+              var tt = el('div', 'kc-sec-title', String(s.title).trim());
+              tt.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(s.titleSize) !== -1 ? s.titleSize : 'm');
+              tt.style.textAlign = s.titleAlign === 'center' ? 'center' : s.titleAlign === 'right' ? 'right' : 'left';
+              caja.appendChild(tt);
+            }
+            caja.appendChild(n);
+            if (s.kind === 'specs') anclas.specs = caja;
+            if (s.kind === 'fotos') anclas.fotos = caja;
+            n = caja;
+          }
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
       } else if (conPasos) {
@@ -2912,6 +3137,7 @@
         construirConf();
         body.appendChild(confPanel);
         hostearPanel();
+        colocarVisor();
         pintarPanel();
       }
       if (viewer && enConf) {

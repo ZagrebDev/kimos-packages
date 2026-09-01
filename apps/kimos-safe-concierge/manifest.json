@@ -1,0 +1,160 @@
+{
+  "id": "kimos-safe-concierge",
+  "name": "KIMOS Safe Concierge",
+  "version": "1.1.0",
+  "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil que muestra al conserje virtual —avatar humanizado o caricaturizado— junto al espejo en vivo de quien está frente a la cámara, con teclado en pantalla para escribir sin teclado físico. Atiende visitas, residentes, citofonía y encomiendas 24/7, y su consola convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
+  "icon": "🛡️",
+  "author": "Kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control",
+    "public.read",
+    "public.submit"
+  ],
+  "configSchema": {
+    "title": "Preferencias de KIMOS Safe Concierge",
+    "fields": [
+      {
+        "key": "siteName",
+        "label": "Nombre de la comunidad o empresa",
+        "type": "string",
+        "help": "Aparece en el tótem y en el parte que se entrega a emergencias."
+      },
+      {
+        "key": "siteAddress",
+        "label": "Dirección exacta del acceso",
+        "type": "textarea",
+        "help": "Calle, número, comuna y referencias de ingreso. Es lo primero que piden SAMU, Bomberos y Carabineros."
+      },
+      {
+        "key": "startView",
+        "label": "Al abrir, mostrar",
+        "type": "select",
+        "options": [
+          {
+            "value": "panel",
+            "label": "Centro de operaciones"
+          },
+          {
+            "value": "totem",
+            "label": "Tótem (modo atención)"
+          },
+          {
+            "value": "incidents",
+            "label": "Incidentes"
+          },
+          {
+            "value": "access",
+            "label": "Accesos"
+          }
+        ]
+      },
+      {
+        "key": "avatarStyle",
+        "label": "Avatar del tótem",
+        "type": "select",
+        "options": [
+          {
+            "value": "human",
+            "label": "Humanizado"
+          },
+          {
+            "value": "cartoon",
+            "label": "Caricaturizado"
+          },
+          {
+            "value": "minimal",
+            "label": "Abstracto (sin rostro)"
+          }
+        ]
+      },
+      {
+        "key": "avatarName",
+        "label": "Nombre del avatar",
+        "type": "string"
+      },
+      {
+        "key": "voice",
+        "label": "Voz del avatar",
+        "type": "boolean",
+        "help": "Síntesis de voz del navegador; no envía audio a ningún servidor."
+      },
+      {
+        "key": "cameraSensor",
+        "label": "Analizar la cámara del tótem",
+        "type": "boolean",
+        "help": "Detección local de agitación y forcejeo. Los cuadros se procesan en el dispositivo y nunca se suben."
+      },
+      {
+        "key": "audioSensor",
+        "label": "Analizar el micrófono del tótem",
+        "type": "boolean",
+        "help": "Detección local de gritos e impactos por energía acústica. No transcribe ni graba conversaciones."
+      },
+      {
+        "key": "sensitivity",
+        "label": "Sensibilidad de la detección",
+        "type": "select",
+        "options": [
+          {
+            "value": "low",
+            "label": "Baja (menos falsos positivos)"
+          },
+          {
+            "value": "medium",
+            "label": "Media"
+          },
+          {
+            "value": "high",
+            "label": "Alta (más avisos, más ruido)"
+          }
+        ]
+      },
+      {
+        "key": "autoWarn",
+        "label": "Aviso disuasivo automático",
+        "type": "boolean",
+        "help": "Nivel 3 o superior: el tótem advierte por el parlante que se está avisando al personal de seguridad. Nunca llama solo a un servicio de emergencia."
+      },
+      {
+        "key": "retentionDays",
+        "label": "Retención de registros (días)",
+        "type": "number",
+        "min": 30,
+        "max": 3650,
+        "help": "La Ley 21.659 exige conservar los registros de vigilancia al menos 120 días."
+      },
+      {
+        "key": "privacyMode",
+        "label": "Modo privacidad (sin identificar por defecto)",
+        "type": "boolean",
+        "help": "Las detecciones se registran como «Persona 1» y solo se asocian a una identidad cuando alguien lo justifica."
+      },
+      {
+        "key": "accent",
+        "label": "Color del tótem",
+        "type": "color"
+      }
+    ]
+  },
+  "defaultConfig": {
+    "siteName": "",
+    "siteAddress": "",
+    "startView": "panel",
+    "avatarStyle": "human",
+    "avatarName": "Kim",
+    "voice": true,
+    "cameraSensor": false,
+    "audioSensor": false,
+    "sensitivity": "medium",
+    "autoWarn": true,
+    "retentionDays": 120,
+    "privacyMode": true,
+    "accent": "#19ACB1"
+  }
+}

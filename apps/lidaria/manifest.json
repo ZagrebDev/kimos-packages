@@ -1,0 +1,17 @@
+{
+  "id": "lidaria",
+  "name": "LiDARia",
+  "version": "1.4.0",
+  "description": "Consola de captura 3D, supervisión por cámara, captura de movimiento y ampliación por sensores de KIMOS. Qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), qué trae de verdad cada uno —cámaras, micrófono, altavoz, radios, sensores— y cuáles de esos componentes se alcanzan desde el navegador y cuáles exigen contenedor nativo. Mide personas con una cámara común: con la altura del lente, su inclinación y su campo de visión declarados, convierte píxeles en centímetros —motor adoptado de Kimos FunPlai y validado en tótem— y entrega distancia, estatura, alturas de trabajo, alcances y talla de arnés y de ropa, diciendo también qué NO se puede derivar (talla de casco, peso, perímetros). Calcula el montaje de cámara: a qué distancia marcar la zona, cuánto inclinar el lente y si con ese campo de visión hay montaje posible. A qué distancia se puede vigilar cada implemento de protección —calculado por geometría—, y qué capacidades se pueden sumar en el futuro (reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado) con su puerta de cumplimiento: las funciones con dato sensible se distribuyen apagadas y el software no las enciende hasta que el expediente de la Ley 21.719 está completo y firmado. Incluye manual de uso paso a paso, catálogo de 20 accesorios y sensores conectables (ESP32, térmicas, básculas, webcams gran angular, cámaras de profundidad, drones) con su forma de conexión por plataforma, 14 rubros ampliables con packs .krub, matriz de 24 equipos contra 16 módulos, inventario, prospección, ecosistema, negocio y licencias. Control por agente IA con diecisiete herramientas.",
+  "icon": "🛰️",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ]
+}
