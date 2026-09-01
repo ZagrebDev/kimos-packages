@@ -973,6 +973,63 @@
         "idleSeconds": 120,
         "camaraHabilitada": true
       }
+    },
+    {
+      "id": "anfitrion-aiep",
+      "name": "ANFITRION AIEP",
+      "description": "Anfitrión para el totem del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, organizado con los Centros de Negocios SERCOTEC: programa en vivo, expositores con QR a su perfil, contexto, consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
+      "icon": "🤖",
+      "version": "1.1.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias del totem",
+        "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          },
+          {
+            "key": "mostrarContexto",
+            "label": "Mostrar la sección Contexto (material complementario)",
+            "type": "boolean"
+          }
+        ]
+      },
+      "defaultConfig": {
+        "modo": "auto",
+        "segundosInactividad": 90,
+        "mostrarContexto": true
+      }
     }
   ]
 }
