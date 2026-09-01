@@ -14,9 +14,36 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const app = readFileSync(join(DIR, 'src/app.js'), 'utf8');
-const datos = JSON.parse(readFileSync(join(DIR, 'src/data.json'), 'utf8'));
+const base = JSON.parse(readFileSync(join(DIR, 'src/data.json'), 'utf8'));
+const amp = JSON.parse(readFileSync(join(DIR, 'src/ampliacion.json'), 'utf8'));
 const visual = JSON.parse(readFileSync(join(DIR, 'src/visual.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(join(DIR, 'manifest.json'), 'utf8'));
+
+/**
+ * src/data.json es el reflejo fiel de la planilla y lo regenera extraer-planilla.py.
+ * Lo que se investigó despues vive en src/ampliacion.json y se fusiona aquí, para
+ * que el extractor siga siendo reproducible y se vea de dónde salió cada fila.
+ */
+function fusionar(d, a) {
+  const n = d.competidores.length;
+  const apps = new Set(d.modulos.map((m) => m.app));
+  const nums = new Set(d.modulos.map((m) => m.n));
+  for (const m of a.modulos || []) {
+    if (apps.has(m.app) || nums.has(m.n)) {
+      console.error(`La ampliación repite el módulo ${m.n} "${m.app}", que ya está en data.json.`);
+      process.exit(1);
+    }
+  }
+  return Object.assign({}, d, {
+    meta: Object.assign({}, d.meta, { ampliacion: a._meta.fecha }),
+    modulos: d.modulos.concat(a.modulos || []),
+    competidores: d.competidores.concat((a.competidores || []).map((c, i) => Object.assign({ row: n + i }, c))),
+    evidencia: d.evidencia.concat(a.evidencia || []),
+    notas: d.notas.concat(a.notas || []),
+  });
+}
+
+const datos = fusionar(base, amp);
 
 const declarada = (app.match(/APP_VERSION\s*=\s*'([^']+)'/) || [])[1];
 if (declarada !== manifest.version) {
@@ -44,6 +71,6 @@ writeFileSync(join(DIR, 'dist/index.js'), salida);
 
 console.log(
   `dist/index.js escrito · v${manifest.version} · ${(salida.length / 1024).toFixed(0)} KB · ` +
-  `${datos.modulos.length} módulos, ${datos.competidores.length} planes, ${datos.demanda.paises.length} mercados, ` +
+  `${datos.modulos.length} módulos (${amp.modulos.length} de la ampliación), ${datos.competidores.length} planes, ${datos.demanda.paises.length} mercados, ` +
   `${visual.scores.length} dimensiones de diagnóstico`
 );

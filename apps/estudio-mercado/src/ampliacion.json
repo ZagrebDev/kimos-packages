@@ -1,0 +1,63 @@
+{
+  "_meta": {
+    "titulo": "Ampliación del estudio — módulo 25: Estudio de Mercado",
+    "fecha": "2026-09-01",
+    "porque": "La planilla de agosto-2026 levantó los 24 módulos que existían entonces. El propio tablero de estudio de mercado pasó a ser un módulo vendible de KIMOS y, para no romper la regla del estudio (ningún número sin fuente), se investigó su categoría con el mismo método: precios de lista públicos donde existen, rangos reportados por terceros donde el proveedor cotiza a puerta cerrada, y el nivel de confianza dicho en la fila.",
+    "metodo": "Búsqueda web del 1-sep-2026. Se prefirió el precio de lista mensual publicado; cuando el proveedor no publica tarifa (Crayon, Klue, AlphaSense, Contify, Kompyte, Attest) se tomó el contrato anual reportado por terceros dividido en doce y la fila queda marcada 'Estimado'. Las plataformas que cobran por asiento pero se contratan por equipo se registran como tarifa plana con el detalle de asientos en la nota, para no multiplicar por diez una licencia que en la práctica usan dos o tres personas; las que sí se compran por persona (Owler, SurveyMonkey) van como 'Por usuario' y el modelo las multiplica por la dotación del cliente tipo.",
+    "aplica": "build.mjs fusiona este archivo sobre src/data.json. src/data.json sigue siendo el reflejo fiel de la planilla y lo regenera src/extraer-planilla.py sin tocar nada de aquí."
+  },
+
+  "modulos": [
+    {
+      "n": 25,
+      "app": "Estudio de Mercado",
+      "que": "Tablero de estudio del mercado competitivo: precios de la competencia normalizados al cliente tipo, precio sugerido por línea de producto, mercado por país y economía por cliente, recalculado en vivo",
+      "cat": "Inteligencia competitiva y estudios de mercado",
+      "alt": "Crayon, Klue, AlphaSense, Contify, Kompyte, Statista, Similarweb, Semrush, Attest",
+      "target": "Dirección y áreas comerciales de la base instalada; también se vende suelto",
+      "pro": "La categoría entera vive de vender datos sin modelo: Crayon y Klue entregan tarjetas de batalla, Statista y Similarweb entregan cifras, y el trabajo de convertir eso en un precio sigue siendo una planilla hecha a mano. Aquí el estudio ES el modelo: cambiar un supuesto mueve los planes, el mercado y el LTV en la misma pantalla. Además parte con los datos que las otras apps de la suite ya tienen —costos, clientes, pedidos—, que es justo lo que una plataforma externa nunca ve.",
+      "contra": "Es el único módulo donde el competidor tiene un activo que no se copia con software: el panel de datos propio. AlphaSense y Statista cobran cinco cifras al año porque venden acceso a fuentes licenciadas, no interfaz. KIMOS no tiene ese panel, así que la calidad del estudio depende de la investigación que se cargue en cada caso; sin protocolo y sin fuentes, la herramienta produce números bonitos e inservibles. Por eso la app obliga a declarar fuente y nivel de confianza fila por fila.",
+      "estrategia": "Complemento, no parte de los planes: se vende aparte y por eso no entra en Core, Starter, Business ni Enterprise",
+      "conf": "9/16",
+      "ventaja": 6.5,
+      "icono": "target"
+    }
+  ],
+
+  "competidores": [
+    { "app": "Estudio de Mercado", "comp": "Crayon", "plan": "Plataforma de inteligencia competitiva", "precio": 2500, "unidad": "Plano", "seg": "Enterprise", "nota": "Sin tarifa pública: contratos reportados de USD 25.000 a 40.000 al año, aquí ~USD 30.000/año dividido en doce", "fuente": "clientcues.com/company/blog/posts/crayon-pricing-is-it-worth-30k-per-year", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Klue", "plan": "Competitive Enablement", "precio": 1667, "unidad": "Plano", "seg": "Enterprise", "nota": "Sin tarifa pública: despliegues de entrada desde USD 15.000-20.000 al año para equipos de 5 a 15 personas", "fuente": "parano.ai/blog/klue-pricing", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "AlphaSense", "plan": "Enterprise (por asiento)", "precio": 1250, "unidad": "Plano", "seg": "Enterprise", "nota": "USD 10.000-20.000 por asiento al año; se toma un asiento como referencia para no multiplicar por la dotación", "fuente": "vendr.com/marketplace/alphasense", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Contify", "plan": "M&CI Platform", "precio": 1875, "unidad": "Plano", "seg": "Enterprise", "nota": "Rango reportado de USD 15.000 a 30.000 al año segun entidades vigiladas y asientos", "fuente": "elevatedsignal.com/compare/contify/", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Kompyte (Semrush)", "plan": "Competitive Intelligence", "precio": 800, "unidad": "Plano", "seg": "Enterprise", "nota": "Se cotiza por Semrush; desde ~USD 800/mes, ~USD 20.000/año en el paquete Semrush Enterprise", "fuente": "parano.ai/blog/kompyte-pricing", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Attest", "plan": "Professional", "precio": 2000, "unidad": "Plano", "seg": "Enterprise", "nota": "Investigación primaria: incluye el panel de encuestados, sin recargo por audiencia específica", "fuente": "capterra.com/p/185458/Attest/", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Statista", "plan": "Professional Account", "precio": 1399, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Hasta 5 usuarios, contrato anual (USD 16.788/año), incluye Premium Statistics, Reports y Market Insights", "fuente": "vendr.com/marketplace/statista", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "Semrush", "plan": "Business", "precio": 499.95, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Incluye 5 asientos, asiento extra USD 100/mes; el complemento .Trends (Traffic Analytics y Market Explorer) cuesta aparte por usuario", "fuente": "demandsage.com/semrush-pricing/", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "Similarweb", "plan": "Web Intelligence Starter", "precio": 199, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "USD 125/mes con pago anual (USD 1.500/año); Sales Intelligence y App Intelligence se cobran aparte", "fuente": "saaspricepulse.com/tools/similarweb", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "Similarweb", "plan": "Professional", "precio": 399, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "USD 333/mes con pago anual; el pago mes a mes carga entre 20% y 25% sobre la tarifa anual", "fuente": "saasodds.com/blog/similarweb-pricing", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "IBISWorld", "plan": "Membresía anual", "precio": 333, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Membresía a medida desde ~USD 4.000/año; el informe sectorial suelto cuesta USD 2.850", "fuente": "vantainsights.com/insights/ibisworld-vs-vantainsights", "conf": "Estimado" },
+    { "app": "Estudio de Mercado", "comp": "Prisync", "plan": "Premium", "precio": 199, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Vigilancia de precios de la competencia sobre 1.000 productos; la API suma USD 39,80/mes", "fuente": "pricinghunter.com/resources/prisync-pricing", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "Visualping", "plan": "Business", "precio": 100, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Monitoreo de cambios en sitios de la competencia: 500 páginas, chequeos cada 5 minutos, API e integraciones", "fuente": "visualping.io/blog/visualping-pricing-explained", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "SpyFu", "plan": "Professional", "precio": 79, "unidad": "Plano", "seg": "PyME / Empresa", "nota": "Plan Basic USD 39/mes; pago anual descuenta 25%", "fuente": "saaspricepulse.com/tools/spyfu", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "Owler", "plan": "Pro", "precio": 39, "unidad": "Por usuario", "seg": "PyME / Empresa", "nota": "Facturado anual (USD 468 por usuario al año); seguimiento ilimitado de empresas y competidores", "fuente": "uplead.com/owler-pricing/", "conf": "Verificado" },
+    { "app": "Estudio de Mercado", "comp": "SurveyMonkey", "plan": "Team Advantage", "precio": 30, "unidad": "Por usuario", "seg": "PyME / Empresa", "nota": "Mínimo 3 usuarios y facturación anual: la investigación primaria hecha por cuenta propia", "fuente": "usercall.co/post/surveymonkey-pricing", "conf": "Verificado" }
+  ],
+
+  "evidencia": [
+    {
+      "titulo": "Mercado de la inteligencia competitiva",
+      "cols": ["Ámbito", "Métrica", "Valor", "Unidad", "Contexto", "Fuente", "Confianza"],
+      "filas": [
+        ["Global", "Mercado de herramientas de inteligencia competitiva", "870.000.000", "USD", "Valor 2026 con proyección a USD 4.030 MM en 2034 (CAGR 21,2%) en la definición estrecha de la categoría", "fortunebusinessinsights.com/competitive-intelligence-tools-market-104522", "Verificado"],
+        ["Global", "Mismo mercado en definición amplia", "3.120.000.000", "USD", "Otra consultora ubica 2026 en USD 3.120 MM camino a USD 9.680 MM en 2033 (CAGR 17,5%). La horquilla entre 0,87 y 3,12 mil millones no es ruido: mide cuánto cambia el número según qué se cuente como inteligencia competitiva", "openpr.com/news/4232959/competitive-intelligence-software-market-size-by-type", "Estimado"],
+        ["Global", "Informe sectorial suelto", "2.850", "USD", "IBISWorld cobra USD 2.850 por informe y ~USD 4.000 al año por membresía: el estudio hecho a mano una sola vez cuesta más que la suscripción anual al modelo", "vantainsights.com/insights/ibisworld-vs-vantainsights", "Estimado"],
+        ["Global", "Piso de entrada a una plataforma CI dedicada", "15.000", "USD/año", "Klue y Crayon parten en cinco cifras anuales y ninguno publica tarifa: por precio, la categoría deja fuera a la PyME, que es exactamente el hueco que ocupa este módulo", "parano.ai/blog/klue-pricing", "Estimado"]
+      ]
+    }
+  ],
+
+  "notas": [
+    "La nota 1 se refiere al levantamiento original de agosto-2026 (154 planes, 140 verificados). La ampliación del 1-sep-2026 añadió el módulo 25 y 16 planes más: 9 con precio de lista público y 7 estimados desde contratos anuales reportados por terceros, porque en inteligencia competitiva los proveedores grandes no publican tarifa. Los totales vigentes están siempre a la vista en la cabecera y en la pestaña Precios por App.",
+    "En el módulo 25 las plataformas que cobran por asiento pero se contratan por equipo (AlphaSense, Statista, Semrush) se registran como tarifa plana con el detalle de asientos en la nota. Multiplicarlas por la dotación del cliente tipo habría inflado la mediana de una categoría que en la práctica usan dos o tres personas por empresa."
+  ]
+}
