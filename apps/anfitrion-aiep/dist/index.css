@@ -277,10 +277,9 @@
 .kimos-anfitrion-aiep .ai-sp {
   display: flex; flex-direction: column; gap: .9em; padding: var(--pad); text-align: left; width: 100%;
   background: var(--ai-panel); border: 1px solid var(--ai-linea); border-radius: var(--ai-radius-lg);
-  color: var(--ai-soft); cursor: pointer; font-family: inherit;
+  color: var(--ai-soft); font-family: inherit;
   transition: border-color .15s ease, background .15s ease;
 }
-.kimos-anfitrion-aiep .ai-sp:hover { background: var(--ai-panel-alto); }
 .kimos-anfitrion-aiep .ai-sp.abierta { border-color: var(--ai-rojo); }
 .kimos-anfitrion-aiep .ai-sp-top { display: flex; align-items: center; gap: 1em; }
 .kimos-anfitrion-aiep .ai-sp-ini,
@@ -297,6 +296,28 @@
 .kimos-anfitrion-aiep .ai-sp-foto {
   display: block; object-fit: cover; object-position: 50% 40%; background: #fff;
 }
+/* Figit.ai va como empresa: el logo entero sobre blanco, sin recorte circular
+   —un logotipo con texto no sobrevive a un círculo—. */
+.kimos-anfitrion-aiep .ai-sp-logo {
+  width: 4.6em; height: 4.6em; flex-shrink: 0; display: block;
+  object-fit: contain; background: #fff; border-radius: 12px; padding: .35em;
+  border: 2px solid var(--ai-linea-fuerte);
+}
+.modo-totem.kimos-anfitrion-aiep .ai-sp-logo { width: 6.4em; height: 6.4em; }
+
+/* Botón de despliegue de la reseña, bajo el horario de cada ficha. */
+.kimos-anfitrion-aiep .ai-sp-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: .8em;
+  width: 100%; min-height: var(--tap); padding: 0 1.1em;
+  background: rgb(255 255 255 / .12); border: 1px solid var(--ai-linea-fuerte);
+  border-radius: var(--ai-radius); color: #fff; cursor: pointer;
+  font: 800 var(--f-base)/1.2 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  letter-spacing: .04em; text-align: left;
+  transition: background .15s ease, border-color .15s ease;
+}
+.kimos-anfitrion-aiep .ai-sp-toggle:hover { background: rgb(255 255 255 / .2); }
+.kimos-anfitrion-aiep .ai-sp-toggle.on { background: var(--ai-rojo); border-color: var(--ai-rojo); }
+.kimos-anfitrion-aiep .ai-sp-chevron { font-size: .8em; opacity: .85; }
 /* En el totem se mira de pie y a un par de pasos: la cara tiene que leerse. */
 .modo-totem.kimos-anfitrion-aiep .ai-sp-ini,
 .modo-totem.kimos-anfitrion-aiep .ai-sp-foto { width: 6.4em; height: 6.4em; }
