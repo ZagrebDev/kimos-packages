@@ -50,6 +50,10 @@
   --f-num: 40px;
   --tap: 44px;
   --pad: 20px;
+  /* Franja inferior reservada para el widget de chat de la vitrina (mic +
+     ondas + burbujas), que flota por encima de la app en el totem vertical
+     1080x1920. En ventana de escritorio el widget no existe: 0. */
+  --ai-dock-safe: 0px;
 
   height: 100%;
   display: flex;
@@ -79,6 +83,7 @@
   --f-num: 104px;
   --tap: 76px;
   --pad: 40px;
+  --ai-dock-safe: 340px;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
@@ -148,7 +153,10 @@
 .kimos-anfitrion-aiep .ai-ver { font-size: var(--f-sm); color: var(--ai-tenue); opacity: .5; }
 
 /* ───────────────────────── Cuerpo ───────────────────────── */
-.kimos-anfitrion-aiep .ai-body { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+.kimos-anfitrion-aiep .ai-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+/* En vitrina el widget de chat flota sobre la app: se reserva ese alto para que
+   el final del contenido nunca quede tapado por el microfono. */
+.modo-totem.kimos-anfitrion-aiep .ai-body { padding-bottom: var(--ai-dock-safe); }
 .kimos-anfitrion-aiep .ai-wrap { max-width: 980px; margin: 0 auto; padding: var(--pad) var(--pad) calc(var(--pad) * 2); }
 .modo-totem.kimos-anfitrion-aiep .ai-wrap { max-width: 100%; }
 
@@ -210,9 +218,11 @@
 .kimos-anfitrion-aiep .ai-btn.ghost { background: transparent; color: #fff; border-color: var(--ai-linea-fuerte); }
 .kimos-anfitrion-aiep .ai-btn.ghost:hover { background: rgb(255 255 255 / .12); filter: none; }
 
+/* La barra de secciones vive BAJO el header (1.5.0): el pie de la pantalla
+   queda libre para el footer y para el widget de chat de la vitrina. */
 .kimos-anfitrion-aiep .ai-nav {
-  display: flex; gap: 8px; flex-shrink: 0; padding: 10px var(--pad) calc(var(--pad) * .6);
-  border-top: 1px solid var(--ai-linea); background: rgb(0 16 48 / .42);
+  display: flex; gap: 8px; flex-shrink: 0; padding: calc(var(--pad) * .5) var(--pad);
+  border-bottom: 1px solid var(--ai-linea); background: rgb(0 16 48 / .42);
   overflow-x: auto; scrollbar-width: none;
 }
 .kimos-anfitrion-aiep .ai-nav::-webkit-scrollbar { display: none; }
@@ -228,6 +238,48 @@
 .kimos-anfitrion-aiep .ai-nav-b:hover { color: #fff; background: rgb(255 255 255 / .1); }
 .kimos-anfitrion-aiep .ai-nav-b.on { background: var(--ai-rojo); color: #fff; font-weight: 800; }
 .kimos-anfitrion-aiep .ai-nav-ico { font-size: 1.5em; line-height: 1; }
+
+/* ───────────────────────── Pie ─────────────────────────
+   Banda de cierre con el credito del organizador y el logotipo de Kimos, en la
+   misma linea que el resto de los totem del sistema. Va SIEMPRE al fondo de la
+   columna, por debajo del cuerpo desplazable. */
+.kimos-anfitrion-aiep .ai-ft {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: .5em 1.3em;
+  padding: calc(var(--pad) * .45) var(--pad);
+  background: var(--ai-navy);
+  border-top: 1px solid var(--ai-linea);
+  color: #fff;
+  font-size: var(--f-sm); font-weight: 600; letter-spacing: .01em; text-align: center;
+  z-index: 8;
+}
+.kimos-anfitrion-aiep .ai-ft-c { margin: 0; color: rgb(255 255 255 / .82); }
+.kimos-anfitrion-aiep .ai-ft-sep { width: 1px; height: 1.4em; background: rgb(255 255 255 / .35); }
+.kimos-anfitrion-aiep .ai-ft-k { display: flex; align-items: center; gap: .55em; color: #fff; }
+.kimos-anfitrion-aiep .ai-ft-k-lbl { font-weight: 500; opacity: .9; }
+/* Logo de Kimos: isotipo (icosaedro) + wordmark, en blanco, a escala de pie. */
+.kimos-anfitrion-aiep .ai-ft-k-ico { display: block; height: 1.15em; width: auto; }
+.kimos-anfitrion-aiep .ai-ft-k-logo { display: block; height: .82em; width: auto; }
+/* En vertical el pie se mantiene delgado para no pelear con el widget. */
+.modo-totem.kimos-anfitrion-aiep .ai-ft { gap: .4em 1.1em; padding: 14px var(--pad); font-size: 18px; }
+
+/* ───────────────────────── Resalte del agente ─────────────────────────
+   El agente consultivo de la vitrina responde y, a la vez, trae a la vista la
+   ficha de la que habla. Este anillo dura unos segundos: es un aviso, no un
+   estado, y por eso no cambia el color de fondo ni el texto de la ficha. */
+.kimos-anfitrion-aiep .destacado {
+  outline: 3px solid var(--ai-rojo);
+  outline-offset: 3px;
+  animation: ai-foco 1.4s ease-out 2;
+}
+@keyframes ai-foco {
+  0% { box-shadow: 0 0 0 0 rgb(228 48 60 / .55); }
+  100% { box-shadow: 0 0 0 18px rgb(228 48 60 / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kimos-anfitrion-aiep .destacado { animation: none; }
+}
 
 /* ───────────────────────── Programa ───────────────────────── */
 .kimos-anfitrion-aiep .ai-bloque {

@@ -5,7 +5,7 @@ Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquí
 organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 1.4.2**
+**Versión actual: 1.5.0**
 
 ---
 
@@ -247,6 +247,7 @@ node tools/pack.mjs apps/anfitrion-aiep
 
 | Versión | Cambios |
 |---------|---------|
+| 1.5.0 | **Chrome de vitrina unificado.** La barra de secciones sube y queda **bajo el header**; el pie de la pantalla lo ocupan ahora un **footer con el crédito del organizador y el logotipo de Kimos** (el mismo del resto de los totem del sistema) y una **franja reservada** (`--ai-dock-safe`, 340 px en totem) para que el widget de chat de la vitrina no tape el final del contenido. **Agente consultivo que se ve:** tres acciones nuevas —`MOSTRAR_PERSONA`, `MOSTRAR_BLOQUE`, `MOSTRAR_CONTEXTO`— llevan el totem a la ficha exacta de la que el agente está hablando, la abren y la resaltan unos segundos; `RECOMENDAR` deja la consulta guiada resuelta en pantalla en vez de limitarse a devolver texto. Contenido, paleta, tipografía e imágenes, sin cambios. |
 | 1.4.2 | Los estilos que gobiernan la maqueta de las fichas viajan **dentro del bundle JS** e inyectados al montar. El totem sirvió una vez el JS nuevo con el `.css` viejo en caché —no cambia de nombre entre versiones— y las fichas salieron con la foto cuadrada a tamaño natural y el botón sin fondo. Verificado cargando a propósito el CSS de la 1.1.0 con este bundle: la maqueta sale correcta igual. Avatares a 112 px en totem. |
 | 1.4.1 | Las fichas de expositor apilan el avatar sobre el texto en ambos modos. Con la foto al lado, en una tarjeta de rejilla se llevaba un tercio del ancho y el cargo se partía en dos o cuatro líneas según la resolución; ahora el texto dispone del ancho completo del recuadro en cualquier orientación. Avatares en px en vez de em, para que no se compongan con la escala del modo. |
 | 1.4.0 | Cronograma actualizado a nueve bloques (pausa de 11:30 y presentación de Figit.ai de 12:35). Figit.ai como ficha de empresa con su logotipo oficial. Reseña para las cuatro personas, cada una con su fuente, desplegable con un botón **«Ver reseña»** bajo el horario. Corregidos dos QR que apuntaban a homónimos. |
