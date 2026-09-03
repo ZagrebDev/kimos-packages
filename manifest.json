@@ -979,7 +979,7 @@
       "name": "ANFITRION AIEP",
       "description": "Anfitrión para el totem del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, organizado con los Centros de Negocios SERCOTEC: programa en vivo de nueve bloques, expositores con reseña desplegable y QR a su perfil, contexto, consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
       "icon": "🤖",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

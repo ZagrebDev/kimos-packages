@@ -336,7 +336,7 @@
 /* En el totem se mira de pie y a un par de pasos: la cara tiene que leerse. */
 .modo-totem.kimos-anfitrion-aiep .ai-sp-ini,
 .modo-totem.kimos-anfitrion-aiep .ai-sp-foto,
-.modo-totem.kimos-anfitrion-aiep .ai-sp-logo { width: 128px; height: 128px; }
+
 
 
 .kimos-anfitrion-aiep .ai-sp-ini.rojo { background: var(--ai-rojo); border-color: var(--ai-rojo); }
