@@ -3,37 +3,34 @@
  * «IA y Protección de Datos», Sede AIEP San Joaquín.
  *
  * QUÉ HACE: el asistente llega, marca su RUT en el teclado de la pantalla y
- * queda registrado como que asistió. Si venía del formulario de inscripción,
- * el totem le muestra sus datos para que confirme; si no venía inscrito, se
- * registra en el momento con nombre y empresa. La gestión de esa asistencia
- * (revisar quién llegó, buscar, exportar) vive en la app AIEP GESTIÓN.
+ * queda registrado como que asistió. Nada más.
  *
- * DÓNDE SE GUARDA — y por qué NO con `shell.items`:
- * este totem se monta en la VITRINA pública, y ahí el host (`PublicAppHost`)
- * da un shell EFÍMERO: `saveData` e `items` viven solo en la memoria del
- * navegador del visitante y no llegan a los datos del equipo. Así que la
- * acreditación viaja por el gateway público del creator pack:
+ * SOLO SE ACREDITA QUIEN ESTÁ EN LA LISTA. Si el RUT no viene del formulario
+ * de inscripción, el totem lo dice y ahí termina: no hay registro en el
+ * momento, no hay formulario, no hay excepciones desde la pantalla. Quien no
+ * esté inscrito se resuelve en el mesón, con una persona.
  *
- *     POST {api}/api/public/app/{instanceId}/submit/asistencia
+ * DÓNDE SE GUARDA: en los items de esta instancia, con `shell.items.create()`.
+ * Sin configurar nada y sin emparejar con nada. La app AIEP GESTIÓN los lee
+ * sola declarando `data.read:aiep.inscripcion` en su manifest: encuentra por
+ * su cuenta todos los totem que estén acreditando y suma lo de todos.
  *
- * donde `{instanceId}` es la instancia de AIEP GESTIÓN que hizo opt-in
- * (`definition.public.enabled`) y declaró el canal `asistencia`. Es el camino
- * documentado en APP-SPEC §7.b: no necesita ni un endpoint nuevo en
- * kimos-enterprice ni tocar setup-kimos.
+ * ESO SÍ, ESTO NO CORRE EN LA VITRINA ANÓNIMA. El host público de la vitrina
+ * da un shell efímero —lo que se guarda vive solo en la memoria de ese
+ * navegador— así que el totem de acreditación se instala y se abre como app
+ * en sesión, en el equipo de la puerta. Es equipo del staff, no un kiosco
+ * anónimo, y a cambio no hay nada que configurar.
  *
- * SIN RED NO SE PIERDE NADIE: el recinto puede quedarse sin conexión un rato,
- * y una acreditación perdida es una persona que se queda fuera de la lista.
- * Cada envío que falla se encola en `localStorage` y se reintenta solo; el
- * totem muestra cuántos quedan pendientes.
+ * SIN RED NO SE PIERDE NADIE: si la escritura falla, la acreditación se guarda
+ * en el equipo y se reintenta sola. El pie muestra cuántas quedan pendientes.
  *
- * EL AGENTE ES CONSULTIVO: puede buscar un RUT en el padrón, explicar el
- * trámite y dejar el RUT escrito en pantalla — pero la acreditación la
- * confirma la persona con su propio toque. Nadie queda registrado por una
- * conversación.
+ * EL AGENTE ES CONSULTIVO: busca en el padrón y explica el trámite, pero la
+ * acreditación la confirma la persona con su propio toque. Nadie queda
+ * registrado por una conversación.
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '2.0.0';
 
 /* ── El seminario (mismos datos que ANFITRIÓN AIEP) ───────────────────── */
 
@@ -57,46 +54,14 @@ const PIE = {
   plataforma: 'Powered by',
 };
 
-/* Canal del gateway público por el que viaja cada acreditación. Debe estar
-   declarado en `definition.public.channels` de la instancia de gestión. */
-const CANAL = 'asistencia';
+/* Marca de los items que escribe el totem. AIEP GESTIÓN filtra por esto. */
+const KIND = 'asistencia';
 
-/* Clave del almacén local: cola de envíos pendientes + acreditados de esta
-   jornada (para el contador y para no registrar dos veces al mismo RUT). */
-const LS_COLA = 'aiep.inscripcion.cola.v1';
-const LS_HECHOS = 'aiep.inscripcion.hechos.v1';
-const LS_INSTANCIA = 'aiep.inscripcion.instancia.v1';
-
-const REINTENTO_MS = 20000;
-const VOLVER_MS = 14000;
-
-/* Topes del gateway público (backend/appPublicAPI.py), que mandan sobre cómo
-   se envía esto:
-   - 8 envíos por IP+instancia cada 5 minutos. Un totem en la fila de
-     acreditación se come ese tope en un minuto, así que NO se manda una
-     petición por persona: se agrupan en un LOTE por petición.
-   - El saneo del gateway descarta objetos y listas anidados y recorta cada
-     valor a 5.000 caracteres. Por eso el lote viaja como UN campo de texto
-     con JSON dentro, que AIEP GESTIÓN vuelve a abrir al leerlo.
-   - Con 12 personas por lote, 8 peticiones cubren ~96 acreditaciones cada
-     5 minutos: de sobra para el ritmo de una acreditación presencial. */
-const LOTE_MAX_PERSONAS = 12;
-const LOTE_MAX_CARACTERES = 4500;
-const ESPERA_429_MS = 70000;
-/* Espaciado mínimo entre peticiones, y UNA petición por vaciado. Agrupar no
-   sirve de nada si se dispara una petición por persona —la fila se comería el
-   tope igual—, ni si un vaciado manda de golpe todos sus lotes. El presupuesto
-   real es 8 peticiones cada 300 s: con 40 s entre envíos salen 7 u 8 por
-   ventana, cada una con hasta 12 personas, o sea ~90 acreditaciones por cada
-   5 minutos. Muy por encima del ritmo de una fila de acreditación.
-
-   Quien se acredita no espera nada por esto: su comprobante sale al instante
-   desde el propio totem, y el pie muestra cuántos quedan por subir. */
-const ENVIO_MIN_MS = 40000;
-/* Códigos en los que el envío ES el problema y reintentarlo no arregla nada.
-   Todo lo demás —403 incluido— se reintenta: ver el comentario en vaciarCola. */
-const RECHAZOS_DEFINITIVOS = new Set([400, 413, 422]);
-const AVISO_MIN_MS = 60000;
+/* Reintento local, por si la escritura falla: una acreditación perdida es una
+   persona que se queda fuera de la lista. */
+const LS_PEND = 'aiep.inscripcion.pendientes.v2';
+const REINTENTO_MS = 8000;
+const VOLVER_MS = 12000;
 
 /* ── RUT ──────────────────────────────────────────────────────────────── */
 
@@ -119,28 +84,23 @@ function digitoVerificador(cuerpo) {
   return String(resto);
 }
 
-function rutValido(bruto) {
-  const r = normalizarRut(bruto);
-  if (!/^\d{7,8}[0-9K]$/.test(r)) return false;
-  return digitoVerificador(r.slice(0, -1)) === r.slice(-1);
-}
+const rutValido = (b) => {
+  const r = normalizarRut(b);
+  return /^\d{7,8}[0-9K]$/.test(r) && digitoVerificador(r.slice(0, -1)) === r.slice(-1);
+};
 
 /** 172716067 → 17.271.606-7. Con puntos: en papel el RUT se lee así. */
 function formatearRut(bruto) {
   const r = normalizarRut(bruto);
   if (!r) return '';
   if (r.length === 1) return r;
-  const cuerpo = r.slice(0, -1);
-  const dv = r.slice(-1);
-  return cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + dv;
+  return r.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + r.slice(-1);
 }
 
 /* ── Utilidades ───────────────────────────────────────────────────────── */
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const horaDe = (ts) => { const d = new Date(ts); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
-
-/** Sin tildes y en minúsculas, para buscar por nombre sin pelear con el teclado. */
 const plano = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 function leerLS(clave, porDefecto) {
@@ -158,11 +118,8 @@ function escribirLS(clave, valor) {
   } catch (e) { /* modo privado o cuota llena: la jornada sigue igual */ }
 }
 
-/* ── Teclados en pantalla ─────────────────────────────────────────────── */
-
+/* Teclado numérico en pantalla: el totem no tiene teclado físico. */
 const TECLAS_NUM = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'K', '0'];
-const TECLAS_ABC = ('A B C D E F G H I J K L M N Ñ O P Q R S T U V W X Y Z '
-  + '@ . - 0 1 2 3 4 5 6 7 8 9').split(' ');
 
 /* ── Logo de la sede anfitriona, extraído del .docx del programa ─────── */
 const LOGO_AIEP = 'data:image/png;base64,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';
@@ -315,78 +272,41 @@ const PADRON = [
 ];
 
 /* ── Configuración ─────────────────────────────────────────────────────── */
+/* Solo lo que cambia el aspecto. No hay nada que emparejar ni que activar. */
 
 const DEFAULT_CONFIG = {
   modo: 'auto',
   segundosInactividad: 60,
-  instanciaGestion: '',
-  nombreTotem: 'Totem acreditación',
 };
-
-/* ── Gateway público (creator pack, APP-SPEC §7.b) ────────────────────── */
-
-/**
- * Base del backend, deducida del propio shell: `assetUrl` devuelve
- * `{api}/api/apps/{appId}/asset/…`, así que el prefijo hasta `/api/` es la
- * base que necesita el gateway. Se deduce en vez de cablearse porque el totem
- * de la vitrina y el shell de sesión no siempre viven en el mismo origen.
- */
-function baseApi(shell) {
-  try {
-    const u = shell.assetUrl('x');
-    const i = u.indexOf('/api/apps/');
-    if (i > 0) return u.slice(0, i);
-    if (i === 0) return '';
-  } catch (e) { /* host sin assetUrl: mismo origen */ }
-  return '';
-}
-
-/** Instancia de AIEP GESTIÓN a la que van las acreditaciones. */
-function resolverInstancia(config) {
-  const deConfig = String((config && config.instanciaGestion) || '').trim();
-  if (deConfig) return deConfig;
-  try {
-    const q = new URLSearchParams(globalThis.location ? globalThis.location.search : '');
-    const deUrl = String(q.get('aiep') || '').trim();
-    if (deUrl) { escribirLS(LS_INSTANCIA, deUrl); return deUrl; }
-  } catch (e) { /* sin location */ }
-  return String(leerLS(LS_INSTANCIA, '') || '').trim();
-}
 
 /* ── mount ────────────────────────────────────────────────────────────── */
 
 export default function mount(shell) {
-  // El React es SIEMPRE el del host: dos copias rompen los hooks. Se toma
-  // aquí y no a nivel de módulo porque el shell lo expone al montar.
+  // El React es SIEMPRE el del host: dos copias rompen los hooks.
   const React = globalThis.React;
   const h = React.createElement;
 
   let config = Object.assign({}, DEFAULT_CONFIG);
   let vista = {
-    paso: 'inicio',        // inicio · rut · confirmar · nuevo · listo · operador
+    paso: 'inicio',        // inicio · rut · confirmar · fuera · listo
     rut: '',
     error: '',
-    ficha: null,           // persona del padrón (o el walk-in en curso)
-    nuevo: { nombre: '', empresa: '', correo: '' },
-    campo: 'nombre',       // qué campo edita el teclado en el paso `nuevo`
+    ficha: null,
     comprobante: null,
-    destacado: null,
   };
-  let hechos = leerLS(LS_HECHOS, {});          // rut → { ts, nombre, enviado }
-  let cola = leerLS(LS_COLA, []);              // envíos que aún no salieron
+  // rut → { ts, nombre } de esta jornada, para avisar de una segunda pasada.
+  let hechos = {};
+  let pendientes = leerLS(LS_PEND, []);
   const listeners = new Set();
-  const emitir = () => listeners.forEach((l) => l({ vista, config, hechos, cola }));
+  const emitir = () => listeners.forEach((l) => l({ vista, config, hechos, pendientes }));
   const setVista = (parcial) => { vista = Object.assign({}, vista, parcial); emitir(); };
 
   let inactividadT = null;
   let volverT = null;
+  let reintentoT = null;
 
   const volverAlInicio = () => {
-    vista = Object.assign({}, vista, {
-      paso: 'inicio', rut: '', error: '', ficha: null,
-      nuevo: { nombre: '', empresa: '', correo: '' }, campo: 'nombre',
-      comprobante: null, destacado: null,
-    });
+    vista = Object.assign({}, vista, { paso: 'inicio', rut: '', error: '', ficha: null, comprobante: null });
     emitir();
   };
 
@@ -397,181 +317,67 @@ export default function mount(shell) {
     inactividadT = setTimeout(() => { if (vista.paso !== 'inicio') volverAlInicio(); }, espera * 1000);
   };
 
-  /* ── Envío al gateway, con cola ────────────────────────────────────── */
+  /* ── Escritura ─────────────────────────────────────────────────────── */
 
-  let vaciandoT = null;
-  let ultimoEnvioTs = 0;
-  let ultimoAvisoTs = 0;
-
-  /** Avisa del problema de emparejamiento, sin repetirlo en cada reintento. */
-  function avisarEmparejamiento(status, cuantos) {
-    const ahora = Date.now();
-    if (ahora - ultimoAvisoTs < AVISO_MIN_MS) return;
-    ultimoAvisoTs = ahora;
-    shell.notify && shell.notify({
-      level: 'warn',
-      text: status === 403
-        ? 'AIEP GESTIÓN todavía no acepta acreditaciones (403). Enciende la recepción en su '
-          + 'sección Publicación: los ' + cuantos + ' registro(s) están guardados y suben solos.'
-        : 'No existe la instancia de gestión configurada (404). Revisa el identificador en el '
-          + 'totem: los ' + cuantos + ' registro(s) están guardados y suben solos.',
-    });
-  }
-  // Un solo vaciado a la vez. Sin este cerrojo, dos disparos concurrentes
-  // (acreditar + la config que llega por promesa) recorren la MISMA cola y
-  // registran a la persona dos veces.
-  let vaciando = false;
-  let pedirOtroVaciado = false;
-  let esperaExtraMs = 0;
-
-  /** Parte la cola en lotes que quepan en un campo del gateway. */
-  function armarLotes(pendientes) {
-    const lotes = [];
-    let actual = [];
-    let largo = 2;
-    for (const envio of pendientes) {
-      const trozo = JSON.stringify(envio.data).length + 1;
-      if (actual.length && (actual.length >= LOTE_MAX_PERSONAS || largo + trozo > LOTE_MAX_CARACTERES)) {
-        lotes.push(actual); actual = []; largo = 2;
-      }
-      actual.push(envio); largo += trozo;
-    }
-    if (actual.length) lotes.push(actual);
-    return lotes;
-  }
-
-  /** Un intento por lote encolado. Lo que no sale, se queda para el siguiente. */
-  async function vaciarCola() {
-    if (vaciando) { pedirOtroVaciado = true; return; }
-    clearTimeout(vaciandoT);
-    const instancia = resolverInstancia(config);
-    if (!instancia || !cola.length) { programarVaciado(); return; }
-    vaciando = true;
-    ultimoEnvioTs = Date.now();
-    const base = baseApi(shell);
-    const url = base + '/api/public/app/' + encodeURIComponent(instancia) + '/submit/' + CANAL;
-    // Se trabaja sobre una foto de la cola: lo que se acredite MIENTRAS este
-    // vaciado corre no puede quedar fuera al reescribirla al final.
-    const lote0 = cola.slice();
-    const enviados = new Set();
-    let frenado = false;
-    try {
-      // UNA petición por vaciado: lo que no quepa en este lote sale en el
-      // siguiente, 40 s después. Mandar todos los lotes de golpe agotaría el
-      // presupuesto de la ventana y empezaría a chocar contra el 429.
-      for (const lote of armarLotes(lote0).slice(0, 1)) {
-        if (frenado) break;
-        let salio = false;
-        try {
-          const r = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              lote: JSON.stringify(lote.map((e) => e.data)),
-              personas: String(lote.length),
-              totem: String(config.nombreTotem || ''),
-              evento: EVENTO.titulo,
-              appVersion: APP_VERSION,
-            }),
-          });
-          if (r.ok) { salio = true; esperaExtraMs = 0; }
-          else if (r.status === 429) {
-            // Tope de la plataforma, no un fallo nuestro: se espera a que se
-            // abra la ventana en vez de gastar reintentos contra la pared.
-            frenado = true;
-            esperaExtraMs = ESPERA_429_MS;
-          } else if (RECHAZOS_DEFINITIVOS.has(r.status)) {
-            // El envío en sí está mal formado (400), es demasiado grande (413)
-            // o va vacío (422). Reintentarlo lo repetiría igual de mal para
-            // siempre: se descarta y se avisa al operador.
-            salio = true;
-            shell.notify && shell.notify({
-              level: 'error',
-              text: 'La plataforma rechazó ' + lote.length + ' registro(s) (HTTP ' + r.status
-                + '). Ese envío no se puede reintentar.',
-            });
-          } else {
-            // TODO LO DEMÁS SE REINTENTA, y muy en particular el 403.
-            //
-            // Un 403 aquí NO significa "este registro está mal": significa que
-            // la instancia de gestión todavía no encendió la recepción, o que
-            // el identificador pegado en el totem no es el correcto. Es un
-            // estado del operador, y es el fallo MÁS probable en un evento de
-            // verdad —alguien no dio al interruptor—. Descartar por 403 sería
-            // tirar a la basura a cada persona que se acredite hasta que
-            // alguien se dé cuenta. Se guardan y se suben en cuanto se
-            // arregle; el operador lo ve avisado y en el contador del pie.
-            frenado = true;
-            if (r.status === 403 || r.status === 404) {
-              avisarEmparejamiento(r.status, lote.length);
-            }
-          }
-        } catch (e) { frenado = true; /* sin red */ }
-        if (salio) {
-          lote.forEach((e) => {
-            enviados.add(e.id);
-            if (hechos[e.data.rut]) { hechos[e.data.rut].enviado = true; }
-          });
-          escribirLS(LS_HECHOS, hechos);
-        }
-      }
-      cola = cola.filter((e) => !enviados.has(e.id));
-      escribirLS(LS_COLA, cola);
-      emitir();
-    } finally {
-      vaciando = false;
-    }
-    pedirOtroVaciado = false;
-    programarVaciado();
-  }
-
-  /** Próximo vaciado, respetando el espaciado mínimo entre peticiones. */
-  const programarVaciado = () => {
-    clearTimeout(vaciandoT);
-    if (!cola.length) return;
-    const desdeElUltimo = Date.now() - ultimoEnvioTs;
-    const espera = Math.max(
-      esperaExtraMs ? REINTENTO_MS + esperaExtraMs : 0,
-      ENVIO_MIN_MS - desdeElUltimo,
-      0,
-    );
-    vaciandoT = setTimeout(() => { vaciarCola(); }, espera);
-  };
+  let escribiendo = false;
 
   /**
-   * Deja acreditada a una persona. Devuelve el comprobante.
-   * `origen`: 'padron' si venía inscrita, 'presencial' si se registró aquí.
+   * Vuelca las acreditaciones que no llegaron a guardarse. Un solo pase a la
+   * vez: dos concurrentes recorrerían la misma lista y registrarían dos veces
+   * a la misma persona.
    */
-  function acreditar(datos, origen) {
-    const rut = normalizarRut(datos.rut);
+  async function vaciarPendientes() {
+    if (escribiendo || !pendientes.length) return;
+    if (!shell.items || !shell.items.create) return;
+    escribiendo = true;
+    const lote = pendientes.slice();
+    const guardados = new Set();
+    try {
+      for (const p of lote) {
+        try {
+          await shell.items.create(p.registro);
+          guardados.add(p.id);
+        } catch (e) {
+          break;   // sigue sin poder escribir: se queda para el próximo intento
+        }
+      }
+      pendientes = pendientes.filter((p) => !guardados.has(p.id));
+      escribirLS(LS_PEND, pendientes);
+      emitir();
+    } finally {
+      escribiendo = false;
+    }
+    clearTimeout(reintentoT);
+    if (pendientes.length) reintentoT = setTimeout(vaciarPendientes, REINTENTO_MS);
+  }
+
+  /** Deja acreditada a una persona del padrón. Devuelve el comprobante. */
+  function acreditar(p) {
     const ts = Date.now();
     const registro = {
-      rut,
-      rutFormateado: formatearRut(rut),
-      nombre: String(datos.nombre || '').slice(0, 120),
-      empresa: String(datos.empresa || '').slice(0, 120),
-      correo: String(datos.correo || '').slice(0, 120),
-      cdn: String(datos.cdn || '').slice(0, 60),
-      origen,
+      kind: KIND,
+      rut: p.r,
+      rutFormateado: formatearRut(p.r),
+      nombre: p.n,
+      empresa: p.e || '',
+      correo: p.m || '',
+      cdn: p.c || '',
       evento: EVENTO.titulo,
       acreditadoEn: new Date(ts).toISOString(),
-      totem: String(config.nombreTotem || '').slice(0, 60),
       appVersion: APP_VERSION,
     };
-    hechos[rut] = { ts, nombre: registro.nombre, enviado: false };
-    escribirLS(LS_HECHOS, hechos);
-    cola = cola.concat([{ id: 'e' + ts.toString(36), data: registro }]);
-    escribirLS(LS_COLA, cola);
+    hechos[p.r] = { ts, nombre: p.n };
+    pendientes = pendientes.concat([{ id: 'p' + ts.toString(36), registro }]);
+    escribirLS(LS_PEND, pendientes);
     emitir();
-    programarVaciado();
+    vaciarPendientes();
     return { registro, ts };
   }
 
-  /* ── Pasos del flujo ───────────────────────────────────────────────── */
+  /* ── Pasos ─────────────────────────────────────────────────────────── */
 
   const irAPaso = (paso) => {
-    const validos = ['inicio', 'rut', 'confirmar', 'nuevo', 'listo'];
-    if (!validos.includes(paso)) return false;
+    if (!['inicio', 'rut', 'confirmar', 'fuera', 'listo'].includes(paso)) return false;
     setVista({ paso, error: '' });
     marcarActividad();
     return true;
@@ -587,8 +393,8 @@ export default function mount(shell) {
   };
 
   /**
-   * Busca el RUT en el padrón y decide la siguiente pantalla. No acredita:
-   * eso lo hace la persona confirmando.
+   * Busca el RUT en el padrón. No acredita: eso lo hace la persona
+   * confirmando. Si no está en la lista, lo dice y no ofrece salidas.
    */
   function consultarRut(bruto) {
     const rut = normalizarRut(bruto);
@@ -600,72 +406,31 @@ export default function mount(shell) {
       setVista({ error: 'Ese RUT no es válido. Revísalo y vuelve a intentarlo.' });
       return { estado: 'invalido' };
     }
-    const ya = hechos[rut];
     const persona = PADRON.find((p) => p.r === rut) || null;
-    if (persona) {
-      setVista({ paso: 'confirmar', rut, ficha: persona, error: '' });
+    if (!persona) {
+      setVista({ paso: 'fuera', rut, ficha: null, error: '' });
       marcarActividad();
-      return { estado: ya ? 'ya-acreditado' : 'en-padron', persona, ya: ya || null };
+      return { estado: 'no-inscrito' };
     }
-    setVista({
-      paso: 'nuevo', rut, ficha: null, campo: 'nombre',
-      nuevo: { nombre: '', empresa: '', correo: '' }, error: '',
-    });
+    const ya = hechos[rut] || null;
+    setVista({ paso: 'confirmar', rut, ficha: persona, error: '' });
     marcarActividad();
-    return { estado: ya ? 'ya-acreditado' : 'sin-inscripcion', persona: null, ya: ya || null };
+    return { estado: ya ? 'ya-acreditado' : 'en-padron', persona, ya };
   }
 
-  /** Confirma la acreditación de alguien que sí estaba en el padrón. */
-  function confirmarPadron() {
+  function confirmar() {
     const p = vista.ficha;
     if (!p) return null;
-    const { registro, ts } = acreditar({
-      rut: p.r, nombre: p.n, empresa: p.e, correo: p.m, cdn: p.c,
-    }, 'padron');
+    const { registro, ts } = acreditar(p);
     setVista({ paso: 'listo', comprobante: { registro, ts } });
-    programarVuelta();
-    return registro;
-  }
-
-  /** Registra a alguien que llegó sin inscripción previa. */
-  function confirmarNuevo() {
-    const n = vista.nuevo;
-    if (!String(n.nombre || '').trim()) {
-      setVista({ error: 'Escribe tu nombre para poder registrarte.' });
-      return null;
-    }
-    const { registro, ts } = acreditar({
-      rut: vista.rut, nombre: n.nombre.trim(), empresa: String(n.empresa || '').trim(),
-      correo: String(n.correo || '').trim(), cdn: '',
-    }, 'presencial');
-    setVista({ paso: 'listo', comprobante: { registro, ts }, error: '' });
-    programarVuelta();
-    return registro;
-  }
-
-  const programarVuelta = () => {
     clearTimeout(volverT);
     volverT = setTimeout(volverAlInicio, VOLVER_MS);
-  };
+    return registro;
+  }
 
-  const escribirCampo = (tecla) => {
-    const campo = vista.campo;
-    const nuevo = Object.assign({}, vista.nuevo);
-    let v = String(nuevo[campo] || '');
-    if (tecla === 'BORRAR') v = v.slice(0, -1);
-    else if (tecla === 'LIMPIAR') v = '';
-    else if (v.length < 90) v = v + tecla;
-    nuevo[campo] = v;
-    setVista({ nuevo, error: '' });
-    marcarActividad();
-  };
+  /* ── Arranque ──────────────────────────────────────────────────────── */
 
-  /* ── Config, arranque y cierre ─────────────────────────────────────── */
-
-  const aplicarConfig = (v) => {
-    config = Object.assign({}, DEFAULT_CONFIG, v || {});
-    emitir(); marcarActividad(); vaciarCola();
-  };
+  const aplicarConfig = (v) => { config = Object.assign({}, DEFAULT_CONFIG, v || {}); emitir(); marcarActividad(); };
   let offConfig = null;
   if (shell.config && shell.config.get) {
     Promise.resolve(shell.config.get()).then(aplicarConfig).catch(() => {});
@@ -674,7 +439,7 @@ export default function mount(shell) {
 
   if (shell.window && shell.window.setTitle) shell.window.setTitle('AIEP INSCRIPCIÓN · ' + EVENTO.titulo);
   marcarActividad();
-  vaciarCola();
+  vaciarPendientes();
 
   /* ── Agente IA (consultivo) ────────────────────────────────────────── */
 
@@ -683,14 +448,14 @@ export default function mount(shell) {
     offAgent = shell.agent.register({
       label: 'AIEP INSCRIPCIÓN · Acreditación',
       description: 'Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede '
-        + 'AIEP San Joaquín. Consulta si una persona viene inscrita, explica el trámite y deja '
-        + 'el RUT escrito en pantalla. NO acredita a nadie: la acreditación la confirma la '
-        + 'propia persona tocando el botón.',
+        + 'AIEP San Joaquín. Consulta si una persona viene inscrita y deja su ficha en '
+        + 'pantalla. NO acredita a nadie: la acreditación la confirma la propia persona '
+        + 'tocando el botón. Y solo se acredita quien está en la lista.',
       tools: [
         {
           name: 'CONSULTAR_RUT',
           description: 'Busca un RUT en el padrón y deja el resultado EN PANTALLA: la ficha de '
-            + 'la persona si viene inscrita, o el formulario de registro si no. No acredita.',
+            + 'la persona si viene inscrita, o el aviso de que no está en la lista. No acredita.',
           inputSchema: {
             type: 'object',
             properties: { rut: { type: 'string', description: 'RUT con o sin puntos y guion, p. ej. 17.271.606-7.' } },
@@ -709,18 +474,12 @@ export default function mount(shell) {
         },
         {
           name: 'IR_A_PASO',
-          description: 'Mueve el totem a un paso del flujo: inicio, rut, confirmar, nuevo o listo.',
+          description: 'Mueve el totem a un paso del flujo: inicio, rut, confirmar, fuera o listo.',
           inputSchema: {
             type: 'object',
-            properties: { paso: { type: 'string', enum: ['inicio', 'rut', 'confirmar', 'nuevo', 'listo'] } },
+            properties: { paso: { type: 'string', enum: ['inicio', 'rut', 'confirmar', 'fuera', 'listo'] } },
             required: ['paso'],
           },
-        },
-        {
-          name: 'ESTADO_SALA',
-          description: 'Cuánta gente lleva acreditada este totem y cuántos envíos quedan pendientes '
-            + 'de subir. No modifica nada.',
-          inputSchema: { type: 'object', properties: {} },
         },
         {
           name: 'VOLVER_AL_INICIO',
@@ -744,25 +503,15 @@ export default function mount(shell) {
           fichaVisible: vista.ficha ? { nombre: vista.ficha.n, empresa: vista.ficha.e } : null,
           error: vista.error || null,
         },
-        padron: {
-          inscritos: PADRON.length,
-          porCentroDeNegocios: PADRON.reduce((acc, p) => {
-            const k = p.c || 'Sin centro';
-            acc[k] = (acc[k] || 0) + 1;
-            return acc;
-          }, {}),
-        },
-        acreditadosEnEsteTotem: Object.keys(hechos).length,
-        enviosPendientes: cola.length,
-        instanciaDeGestion: resolverInstancia(config) || null,
+        padron: { inscritos: PADRON.length },
         avisos: [
           'Eres CONSULTIVO: informas y buscas, pero NO acreditas a nadie. La acreditación la '
-            + 'confirma la persona tocando el botón en el totem. Si te piden acreditar a alguien, '
-            + 'usa CONSULTAR_RUT y dile que confirme en pantalla.',
+            + 'confirma la persona tocando el botón en el totem.',
+          'SOLO se acredita quien está en el padrón. Si alguien no está, no hay forma de '
+            + 'registrarlo desde el totem y no debes ofrecer ninguna: dile que se acerque al '
+            + 'mesón de acreditación, que ahí lo ve una persona.',
           'El padrón lleva datos personales: no leas en voz alta RUT completos ni correos. '
             + 'BUSCAR_POR_NOMBRE ya te los devuelve enmascarados; mantenlos así.',
-          'Si el RUT no está en el padrón NO es un error: la persona puede registrarse en el '
-            + 'momento, y el totem ya le muestra el formulario.',
         ],
       }),
       dispatchAction: async (action) => {
@@ -775,25 +524,31 @@ export default function mount(shell) {
             if (r.estado === 'incompleto' || r.estado === 'invalido') {
               return { success: false, error: vista.error };
             }
+            if (r.estado === 'no-inscrito') {
+              return {
+                success: true,
+                message: 'Ese RUT no está en la lista de inscritos. En pantalla ya se lo dice: '
+                  + 'tiene que acercarse al mesón de acreditación.',
+                data: { enPadron: false },
+              };
+            }
             if (r.estado === 'ya-acreditado') {
               return {
                 success: true,
-                message: 'Ese RUT ya quedó acreditado en este totem a las ' + horaDe(r.ya.ts) + '.',
-                data: { yaAcreditado: true, hora: horaDe(r.ya.ts), nombre: r.ya.nombre },
-              };
-            }
-            if (r.persona) {
-              return {
-                success: true,
-                message: 'En pantalla: la ficha de ' + r.persona.n + '. Pídele que confirme para acreditarse.',
-                data: { enPadron: true, nombre: r.persona.n, empresa: r.persona.e || null, centroDeNegocios: r.persona.c || null },
+                message: 'Ese RUT ya se acreditó en este totem a las ' + horaDe(r.ya.ts)
+                  + '. Su ficha está en pantalla igual.',
+                data: { enPadron: true, yaAcreditado: true, hora: horaDe(r.ya.ts), nombre: r.persona.n },
               };
             }
             return {
               success: true,
-              message: 'Ese RUT no viene del formulario de inscripción. El totem ya muestra el '
-                + 'registro en el momento: pídele su nombre y empresa.',
-              data: { enPadron: false },
+              message: 'En pantalla: la ficha de ' + r.persona.n + '. Pídele que confirme para acreditarse.',
+              data: {
+                enPadron: true,
+                nombre: r.persona.n,
+                empresa: r.persona.e || null,
+                centroDeNegocios: r.persona.c || null,
+              },
             };
           }
           if (tipo === 'BUSCAR_POR_NOMBRE') {
@@ -823,18 +578,6 @@ export default function mount(shell) {
             if (!irAPaso(p.paso)) return { success: false, error: 'Paso desconocido: ' + p.paso };
             return { success: true, message: 'Totem en el paso "' + p.paso + '".' };
           }
-          if (tipo === 'ESTADO_SALA') {
-            return {
-              success: true,
-              message: Object.keys(hechos).length + ' acreditados en este totem.',
-              data: {
-                acreditados: Object.keys(hechos).length,
-                inscritosEnElPadron: PADRON.length,
-                enviosPendientes: cola.length,
-                emparejadoConGestion: !!resolverInstancia(config),
-              },
-            };
-          }
           if (tipo === 'VOLVER_AL_INICIO') { volverAlInicio(); marcarActividad(); return { success: true, message: 'Totem en la portada.' }; }
           return { success: false, error: 'Acción desconocida: ' + tipo };
         } catch (e) {
@@ -844,7 +587,7 @@ export default function mount(shell) {
     });
   }
 
-  /* ── Piezas compartidas del chrome ─────────────────────────────────── */
+  /* ── Piezas del chrome ─────────────────────────────────────────────── */
 
   function Rotulo() {
     return h('div', null,
@@ -857,8 +600,8 @@ export default function mount(shell) {
     return h('footer', { className: 'ai-ft' },
       h('p', { className: 'ai-ft-c' }, PIE.copyright),
       props.pendientes
-        ? h('span', { className: 'ac-cola', title: 'Acreditaciones guardadas que aún no suben' },
-          '⟳ ', String(props.pendientes), ' por subir')
+        ? h('span', { className: 'ac-cola', title: 'Acreditaciones que aún no se han guardado' },
+          '⟳ ', String(props.pendientes), ' por guardar')
         : null,
       h('span', { className: 'ai-ft-sep', 'aria-hidden': 'true' }),
       h('div', { className: 'ai-ft-k' },
@@ -870,23 +613,17 @@ export default function mount(shell) {
   }
 
   function Teclado(props) {
-    const teclas = props.abc ? TECLAS_ABC : TECLAS_NUM;
-    return h('div', { className: 'ac-tec ' + (props.abc ? 'abc' : 'num') },
-      teclas.map((t) => h('button', {
-        key: t, type: 'button', className: 'ac-key',
-        onClick: () => props.onTecla(t),
+    return h('div', { className: 'ac-tec num' },
+      TECLAS_NUM.map((t) => h('button', {
+        key: t, type: 'button', className: 'ac-key', onClick: () => props.onTecla(t),
       }, t)),
-      props.abc ? h('button', { type: 'button', className: 'ac-key aux', onClick: () => props.onTecla(' ') }, 'Espacio') : null,
       h('button', { type: 'button', className: 'ac-key aux', onClick: () => props.onTecla('BORRAR') }, '⌫ Borrar'),
-      h('button', {
-        type: 'button', className: 'ac-key aux' + (props.abc ? '' : ' ancha'),
-        onClick: () => props.onTecla('LIMPIAR'),
-      }, 'Limpiar'));
+      h('button', { type: 'button', className: 'ac-key aux ancha', onClick: () => props.onTecla('LIMPIAR') }, 'Limpiar'));
   }
 
   /* ── Pantallas ─────────────────────────────────────────────────────── */
 
-  function Inicio(props) {
+  function Inicio() {
     return h('div', { className: 'ai-wrap ac-centro' },
       h('div', { className: 'ac-portada' },
         h(Rotulo, null),
@@ -896,21 +633,13 @@ export default function mount(shell) {
         h('p', { className: 'ai-p tenue' }, EVENTO.sede, ' · ', EVENTO.direccion)),
       h('button', { type: 'button', className: 'ac-cta', onClick: () => irAPaso('rut') },
         '✋ Acreditarme'),
-      h('p', { className: 'ai-p tenue' }, 'Toca el botón y marca tu RUT. Toma menos de un minuto.'),
-      h('div', { className: 'ac-tot' },
-        h('div', null,
-          h('p', { className: 'ac-tot-n' }, String(props.acreditados)),
-          h('p', { className: 'ac-tot-l' }, 'Acreditados')),
-        h('div', null,
-          h('p', { className: 'ac-tot-n' }, String(PADRON.length)),
-          h('p', { className: 'ac-tot-l' }, 'Inscritos'))));
+      h('p', { className: 'ai-p tenue' }, 'Toca el botón y marca tu RUT. Toma menos de un minuto.'));
   }
 
   function PasoRut(props) {
     const v = props.vista;
     return h('div', { className: 'ai-wrap ac-centro' },
       h('div', null,
-        h('p', { className: 'ai-h3 rojo' }, 'Paso 1 de 2'),
         h('h2', { className: 'ai-h2' }, 'Marca tu RUT'),
         h('p', { className: 'ai-p tenue' }, 'Con dígito verificador, sin puntos ni guion.')),
       h('div', { className: 'ac-campo' + (v.rut ? '' : ' vacio') + (v.error ? ' malo' : '') },
@@ -930,11 +659,9 @@ export default function mount(shell) {
     const v = props.vista;
     const p = v.ficha;
     if (!p) return h('div', { className: 'ai-wrap ac-centro' }, h('p', { className: 'ai-p' }, 'Sin ficha.'));
-    const ya = props.hechos[normalizarRut(p.r)];
+    const ya = props.hechos[p.r];
     return h('div', { className: 'ai-wrap ac-centro' },
-      h('div', null,
-        h('p', { className: 'ai-h3 rojo' }, 'Paso 2 de 2'),
-        h('h2', { className: 'ai-h2' }, '¿Eres tú?')),
+      h('h2', { className: 'ai-h2' }, '¿Eres tú?'),
       h('div', { className: 'ac-ficha' },
         h('p', { className: 'ac-ficha-nom' }, p.n),
         h('p', { className: 'ac-ficha-rut' }, formatearRut(p.r)),
@@ -945,98 +672,46 @@ export default function mount(shell) {
           h('span', { className: 'ac-ficha-k' }, 'Centro de Negocios'),
           h('span', { className: 'ac-ficha-v' }, p.c)) : null),
       ya ? h('p', { className: 'ac-ya' },
-        'Este RUT ya se acreditó a las ' + horaDe(ya.ts) + '. Si vuelves a confirmar, se '
-        + 'registra de nuevo y gestión verá las dos marcas.') : null,
+        'Este RUT ya se acreditó a las ' + horaDe(ya.ts) + '. No hace falta hacerlo de nuevo.') : null,
       h('div', { className: 'ac-acciones' },
         h('button', {
           type: 'button', className: 'ai-btn ghost',
           onClick: () => setVista({ paso: 'rut', ficha: null, error: '' }),
         }, 'No soy yo'),
-        h('button', { type: 'button', className: 'ac-cta', onClick: confirmarPadron },
+        h('button', { type: 'button', className: 'ac-cta', onClick: confirmar },
           '✓ Sí, acredítame')));
   }
 
-  function PasoNuevo(props) {
-    const v = props.vista;
-    const campos = [
-      { id: 'nombre', lbl: 'Nombre y apellido', ph: 'Tu nombre' },
-      { id: 'empresa', lbl: 'Empresa', ph: 'Opcional' },
-      { id: 'correo', lbl: 'Correo', ph: 'Opcional' },
-    ];
+  /* Quien no está en la lista se resuelve en el mesón, con una persona: el
+     totem no ofrece salidas ni las insinúa. */
+  function PasoFuera(props) {
     return h('div', { className: 'ai-wrap ac-centro' },
-      h('div', null,
-        h('p', { className: 'ai-h3 rojo' }, 'Registro en el momento'),
-        h('h2', { className: 'ai-h2' }, 'No encontramos tu RUT en la lista'),
-        h('p', { className: 'ai-p tenue' },
-          'No hay problema: te registramos aquí mismo. Solo el nombre es obligatorio.')),
-      h('div', { className: 'ac-form' },
-        h('p', { className: 'ac-form-lbl' }, 'RUT · ' + formatearRut(v.rut)),
-        h('div', { className: 'ac-campos' }, campos.map((c) => h('button', {
-          key: c.id, type: 'button',
-          className: 'ac-campo-b' + (v.campo === c.id ? ' on' : ''),
-          onClick: () => { setVista({ campo: c.id }); marcarActividad(); },
-        },
-        v.nuevo[c.id]
-          ? v.nuevo[c.id]
-          : h('span', { className: 'ph' }, c.lbl + (c.ph === 'Opcional' ? ' (opcional)' : ''))))),
-        h('p', { className: 'ac-form-lbl' },
-          'Escribiendo: ' + (campos.find((c) => c.id === v.campo) || campos[0]).lbl)),
-      v.error ? h('p', { className: 'ac-error' }, v.error) : null,
-      h(Teclado, { abc: true, onTecla: escribirCampo }),
+      h('div', { className: 'ac-ficha' },
+        h('p', { className: 'ac-ficha-nom' }, 'No estás en la lista'),
+        h('p', { className: 'ac-ficha-rut' }, formatearRut(props.vista.rut)),
+        h('p', { style: { marginTop: '.8em', fontWeight: 600, lineHeight: 1.5 } },
+          'Este RUT no aparece entre las inscripciones del seminario. Acércate al mesón de '
+          + 'acreditación y te ayudamos.')),
       h('div', { className: 'ac-acciones' },
         h('button', {
-          type: 'button', className: 'ai-btn ghost',
-          onClick: () => setVista({ paso: 'rut', error: '' }),
-        }, '‹ Cambiar RUT'),
-        h('button', {
-          type: 'button', className: 'ac-cta',
-          disabled: !String(v.nuevo.nombre || '').trim(),
-          onClick: confirmarNuevo,
-        }, '✓ Registrarme')));
+          type: 'button', className: 'ai-btn',
+          onClick: () => setVista({ paso: 'rut', rut: '', error: '' }),
+        }, 'Probar otro RUT'),
+        h('button', { type: 'button', className: 'ai-btn ghost', onClick: volverAlInicio }, 'Inicio')));
   }
 
   function PasoListo(props) {
     const c = props.vista.comprobante;
     if (!c) return h('div', { className: 'ai-wrap ac-centro' }, h('p', { className: 'ai-p' }, 'Sin comprobante.'));
-    const pendiente = props.cola.some((e) => e.data.rut === c.registro.rut);
     return h('div', { className: 'ai-wrap ac-centro' },
       h('div', { className: 'ac-ok' },
         h('p', { className: 'ac-ok-band' }, '✓ Asistencia registrada'),
         h('div', { className: 'ac-ok-cuerpo' },
           h('p', { className: 'ac-ok-nom' }, c.registro.nombre),
           h('p', { className: 'ac-ok-rut' }, c.registro.rutFormateado),
-          h('p', { className: 'ac-ok-hora' }, 'Acreditado a las ' + horaDe(c.ts)),
-          pendiente
-            ? h('p', { className: 'ac-ok-pend' },
-              'Guardado en este totem. Se sube en cuanto vuelva la conexión.')
-            : null)),
+          h('p', { className: 'ac-ok-hora' }, 'Acreditado a las ' + horaDe(c.ts)))),
       h('p', { className: 'ai-p' }, '¡Bienvenido al seminario! Pasa al salón del primer piso.'),
       h('button', { type: 'button', className: 'ai-btn', onClick: volverAlInicio }, 'Listo'));
-  }
-
-  /** Pantalla de operador: se llega manteniendo pulsado el logo del header. */
-  function Operador(props) {
-    const instancia = resolverInstancia(props.config);
-    return h('div', { className: 'ai-wrap' },
-      h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Operador'),
-        h('h2', { className: 'ai-h2' }, 'Emparejamiento con AIEP GESTIÓN'),
-        h('div', { className: 'ac-cfg' },
-          h('p', { className: 'ai-p' },
-            'Este totem envía cada acreditación a la instancia de AIEP GESTIÓN que aparece abajo. '
-            + 'El identificador sale de la propia app de gestión, en su pestaña «Publicación».'),
-          h('p', { className: 'ai-p' },
-            h('strong', null, 'Instancia: '),
-            instancia ? h('code', null, instancia) : h('span', { className: 'ac-error' }, 'sin emparejar')),
-          h('p', { className: 'ai-p tenue' },
-            'Se puede fijar de tres formas: en ⚙️ Configurar (campo «Instancia de gestión»), '
-            + 'añadiendo ?aiep=ID a la URL de la vitrina, o dejándolo guardado en este equipo.'),
-          h('p', { className: 'ai-p' },
-            h('strong', null, 'Acreditados en este totem: '), String(Object.keys(props.hechos).length),
-            ' · ', h('strong', null, 'Pendientes de subir: '), String(props.cola.length)),
-          h('div', { className: 'ac-acciones', style: { justifyContent: 'flex-start' } },
-            h('button', { type: 'button', className: 'ai-btn', onClick: () => vaciarCola() }, 'Reintentar envíos'),
-            h('button', { type: 'button', className: 'ai-btn ghost', onClick: volverAlInicio }, 'Volver al totem')))));
   }
 
   /* ── Componente raíz ───────────────────────────────────────────────── */
@@ -1047,11 +722,10 @@ export default function mount(shell) {
   ];
 
   function Component() {
-    const [estado, setEstado] = React.useState({ vista, config, hechos, cola });
+    const [estado, setEstado] = React.useState({ vista, config, hechos, pendientes });
     const [ahora, setAhora] = React.useState(() => Date.now());
     const [modo, setModo] = React.useState('escritorio');
     const raizRef = React.useRef(null);
-    const pulsaT = React.useRef(null);
 
     React.useEffect(() => {
       listeners.add(setEstado);
@@ -1087,21 +761,12 @@ export default function mount(shell) {
     const hora = new Date(ahora);
 
     const pantallas = {
-      inicio: () => h(Inicio, { acreditados: Object.keys(estado.hechos).length }),
+      inicio: () => h(Inicio, null),
       rut: () => h(PasoRut, { vista: v }),
       confirmar: () => h(PasoConfirmar, { vista: v, hechos: estado.hechos }),
-      nuevo: () => h(PasoNuevo, { vista: v }),
-      listo: () => h(PasoListo, { vista: v, cola: estado.cola }),
-      operador: () => h(Operador, { config: estado.config, hechos: estado.hechos, cola: estado.cola }),
+      fuera: () => h(PasoFuera, { vista: v }),
+      listo: () => h(PasoListo, { vista: v }),
     };
-
-    // El acceso de operador no puede ser un botón a la vista en un totem
-    // público: se abre manteniendo pulsado el logo tres segundos.
-    const abrirOperador = () => {
-      clearTimeout(pulsaT.current);
-      pulsaT.current = setTimeout(() => setVista({ paso: 'operador' }), 3000);
-    };
-    const soltarLogo = () => clearTimeout(pulsaT.current);
 
     return h('div', {
       ref: raizRef,
@@ -1110,14 +775,9 @@ export default function mount(shell) {
       onKeyDown: marcarActividad,
     },
     h('header', { className: 'ai-hd' },
-      h('div', {
-        className: 'ai-hd-marca',
-        onPointerDown: abrirOperador,
-        onPointerUp: soltarLogo,
-        onPointerLeave: soltarLogo,
-      },
-      h('span', { className: 'ai-chip-logo' }, h('img', { src: LOGO_AIEP, alt: 'AIEP' })),
-      h('p', { className: 'ai-hd-t' }, 'Acreditación · ', EVENTO.titulo)),
+      h('div', { className: 'ai-hd-marca' },
+        h('span', { className: 'ai-chip-logo' }, h('img', { src: LOGO_AIEP, alt: 'AIEP' })),
+        h('p', { className: 'ai-hd-t' }, 'Acreditación · ', EVENTO.titulo)),
       h('div', { className: 'ai-hd-est' },
         h('span', { className: 'ai-pill' }, EVENTO.dia + ' ' + EVENTO.mes),
         h('span', { className: 'ai-reloj' }, pad2(hora.getHours()) + ':' + pad2(hora.getMinutes())),
@@ -1135,7 +795,7 @@ export default function mount(shell) {
 
     h('main', { className: 'ai-body' }, (pantallas[v.paso] || pantallas.inicio)()),
 
-    h(Pie, { pendientes: estado.cola.length }));
+    h(Pie, { pendientes: estado.pendientes.length }));
   }
 
   return {
@@ -1143,7 +803,7 @@ export default function mount(shell) {
     unmount() {
       clearTimeout(inactividadT);
       clearTimeout(volverT);
-      clearTimeout(vaciandoT);
+      clearTimeout(reintentoT);
       listeners.clear();
       if (offAgent) { try { offAgent(); } catch (e) { /* ya desregistrado */ } }
       if (offConfig) { try { offConfig(); } catch (e) { /* ya desuscrito */ } }

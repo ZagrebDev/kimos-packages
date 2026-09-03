@@ -297,11 +297,6 @@
 .kimos-aiep-inscripcion .ac-cta:hover { filter: brightness(1.08); }
 .kimos-aiep-inscripcion .ac-cta:active { transform: translateY(2px); }
 
-/* Contador de acreditados: dato de sala, no de la persona. */
-.kimos-aiep-inscripcion .ac-tot { display: flex; gap: calc(var(--pad) * 1.4); flex-wrap: wrap; justify-content: center; }
-.kimos-aiep-inscripcion .ac-tot-n { font-size: var(--f-num); font-weight: 900; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
-.kimos-aiep-inscripcion .ac-tot-l { font-size: var(--f-sm); font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--ai-tenue); }
-
 /* ── Campo de RUT ───────────────────────────────────────────────────── */
 .kimos-aiep-inscripcion .ac-campo {
   width: 100%; max-width: 640px;
@@ -320,7 +315,6 @@
    numerico va en la propia app, con teclas del tamano de un dedo. */
 .kimos-aiep-inscripcion .ac-tec { display: grid; gap: 10px; width: 100%; max-width: 560px; }
 .kimos-aiep-inscripcion .ac-tec.num { grid-template-columns: repeat(3, 1fr); }
-.kimos-aiep-inscripcion .ac-tec.abc { grid-template-columns: repeat(7, 1fr); max-width: 900px; }
 .kimos-aiep-inscripcion .ac-key {
   min-height: var(--tap); padding: .5em;
   border: 1px solid var(--ai-linea-fuerte); border-radius: var(--ai-radius);
@@ -332,8 +326,6 @@
 .kimos-aiep-inscripcion .ac-key:active { transform: translateY(2px); }
 .kimos-aiep-inscripcion .ac-key.aux { font-size: var(--f-lg); background: rgb(0 20 60 / .5); }
 .kimos-aiep-inscripcion .ac-key.ancha { grid-column: span 3; }
-.kimos-aiep-inscripcion .ac-tec.abc .ac-key { font-size: var(--f-lg); min-height: calc(var(--tap) * .85); }
-.kimos-aiep-inscripcion .ac-tec.abc .ac-key.ancha { grid-column: span 7; }
 
 /* ── Ficha de confirmación ──────────────────────────────────────────── */
 .kimos-aiep-inscripcion .ac-ficha {
@@ -355,20 +347,6 @@
   border-radius: var(--ai-radius); padding: .7em 1.1em; color: #fff; font-weight: 800;
 }
 
-/* ── Formulario de asistente sin inscripción previa ─────────────────── */
-.kimos-aiep-inscripcion .ac-form { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
-.kimos-aiep-inscripcion .ac-form-lbl { font-size: var(--f-sm); font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--ai-tenue); }
-.kimos-aiep-inscripcion .ac-campos { display: flex; gap: 10px; flex-wrap: wrap; }
-.kimos-aiep-inscripcion .ac-campo-b {
-  flex: 1 1 200px; min-height: var(--tap); text-align: left;
-  padding: .5em .8em; border-radius: var(--ai-radius);
-  border: 1px solid var(--ai-linea-fuerte); background: var(--ai-panel);
-  color: #fff; cursor: pointer; font: 700 var(--f-lg)/1.2 inherit;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.kimos-aiep-inscripcion .ac-campo-b.on { border-color: var(--ai-rojo); background: rgb(228 48 60 / .18); }
-.kimos-aiep-inscripcion .ac-campo-b .ph { color: var(--ai-tenue); font-weight: 500; }
-
 /* ── Comprobante ────────────────────────────────────────────────────── */
 .kimos-aiep-inscripcion .ac-ok {
   width: 100%; max-width: 760px;
@@ -386,16 +364,12 @@
 .kimos-aiep-inscripcion .ac-ok-hora { font-size: var(--f-lg); font-weight: 700; color: rgb(0 36 72 / .65); }
 .kimos-aiep-inscripcion .ac-ok-pend { margin-top: .8em; font-size: var(--f-sm); font-weight: 700; color: rgb(0 36 72 / .55); }
 
-/* ── Estado del envío (esquina del pie) ─────────────────────────────── */
-/* El recinto puede quedarse sin red un rato. Nadie deberia perder su
-   acreditacion por eso: se encola y se reintenta, y aqui se ve cuanto falta. */
+/* ── Acreditaciones por guardar (esquina del pie) ───────────────────── */
+/* Si la escritura falla, nadie deberia perder su acreditacion: se guarda en el
+   equipo, se reintenta sola, y aqui se ve cuanto falta. */
 .kimos-aiep-inscripcion .ac-cola {
   display: inline-flex; align-items: center; gap: .5em;
   font-size: var(--f-sm); font-weight: 800; color: #fff;
   background: var(--ai-rojo); border-radius: 999px; padding: .25em .9em;
 }
 
-/* ── Emparejamiento con la app de gestión ───────────────────────────── */
-/* Pantalla de operador: solo se llega manteniendo pulsado el logo. */
-.kimos-aiep-inscripcion .ac-cfg { width: 100%; max-width: 760px; text-align: left; display: flex; flex-direction: column; gap: 12px; }
-.kimos-aiep-inscripcion .ac-cfg code { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }

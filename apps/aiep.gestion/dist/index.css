@@ -342,21 +342,4 @@
 .kimos-aiep-gestion .ge-mini:hover { background: var(--ai-panel-alto); color: #fff; }
 .kimos-aiep-gestion .ge-scroll { overflow: auto; max-height: 100%; }
 
-/* ── Publicación ────────────────────────────────────────────────────── */
-.kimos-aiep-gestion .ge-id {
-  display: block; padding: .6em .9em; margin: .5em 0;
-  background: rgb(0 20 60 / .5); border: 1px solid var(--ai-linea-fuerte);
-  border-radius: var(--ai-radius); color: #fff;
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--f-base);
-  word-break: break-all; user-select: all;
-}
-.kimos-aiep-gestion .ge-estado { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
-.kimos-aiep-gestion .ge-estado.on { color: #7ef0a8; }
-.kimos-aiep-gestion .ge-estado.off { color: #ffb4b9; }
-.kimos-aiep-gestion .ge-paso { display: flex; gap: .8em; padding: .5em 0; border-top: 1px solid var(--ai-linea); }
-.kimos-aiep-gestion .ge-paso-n {
-  flex-shrink: 0; width: 1.9em; height: 1.9em; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--ai-sercotec); color: #fff; font-weight: 900; font-size: var(--f-sm);
-}
 .kimos-aiep-gestion .ge-vacio { padding: calc(var(--pad) * 2); text-align: center; color: var(--ai-tenue); }

@@ -7,25 +7,22 @@
  * o RUT, se filtra por Centro de Negocios, se marca a mano a quien se acreditó
  * sin totem y se exporta la lista.
  *
- * DE DÓNDE SALEN LOS DATOS: de los items de esta instancia. El gateway público
- * de la plataforma (APP-SPEC §7.b) guarda cada envío del totem como un item
- * `kind: "submission"` del canal `asistencia`, y esta app los lee con
- * `shell.items.list()`. Como el gateway sanea los valores a texto plano y
- * descarta lo anidado, el totem manda un LOTE de personas como un campo de
- * texto con JSON dentro; aquí se vuelve a abrir. También se acepta el envío de
- * una sola persona, por si alguien postea a mano contra el endpoint.
+ * NO HAY NADA QUE CONFIGURAR NI QUE ACTIVAR. La app encuentra sola todos los
+ * totem: declara `data.read:aiep.inscripcion` en su manifest y con eso
+ * `shell.data.listInstances('aiep.inscripcion')` le devuelve cada instancia del
+ * totem a la que el usuario ya tiene acceso, y `listItems` sus acreditaciones.
+ * Si hay tres totem en la puerta, los tres se suman sin emparejar nada.
  *
- * LA RECEPCIÓN ES OPT-IN: mientras no se active en la pestaña «Publicación»,
- * el gateway responde 403 y no entra nada. Activarla escribe el bloque
- * `public` en el item `definition`, que es lo que la plataforma mira.
+ * El techo lo pone el RBAC del usuario, no esta app: solo se ven los totem de
+ * equipos a los que la persona ya pertenece, y solo de lectura.
  *
  * EL AGENTE ES CONSULTIVO: cuenta, busca y filtra, y deja el resultado en
- * pantalla. Puede marcar asistencia manual, que es una acción reversible y
- * auditada, pero no borra ni edita registros de nadie.
+ * pantalla. Puede marcar asistencia manual, que es reversible y queda con nota,
+ * pero no borra ni edita lo que registró el totem.
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '2.0.0';
 
 const EVENTO = {
   titulo: 'IA y Protección de Datos',
@@ -43,13 +40,14 @@ const PIE = {
   plataforma: 'Powered by',
 };
 
-const CANAL = 'asistencia';
+/* La app del totem y la marca de sus items. */
+const APP_TOTEM = 'aiep.inscripcion';
+const KIND = 'asistencia';
 const REFRESCO_MS = 15000;
 
 const SECCIONES = [
   { id: 'asistencia', ico: '✅', label: 'Asistencia' },
   { id: 'centros', ico: '📍', label: 'Por centro' },
-  { id: 'publicacion', ico: '📡', label: 'Publicación' },
 ];
 const IDS_SECCION = SECCIONES.map((s) => s.id);
 
@@ -247,41 +245,19 @@ const PADRON = [
   {"n": "Álvaro Olivares", "r": "204326983", "e": "OLEN SpA", "m": "alvarodomingo@olen.cl", "c": "San Pablo"},
 ];
 
-/* ── Lectura de los envíos del totem ──────────────────────────────────── */
+/* ── Lectura de lo que registran los totem ────────────────────────────── */
 
-/**
- * Saca las personas de un item del gateway. El totem manda un LOTE (un campo
- * de texto con JSON dentro, porque el saneo del gateway descarta lo anidado),
- * pero también se acepta un envío de una sola persona: alguien puede postear a
- * mano contra el endpoint, y ese registro no debe caerse en silencio.
- */
-function personasDeItem(item) {
-  const d = (item && item.data) || {};
-  const salida = [];
-  if (typeof d.lote === 'string' && d.lote.trim()) {
-    try {
-      const arr = JSON.parse(d.lote);
-      if (Array.isArray(arr)) arr.forEach((r) => { if (r && typeof r === 'object') salida.push(r); });
-    } catch (e) {
-      // Lote ilegible: no se descarta el item entero, se deja constancia para
-      // que el operador sepa que ese envío existe y hay que mirarlo.
-      salida.push({ rut: '', nombre: '(lote ilegible)', _roto: true });
-    }
-  } else if (d.rut || d.nombre) {
-    salida.push(d);
-  }
-  return salida.map((r) => ({
-    rut: normalizarRut(r.rut),
-    nombre: String(r.nombre || '').trim(),
-    empresa: String(r.empresa || '').trim(),
-    correo: String(r.correo || '').trim(),
-    cdn: String(r.cdn || '').trim(),
-    origen: String(r.origen || '') || 'desconocido',
-    acreditadoEn: String(r.acreditadoEn || item.createdAt || ''),
-    totem: String(r.totem || d.totem || '').trim(),
-    itemId: item.id,
-    roto: !!r._roto,
-  }));
+/** Normaliza un item de acreditación venga del totem que venga. */
+function personaDeItem(item, totem) {
+  return {
+    rut: normalizarRut(item.rut),
+    nombre: String(item.nombre || '').trim(),
+    empresa: String(item.empresa || '').trim(),
+    correo: String(item.correo || '').trim(),
+    cdn: String(item.cdn || '').trim(),
+    acreditadoEn: String(item.acreditadoEn || item.createdAt || ''),
+    totem: totem || '',
+  };
 }
 
 /**
@@ -291,17 +267,15 @@ function personasDeItem(item) {
  */
 function cruzar(padron, llegadas) {
   const porRut = new Map();
-  const repetidas = [];
+  let repetidas = 0;
   llegadas.forEach((l) => {
-    if (!l.rut) { repetidas.push(l); return; }
+    if (!l.rut) return;
     const previo = porRut.get(l.rut);
     if (!previo) { porRut.set(l.rut, l); return; }
-    // La primera marca manda; la otra queda contada como repetición.
+    repetidas += 1;
+    // La primera marca manda; la otra solo se cuenta.
     if (l.acreditadoEn && previo.acreditadoEn && l.acreditadoEn < previo.acreditadoEn) {
       porRut.set(l.rut, l);
-      repetidas.push(previo);
-    } else {
-      repetidas.push(l);
     }
   });
   const filas = padron.map((p) => {
@@ -312,30 +286,10 @@ function cruzar(padron, llegadas) {
       empresa: p.e,
       correo: p.m,
       centro: centroDe(p),
-      inscrito: true,
       llego: !!l,
       hora: l ? l.acreditadoEn : '',
       totem: l ? l.totem : '',
-      origen: l ? l.origen : '',
     };
-  });
-  // Quien llegó sin estar en el padrón: se muestra igual, marcado aparte. No
-  // se esconde a nadie que asistió por no venir en la planilla.
-  const enPadron = new Set(padron.map((p) => p.r));
-  porRut.forEach((l, rut) => {
-    if (enPadron.has(rut)) return;
-    filas.push({
-      rut,
-      nombre: l.nombre || '(sin nombre)',
-      empresa: l.empresa,
-      correo: l.correo,
-      centro: l.cdn || SIN_CENTRO,
-      inscrito: false,
-      llego: true,
-      hora: l.acreditadoEn,
-      totem: l.totem,
-      origen: l.origen,
-    });
   });
   return { filas, repetidas };
 }
@@ -347,8 +301,9 @@ export default function mount(shell) {
   const React = globalThis.React;
   const h = React.createElement;
 
-  let doc = { manuales: {}, publicado: false };   // lo que persiste esta app
-  let items = [];                                  // envíos del gateway
+  let doc = { manuales: {} };      // lo único que persiste esta app
+  let llegadas = [];               // acreditaciones leídas de los totem
+  let totems = [];                 // instancias del totem que se encontraron
   let vista = {
     seccion: 'asistencia',
     busqueda: '',
@@ -360,7 +315,7 @@ export default function mount(shell) {
     destacado: null,
   };
   const listeners = new Set();
-  const emitir = () => listeners.forEach((l) => l({ doc, items, vista }));
+  const emitir = () => listeners.forEach((l) => l({ doc, llegadas, totems, vista }));
   const setVista = (parcial) => { vista = Object.assign({}, vista, parcial); emitir(); };
 
   let guardarT = null;
@@ -382,7 +337,7 @@ export default function mount(shell) {
         nota: String(m.nota || '').slice(0, 200),
       };
     });
-    return { manuales, publicado: d.publicado === true };
+    return { manuales };
   }
 
   const commitDoc = (parcial) => {
@@ -391,21 +346,56 @@ export default function mount(shell) {
     programarGuardado();
   };
 
-  /* ── Datos en vivo ─────────────────────────────────────────────────── */
+  /* ── Datos en vivo: los totem se encuentran solos ──────────────────── */
 
   let refrescoT = null;
 
+  /**
+   * Busca cada instancia de la app del totem visible para el usuario y suma
+   * sus acreditaciones. Sin emparejar, sin activar y sin identificadores que
+   * pegar en ningún sitio: basta con el permiso `data.read:aiep.inscripcion`
+   * del manifest, que el superadmin aprobó al instalar.
+   */
   async function cargar() {
-    if (!shell.items || !shell.items.list) {
-      setVista({ cargando: false, error: 'Este host no expone shell.items: abre la app como documento.' });
+    if (!shell.data || !shell.data.listInstances) {
+      setVista({
+        cargando: false,
+        error: 'Este host no expone shell.data, así que no se pueden leer los totem. '
+          + 'Hace falta una versión del shell con el contrato AppShell v2.',
+      });
       return;
     }
     try {
-      const brutos = await shell.items.list();
-      items = (brutos || []).filter((it) => it && it.id !== 'definition');
+      const instancias = await shell.data.listInstances(APP_TOTEM);
+      const encontrados = [];
+      let todas = [];
+      for (const inst of instancias || []) {
+        const nombre = String(inst.name || inst.id || '').trim();
+        let items = [];
+        try {
+          items = await shell.data.listItems(inst.id);
+        } catch (e) {
+          encontrados.push({ id: inst.id, nombre, acreditados: 0, error: true });
+          continue;
+        }
+        const suyas = (items || [])
+          .filter((it) => it && it.kind === KIND && it.rut)
+          .map((it) => personaDeItem(it, nombre));
+        encontrados.push({ id: inst.id, nombre, acreditados: suyas.length, error: false });
+        todas = todas.concat(suyas);
+      }
+      llegadas = todas;
+      totems = encontrados;
       setVista({ cargando: false, error: '' });
     } catch (e) {
-      setVista({ cargando: false, error: 'No se pudieron leer los envíos: ' + (e && e.message ? e.message : String(e)) });
+      const msg = String((e && e.message) || e);
+      setVista({
+        cargando: false,
+        error: /data\.read|403/.test(msg)
+          ? 'La plataforma no autoriza leer los totem. Reinstala esta app para que se apruebe '
+            + 'su permiso `data.read:aiep.inscripcion`.'
+          : 'No se pudieron leer los totem: ' + msg,
+      });
     }
   }
 
@@ -416,24 +406,17 @@ export default function mount(shell) {
 
   /** El estado completo, ya cruzado. Se recalcula al pintar: son ~120 filas. */
   function estado() {
-    const llegadas = items
-      .filter((it) => (it.kind || 'submission') === 'submission')
-      .filter((it) => !it.channel || it.channel === CANAL)
-      .reduce((acc, it) => acc.concat(personasDeItem(it)), []);
     const { filas, repetidas } = cruzar(PADRON, llegadas);
     // La marca manual cuenta como asistencia, y se distingue de la del totem.
     const conManual = filas.map((f) => {
       const m = doc.manuales[f.rut];
       if (!m || f.llego) return f;
       return Object.assign({}, f, {
-        llego: true,
-        manual: true,
+        llego: true, manual: true,
         hora: new Date(m.ts).toISOString(),
-        origen: 'manual',
         nota: m.nota,
       });
     });
-    const llegaron = conManual.filter((f) => f.llego);
     const centros = {};
     conManual.forEach((f) => {
       const c = f.centro;
@@ -443,12 +426,11 @@ export default function mount(shell) {
     });
     return {
       filas: conManual,
-      llegaron: llegaron.length,
+      llegaron: conManual.filter((f) => f.llego).length,
       inscritos: PADRON.length,
-      sinInscripcion: conManual.filter((f) => !f.inscrito && f.llego).length,
-      repeticiones: repetidas.length,
+      repeticiones: repetidas,
       centros,
-      envios: items.length,
+      totems,
     };
   }
 
@@ -475,55 +457,14 @@ export default function mount(shell) {
     return { ok: true, marcado: true, rut };
   }
 
-  /**
-   * Enciende o apaga la recepción del gateway. Escribe el bloque `public` del
-   * item `definition`, que es lo que la plataforma mira: sin `enabled: true`
-   * responde 403 y no entra nada. Es opt-in a propósito.
-   */
-  async function publicar(encender) {
-    if (!shell.items) return { ok: false, error: 'Sin shell.items.' };
-    const definicion = {
-      kind: 'definition',
-      public: {
-        enabled: !!encender,
-        channels: [CANAL],
-        // Lo único que se expone en /definition: nada de datos personales.
-        data: {
-          evento: EVENTO.titulo,
-          fecha: EVENTO.diaSemana + ' ' + EVENTO.dia + ' de ' + EVENTO.mes.toLowerCase() + ' de ' + EVENTO.anio,
-          sede: EVENTO.sede,
-          canal: CANAL,
-          inscritos: PADRON.length,
-        },
-      },
-    };
-    try {
-      const existentes = await shell.items.list();
-      const previo = (existentes || []).find((it) => it.id === 'definition');
-      if (previo) await shell.items.update('definition', definicion);
-      else await shell.items.create(Object.assign({ id: 'definition' }, definicion));
-      commitDoc({ publicado: !!encender });
-      await cargar();
-      shell.notify && shell.notify({
-        level: encender ? 'success' : 'info',
-        text: encender ? 'Recepción de acreditaciones activada.' : 'Recepción desactivada.',
-      });
-      return { ok: true, publicado: !!encender };
-    } catch (e) {
-      const msg = 'No se pudo cambiar la publicación: ' + (e && e.message ? e.message : String(e));
-      shell.notify && shell.notify({ level: 'error', text: msg });
-      return { ok: false, error: msg };
-    }
-  }
-
   /** CSV con lo que hay en pantalla, para pasarlo a quien lo pida. */
   function csv(filas) {
     const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const cab = ['RUT', 'Nombre', 'Empresa', 'Correo', 'Centro de Negocios', 'Inscrito', 'Asistió', 'Hora', 'Origen', 'Totem'];
+    const cab = ['RUT', 'Nombre', 'Empresa', 'Correo', 'Centro de Negocios', 'Asistió', 'Hora', 'Registrado por'];
     const cuerpo = filas.map((f) => [
       formatearRut(f.rut), f.nombre, f.empresa, f.correo, f.centro,
-      f.inscrito ? 'Sí' : 'No', f.llego ? 'Sí' : 'No',
-      f.llego ? horaDe(f.hora) : '', f.origen || '', f.totem || '',
+      f.llego ? 'Sí' : 'No', f.llego ? horaDe(f.hora) : '',
+      f.manual ? 'Marcado a mano' : (f.totem || ''),
     ].map(esc).join(','));
     return [cab.map(esc).join(',')].concat(cuerpo).join('\r\n');
   }
@@ -602,7 +543,7 @@ export default function mount(shell) {
         },
         {
           name: 'REFRESCAR',
-          description: 'Vuelve a leer los envíos de los totem ahora mismo.',
+          description: 'Vuelve a leer los totem ahora mismo.',
           inputSchema: { type: 'object', properties: {} },
         },
       ],
@@ -619,14 +560,11 @@ export default function mount(shell) {
           asistencia: {
             inscritos: e.inscritos,
             llegaron: e.llegaron,
-            faltan: Math.max(0, e.inscritos - e.filas.filter((f) => f.inscrito && f.llego).length),
-            llegaronSinInscripcionPrevia: e.sinInscripcion,
+            faltan: Math.max(0, e.inscritos - e.llegaron),
             acreditacionesRepetidas: e.repeticiones,
-            enviosRecibidos: e.envios,
           },
           porCentroDeNegocios: e.centros,
-          recepcionPublicaActiva: doc.publicado === true,
-          instanciaId: (shell.app && shell.app.instanceId) || null,
+          totemEncontrados: e.totems.map((t) => ({ nombre: t.nombre, acreditados: t.acreditados })),
           marcadosAMano: Object.keys(doc.manuales).length,
           enPantalla: {
             seccion: vista.seccion,
@@ -640,8 +578,8 @@ export default function mount(shell) {
               + 'para el trámite que estás haciendo.',
             'Puedes marcar asistencia a mano (es reversible y queda con nota), pero NO puedes '
               + 'borrar ni editar lo que registró el totem: eso es el acta de lo que pasó.',
-            'Si la recepción pública está apagada, los totem reciben 403 y no entra ninguna '
-              + 'acreditación. Se enciende en la sección Publicación.',
+            'Solo se acredita a quien está en el padrón. Al totem no se le puede añadir gente; '
+              + 'si alguien llegó sin estar inscrito, la vía es marcarlo a mano desde aquí.',
           ],
         };
       },
@@ -662,9 +600,10 @@ export default function mount(shell) {
               data: {
                 inscritos: e.inscritos,
                 llegaron: e.llegaron,
-                sinInscripcionPrevia: e.sinInscripcion,
+                faltan: Math.max(0, e.inscritos - e.llegaron),
                 porCentroDeNegocios: e.centros,
                 repeticiones: e.repeticiones,
+                totem: e.totems.map((t) => ({ nombre: t.nombre, acreditados: t.acreditados })),
               },
             };
           }
@@ -682,7 +621,6 @@ export default function mount(shell) {
                 resultados: hits.slice(0, 12).map((f) => ({
                   nombre: f.nombre, empresa: f.empresa || null, centro: f.centro,
                   asistio: f.llego, hora: f.llego ? horaDe(f.hora) : null,
-                  inscritoPreviamente: f.inscrito,
                 })),
                 total: hits.length,
               },
@@ -728,7 +666,10 @@ export default function mount(shell) {
           if (tipo === 'REFRESCAR') {
             await cargar();
             const e = estado();
-            return { success: true, message: 'Leídos ' + e.envios + ' envíos. ' + e.llegaron + ' acreditados.' };
+            return {
+              success: true,
+              message: e.totems.length + ' totem leído(s). ' + e.llegaron + ' acreditados.',
+            };
           }
           return { success: false, error: 'Acción desconocida: ' + tipo };
         } catch (e) {
@@ -784,25 +725,26 @@ export default function mount(shell) {
 
   function Kpis(props) {
     const e = props.e;
-    const inscritosQueLlegaron = e.filas.filter((f) => f.inscrito && f.llego).length;
-    const pct = e.inscritos ? Math.round((inscritosQueLlegaron / e.inscritos) * 100) : 0;
+    const pct = e.inscritos ? Math.round((e.llegaron / e.inscritos) * 100) : 0;
     return h('div', null,
       h('div', { className: 'ge-kpis' },
         h('div', { className: 'ge-kpi si' },
           h('p', { className: 'ge-kpi-n' }, String(e.llegaron)),
           h('p', { className: 'ge-kpi-l' }, 'Asistieron'),
-          h('p', { className: 'ge-kpi-x' }, inscritosQueLlegaron + ' de ' + e.inscritos + ' inscritos · ' + pct + '%')),
+          h('p', { className: 'ge-kpi-x' }, pct + '% de los inscritos')),
         h('div', { className: 'ge-kpi' },
-          h('p', { className: 'ge-kpi-n' }, String(Math.max(0, e.inscritos - inscritosQueLlegaron))),
+          h('p', { className: 'ge-kpi-n' }, String(Math.max(0, e.inscritos - e.llegaron))),
           h('p', { className: 'ge-kpi-l' }, 'Faltan'),
-          h('p', { className: 'ge-kpi-x' }, 'Inscritos que aún no llegan')),
+          h('p', { className: 'ge-kpi-x' }, 'De ' + e.inscritos + ' inscritos')),
         h('div', { className: 'ge-kpi' },
-          h('p', { className: 'ge-kpi-n' }, String(e.sinInscripcion)),
-          h('p', { className: 'ge-kpi-l' }, 'Sin inscripción'),
-          h('p', { className: 'ge-kpi-x' }, 'Se registraron en el momento')),
+          h('p', { className: 'ge-kpi-n' }, String(e.totems.length)),
+          h('p', { className: 'ge-kpi-l' }, e.totems.length === 1 ? 'Totem' : 'Totem'),
+          h('p', { className: 'ge-kpi-x' }, e.totems.length
+            ? e.totems.map((t) => t.nombre + ' (' + t.acreditados + ')').join(' · ')
+            : 'Ninguno acreditando todavía')),
         h('div', { className: 'ge-kpi' },
-          h('p', { className: 'ge-kpi-n' }, String(e.envios)),
-          h('p', { className: 'ge-kpi-l' }, 'Envíos'),
+          h('p', { className: 'ge-kpi-n' }, String(Object.keys(doc.manuales).length)),
+          h('p', { className: 'ge-kpi-l' }, 'A mano'),
           h('p', { className: 'ge-kpi-x' }, e.repeticiones
             ? e.repeticiones + ' acreditación(es) repetida(s)'
             : 'Sin repeticiones'))),
@@ -814,7 +756,7 @@ export default function mount(shell) {
     const filas = props.filas;
     if (!filas.length) {
       return h('div', { className: 'ge-vacio' },
-        props.cargando ? 'Leyendo los envíos de los totem…' : 'Nadie coincide con este filtro.');
+        props.cargando ? 'Buscando los totem…' : 'Nadie coincide con este filtro.');
     }
     const col = (id, label) => h('th', {
       scope: 'col',
@@ -833,9 +775,7 @@ export default function mount(shell) {
         key: f.rut || f.nombre,
         className: (f.llego ? 'llego' : '') + (props.destacado === f.rut ? ' destacado' : ''),
       },
-      h('td', null,
-        h('span', { className: 'ge-nom' }, f.nombre),
-        f.inscrito ? null : h('span', { className: 'ge-marca extra', style: { marginLeft: '.5em' } }, 'Sin inscripción')),
+      h('td', null, h('span', { className: 'ge-nom' }, f.nombre)),
       h('td', { className: 'ge-rut' }, formatearRut(f.rut)),
       h('td', { className: 'ge-emp' }, f.empresa || '—'),
       h('td', { className: 'ge-emp' }, f.centro),
@@ -857,14 +797,16 @@ export default function mount(shell) {
     return h('div', { className: 'ai-wrap' },
       h(Kpis, { e: e }),
       v.error ? h('div', { className: 'ai-card' }, h('p', { className: 'ai-aviso' }, v.error)) : null,
-      !doc.publicado ? h('div', { className: 'ai-card' },
+      !v.cargando && !v.error && !e.totems.length ? h('div', { className: 'ai-card' },
         h('p', { className: 'ai-aviso' },
-          'La recepción pública está apagada: los totem reciben 403 y no entra ninguna '
-          + 'acreditación. Enciéndela en la sección Publicación.')) : null,
+          'Todavía no hay ningún totem de AIEP INSCRIPCIÓN con acreditaciones. En cuanto se '
+          + 'abra uno y alguien se acredite, aparecerá aquí solo: no hay que emparejar ni '
+          + 'configurar nada.')) : null,
       h('div', { className: 'ai-card' },
         h('p', { className: 'ai-h3 rojo' }, 'Lista'),
         h('p', { className: 'ai-p tenue' },
-          filas.length + ' de ' + e.filas.length + ' personas' + (v.busqueda || v.centro || v.soloFaltan ? ' (filtrado)' : '')),
+          filas.length + ' de ' + e.filas.length + ' personas'
+          + (v.busqueda || v.centro || v.soloFaltan ? ' (filtrado)' : '')),
         h('div', { className: 'ge-scroll', style: { maxHeight: '58vh', marginTop: '.8em' } },
           h(Tabla, { filas: filas, orden: v.orden, destacado: v.destacado, cargando: v.cargando }))));
   }
@@ -878,8 +820,7 @@ export default function mount(shell) {
         h('h2', { className: 'ai-h2' }, 'Cómo va cada centro'),
         h('p', { className: 'ai-p tenue' },
           'El seminario lo organizan los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e '
-          + 'Independencia. «Sin centro» son quienes no lo declararon al inscribirse o llegaron '
-          + 'sin inscripción previa.')),
+          + 'Independencia. «Sin centro» son quienes no lo declararon al inscribirse.')),
       nombres.map((n) => {
         const c = e.centros[n];
         const pct = c.total ? Math.round((c.llegaron / c.total) * 100) : 0;
@@ -900,64 +841,10 @@ export default function mount(shell) {
       }));
   }
 
-  function Publicacion(props) {
-    const instancia = (shell.app && shell.app.instanceId) || '';
-    const encendido = doc.publicado === true;
-    return h('div', { className: 'ai-wrap' },
-      h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Publicación'),
-        h('h2', { className: 'ai-h2' }, 'Recepción de acreditaciones'),
-        h('p', { className: 'ai-p' },
-          'Los totem de AIEP INSCRIPCIÓN envían aquí cada acreditación por el gateway público '
-          + 'de la plataforma. Mientras esto esté apagado, el gateway responde 403 y no entra '
-          + 'nada: es opt-in a propósito.'),
-        h('p', { className: 'ai-p' },
-          h('span', { className: 'ge-estado ' + (encendido ? 'on' : 'off') },
-            encendido ? '● Recepción activa' : '○ Recepción apagada')),
-        h('button', {
-          type: 'button', className: 'ai-btn',
-          onClick: () => publicar(!encendido),
-        }, encendido ? 'Apagar recepción' : 'Activar recepción')),
-
-      h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Emparejar los totem'),
-        instancia
-          ? h('div', null,
-            h('p', { className: 'ai-p' }, 'Identificador de esta instancia. Pégalo en cada totem:'),
-            h('code', { className: 'ge-id' }, instancia))
-          : h('p', { className: 'ai-aviso' },
-            'Esta ventana no tiene instanceId: abre la app como documento (🗂️ Nuevo) para que '
-            + 'los totem puedan enviarle acreditaciones.'),
-        h('div', { className: 'ge-paso' },
-          h('span', { className: 'ge-paso-n' }, '1'),
-          h('span', null, 'Activa la recepción con el botón de arriba.')),
-        h('div', { className: 'ge-paso' },
-          h('span', { className: 'ge-paso-n' }, '2'),
-          h('span', null, 'En cada totem: ⚙️ Configurar → «Instancia de AIEP GESTIÓN» y pega el identificador.')),
-        h('div', { className: 'ge-paso' },
-          h('span', { className: 'ge-paso-n' }, '3'),
-          h('span', null, 'En la vitrina también sirve añadir ', h('code', null, '?aiep=' + (instancia || 'ID')),
-            ' a la URL, o dejarlo guardado desde la pantalla de operador del totem (mantener pulsado el logo 3 s).')),
-        h('div', { className: 'ge-paso' },
-          h('span', { className: 'ge-paso-n' }, '4'),
-          h('span', null, 'Acredita a una persona de prueba y comprueba que aparece aquí. '
-            + 'La lista se refresca sola cada 15 segundos.'))),
-
-      h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Exportar'),
-        h('p', { className: 'ai-p tenue' },
-          'La lista completa, con el filtro que tengas puesto, en CSV. Lleva datos personales: '
-          + 'compártela solo con quien tenga que verla.'),
-        h('button', {
-          type: 'button', className: 'ai-btn',
-          onClick: () => props.onExportar(),
-        }, '⬇ Descargar CSV')));
-  }
-
   /* ── Componente raíz ───────────────────────────────────────────────── */
 
   function Component() {
-    const [est, setEst] = React.useState({ doc, items, vista });
+    const [est, setEst] = React.useState({ doc, llegadas, totems, vista });
     const [modo, setModo] = React.useState('escritorio');
     const raizRef = React.useRef(null);
 
@@ -1006,7 +893,6 @@ export default function mount(shell) {
     const secciones = {
       asistencia: () => h(Asistencia, { e: e, vista: v }),
       centros: () => h(Centros, { e: e }),
-      publicacion: () => h(Publicacion, { onExportar: exportar }),
     };
     const activa = IDS_SECCION.includes(v.seccion) ? v.seccion : 'asistencia';
     const centros = [''].concat(Object.keys(e.centros).sort());
@@ -1017,10 +903,11 @@ export default function mount(shell) {
           h('span', { className: 'ai-chip-logo' }, h('img', { src: LOGO_AIEP, alt: 'AIEP' })),
           h('p', { className: 'ai-hd-t' }, 'Gestión · ', EVENTO.titulo)),
         h('div', { className: 'ai-hd-est' },
-          h('span', { className: 'ai-pill' + (doc.publicado ? ' vivo' : '') },
-            doc.publicado ? h('span', { className: 'ai-punto' }) : null,
-            doc.publicado ? 'Recibiendo' : 'Apagado'),
-          h('button', { type: 'button', className: 'ai-btn ghost', onClick: () => cargar() }, '⟳'),
+          h('span', { className: 'ai-pill' + (e.totems.length ? ' vivo' : '') },
+            e.totems.length ? h('span', { className: 'ai-punto' }) : null,
+            e.totems.length ? e.totems.length + ' totem' : 'Sin totem'),
+          h('button', { type: 'button', className: 'ai-btn ghost', title: 'Volver a leer ahora', onClick: () => cargar() }, '⟳'),
+          h('button', { type: 'button', className: 'ai-btn ghost', title: 'Descargar la lista en CSV', onClick: exportar }, '⬇ CSV'),
           h('span', { className: 'ai-ver', title: 'AIEP GESTIÓN v' + APP_VERSION }, 'v' + APP_VERSION))),
 
       h('nav', { className: 'ai-nav' }, SECCIONES.map((s) => h('button', {
