@@ -26,7 +26,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.2.0';
 
 const EVENTO = {
   titulo: 'IA y Protección de Datos',
@@ -726,9 +726,11 @@ export default function mount(shell) {
               message: 'En pantalla: el código y dónde pegarlo.',
               data: {
                 codigo: id,
-                seAnadeALaUrlDeLaVitrinaComo: '?aiep=' + id,
-                nota: 'Va al final de la dirección de la vitrina donde corre AIEP INSCRIPCIÓN. '
-                  + 'Todos los totem llevan el mismo código.',
+                normalmenteNoHaceFalta: 'El totem lo trae de fábrica; solo se añade si no coincide.',
+                siLaUrlYaTieneInterrogacion: '&aiep=' + id,
+                siLaUrlNoTieneInterrogacion: '?aiep=' + id,
+                aviso: 'Con dos «?» en la URL el token de la vitrina se lee mal y sale '
+                  + '«Vitrina no disponible o expirada».',
               },
             };
           }
@@ -871,8 +873,8 @@ export default function mount(shell) {
       !v.cargando && !e.envios ? h('div', { className: 'ai-card' },
         h('p', { className: 'ai-h3 rojo' }, 'Todavía no llega ninguna acreditación'),
         h('p', { className: 'ai-p' },
-          'La recepción ya está abierta por esta app. Falta conectar el totem: es pegar un '
-          + 'texto al final de la URL de su vitrina, una sola vez.'),
+          'La recepción ya está abierta por esta app. Si el totem trae este mismo código de '
+          + 'fábrica, basta con abrir su vitrina. Si no, hay que añadirlo a la URL.'),
         h('button', {
           type: 'button', className: 'ai-btn',
           onClick: () => irA('conectar'),
@@ -906,19 +908,32 @@ export default function mount(shell) {
             + 'documento (menú 🗂️ → Nuevo) y vuelve aquí.')),
 
       h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Dónde se pega'),
+        h('p', { className: 'ai-h3 rojo' }, 'Normalmente NO hace falta'),
         h('p', { className: 'ai-p' },
-          'En la URL de la vitrina donde corre AIEP INSCRIPCIÓN — la misma dirección que abres '
-          + 'en el totem. Al final de esa dirección se añade ',
-          h('code', null, '?aiep=' + (id || 'CÓDIGO')), '.'),
-        h('p', { className: 'ai-p tenue' }, 'Por ejemplo, si la vitrina del totem es:'),
-        h('code', { className: 'ge-id' }, 'https://tu-kimos/vitrina/abc123'),
-        h('p', { className: 'ai-p tenue' }, 'la dirección que se abre en el totem pasa a ser:'),
+          'El totem de AIEP INSCRIPCIÓN trae este código puesto de fábrica: se abre su vitrina '
+          + 'y ya manda. Solo hay que añadirlo a la URL si el código de arriba NO coincide con '
+          + 'el que trae el totem — por ejemplo si aquí se creó un documento nuevo.'),
+        h('p', { className: 'ai-p tenue' }, 'En ese caso, y solo en ese caso:')),
+
+      h('div', { className: 'ai-card' },
+        h('p', { className: 'ai-h3 rojo' }, 'Cómo añadirlo a la URL'),
+        /* El error que se comete siempre: la URL de la vitrina YA lleva query
+           (`?vitrina=…`), así que el segundo parámetro va con & y no con ?.
+           Con dos «?» el token se lee mal y sale «Vitrina no disponible». */
+        h('p', { className: 'ai-p' },
+          h('strong', null, 'Cuidado con el separador.'), ' Si la URL de la vitrina ya tiene un ',
+          h('code', null, '?'), ', el código va detrás de un ', h('code', null, '&'), ', no de otro ',
+          h('code', null, '?'), '. Con dos ', h('code', null, '?'), ' el token se lee mal y sale ',
+          h('em', null, '«Vitrina no disponible o expirada»'), '.'),
+        h('p', { className: 'ai-p tenue' }, 'Si la URL es del tipo ?vitrina=TOKEN — el caso habitual:'),
         h('code', { className: 'ge-id' },
-          'https://tu-kimos/vitrina/abc123?aiep=' + (id || 'CÓDIGO')),
+          'https://tu-kimos/?vitrina=TOKEN&aiep=' + (id || 'CÓDIGO')),
+        h('p', { className: 'ai-p tenue' }, 'Si la URL es del tipo /vitrina/TOKEN, sin interrogación:'),
+        h('code', { className: 'ge-id' },
+          'https://tu-kimos/vitrina/TOKEN?aiep=' + (id || 'CÓDIGO')),
         h('p', { className: 'ai-p' },
           'El totem lo guarda en ese equipo, así que una recarga sin el parámetro no lo deja '
-          + 'huérfano. Si tienes varios totem, todos llevan el mismo código.')),
+          + 'huérfano. Si hay varios totem, todos llevan el mismo código.')),
 
       h('div', { className: 'ai-card' },
         h('p', { className: 'ai-h3 rojo' }, 'Por qué hace falta'),

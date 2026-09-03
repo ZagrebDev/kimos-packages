@@ -4,7 +4,7 @@ Asistencia del Seminario **«IA y Protección de Datos: Lo que Todo Negocio Debe
 Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquín, organizado con los
 Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e Independencia.
 
-**Versión actual: 3.1.0**
+**Versión actual: 3.2.0**
 
 Es el lado interno del par: los totem de **AIEP INSCRIPCIÓN** acreditan gente en
 la puerta, y aquí se ve quién llegó.
@@ -40,13 +40,21 @@ que saber cuál es esta, y no hay forma de que la descubra solo — corre en la
 vitrina, sin sesión iniciada, y no puede preguntarle a la plataforma cuál de las
 apps de gestión es la tuya.
 
+**Normalmente no hace falta hacer nada**: el totem trae el código de fábrica.
+Solo hay que añadirlo a la URL si el código que muestra esta app **no coincide**
+con el que trae el totem — por ejemplo si aquí se creó un documento nuevo.
+
 **El código está en la sección «🔗 Conectar totem»** de esta app: es el
-identificador de la instancia (algo como `aiep.gestion-518a2337`). Se pega al
-final de la URL de la vitrina donde corre AIEP INSCRIPCIÓN, una sola vez:
+identificador de la instancia (algo como `aiep.gestion-7dc06969`).
+
+**Ojo con el separador.** Si la URL de la vitrina ya tiene un `?` —el caso
+habitual— el código va detrás de un `&`, no de otro `?`:
 
 ```
-https://tu-kimos/vitrina/abc123           ← la URL de la vitrina del totem
-https://tu-kimos/vitrina/abc123?aiep=CÓDIGO   ← la que se abre en el totem
+https://tu-kimos/?vitrina=TOKEN&aiep=CÓDIGO    ← correcto
+https://tu-kimos/?vitrina=TOKEN?aiep=CÓDIGO    ← dos «?»: el token se lee mal y
+                                                 sale «Vitrina no disponible»
+https://tu-kimos/vitrina/TOKEN?aiep=CÓDIGO     ← correcto si la URL no tiene «?»
 ```
 
 El totem lo guarda en ese equipo, así que una recarga sin el parámetro no lo
@@ -129,6 +137,7 @@ trámite en curso, y **no puede borrar ni editar** lo que registró el totem.
 
 | Versión | Cambios |
 |---|---|
+| 3.2.0 | **Instrucciones que causaban un 404.** Decían «añade `?aiep=` al final de la URL», pero la URL de la vitrina ya lleva `?vitrina=TOKEN`: con dos «?» el token se lee mal y el backend responde «Vitrina no disponible o expirada». Ahora la sección avisa del separador, da las dos formas correctas y aclara que lo normal es no tener que tocar nada, porque el totem trae el código de fábrica. |
 | 3.1.0 | **El código deja de esconderse.** En la 3.0.0 solo aparecía en una tarjeta que se ocultaba con la primera acreditación, así que no había forma de recuperarlo para sumar un segundo totem o tras reinstalar el navegador del kiosco. Ahora vive en su propia sección **🔗 Conectar totem**, permanente, con el ejemplo de la URL completa y la explicación de por qué hace falta. El agente lo sabe decir con `CODIGO_PARA_EL_TOTEM`. |
 | 3.0.0 | **Vuelve el gateway, sin el interruptor.** La 2.0.0 leía los totem con `shell.data`, que solo funciona si el totem corre en sesión; en la vitrina devuelve vacío siempre. Se vuelve a recibir por el gateway público, pero **la recepción se abre sola al abrir la app**: ya no hay nada que activar. Queda un único paso, `?aiep=ID` en la URL de la vitrina, que la app muestra listo para copiar y esconde con la primera acreditación. |
 | 2.0.0 | Sin configurar nada, leyendo los totem con `shell.data` — **solo válido si el totem corre en sesión**. Fuera la sección Publicación entera —el interruptor de recepción, el identificador de instancia y los cuatro pasos de emparejamiento—: ahora encuentra sola todos los totem con `shell.data` y suma lo de todos. La cabecera muestra cuántos totem están acreditando y con cuántas personas cada uno, y el CSV pasa a la cabecera. |

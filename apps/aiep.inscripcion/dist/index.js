@@ -36,7 +36,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.2.1';
 
 /* ── El seminario (mismos datos que ANFITRIÓN AIEP) ───────────────────── */
 
@@ -76,7 +76,7 @@ const LS_INSTANCIA = 'aiep.inscripcion.instancia.v3';
  * Se puede pisar con `?aiep=OTRO-ID` en la URL de la vitrina — es lo que hay
  * que usar si en gestión se crea un documento NUEVO, porque entonces cambia el
  * identificador. El de aquí es el del documento que ya existe. */
-const INSTANCIA_GESTION = 'aiep.gestion-518a2337';
+const INSTANCIA_GESTION = 'aiep.gestion-7dc06969';
 
 /* Topes del gateway público (backend/appPublicAPI.py), que mandan sobre cómo
    se envía esto:
@@ -188,8 +188,13 @@ function baseApi(shell) {
  */
 function resolverInstancia() {
   try {
-    const q = new URLSearchParams(globalThis.location ? globalThis.location.search : '');
-    const deUrl = String(q.get('aiep') || '').trim();
+    const loc = globalThis.location || {};
+    // La vitrina puede montarse como `?vitrina=TOKEN` o como `/vitrina/TOKEN`,
+    // y el parámetro puede acabar en la query o tras el hash. Se mira en ambos.
+    const q = new URLSearchParams(String(loc.search || ''));
+    const hash = String(loc.hash || '').replace(/^#/, '');
+    const qh = new URLSearchParams(hash.indexOf('?') >= 0 ? hash.slice(hash.indexOf('?') + 1) : hash);
+    const deUrl = String(q.get('aiep') || qh.get('aiep') || '').trim();
     if (deUrl) { escribirLS(LS_INSTANCIA, deUrl); return deUrl; }
   } catch (e) { /* sin location */ }
   const guardada = String(leerLS(LS_INSTANCIA, '') || '').trim();

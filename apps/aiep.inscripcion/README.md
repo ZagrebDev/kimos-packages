@@ -5,7 +5,7 @@ que Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San
 Joaquín, organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 3.2.0**
+**Versión actual: 3.2.1**
 
 ---
 
@@ -50,16 +50,27 @@ Esta app existe para **un** evento y **una** gestión, así que el identificador
 de la instancia va en el bundle:
 
 ```js
-const INSTANCIA_GESTION = 'aiep.gestion-518a2337';
+const INSTANCIA_GESTION = 'aiep.gestion-7dc06969';
 ```
 
 **No hay nada que pegar ni que configurar**: se abre el totem en la vitrina y ya
 está mandando.
 
-Se puede pisar con `?aiep=OTRO-ID` al final de la URL de la vitrina, y eso es lo
-que hay que usar **si en AIEP GESTIÓN se crea un documento nuevo**, porque
-entonces cambia el identificador. El código vigente está siempre en la sección
-**🔗 Conectar totem** de gestión.
+Se puede pisar por URL, y eso es lo que hay que usar **si en AIEP GESTIÓN se
+crea un documento nuevo**, porque entonces cambia el identificador. El código
+vigente está siempre en la sección **🔗 Conectar totem** de gestión.
+
+**Ojo con el separador**: si la URL de la vitrina ya tiene un `?` —el caso
+habitual, `?vitrina=TOKEN`— el código va detrás de un `&`:
+
+```
+https://demo.kimos.dev/?vitrina=TOKEN&aiep=CÓDIGO     ← correcto
+https://demo.kimos.dev/?vitrina=TOKEN?aiep=CÓDIGO     ← dos «?»: el token se lee
+                                                        mal y sale «Vitrina no
+                                                        disponible o expirada»
+```
+
+El parámetro se busca tanto en la query como tras el hash.
 
 *(El otro paso que había antes —encender la recepción— tampoco existe: gestión
 la abre sola al abrirse.)*
@@ -148,6 +159,7 @@ El snapshot no expone correos ni RUT completos del padrón.
 
 | Versión | Cambios |
 |---|---|
+| 3.2.1 | **El código de fábrica apuntaba a la instancia equivocada.** Estaba puesto `aiep.gestion-518a2337`, de una captura anterior, cuando la instancia viva es `aiep.gestion-7dc06969`: un totem abierto sin parámetro en la URL habría encolado todo contra una instancia que no existe. Además el parámetro se busca ahora también tras el hash, no solo en la query. |
 | 3.2.0 | **Se abre y ya manda.** El código de la instancia de gestión viene puesto de fábrica, así que no hay que pegar nada en la URL (`?aiep=` sigue funcionando para pisarlo si se crea un documento nuevo en gestión). El ritmo de envío pasa a llevarse por presupuesto de ventana en vez de por un espaciado fijo de 40 s: la primera acreditación llega a gestión en unos 4 segundos en vez de esperar. **Y un fallo real corregido:** el id de cada acreditación en la cola se derivaba de `Date.now()`, así que dos personas confirmadas en el mismo milisegundo compartían id y, al enviarse una, el filtro que limpia la cola se llevaba las dos — la segunda desaparecía sin rastro ni error. Se verificó con una ráfaga de 41: antes llegaban 39, ahora llegan 41. |
 | 3.0.0 | **Vuelve a la vitrina, con un solo paso.** La 2.0.0 guardaba con `shell.items`, que en la vitrina es memoria volátil: el totem mostraba «✓ Asistencia registrada» y el registro no llegaba a ninguna parte. Se vuelve al gateway público, pero ahora **el interruptor de recepción desaparece** (gestión la abre sola) y **un totem sin conectar no finge**: avisa y no deja acreditar. Queda un único paso de puesta en marcha: `?aiep=ID` en la URL de la vitrina. Se mantiene lo bueno de la 2.0.0: sin registro en el totem y sin contadores en la portada. |
 | 2.0.0 | Sin configurar nada y sin registro en el totem. Guardaba con `shell.items` — **solo válido en sesión**, no en vitrina. Fuera el gateway público, la cola de envíos por lotes, el campo de instancia de gestión y la pantalla de operador: ahora guarda con `shell.items` y AIEP GESTIÓN encuentra sola todos los totem vía `shell.data`. Fuera también **el registro de quien no está inscrito** (ahora el totem lo dice y ahí termina) y **los contadores de acreditados e inscritos** de la portada. Se conserva el reintento local para que una escritura fallida no pierda a nadie. |
