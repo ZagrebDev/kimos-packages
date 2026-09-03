@@ -1036,6 +1036,69 @@
         "mostrarContexto": true,
         "mostrarFotos": true
       }
+    },
+    {
+      "id": "aiep.inscripcion",
+      "name": "AIEP INSCRIPCIÓN",
+      "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín: el asistente marca su RUT, confirma sus datos del padrón y queda registrado como que asistió. Quien llega sin inscripción previa se registra en el momento. La asistencia viaja por el gateway público a la app AIEP GESTIÓN y no se pierde si el recinto se queda sin red. Mismo sistema visual que ANFITRIÓN AIEP.",
+      "icon": "🪪",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": false,
+      "permissions": [
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias del totem de acreditación",
+        "fields": [
+          {
+            "key": "instanciaGestion",
+            "label": "Instancia de AIEP GESTIÓN que recibe las acreditaciones",
+            "type": "string",
+            "help": "El identificador aparece en AIEP GESTIÓN → pestaña Publicación. En la vitrina también se puede pasar como ?aiep=ID en la URL."
+          },
+          {
+            "key": "nombreTotem",
+            "label": "Nombre de este totem",
+            "type": "string",
+            "help": "Viaja con cada acreditación para saber por qué puesto entró la persona."
+          },
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          }
+        ]
+      },
+      "defaultConfig": {
+        "instanciaGestion": "",
+        "nombreTotem": "Totem acreditación",
+        "modo": "auto",
+        "segundosInactividad": 60
+      }
     }
   ]
 }
