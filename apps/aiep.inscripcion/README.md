@@ -5,7 +5,7 @@ que Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San
 Joaquín, organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 2.0.0**
+**Versión actual: 3.0.0**
 
 ---
 
@@ -30,34 +30,66 @@ instrucción explícita de no ofrecer ninguna vía alternativa.
 
 ---
 
-## No hay nada que configurar
+## Corre en la vitrina, y eso manda sobre cómo guarda
 
-El totem guarda cada acreditación en los items de su propia instancia, con
-`shell.items.create()`. **AIEP GESTIÓN las encuentra sola**: declara
-`data.read:aiep.inscripcion` en su manifest y con eso ve todas las instancias
-del totem a las que el usuario ya tiene acceso. Si hay tres totem en la puerta,
-los tres se suman sin emparejar nada, sin identificadores que pegar y sin
-interruptores que activar.
+En la vitrina **no hay sesión**: el host público le da a la app un shell
+efímero, donde `shell.items` escribe en la memoria de ese navegador y se pierde
+al recargar. Así que la acreditación viaja por el **gateway público** del
+creator pack (`APP-SPEC` §7.b):
 
-Se instala, se abre y funciona.
+```
+POST {api}/api/public/app/{instanceId}/submit/asistencia
+```
 
-### Dónde corre
+**No necesita ningún endpoint nuevo en `kimos-enterprice` ni tocar
+`setup-kimos`.**
 
-**En sesión, como app instalada** en el equipo de la puerta. No en la vitrina
-anónima: ahí el host público da un shell efímero —lo que se guarda vive solo en
-la memoria de ese navegador y no llega a los datos del equipo—, así que una
-acreditación hecha en la vitrina no existiría para nadie más. El totem de
-acreditación es equipo del staff, y a cambio de estar en sesión no hay nada que
-configurar.
+### El único paso: `?aiep=ID` en la URL de la vitrina
 
-*(ANFITRIÓN AIEP sí es de vitrina: solo informa, no guarda nada.)*
+El endpoint del gateway se direcciona **por instancia**, así que el totem tiene
+que saber cuál es la de AIEP GESTIÓN, y no hay forma de que la descubra solo.
+Llega en la URL de la vitrina, **una vez**:
 
-### Sin poder escribir no se pierde nadie
+```
+https://tu-kimos/vitrina/TOKEN?aiep=ID-DE-LA-INSTANCIA
+```
 
-Una acreditación perdida es una persona que se queda fuera de la lista. Si la
-escritura falla, la acreditación se guarda en el equipo y se reintenta sola cada
-8 segundos; el pie muestra cuántas quedan por guardar. Verificado: con la
-escritura caída nadie desaparece, y al volver se guardan todas.
+El totem lo guarda en el equipo, así que una recarga sin el parámetro no lo deja
+huérfano. AIEP GESTIÓN muestra ese texto listo para copiar hasta que llega la
+primera acreditación.
+
+*(El otro paso que había antes —encender la recepción— ya no existe: gestión la
+abre sola al abrirse.)*
+
+### Un totem sin conectar NO finge
+
+Si no tiene el identificador, **no deja acreditar**: la portada dice
+«Acreditación no disponible — acércate al mesón», y el agente se niega. Mostrar
+«✓ Asistencia registrada» a alguien cuyo registro no va a llegar a ninguna parte
+es el peor fallo que puede tener esto, así que no se hace nunca.
+
+### Los topes del gateway mandan sobre cómo se envía
+
+`backend/appPublicAPI.py` aplica **8 peticiones por IP+instancia cada 5
+minutos**, descarta objetos y listas anidados y recorta cada valor a 5.000
+caracteres. Una fila de acreditación se come ese tope en un minuto si se manda
+una petición por persona. Así que:
+
+- Se agrupan en **lotes de hasta 12 personas**, que viajan como **un campo de
+  texto con JSON dentro** —plano, como exige el saneo— y gestión vuelve a abrir.
+- **Una petición por vaciado**, con **40 s de espaciado**: 7 u 8 por ventana, o
+  sea ~90 acreditaciones cada 5 minutos. Muy por encima del ritmo real.
+- Ante un **429** espera a que se abra la ventana. Ante un **403** (gestión aún
+  no acepta envíos) **reintenta**: descartar por eso tiraría a la basura a cada
+  persona hasta que alguien se diera cuenta. Solo 400, 413 y 422 —donde el
+  envío *es* el problema— se descartan.
+
+**Quien se acredita no espera nada por esto**: su comprobante sale al instante.
+
+### Sin red no se pierde nadie
+
+Lo que no sale se encola en el equipo y se reintenta solo; el pie muestra
+cuántos quedan por subir.
 
 ---
 
@@ -109,5 +141,6 @@ El snapshot no expone correos ni RUT completos del padrón.
 
 | Versión | Cambios |
 |---|---|
-| 2.0.0 | **Sin configurar nada y sin registro en el totem.** Fuera el gateway público, la cola de envíos por lotes, el campo de instancia de gestión y la pantalla de operador: ahora guarda con `shell.items` y AIEP GESTIÓN encuentra sola todos los totem vía `shell.data`. Fuera también **el registro de quien no está inscrito** (ahora el totem lo dice y ahí termina) y **los contadores de acreditados e inscritos** de la portada. Se conserva el reintento local para que una escritura fallida no pierda a nadie. |
+| 3.0.0 | **Vuelve a la vitrina, con un solo paso.** La 2.0.0 guardaba con `shell.items`, que en la vitrina es memoria volátil: el totem mostraba «✓ Asistencia registrada» y el registro no llegaba a ninguna parte. Se vuelve al gateway público, pero ahora **el interruptor de recepción desaparece** (gestión la abre sola) y **un totem sin conectar no finge**: avisa y no deja acreditar. Queda un único paso de puesta en marcha: `?aiep=ID` en la URL de la vitrina. Se mantiene lo bueno de la 2.0.0: sin registro en el totem y sin contadores en la portada. |
+| 2.0.0 | Sin configurar nada y sin registro en el totem. Guardaba con `shell.items` — **solo válido en sesión**, no en vitrina. Fuera el gateway público, la cola de envíos por lotes, el campo de instancia de gestión y la pantalla de operador: ahora guarda con `shell.items` y AIEP GESTIÓN encuentra sola todos los totem vía `shell.data`. Fuera también **el registro de quien no está inscrito** (ahora el totem lo dice y ahí termina) y **los contadores de acreditados e inscritos** de la portada. Se conserva el reintento local para que una escritura fallida no pierda a nadie. |
 | 1.0.0 | Primera versión: acreditación por RUT contra el padrón, registro en el momento, comprobante, envío por lotes al gateway público con cola local, agente consultivo y el chrome visual de ANFITRIÓN AIEP. |

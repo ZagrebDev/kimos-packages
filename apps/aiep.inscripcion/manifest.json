@@ -1,8 +1,8 @@
 {
   "id": "aiep.inscripcion",
   "name": "AIEP INSCRIPCIÓN",
-  "version": "2.0.0",
-  "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín: el asistente marca su RUT, confirma sus datos y queda registrado como que asistió. Solo se acredita quien está en el padrón. No hay nada que configurar: AIEP GESTIÓN encuentra sola las acreditaciones de todos los totem. Mismo sistema visual que ANFITRIÓN AIEP.",
+  "version": "3.0.0",
+  "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, para vitrina: el asistente marca su RUT, confirma sus datos y queda registrado como que asistió. Solo se acredita quien está en el padrón, y un totem sin conectar avisa en vez de fingir. Envía a AIEP GESTIÓN por el gateway público, con cola local a prueba de cortes de red. Mismo sistema visual que ANFITRIÓN AIEP.",
   "icon": "🪪",
   "author": "kimos",
   "entry": "dist/index.js",
@@ -22,9 +22,18 @@
         "label": "Disposición",
         "type": "select",
         "options": [
-          { "value": "auto", "label": "Automática (totem si la pantalla es vertical y grande)" },
-          { "value": "totem", "label": "Forzar totem (tipografía y botones XL)" },
-          { "value": "escritorio", "label": "Forzar escritorio" }
+          {
+            "value": "auto",
+            "label": "Automática (totem si la pantalla es vertical y grande)"
+          },
+          {
+            "value": "totem",
+            "label": "Forzar totem (tipografía y botones XL)"
+          },
+          {
+            "value": "escritorio",
+            "label": "Forzar escritorio"
+          }
         ]
       },
       {

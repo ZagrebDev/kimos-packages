@@ -342,4 +342,14 @@
 .kimos-aiep-gestion .ge-mini:hover { background: var(--ai-panel-alto); color: #fff; }
 .kimos-aiep-gestion .ge-scroll { overflow: auto; max-height: 100%; }
 
+/* ── Identificador para conectar los totem ──────────────────────────── */
+/* Se muestra hasta que llega la primera acreditacion, y luego desaparece. */
+.kimos-aiep-gestion .ge-id {
+  display: block; padding: .6em .9em; margin: .5em 0;
+  background: rgb(0 20 60 / .5); border: 1px solid var(--ai-linea-fuerte);
+  border-radius: var(--ai-radius); color: #fff;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--f-base);
+  word-break: break-all; user-select: all;
+}
+
 .kimos-aiep-gestion .ge-vacio { padding: calc(var(--pad) * 2); text-align: center; color: var(--ai-tenue); }

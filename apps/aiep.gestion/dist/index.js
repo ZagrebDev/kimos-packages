@@ -7,14 +7,18 @@
  * o RUT, se filtra por Centro de Negocios, se marca a mano a quien se acreditó
  * sin totem y se exporta la lista.
  *
- * NO HAY NADA QUE CONFIGURAR NI QUE ACTIVAR. La app encuentra sola todos los
- * totem: declara `data.read:aiep.inscripcion` en su manifest y con eso
- * `shell.data.listInstances('aiep.inscripcion')` le devuelve cada instancia del
- * totem a la que el usuario ya tiene acceso, y `listItems` sus acreditaciones.
- * Si hay tres totem en la puerta, los tres se suman sin emparejar nada.
+ * DE DÓNDE SALEN LOS DATOS: los totem corren en la VITRINA, donde no hay
+ * sesión, así que envían por el gateway público del creator pack. El gateway
+ * deja cada envío como un item `kind: "submission"` del canal `asistencia` de
+ * esta instancia, y aquí se leen con `shell.items.list()`.
  *
- * El techo lo pone el RBAC del usuario, no esta app: solo se ven los totem de
- * equipos a los que la persona ya pertenece, y solo de lectura.
+ * NO HAY NINGÚN INTERRUPTOR QUE PULSAR. El gateway solo acepta envíos si la
+ * instancia declaró `public.enabled`, así que esta app lo escribe sola al
+ * abrirse. Lo único que queda del lado del operador es pegar `?aiep=ID` al
+ * final de la URL de la vitrina, una vez: el endpoint del gateway se
+ * direcciona POR INSTANCIA y no hay forma de que el totem la descubra solo.
+ * La app muestra ese texto listo para copiar hasta que llega la primera
+ * acreditación.
  *
  * EL AGENTE ES CONSULTIVO: cuenta, busca y filtra, y deja el resultado en
  * pantalla. Puede marcar asistencia manual, que es reversible y queda con nota,
@@ -22,7 +26,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 
 const EVENTO = {
   titulo: 'IA y Protección de Datos',
@@ -40,9 +44,8 @@ const PIE = {
   plataforma: 'Powered by',
 };
 
-/* La app del totem y la marca de sus items. */
-const APP_TOTEM = 'aiep.inscripcion';
-const KIND = 'asistencia';
+/* Canal del gateway público por el que llegan las acreditaciones. */
+const CANAL = 'asistencia';
 const REFRESCO_MS = 15000;
 
 const SECCIONES = [
@@ -245,19 +248,37 @@ const PADRON = [
   {"n": "Álvaro Olivares", "r": "204326983", "e": "OLEN SpA", "m": "alvarodomingo@olen.cl", "c": "San Pablo"},
 ];
 
-/* ── Lectura de lo que registran los totem ────────────────────────────── */
+/* ── Lectura de lo que envían los totem ───────────────────────────────── */
 
-/** Normaliza un item de acreditación venga del totem que venga. */
-function personaDeItem(item, totem) {
-  return {
-    rut: normalizarRut(item.rut),
-    nombre: String(item.nombre || '').trim(),
-    empresa: String(item.empresa || '').trim(),
-    correo: String(item.correo || '').trim(),
-    cdn: String(item.cdn || '').trim(),
-    acreditadoEn: String(item.acreditadoEn || item.createdAt || ''),
-    totem: totem || '',
-  };
+/**
+ * Saca las personas de un item del gateway. El totem manda un LOTE (un campo
+ * de texto con JSON dentro, porque el saneo del gateway descarta lo anidado),
+ * pero también se acepta un envío de una sola persona: alguien puede postear a
+ * mano contra el endpoint, y ese registro no debe caerse en silencio.
+ */
+function personasDeItem(item) {
+  const d = (item && item.data) || {};
+  let brutas = [];
+  if (typeof d.lote === 'string' && d.lote.trim()) {
+    try {
+      const arr = JSON.parse(d.lote);
+      if (Array.isArray(arr)) brutas = arr.filter((r) => r && typeof r === 'object');
+    } catch (e) {
+      // Lote ilegible: no se descarta el item entero, se deja constancia para
+      // que quien mira la lista sepa que ese envío existe y hay que revisarlo.
+      brutas = [{ rut: '', nombre: '(lote ilegible)' }];
+    }
+  } else if (d.rut || d.nombre) {
+    brutas = [d];
+  }
+  return brutas.map((r) => ({
+    rut: normalizarRut(r.rut),
+    nombre: String(r.nombre || '').trim(),
+    empresa: String(r.empresa || '').trim(),
+    correo: String(r.correo || '').trim(),
+    cdn: String(r.cdn || '').trim(),
+    acreditadoEn: String(r.acreditadoEn || item.createdAt || ''),
+  }));
 }
 
 /**
@@ -288,7 +309,7 @@ function cruzar(padron, llegadas) {
       centro: centroDe(p),
       llego: !!l,
       hora: l ? l.acreditadoEn : '',
-      totem: l ? l.totem : '',
+
     };
   });
   return { filas, repetidas };
@@ -302,8 +323,9 @@ export default function mount(shell) {
   const h = React.createElement;
 
   let doc = { manuales: {} };      // lo único que persiste esta app
-  let llegadas = [];               // acreditaciones leídas de los totem
-  let totems = [];                 // instancias del totem que se encontraron
+  let llegadas = [];               // acreditaciones recibidas del gateway
+  let envios = 0;                  // items recibidos (cada uno lleva un lote)
+  let recepcion = 'comprobando';   // comprobando · lista · error
   let vista = {
     seccion: 'asistencia',
     busqueda: '',
@@ -315,7 +337,7 @@ export default function mount(shell) {
     destacado: null,
   };
   const listeners = new Set();
-  const emitir = () => listeners.forEach((l) => l({ doc, llegadas, totems, vista }));
+  const emitir = () => listeners.forEach((l) => l({ doc, llegadas, envios, recepcion, vista }));
   const setVista = (parcial) => { vista = Object.assign({}, vista, parcial); emitir(); };
 
   let guardarT = null;
@@ -346,56 +368,71 @@ export default function mount(shell) {
     programarGuardado();
   };
 
-  /* ── Datos en vivo: los totem se encuentran solos ──────────────────── */
+  /* ── Recepción y datos en vivo ─────────────────────────────────────── */
 
   let refrescoT = null;
 
   /**
-   * Busca cada instancia de la app del totem visible para el usuario y suma
-   * sus acreditaciones. Sin emparejar, sin activar y sin identificadores que
-   * pegar en ningún sitio: basta con el permiso `data.read:aiep.inscripcion`
-   * del manifest, que el superadmin aprobó al instalar.
+   * Abre la recepción de acreditaciones. El gateway solo acepta envíos si la
+   * instancia declaró `public.enabled` en su item `definition`, así que la app
+   * lo escribe sola al abrirse: no hay ningún interruptor que pulsar.
+   *
+   * Lo que `/definition` expone al mundo es solo el bloque `data`, y ahí no va
+   * NINGÚN dato personal: nombre del evento, fecha, sede y canal.
    */
+  async function abrirRecepcion() {
+    if (!shell.items || !shell.items.list) { recepcion = 'error'; return; }
+    const definicion = {
+      kind: 'definition',
+      public: {
+        enabled: true,
+        channels: [CANAL],
+        data: {
+          evento: EVENTO.titulo,
+          fecha: EVENTO.diaSemana + ' ' + EVENTO.dia + ' de ' + EVENTO.mes.toLowerCase()
+            + ' de ' + EVENTO.anio,
+          sede: EVENTO.sede,
+          canal: CANAL,
+        },
+      },
+    };
+    try {
+      const existentes = await shell.items.list();
+      const previo = (existentes || []).find((it) => it.id === 'definition');
+      const yaAbierta = previo && previo.public && previo.public.enabled === true
+        && Array.isArray(previo.public.channels) && previo.public.channels.includes(CANAL);
+      if (!yaAbierta) {
+        if (previo) await shell.items.update('definition', definicion);
+        else await shell.items.create(Object.assign({ id: 'definition' }, definicion));
+      }
+      recepcion = 'lista';
+    } catch (e) {
+      recepcion = 'error';
+    }
+  }
+
+  /** Lee los envíos que el gateway dejó como items de esta instancia. */
   async function cargar() {
-    if (!shell.data || !shell.data.listInstances) {
+    if (!shell.items || !shell.items.list) {
       setVista({
         cargando: false,
-        error: 'Este host no expone shell.data, así que no se pueden leer los totem. '
-          + 'Hace falta una versión del shell con el contrato AppShell v2.',
+        error: 'Esta ventana no tiene instancia: abre la app como documento (🗂️ Nuevo) para '
+          + 'que los totem puedan enviarle acreditaciones.',
       });
       return;
     }
     try {
-      const instancias = await shell.data.listInstances(APP_TOTEM);
-      const encontrados = [];
-      let todas = [];
-      for (const inst of instancias || []) {
-        const nombre = String(inst.name || inst.id || '').trim();
-        let items = [];
-        try {
-          items = await shell.data.listItems(inst.id);
-        } catch (e) {
-          encontrados.push({ id: inst.id, nombre, acreditados: 0, error: true });
-          continue;
-        }
-        const suyas = (items || [])
-          .filter((it) => it && it.kind === KIND && it.rut)
-          .map((it) => personaDeItem(it, nombre));
-        encontrados.push({ id: inst.id, nombre, acreditados: suyas.length, error: false });
-        todas = todas.concat(suyas);
-      }
-      llegadas = todas;
-      totems = encontrados;
+      const brutos = await shell.items.list();
+      const submissions = (brutos || []).filter(
+        (it) => it && it.id !== 'definition'
+          && (it.kind || 'submission') === 'submission'
+          && (!it.channel || it.channel === CANAL),
+      );
+      llegadas = submissions.reduce((acc, it) => acc.concat(personasDeItem(it)), []);
+      envios = submissions.length;
       setVista({ cargando: false, error: '' });
     } catch (e) {
-      const msg = String((e && e.message) || e);
-      setVista({
-        cargando: false,
-        error: /data\.read|403/.test(msg)
-          ? 'La plataforma no autoriza leer los totem. Reinstala esta app para que se apruebe '
-            + 'su permiso `data.read:aiep.inscripcion`.'
-          : 'No se pudieron leer los totem: ' + msg,
-      });
+      setVista({ cargando: false, error: 'No se pudieron leer las acreditaciones: ' + String((e && e.message) || e) });
     }
   }
 
@@ -430,7 +467,9 @@ export default function mount(shell) {
       inscritos: PADRON.length,
       repeticiones: repetidas,
       centros,
-      totems,
+      envios,
+      recepcion,
+      instanciaId: (shell.app && shell.app.instanceId) || '',
     };
   }
 
@@ -464,7 +503,7 @@ export default function mount(shell) {
     const cuerpo = filas.map((f) => [
       formatearRut(f.rut), f.nombre, f.empresa, f.correo, f.centro,
       f.llego ? 'Sí' : 'No', f.llego ? horaDe(f.hora) : '',
-      f.manual ? 'Marcado a mano' : (f.totem || ''),
+      f.manual ? 'Marcado a mano' : (f.llego ? 'Totem' : ''),
     ].map(esc).join(','));
     return [cab.map(esc).join(',')].concat(cuerpo).join('\r\n');
   }
@@ -478,7 +517,7 @@ export default function mount(shell) {
     if (shell.documents.onSerialize) shell.documents.onSerialize(() => ({ doc }));
     if (shell.documents.onLoad) shell.documents.onLoad((d) => { doc = normalizarDoc(d && d.doc); emitir(); });
   }
-  cargar().then(programarRefresco);
+  abrirRecepcion().then(cargar).then(programarRefresco);
 
   /* ── Agente IA ─────────────────────────────────────────────────────── */
 
@@ -543,7 +582,7 @@ export default function mount(shell) {
         },
         {
           name: 'REFRESCAR',
-          description: 'Vuelve a leer los totem ahora mismo.',
+          description: 'Vuelve a leer las acreditaciones ahora mismo.',
           inputSchema: { type: 'object', properties: {} },
         },
       ],
@@ -564,7 +603,8 @@ export default function mount(shell) {
             acreditacionesRepetidas: e.repeticiones,
           },
           porCentroDeNegocios: e.centros,
-          totemEncontrados: e.totems.map((t) => ({ nombre: t.nombre, acreditados: t.acreditados })),
+          enviosRecibidos: e.envios,
+          recepcionAbierta: e.recepcion === 'lista',
           marcadosAMano: Object.keys(doc.manuales).length,
           enPantalla: {
             seccion: vista.seccion,
@@ -603,7 +643,7 @@ export default function mount(shell) {
                 faltan: Math.max(0, e.inscritos - e.llegaron),
                 porCentroDeNegocios: e.centros,
                 repeticiones: e.repeticiones,
-                totem: e.totems.map((t) => ({ nombre: t.nombre, acreditados: t.acreditados })),
+                enviosRecibidos: e.envios,
               },
             };
           }
@@ -668,7 +708,7 @@ export default function mount(shell) {
             const e = estado();
             return {
               success: true,
-              message: e.totems.length + ' totem leído(s). ' + e.llegaron + ' acreditados.',
+              message: e.envios + ' envío(s) recibido(s). ' + e.llegaron + ' acreditados.',
             };
           }
           return { success: false, error: 'Acción desconocida: ' + tipo };
@@ -737,11 +777,11 @@ export default function mount(shell) {
           h('p', { className: 'ge-kpi-l' }, 'Faltan'),
           h('p', { className: 'ge-kpi-x' }, 'De ' + e.inscritos + ' inscritos')),
         h('div', { className: 'ge-kpi' },
-          h('p', { className: 'ge-kpi-n' }, String(e.totems.length)),
-          h('p', { className: 'ge-kpi-l' }, e.totems.length === 1 ? 'Totem' : 'Totem'),
-          h('p', { className: 'ge-kpi-x' }, e.totems.length
-            ? e.totems.map((t) => t.nombre + ' (' + t.acreditados + ')').join(' · ')
-            : 'Ninguno acreditando todavía')),
+          h('p', { className: 'ge-kpi-n' }, String(e.envios)),
+          h('p', { className: 'ge-kpi-l' }, 'Envíos'),
+          h('p', { className: 'ge-kpi-x' }, e.recepcion === 'lista'
+            ? 'Recepción abierta'
+            : (e.recepcion === 'error' ? 'No se pudo abrir la recepción' : 'Comprobando…'))),
         h('div', { className: 'ge-kpi' },
           h('p', { className: 'ge-kpi-n' }, String(Object.keys(doc.manuales).length)),
           h('p', { className: 'ge-kpi-l' }, 'A mano'),
@@ -797,11 +837,18 @@ export default function mount(shell) {
     return h('div', { className: 'ai-wrap' },
       h(Kpis, { e: e }),
       v.error ? h('div', { className: 'ai-card' }, h('p', { className: 'ai-aviso' }, v.error)) : null,
-      !v.cargando && !v.error && !e.totems.length ? h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-aviso' },
-          'Todavía no hay ningún totem de AIEP INSCRIPCIÓN con acreditaciones. En cuanto se '
-          + 'abra uno y alguien se acredite, aparecerá aquí solo: no hay que emparejar ni '
-          + 'configurar nada.')) : null,
+      /* Mientras no llegue nada, esto explica el único paso que existe: pegar
+         el parámetro en la URL de la vitrina. En cuanto entra la primera
+         acreditación desaparece solo. */
+      !v.cargando && !e.envios ? h('div', { className: 'ai-card' },
+        h('p', { className: 'ai-h3 rojo' }, 'Conectar los totem'),
+        h('p', { className: 'ai-p' },
+          'La recepción ya está abierta. Falta que la vitrina del totem lleve este parámetro '
+          + 'en su URL, una sola vez:'),
+        h('code', { className: 'ge-id' }, '?aiep=' + (e.instanciaId || '(abre la app como documento)')),
+        h('p', { className: 'ai-p tenue' },
+          'Es decir: la URL de la vitrina, y al final ese texto. El totem lo guarda y no vuelve '
+          + 'a hacer falta. Este aviso desaparece con la primera acreditación.')) : null,
       h('div', { className: 'ai-card' },
         h('p', { className: 'ai-h3 rojo' }, 'Lista'),
         h('p', { className: 'ai-p tenue' },
@@ -844,7 +891,7 @@ export default function mount(shell) {
   /* ── Componente raíz ───────────────────────────────────────────────── */
 
   function Component() {
-    const [est, setEst] = React.useState({ doc, llegadas, totems, vista });
+    const [est, setEst] = React.useState({ doc, llegadas, envios, recepcion, vista });
     const [modo, setModo] = React.useState('escritorio');
     const raizRef = React.useRef(null);
 
@@ -903,9 +950,9 @@ export default function mount(shell) {
           h('span', { className: 'ai-chip-logo' }, h('img', { src: LOGO_AIEP, alt: 'AIEP' })),
           h('p', { className: 'ai-hd-t' }, 'Gestión · ', EVENTO.titulo)),
         h('div', { className: 'ai-hd-est' },
-          h('span', { className: 'ai-pill' + (e.totems.length ? ' vivo' : '') },
-            e.totems.length ? h('span', { className: 'ai-punto' }) : null,
-            e.totems.length ? e.totems.length + ' totem' : 'Sin totem'),
+          h('span', { className: 'ai-pill' + (e.recepcion === 'lista' ? ' vivo' : '') },
+            e.recepcion === 'lista' ? h('span', { className: 'ai-punto' }) : null,
+            e.recepcion === 'lista' ? 'Recibiendo' : 'Sin recepción'),
           h('button', { type: 'button', className: 'ai-btn ghost', title: 'Volver a leer ahora', onClick: () => cargar() }, '⟳'),
           h('button', { type: 'button', className: 'ai-btn ghost', title: 'Descargar la lista en CSV', onClick: exportar }, '⬇ CSV'),
           h('span', { className: 'ai-ver', title: 'AIEP GESTIÓN v' + APP_VERSION }, 'v' + APP_VERSION))),

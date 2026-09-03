@@ -4,26 +4,47 @@ Asistencia del Seminario **«IA y Protección de Datos: Lo que Todo Negocio Debe
 Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquín, organizado con los
 Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e Independencia.
 
-**Versión actual: 2.0.0**
+**Versión actual: 3.0.0**
 
 Es el lado interno del par: los totem de **AIEP INSCRIPCIÓN** acreditan gente en
 la puerta, y aquí se ve quién llegó.
 
 ---
 
-## No hay nada que configurar ni que activar
+## De dónde salen los datos
 
-La app **encuentra sola todos los totem**. Declara
-`data.read:aiep.inscripcion` en su manifest, y con eso
-`shell.data.listInstances('aiep.inscripcion')` le devuelve cada instancia del
-totem a la que el usuario ya tiene acceso, y `listItems` sus acreditaciones. Si
-hay tres totem en la puerta, los tres se suman.
+Los totem corren en la **vitrina**, donde no hay sesión, así que envían por el
+**gateway público** del creator pack. El gateway deja cada envío como un item
+`kind: "submission"` del canal `asistencia` de esta instancia, y aquí se leen
+con `shell.items.list()`. La lista se refresca sola cada 15 segundos.
 
-Sin emparejar, sin identificadores que pegar, sin interruptores. Se instala, se
-abre y ya está mostrando lo que hay. La lista se refresca sola cada 15 segundos.
+Como el gateway **sanea a texto plano y descarta lo anidado**, el totem manda un
+**lote de personas como un campo de texto con JSON dentro**, que aquí se vuelve
+a abrir. También se acepta un envío de **una sola persona**, por si alguien
+postea a mano contra el endpoint. Y un lote ilegible no tira el envío entero:
+aparece como `(lote ilegible)` para que se revise.
 
-El techo lo pone el **RBAC del usuario**, no esta app: solo se ven los totem de
-equipos a los que la persona ya pertenece, y solo de lectura.
+## No hay ningún interruptor que pulsar
+
+El gateway solo acepta envíos si la instancia declaró `public.enabled` en su
+item `definition`. **Esta app lo escribe sola al abrirse** — antes había que
+activarlo a mano, y no tenía sentido.
+
+Lo que `/definition` expone al mundo es solo el bloque `data`, y ahí **no va
+ningún dato personal**: nombre del evento, fecha, sede y canal.
+
+## El único paso que queda
+
+El endpoint del gateway se direcciona **por instancia**, así que el totem tiene
+que saber cuál es esta, y no hay forma de que la descubra solo. Se pega **una
+vez** al final de la URL de la vitrina:
+
+```
+https://tu-kimos/vitrina/TOKEN?aiep=ID-DE-LA-INSTANCIA
+```
+
+La app muestra ese texto listo para copiar en una tarjeta, y **la tarjeta
+desaparece sola con la primera acreditación**.
 
 ---
 
@@ -31,7 +52,7 @@ equipos a los que la persona ya pertenece, y solo de lectura.
 
 | Sección | Qué hay |
 |---|---|
-| **Asistencia** | Cifras en cabecera (asistieron, faltan, cuántos totem están acreditando y con cuántos cada uno, marcados a mano) con barra de avance, y la lista completa: buscar por nombre, empresa o RUT, filtrar por Centro de Negocios, ver solo quienes faltan, ordenar y marcar a mano. |
+| **Asistencia** | Cifras en cabecera (asistieron, faltan, envíos recibidos, marcados a mano) con barra de avance, y la lista completa: buscar por nombre, empresa o RUT, filtrar por Centro de Negocios, ver solo quienes faltan, ordenar y marcar a mano. |
 | **Por centro** | Cómo va cada Centro de Negocios, con su porcentaje y accesos directos a su gente y a quiénes le faltan. |
 
 En la cabecera: **⟳** relee ahora mismo y **⬇ CSV** descarga la lista con el
@@ -86,9 +107,9 @@ trámite en curso, y **no puede borrar ni editar** lo que registró el totem.
 
 ## Puesta en marcha
 
-1. Instalar AIEP INSCRIPCIÓN y abrirla en el equipo de la puerta.
-2. Instalar esta app y abrirla.
-3. Listo.
+1. Instalar esta app y abrirla como documento (🗂️ Nuevo). La recepción se abre sola.
+2. Copiar el `?aiep=ID` que muestra la tarjeta y pegarlo al final de la URL de la vitrina del totem.
+3. Listo. La tarjeta desaparece con la primera acreditación.
 
 ---
 
@@ -96,5 +117,6 @@ trámite en curso, y **no puede borrar ni editar** lo que registró el totem.
 
 | Versión | Cambios |
 |---|---|
-| 2.0.0 | **Sin configurar nada.** Fuera la sección Publicación entera —el interruptor de recepción, el identificador de instancia y los cuatro pasos de emparejamiento—: ahora encuentra sola todos los totem con `shell.data` y suma lo de todos. La cabecera muestra cuántos totem están acreditando y con cuántas personas cada uno, y el CSV pasa a la cabecera. |
+| 3.0.0 | **Vuelve el gateway, sin el interruptor.** La 2.0.0 leía los totem con `shell.data`, que solo funciona si el totem corre en sesión; en la vitrina devuelve vacío siempre. Se vuelve a recibir por el gateway público, pero **la recepción se abre sola al abrir la app**: ya no hay nada que activar. Queda un único paso, `?aiep=ID` en la URL de la vitrina, que la app muestra listo para copiar y esconde con la primera acreditación. |
+| 2.0.0 | Sin configurar nada, leyendo los totem con `shell.data` — **solo válido si el totem corre en sesión**. Fuera la sección Publicación entera —el interruptor de recepción, el identificador de instancia y los cuatro pasos de emparejamiento—: ahora encuentra sola todos los totem con `shell.data` y suma lo de todos. La cabecera muestra cuántos totem están acreditando y con cuántas personas cada uno, y el CSV pasa a la cabecera. |
 | 1.0.0 | Primera versión: cruce en vivo del padrón con los envíos de los totem por el gateway público, cifras y barra de avance, búsqueda y filtros, avance por Centro de Negocios, marcado manual, publicación opt-in y exportación a CSV. |

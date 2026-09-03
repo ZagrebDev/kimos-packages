@@ -10,27 +10,33 @@
  * momento, no hay formulario, no hay excepciones desde la pantalla. Quien no
  * esté inscrito se resuelve en el mesón, con una persona.
  *
- * DÓNDE SE GUARDA: en los items de esta instancia, con `shell.items.create()`.
- * Sin configurar nada y sin emparejar con nada. La app AIEP GESTIÓN los lee
- * sola declarando `data.read:aiep.inscripcion` en su manifest: encuentra por
- * su cuenta todos los totem que estén acreditando y suma lo de todos.
+ * CORRE EN LA VITRINA, y eso manda sobre cómo guarda. En la vitrina no hay
+ * sesión: el host público le da a la app un shell EFÍMERO, donde `shell.items`
+ * escribe en memoria del navegador y se pierde al recargar. Así que la
+ * acreditación viaja por el gateway público del creator pack (APP-SPEC §7.b):
  *
- * ESO SÍ, ESTO NO CORRE EN LA VITRINA ANÓNIMA. El host público de la vitrina
- * da un shell efímero —lo que se guarda vive solo en la memoria de ese
- * navegador— así que el totem de acreditación se instala y se abre como app
- * en sesión, en el equipo de la puerta. Es equipo del staff, no un kiosco
- * anónimo, y a cambio no hay nada que configurar.
+ *     POST {api}/api/public/app/{instanceId}/submit/asistencia
  *
- * SIN RED NO SE PIERDE NADIE: si la escritura falla, la acreditación se guarda
- * en el equipo y se reintenta sola. El pie muestra cuántas quedan pendientes.
+ * donde `{instanceId}` es la instancia de AIEP GESTIÓN. No hace falta ningún
+ * endpoint nuevo en kimos-enterprice ni tocar setup-kimos.
+ *
+ * EL ÚNICO DATO QUE NECESITA es ese identificador, y llega en la URL de la
+ * vitrina como `?aiep=ID` (después queda guardado en el equipo). El endpoint
+ * del gateway se direcciona POR INSTANCIA: no hay forma de descubrirla sola.
+ *
+ * Y SI NO LO TIENE, NO FINGE. Un totem sin emparejar no deja acreditar: avisa
+ * en la portada. Mostrar «✓ Asistencia registrada» a alguien cuyo registro no
+ * va a llegar a ninguna parte es el peor fallo que puede tener esto.
+ *
+ * SIN RED NO SE PIERDE NADIE: lo que no sale se encola en el equipo y se
+ * reintenta solo. El pie muestra cuántos quedan.
  *
  * EL AGENTE ES CONSULTIVO: busca en el padrón y explica el trámite, pero la
- * acreditación la confirma la persona con su propio toque. Nadie queda
- * registrado por una conversación.
+ * acreditación la confirma la persona con su propio toque.
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 
 /* ── El seminario (mismos datos que ANFITRIÓN AIEP) ───────────────────── */
 
@@ -54,18 +60,35 @@ const PIE = {
   plataforma: 'Powered by',
 };
 
-/* Marca de los items que escribe el totem. AIEP GESTIÓN filtra por esto. */
-const KIND = 'asistencia';
+/* Canal del gateway por el que viaja cada acreditación. AIEP GESTIÓN lo
+   declara en `definition.public.channels` al abrirse. */
+const CANAL = 'asistencia';
 
-/* Reintento local, por si la escritura falla: una acreditación perdida es una
-   persona que se queda fuera de la lista. */
-const LS_PEND = 'aiep.inscripcion.pendientes.v2';
-const REINTENTO_MS = 8000;
+const LS_COLA = 'aiep.inscripcion.cola.v3';
+const LS_INSTANCIA = 'aiep.inscripcion.instancia.v3';
+
+/* Topes del gateway público (backend/appPublicAPI.py), que mandan sobre cómo
+   se envía esto:
+   - 8 peticiones por IP+instancia cada 5 minutos. Un totem en la fila de
+     acreditación se come ese tope en un minuto si manda una petición por
+     persona, así que se agrupan en un LOTE por petición.
+   - El saneo descarta objetos y listas anidados y recorta cada valor a 5.000
+     caracteres. Por eso el lote viaja como UN campo de texto con JSON dentro,
+     que AIEP GESTIÓN vuelve a abrir al leerlo.
+   - Una petición por vaciado y 40 s de espaciado: 7 u 8 peticiones por
+     ventana, con hasta 12 personas cada una. ~90 acreditaciones cada 5
+     minutos, muy por encima del ritmo de una fila real. */
+const LOTE_MAX_PERSONAS = 12;
+const LOTE_MAX_CARACTERES = 4500;
+const ENVIO_MIN_MS = 40000;
+const ESPERA_429_MS = 70000;
+/* Códigos en los que el envío ES el problema y reintentarlo no arregla nada.
+   Todo lo demás se reintenta: ver el comentario en vaciarCola. */
+const RECHAZOS_DEFINITIVOS = new Set([400, 413, 422]);
 const VOLVER_MS = 12000;
 
 /* ── RUT ──────────────────────────────────────────────────────────────── */
 
-/** Deja el RUT en su forma canónica: sin puntos, sin guion, K mayúscula. */
 function normalizarRut(bruto) {
   return String(bruto || '').toUpperCase().replace(/[^0-9K]/g, '');
 }
@@ -120,6 +143,38 @@ function escribirLS(clave, valor) {
 
 /* Teclado numérico en pantalla: el totem no tiene teclado físico. */
 const TECLAS_NUM = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'K', '0'];
+
+/* ── Gateway ──────────────────────────────────────────────────────────── */
+
+/**
+ * Base del backend, deducida del propio shell: `assetUrl` devuelve
+ * `{api}/api/apps/{appId}/asset/…`, así que el prefijo hasta `/api/` es la
+ * base del gateway. Se deduce en vez de cablearse porque la vitrina y el
+ * shell de sesión no siempre viven en el mismo origen.
+ */
+function baseApi(shell) {
+  try {
+    const u = shell.assetUrl('x');
+    const i = u.indexOf('/api/apps/');
+    if (i > 0) return u.slice(0, i);
+    if (i === 0) return '';
+  } catch (e) { /* host sin assetUrl: mismo origen */ }
+  return '';
+}
+
+/**
+ * Instancia de AIEP GESTIÓN a la que van las acreditaciones. Llega en la URL
+ * de la vitrina (`?aiep=ID`) y desde ahí queda guardada en el equipo, para que
+ * una recarga sin el parámetro no deje el totem huérfano.
+ */
+function resolverInstancia() {
+  try {
+    const q = new URLSearchParams(globalThis.location ? globalThis.location.search : '');
+    const deUrl = String(q.get('aiep') || '').trim();
+    if (deUrl) { escribirLS(LS_INSTANCIA, deUrl); return deUrl; }
+  } catch (e) { /* sin location */ }
+  return String(leerLS(LS_INSTANCIA, '') || '').trim();
+}
 
 /* ── Logo de la sede anfitriona, extraído del .docx del programa ─────── */
 const LOGO_AIEP = 'data:image/png;base64,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';
@@ -272,7 +327,7 @@ const PADRON = [
 ];
 
 /* ── Configuración ─────────────────────────────────────────────────────── */
-/* Solo lo que cambia el aspecto. No hay nada que emparejar ni que activar. */
+/* Solo el aspecto. El emparejamiento va en la URL, no aquí. */
 
 const DEFAULT_CONFIG = {
   modo: 'auto',
@@ -287,6 +342,7 @@ export default function mount(shell) {
   const h = React.createElement;
 
   let config = Object.assign({}, DEFAULT_CONFIG);
+  const instancia = resolverInstancia();
   let vista = {
     paso: 'inicio',        // inicio · rut · confirmar · fuera · listo
     rut: '',
@@ -294,16 +350,14 @@ export default function mount(shell) {
     ficha: null,
     comprobante: null,
   };
-  // rut → { ts, nombre } de esta jornada, para avisar de una segunda pasada.
-  let hechos = {};
-  let pendientes = leerLS(LS_PEND, []);
+  let hechos = {};                          // rut → { ts, nombre } de la jornada
+  let cola = leerLS(LS_COLA, []);           // acreditaciones que aún no salieron
   const listeners = new Set();
-  const emitir = () => listeners.forEach((l) => l({ vista, config, hechos, pendientes }));
+  const emitir = () => listeners.forEach((l) => l({ vista, config, hechos, cola }));
   const setVista = (parcial) => { vista = Object.assign({}, vista, parcial); emitir(); };
 
   let inactividadT = null;
   let volverT = null;
-  let reintentoT = null;
 
   const volverAlInicio = () => {
     vista = Object.assign({}, vista, { paso: 'inicio', rut: '', error: '', ficha: null, comprobante: null });
@@ -317,60 +371,119 @@ export default function mount(shell) {
     inactividadT = setTimeout(() => { if (vista.paso !== 'inicio') volverAlInicio(); }, espera * 1000);
   };
 
-  /* ── Escritura ─────────────────────────────────────────────────────── */
+  /* ── Envío al gateway, por lotes y con cola ────────────────────────── */
 
-  let escribiendo = false;
+  let vaciandoT = null;
+  let vaciando = false;        // un solo vaciado a la vez: dos concurrentes
+  let ultimoEnvioTs = 0;       // recorrerían la misma cola y duplicarían gente
+  let esperaExtraMs = 0;
 
-  /**
-   * Vuelca las acreditaciones que no llegaron a guardarse. Un solo pase a la
-   * vez: dos concurrentes recorrerían la misma lista y registrarían dos veces
-   * a la misma persona.
-   */
-  async function vaciarPendientes() {
-    if (escribiendo || !pendientes.length) return;
-    if (!shell.items || !shell.items.create) return;
-    escribiendo = true;
-    const lote = pendientes.slice();
-    const guardados = new Set();
-    try {
-      for (const p of lote) {
-        try {
-          await shell.items.create(p.registro);
-          guardados.add(p.id);
-        } catch (e) {
-          break;   // sigue sin poder escribir: se queda para el próximo intento
-        }
+  /** Parte la cola en lotes que quepan en un campo del gateway. */
+  function armarLotes(pendientes) {
+    const lotes = [];
+    let actual = [];
+    let largo = 2;
+    for (const envio of pendientes) {
+      const trozo = JSON.stringify(envio.data).length + 1;
+      if (actual.length && (actual.length >= LOTE_MAX_PERSONAS || largo + trozo > LOTE_MAX_CARACTERES)) {
+        lotes.push(actual); actual = []; largo = 2;
       }
-      pendientes = pendientes.filter((p) => !guardados.has(p.id));
-      escribirLS(LS_PEND, pendientes);
+      actual.push(envio); largo += trozo;
+    }
+    if (actual.length) lotes.push(actual);
+    return lotes;
+  }
+
+  async function vaciarCola() {
+    if (vaciando) return;
+    clearTimeout(vaciandoT);
+    if (!instancia || !cola.length) { programarVaciado(); return; }
+    vaciando = true;
+    ultimoEnvioTs = Date.now();
+    const url = baseApi(shell) + '/api/public/app/' + encodeURIComponent(instancia) + '/submit/' + CANAL;
+    // Foto de la cola: lo que se acredite MIENTRAS este vaciado corre no puede
+    // quedar fuera al reescribirla al final.
+    const foto = cola.slice();
+    const enviados = new Set();
+    let frenado = false;
+    try {
+      // UNA petición por vaciado: mandar todos los lotes de golpe agotaría el
+      // presupuesto de la ventana y empezaría a chocar contra el 429.
+      for (const lote of armarLotes(foto).slice(0, 1)) {
+        let salio = false;
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lote: JSON.stringify(lote.map((e) => e.data)),
+              personas: String(lote.length),
+              evento: EVENTO.titulo,
+              appVersion: APP_VERSION,
+            }),
+          });
+          if (r.ok) { salio = true; esperaExtraMs = 0; }
+          else if (r.status === 429) {
+            // Tope de la plataforma, no un fallo nuestro: se espera a que se
+            // abra la ventana en vez de gastar reintentos contra la pared.
+            frenado = true;
+            esperaExtraMs = ESPERA_429_MS;
+          } else if (RECHAZOS_DEFINITIVOS.has(r.status)) {
+            // El envío en sí está mal formado (400), es demasiado grande (413)
+            // o va vacío (422): reintentarlo lo repetiría igual de mal.
+            salio = true;
+            shell.notify && shell.notify({
+              level: 'error',
+              text: 'La plataforma rechazó ' + lote.length + ' registro(s) (HTTP ' + r.status + ').',
+            });
+          } else {
+            // TODO LO DEMÁS SE REINTENTA, y muy en particular el 403: ahí no
+            // dice "este registro está mal", dice que la instancia de gestión
+            // aún no acepta envíos. Descartar por eso tiraría a la basura a
+            // cada persona que se acredite hasta que alguien se diera cuenta.
+            frenado = true;
+          }
+        } catch (e) { frenado = true; /* sin red */ }
+        if (salio) lote.forEach((e) => enviados.add(e.id));
+      }
+      cola = cola.filter((e) => !enviados.has(e.id));
+      escribirLS(LS_COLA, cola);
       emitir();
     } finally {
-      escribiendo = false;
+      vaciando = false;
     }
-    clearTimeout(reintentoT);
-    if (pendientes.length) reintentoT = setTimeout(vaciarPendientes, REINTENTO_MS);
+    programarVaciado();
   }
+
+  /** Próximo vaciado, respetando el espaciado mínimo entre peticiones. */
+  const programarVaciado = () => {
+    clearTimeout(vaciandoT);
+    if (!cola.length) return;
+    const espera = Math.max(
+      esperaExtraMs || 0,
+      ENVIO_MIN_MS - (Date.now() - ultimoEnvioTs),
+      0,
+    );
+    vaciandoT = setTimeout(() => { vaciarCola(); }, espera);
+  };
 
   /** Deja acreditada a una persona del padrón. Devuelve el comprobante. */
   function acreditar(p) {
     const ts = Date.now();
     const registro = {
-      kind: KIND,
       rut: p.r,
       rutFormateado: formatearRut(p.r),
       nombre: p.n,
       empresa: p.e || '',
       correo: p.m || '',
       cdn: p.c || '',
-      evento: EVENTO.titulo,
       acreditadoEn: new Date(ts).toISOString(),
-      appVersion: APP_VERSION,
     };
     hechos[p.r] = { ts, nombre: p.n };
-    pendientes = pendientes.concat([{ id: 'p' + ts.toString(36), registro }]);
-    escribirLS(LS_PEND, pendientes);
+    cola = cola.concat([{ id: 'e' + ts.toString(36), data: registro }]);
+    escribirLS(LS_COLA, cola);
     emitir();
-    vaciarPendientes();
+    programarVaciado();
     return { registro, ts };
   }
 
@@ -378,6 +491,8 @@ export default function mount(shell) {
 
   const irAPaso = (paso) => {
     if (!['inicio', 'rut', 'confirmar', 'fuera', 'listo'].includes(paso)) return false;
+    // Sin emparejar no se entra al flujo: no se acredita a nadie en falso.
+    if (paso !== 'inicio' && !instancia) return false;
     setVista({ paso, error: '' });
     marcarActividad();
     return true;
@@ -397,6 +512,7 @@ export default function mount(shell) {
    * confirmando. Si no está en la lista, lo dice y no ofrece salidas.
    */
   function consultarRut(bruto) {
+    if (!instancia) return { estado: 'sin-emparejar' };
     const rut = normalizarRut(bruto);
     if (rut.length < 8) {
       setVista({ error: 'El RUT está incompleto. Escríbelo con su dígito verificador.' });
@@ -420,7 +536,7 @@ export default function mount(shell) {
 
   function confirmar() {
     const p = vista.ficha;
-    if (!p) return null;
+    if (!p || !instancia) return null;
     const { registro, ts } = acreditar(p);
     setVista({ paso: 'listo', comprobante: { registro, ts } });
     clearTimeout(volverT);
@@ -439,7 +555,7 @@ export default function mount(shell) {
 
   if (shell.window && shell.window.setTitle) shell.window.setTitle('AIEP INSCRIPCIÓN · ' + EVENTO.titulo);
   marcarActividad();
-  vaciarPendientes();
+  programarVaciado();
 
   /* ── Agente IA (consultivo) ────────────────────────────────────────── */
 
@@ -504,9 +620,15 @@ export default function mount(shell) {
           error: vista.error || null,
         },
         padron: { inscritos: PADRON.length },
+        emparejado: !!instancia,
+        acreditacionesPorSubir: cola.length,
         avisos: [
-          'Eres CONSULTIVO: informas y buscas, pero NO acreditas a nadie. La acreditación la '
-            + 'confirma la persona tocando el botón en el totem.',
+          !instancia
+            ? 'ESTE TOTEM NO ESTÁ EMPAREJADO con AIEP GESTIÓN, así que NO puede acreditar a '
+              + 'nadie. No le digas a nadie que quedó registrado. Avisa de que hay que llamar '
+              + 'al staff y usar el mesón de acreditación.'
+            : 'Eres CONSULTIVO: informas y buscas, pero NO acreditas a nadie. La acreditación la '
+              + 'confirma la persona tocando el botón en el totem.',
           'SOLO se acredita quien está en el padrón. Si alguien no está, no hay forma de '
             + 'registrarlo desde el totem y no debes ofrecer ninguna: dile que se acerque al '
             + 'mesón de acreditación, que ahí lo ve una persona.',
@@ -519,6 +641,13 @@ export default function mount(shell) {
         const p = (action && action.payload) || {};
         try {
           if (tipo === 'CONSULTAR_RUT') {
+            if (!instancia) {
+              return {
+                success: false,
+                error: 'Este totem no está emparejado con AIEP GESTIÓN: no puede acreditar a '
+                  + 'nadie. Hay que avisar al staff.',
+              };
+            }
             setVista({ paso: 'rut', rut: normalizarRut(p.rut).slice(0, 9) });
             const r = consultarRut(p.rut);
             if (r.estado === 'incompleto' || r.estado === 'invalido') {
@@ -600,8 +729,8 @@ export default function mount(shell) {
     return h('footer', { className: 'ai-ft' },
       h('p', { className: 'ai-ft-c' }, PIE.copyright),
       props.pendientes
-        ? h('span', { className: 'ac-cola', title: 'Acreditaciones que aún no se han guardado' },
-          '⟳ ', String(props.pendientes), ' por guardar')
+        ? h('span', { className: 'ac-cola', title: 'Acreditaciones que aún no se han subido' },
+          '⟳ ', String(props.pendientes), ' por subir')
         : null,
       h('span', { className: 'ai-ft-sep', 'aria-hidden': 'true' }),
       h('div', { className: 'ai-ft-k' },
@@ -623,7 +752,7 @@ export default function mount(shell) {
 
   /* ── Pantallas ─────────────────────────────────────────────────────── */
 
-  function Inicio() {
+  function Inicio(props) {
     return h('div', { className: 'ai-wrap ac-centro' },
       h('div', { className: 'ac-portada' },
         h(Rotulo, null),
@@ -631,9 +760,22 @@ export default function mount(shell) {
           EVENTO.diaSemana + ' ' + EVENTO.dia + ' de ' + EVENTO.mes.toLowerCase() + ' de '
           + EVENTO.anio + ' · ' + EVENTO.horarioTexto),
         h('p', { className: 'ai-p tenue' }, EVENTO.sede, ' · ', EVENTO.direccion)),
-      h('button', { type: 'button', className: 'ac-cta', onClick: () => irAPaso('rut') },
-        '✋ Acreditarme'),
-      h('p', { className: 'ai-p tenue' }, 'Toca el botón y marca tu RUT. Toma menos de un minuto.'));
+      /* Un totem sin emparejar NO acredita, y lo dice. Fingir un «registrado»
+         a alguien cuyo registro no va a llegar a ninguna parte es el peor
+         fallo que puede tener esto. */
+      props.emparejado
+        ? h('div', { className: 'ac-centro', style: { gap: '1em' } },
+          h('button', { type: 'button', className: 'ac-cta', onClick: () => irAPaso('rut') },
+            '✋ Acreditarme'),
+          h('p', { className: 'ai-p tenue' }, 'Toca el botón y marca tu RUT. Toma menos de un minuto.'))
+        : h('div', { className: 'ac-ficha' },
+          h('p', { className: 'ac-ficha-nom' }, 'Acreditación no disponible'),
+          h('p', { style: { marginTop: '.6em', fontWeight: 600, lineHeight: 1.5 } },
+            'Este totem todavía no está conectado con el registro del seminario. '
+            + 'Acércate al mesón de acreditación.'),
+          h('p', { style: { marginTop: '.9em', fontSize: 'var(--f-sm)', opacity: .7 } },
+            'Staff: falta el parámetro ?aiep=ID en la URL de la vitrina. '
+            + 'El identificador está en AIEP GESTIÓN.')));
   }
 
   function PasoRut(props) {
@@ -722,7 +864,7 @@ export default function mount(shell) {
   ];
 
   function Component() {
-    const [estado, setEstado] = React.useState({ vista, config, hechos, pendientes });
+    const [estado, setEstado] = React.useState({ vista, config, hechos, cola });
     const [ahora, setAhora] = React.useState(() => Date.now());
     const [modo, setModo] = React.useState('escritorio');
     const raizRef = React.useRef(null);
@@ -761,7 +903,7 @@ export default function mount(shell) {
     const hora = new Date(ahora);
 
     const pantallas = {
-      inicio: () => h(Inicio, null),
+      inicio: () => h(Inicio, { emparejado: !!instancia }),
       rut: () => h(PasoRut, { vista: v }),
       confirmar: () => h(PasoConfirmar, { vista: v, hechos: estado.hechos }),
       fuera: () => h(PasoFuera, { vista: v }),
@@ -785,17 +927,17 @@ export default function mount(shell) {
 
     /* Barra bajo el header, igual que ANFITRIÓN AIEP: el pie de la pantalla
        queda para el pie de marca y para el widget de chat de la vitrina. */
-    h('nav', { className: 'ai-nav' }, PASOS_NAV.map((s) => h('button', {
+    instancia ? h('nav', { className: 'ai-nav' }, PASOS_NAV.map((s) => h('button', {
       key: s.id,
       type: 'button',
       'aria-current': v.paso === s.id ? 'page' : undefined,
       className: 'ai-nav-b' + (v.paso === s.id ? ' on' : ''),
       onClick: () => irAPaso(s.id),
-    }, h('span', { className: 'ai-nav-ico' }, s.ico), s.label))),
+    }, h('span', { className: 'ai-nav-ico' }, s.ico), s.label))) : null,
 
     h('main', { className: 'ai-body' }, (pantallas[v.paso] || pantallas.inicio)()),
 
-    h(Pie, { pendientes: estado.pendientes.length }));
+    h(Pie, { pendientes: estado.cola.length }));
   }
 
   return {
@@ -803,7 +945,7 @@ export default function mount(shell) {
     unmount() {
       clearTimeout(inactividadT);
       clearTimeout(volverT);
-      clearTimeout(reintentoT);
+      clearTimeout(vaciandoT);
       listeners.clear();
       if (offAgent) { try { offAgent(); } catch (e) { /* ya desregistrado */ } }
       if (offConfig) { try { offConfig(); } catch (e) { /* ya desuscrito */ } }
