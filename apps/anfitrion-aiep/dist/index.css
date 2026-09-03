@@ -292,11 +292,14 @@
   display: flex; align-items: center; justify-content: center;
   font-size: var(--f-lg); font-weight: 900; color: #fff;
 }
-/* Los retratos vienen sobre fondo blanco: object-position arriba para que el
-   recorte circular no corte la frente. */
+/* Los retratos ya llegan recortados en cuadrado y anclados a la cabeza, así que
+   basta cubrir; el fondo blanco es el de las fotos de estudio. */
 .kimos-anfitrion-aiep .ai-sp-foto {
-  display: block; object-fit: cover; object-position: 50% 22%; background: #fff;
+  display: block; object-fit: cover; object-position: 50% 40%; background: #fff;
 }
+/* En el totem se mira de pie y a un par de pasos: la cara tiene que leerse. */
+.modo-totem.kimos-anfitrion-aiep .ai-sp-ini,
+.modo-totem.kimos-anfitrion-aiep .ai-sp-foto { width: 6.4em; height: 6.4em; }
 .kimos-anfitrion-aiep .ai-sp-ini.rojo { background: var(--ai-rojo); border-color: var(--ai-rojo); }
 .kimos-anfitrion-aiep .ai-sp-nom { font-size: var(--f-lg); font-weight: 800; color: #fff; line-height: 1.2; }
 .kimos-anfitrion-aiep .ai-sp-rol { font-size: var(--f-base); color: var(--ai-soft); margin-top: .2em; }

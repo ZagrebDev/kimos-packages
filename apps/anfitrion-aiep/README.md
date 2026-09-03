@@ -5,7 +5,7 @@ Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquí
 organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 1.2.0**
+**Versión actual: 1.3.0**
 
 ---
 
@@ -125,21 +125,21 @@ la franja inferior del afiche.
 
 ## Fotos
 
-> **Pendientes en 1.2.0.** La infraestructura está completa y las cuatro ranuras
-> de `FOTOS` (en `dist/index.js`) están puestas y **vacías**: hoy las cuatro
-> fichas muestran iniciales. El archivo de la lámina no pudo llegar al entorno
-> donde se construyó esta versión. Para completarlas basta rellenar esas cuatro
-> cadenas con los `data:` URI de los recortes; no hay que tocar nada más.
+Los cuatro retratos oficiales llegaron **dentro de un `.docx`** del organizador,
+ya separados uno por uno. Se recortan a cuadrado anclando arriba —en un retrato
+de carnet la cabeza vive en la mitad superior, así que centrar el cuadrado
+cortaría la frente—, se reescalan a 320 px y se embeben como `data:` URI en
+JPEG, igual que los logos: **71 KB los cuatro**, y el totem no pide nada a la
+red.
 
-Los retratos salen de la lámina 2×2 que entrega el organizador. Se recortan por
-cuadrantes en orden de lectura —Jack ↖, Patricia ↗, Marco ↙, Nicolás ↘—, se
-reescalan a 320 px y se embeben como `data:` URI en JPEG, igual que los logos:
-el totem no pide nada a la red.
+Cada foto se cotejó una por una contra la lámina rotulada que envió el
+organizador antes de asignarla, para no cruzar caras y nombres.
 
 Cada ficha usa el componente `Avatar`, que cae a las iniciales de la persona si
 la foto falta o no carga, así que la app nunca queda con un hueco. El recorte es
-circular con `object-position: 50% 22%` para no cortar la frente. Se pueden
-apagar todas desde ⚙️ Configurar → *Mostrar las fotos de los expositores*.
+circular, y en modo totem el avatar crece a 6,4 em (≈134 px) para que la cara se
+lea de pie y a un par de pasos. Se pueden apagar todas desde ⚙️ Configurar →
+*Mostrar las fotos de los expositores*.
 
 El snapshot del agente expone `foto: true|false` por persona, de modo que se
 puede auditar cuántas hay embebidas sin abrir el bundle.
@@ -213,6 +213,7 @@ node tools/pack.mjs apps/anfitrion-aiep
 
 | Versión | Cambios |
 |---------|---------|
+| 1.3.0 | Los cuatro retratos oficiales, recortados a cuadrado y embebidos como `data:` URI (71 KB en total), cotejados uno por uno contra la lámina rotulada. Avatar más grande en modo totem para que la cara se lea a distancia. |
 | 1.2.0 | Nombres reconciliados con la lámina oficial de retratos: «Marco Mella» (el programa decía «Marcos») y «Patricia Carolina Sandoval», conservando el nombre del programa en el snapshot. Infraestructura de fotos: componente `Avatar` con caída a iniciales, recorte circular, interruptor `mostrarFotos` y `foto` en el snapshot. |
 | 1.1.0 | Perfiles profesionales de los cuatro expositores: QR por persona en la ficha desplegable (verificados con `jsQR`), biografía de Jack Esquenazi con su fuente, y nombre completo de Marco Antonio Mella González junto al «Marcos Mella» del programa. |
 | 1.0.0 | Primera versión: seis secciones, programa de siete bloques con bloque en vivo, cuatro expositores, contexto complementario, consulta guiada, tablón de preguntas y encuesta colectivos, tres QR embebidos, logos oficiales extraídos del `.docx` y reinicio por inactividad. |
