@@ -29,7 +29,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 
 /* ── Logos oficiales, extraídos del .docx del programa ────────────────── */
 /* Retratos de los expositores, recortados de la lámina oficial que entregó el
@@ -362,6 +362,88 @@ const QR = {
 const DEFAULT_CONFIG = { modo: 'auto', segundosInactividad: 90, mostrarContexto: true, mostrarFotos: true };
 const IDS_SECCION = SECCIONES.map((s) => s.id);
 
+/* ── Estilos críticos, embarcados en el bundle ─────────────────────────
+ * El totem sirvió una vez el JS nuevo con la hoja de estilos vieja en caché
+ * (dist/index.css no cambia de nombre entre versiones), y las fichas salieron
+ * con la foto a tamaño natural, cuadrada y al lado del texto.
+ *
+ * Estas reglas —las que gobiernan que el texto quepa en su recuadro— viajan
+ * DENTRO del bundle, que sí se actualiza, así que ya no dependen de que el
+ * .css llegue fresco. Llevan la clase raíz repetida para ganar en
+ * especificidad a la hoja externa, sin importar el orden de carga.
+ */
+const CSS_CRITICO = `
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp { overflow: hidden; }
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-top {
+  display: flex; flex-direction: column; align-items: stretch; gap: .8em;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-ini,
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-foto,
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-logo {
+  width: 72px; height: 72px; max-width: 72px; flex: 0 0 auto;
+  border: 2px solid rgba(255,255,255,.4); box-sizing: border-box;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-ini,
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-foto { border-radius: 50%; }
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-foto {
+  display: block; object-fit: cover; object-position: 50% 40%; background: #fff;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-logo {
+  display: block; object-fit: contain; background: #fff; border-radius: 12px; padding: 6px;
+}
+.modo-totem.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-ini,
+.modo-totem.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-foto,
+.modo-totem.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-logo {
+  width: 112px; height: 112px; max-width: 112px;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-txt {
+  display: block; flex: 1 1 0; min-width: 0; overflow-wrap: anywhere;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-nom,
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-rol,
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-org { display: block; overflow-wrap: anywhere; }
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: .8em;
+  width: 100%; min-height: 44px; padding: 0 1.1em; cursor: pointer;
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.4);
+  border-radius: 12px; color: #fff; font-weight: 800; font-size: 14px; line-height: 1.2;
+  font-family: inherit; text-align: left;
+}
+.modo-totem.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-toggle { min-height: 76px; font-size: 21px; }
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-sp-toggle.on {
+  background: #E4303C; border-color: #E4303C;
+}
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-tag { max-width: 100%; box-sizing: border-box; }
+.kimos-anfitrion-aiep.kimos-anfitrion-aiep .ai-tag.largo {
+  white-space: normal; overflow-wrap: anywhere; line-height: 1.4;
+}
+`;
+
+/**
+ * Inyecta los estilos críticos una sola vez por versión.
+ * Comprueba cada pieza del DOM que usa, no solo que exista `document`: un host
+ * con un document parcial no debe tumbar el mount() entero por esto, que es
+ * una mejora de presentación, no un requisito de funcionamiento.
+ */
+function montarCssCritico() {
+  try {
+    const d = typeof document !== 'undefined' ? document : null;
+    if (!d || typeof d.createElement !== 'function'
+      || typeof d.querySelector !== 'function' || !d.head) return null;
+    const marca = 'data-anfitrion-aiep-critico';
+    const previo = d.querySelector('style[' + marca + ']');
+    if (previo && previo.getAttribute(marca) === APP_VERSION) return previo;
+    if (previo && previo.parentNode) previo.parentNode.removeChild(previo);
+    const el = d.createElement('style');
+    el.setAttribute(marca, APP_VERSION);
+    el.textContent = CSS_CRITICO;
+    d.head.appendChild(el);
+    return el;
+  } catch (e) {
+    return null;
+  }
+}
+
 /* ── Utilidades puras ─────────────────────────────────────────────────── */
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -554,6 +636,7 @@ export default function mount(shell) {
     if (shell.config.onChange) offConfig = shell.config.onChange(aplicarConfig);
   }
 
+  const elCss = montarCssCritico();
   if (shell.window && shell.window.setTitle) shell.window.setTitle('ANFITRIÓN AIEP · ' + EVENTO.titulo);
   if (shell.documents) {
     if (shell.documents.onSerialize) shell.documents.onSerialize(() => ({ doc }));
@@ -1149,6 +1232,7 @@ export default function mount(shell) {
       clearTimeout(guardarT);
       clearTimeout(inactividadT);
       listeners.clear();
+      if (elCss && elCss.parentNode) elCss.parentNode.removeChild(elCss);
       if (offAgent) { try { offAgent(); } catch (e) { /* ya desregistrado */ } }
       if (offConfig) { try { offConfig(); } catch (e) { /* ya desuscrito */ } }
     },
