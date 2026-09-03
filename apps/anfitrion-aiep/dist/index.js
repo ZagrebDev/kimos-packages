@@ -29,7 +29,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 
 /* ── Logos oficiales, extraídos del .docx del programa ────────────────── */
 /* Retratos de los expositores, recortados de la lámina oficial que entregó el
