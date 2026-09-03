@@ -1,0 +1,18 @@
+{
+  "id": "aiep.gestion",
+  "name": "AIEP GESTIÓN",
+  "version": "1.0.0",
+  "description": "Asistencia del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín: quién llegó y quién falta en vivo, cruce del padrón de 112 inscritos con lo que envían los totem de AIEP INSCRIPCIÓN, búsqueda por nombre o RUT, avance por Centro de Negocios SERCOTEC, marcado manual reversible y exportación a CSV. Recibe las acreditaciones por el gateway público, con opt-in explícito.",
+  "icon": "📋",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "public.submit",
+    "agent.control"
+  ]
+}

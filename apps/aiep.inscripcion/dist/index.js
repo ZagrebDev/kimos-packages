@@ -93,6 +93,10 @@ const ESPERA_429_MS = 70000;
    Quien se acredita no espera nada por esto: su comprobante sale al instante
    desde el propio totem, y el pie muestra cuántos quedan por subir. */
 const ENVIO_MIN_MS = 40000;
+/* Códigos en los que el envío ES el problema y reintentarlo no arregla nada.
+   Todo lo demás —403 incluido— se reintenta: ver el comentario en vaciarCola. */
+const RECHAZOS_DEFINITIVOS = new Set([400, 413, 422]);
+const AVISO_MIN_MS = 60000;
 
 /* ── RUT ──────────────────────────────────────────────────────────────── */
 
@@ -397,6 +401,22 @@ export default function mount(shell) {
 
   let vaciandoT = null;
   let ultimoEnvioTs = 0;
+  let ultimoAvisoTs = 0;
+
+  /** Avisa del problema de emparejamiento, sin repetirlo en cada reintento. */
+  function avisarEmparejamiento(status, cuantos) {
+    const ahora = Date.now();
+    if (ahora - ultimoAvisoTs < AVISO_MIN_MS) return;
+    ultimoAvisoTs = ahora;
+    shell.notify && shell.notify({
+      level: 'warn',
+      text: status === 403
+        ? 'AIEP GESTIÓN todavía no acepta acreditaciones (403). Enciende la recepción en su '
+          + 'sección Publicación: los ' + cuantos + ' registro(s) están guardados y suben solos.'
+        : 'No existe la instancia de gestión configurada (404). Revisa el identificador en el '
+          + 'totem: los ' + cuantos + ' registro(s) están guardados y suben solos.',
+    });
+  }
   // Un solo vaciado a la vez. Sin este cerrojo, dos disparos concurrentes
   // (acreditar + la config que llega por promesa) recorren la MISMA cola y
   // registran a la persona dos veces.
@@ -460,18 +480,31 @@ export default function mount(shell) {
             // abra la ventana en vez de gastar reintentos contra la pared.
             frenado = true;
             esperaExtraMs = ESPERA_429_MS;
-          } else if (r.status >= 400 && r.status < 500) {
-            // El gateway lo rechaza por contrato (instancia sin opt-in, canal
-            // no declarado, permiso ausente): reintentar lo repetiría para
-            // siempre. Se descarta del envío y se avisa al operador.
+          } else if (RECHAZOS_DEFINITIVOS.has(r.status)) {
+            // El envío en sí está mal formado (400), es demasiado grande (413)
+            // o va vacío (422). Reintentarlo lo repetiría igual de mal para
+            // siempre: se descarta y se avisa al operador.
             salio = true;
             shell.notify && shell.notify({
               level: 'error',
               text: 'La plataforma rechazó ' + lote.length + ' registro(s) (HTTP ' + r.status
-                + '). Revisa la publicación de la instancia en AIEP GESTIÓN.',
+                + '). Ese envío no se puede reintentar.',
             });
           } else {
-            frenado = true;   // 5xx: el backend está caído, no se insiste ahora
+            // TODO LO DEMÁS SE REINTENTA, y muy en particular el 403.
+            //
+            // Un 403 aquí NO significa "este registro está mal": significa que
+            // la instancia de gestión todavía no encendió la recepción, o que
+            // el identificador pegado en el totem no es el correcto. Es un
+            // estado del operador, y es el fallo MÁS probable en un evento de
+            // verdad —alguien no dio al interruptor—. Descartar por 403 sería
+            // tirar a la basura a cada persona que se acredite hasta que
+            // alguien se dé cuenta. Se guardan y se suben en cuanto se
+            // arregle; el operador lo ve avisado y en el contador del pie.
+            frenado = true;
+            if (r.status === 403 || r.status === 404) {
+              avisarEmparejamiento(r.status, lote.length);
+            }
           }
         } catch (e) { frenado = true; /* sin red */ }
         if (salio) {

@@ -1,0 +1,362 @@
+/* AIEP GESTIÓN — asistencia del Seminario «IA y Protección de Datos».
+ * App de KIMOS.
+ *
+ * Comparte el chrome con ANFITRIÓN AIEP y AIEP INSCRIPCIÓN (misma paleta,
+ * misma cabecera, misma barra bajo el header, mismo pie con el logo de Kimos)
+ * para que las tres se lean como un solo sistema. Lo que cambia es el cuerpo:
+ * esto no se usa de pie frente a un totem, sino sentado en una ventana, así
+ * que manda la tabla.
+ */
+
+.kimos-aiep-gestion {
+  --ai-azul: #0B63D6;
+  --ai-azul-2: #0A4FB0;
+  --ai-hondo: #052A66;
+  --ai-band: #1636C4;
+  --ai-rojo: #E4303C;
+  --ai-rojo-2: #B40000;
+  --ai-navy: #002448;
+  --ai-sercotec: #2460A8;
+  --ai-blanco: #FFFFFF;
+  --ai-soft: #E7F1FF;
+  --ai-tenue: rgb(231 241 255 / .72);
+  --ai-linea: rgb(255 255 255 / .2);
+  --ai-linea-fuerte: rgb(255 255 255 / .4);
+  --ai-panel: rgb(255 255 255 / .09);
+  --ai-panel-alto: rgb(255 255 255 / .15);
+  --ai-radius: 12px;
+  --ai-radius-lg: 20px;
+  --ai-shadow-sm: var(--shadow-sm, 0 1px 3px 0 rgb(0 12 40 / .35));
+  --ai-shadow-md: var(--shadow-md, 0 14px 34px -12px rgb(0 12 40 / .6));
+
+  --f-base: 14px;
+  --f-sm: 12px;
+  --f-lg: 17px;
+  --f-h1: 32px;
+  --f-h2: 21px;
+  --f-h3: 15px;
+  --f-num: 40px;
+  --tap: 44px;
+  --pad: 20px;
+  /* Franja inferior reservada para el widget de chat de la vitrina (mic +
+     ondas + burbujas), que flota por encima de la app en el totem vertical
+     1080x1920. En ventana de escritorio el widget no existe: 0. */
+  --ai-dock-safe: 0px;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 55% at 62% 6%, rgb(90 180 255 / .34) 0%, transparent 62%),
+    linear-gradient(168deg, var(--ai-azul) 0%, var(--ai-azul-2) 46%, var(--ai-hondo) 100%);
+  color: var(--ai-soft);
+  font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: var(--f-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.kimos-aiep-gestion *,
+.kimos-aiep-gestion *::before,
+.kimos-aiep-gestion *::after { box-sizing: border-box; }
+.kimos-aiep-gestion ::selection { background: var(--ai-rojo); color: #fff; }
+
+.kimos-aiep-gestion.modo-totem {
+  --f-base: 21px;
+  --f-sm: 17px;
+  --f-lg: 26px;
+  --f-h1: 66px;
+  --f-h2: 38px;
+  --f-h3: 23px;
+  --f-num: 104px;
+  --tap: 76px;
+  --pad: 40px;
+  --ai-dock-safe: 340px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* ─────────── Rótulos del afiche: banda azul + título + banda roja ─────────── */
+.kimos-aiep-gestion .ai-band {
+  display: inline-block; background: var(--ai-band); color: #fff;
+  padding: .18em .7em; margin: 0 0 .12em; font-weight: 800;
+  font-size: var(--f-h2); letter-spacing: .1em; text-transform: uppercase; line-height: 1.2;
+}
+.kimos-aiep-gestion .ai-titulo {
+  font-size: var(--f-h1); font-weight: 900; line-height: .98; letter-spacing: -.015em;
+  text-transform: uppercase; color: #fff; margin: 0 0 .18em;
+}
+.kimos-aiep-gestion .ai-sub {
+  display: inline-block; margin: 0;
+  background: linear-gradient(90deg, var(--ai-rojo) 0%, var(--ai-rojo-2) 100%);
+  color: #fff; padding: .3em .8em; font-weight: 700; font-size: var(--f-lg); line-height: 1.3;
+}
+
+.kimos-aiep-gestion .ai-h2 { font-size: var(--f-h2); font-weight: 800; line-height: 1.15; color: #fff; margin: 0 0 .5em; }
+.kimos-aiep-gestion .ai-h3 {
+  font-size: var(--f-h3); font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  color: #fff; margin: 0 0 .8em;
+}
+.kimos-aiep-gestion .ai-h3.rojo { color: #fff; }
+.kimos-aiep-gestion .ai-h3.rojo::before {
+  content: ''; display: inline-block; width: 1.6em; height: .28em; margin-right: .6em;
+  vertical-align: middle; background: var(--ai-rojo);
+}
+.kimos-aiep-gestion .ai-p { font-size: var(--f-base); line-height: 1.6; color: var(--ai-soft); margin: 0 0 .8em; }
+.kimos-aiep-gestion .ai-p:last-child { margin-bottom: 0; }
+.kimos-aiep-gestion .ai-p.tenue { color: var(--ai-tenue); }
+.kimos-aiep-gestion .ai-hr { height: 1px; background: var(--ai-linea); border: 0; margin: calc(var(--pad) * .9) 0; }
+
+/* ───────────────────────── Cabecera ───────────────────────── */
+.kimos-aiep-gestion .ai-hd {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: calc(var(--pad) * .5) var(--pad); flex-shrink: 0;
+  border-bottom: 1px solid var(--ai-linea); background: rgb(0 20 60 / .3);
+}
+.kimos-aiep-gestion .ai-hd-marca { display: flex; align-items: center; gap: .8em; min-width: 0; }
+/* El logo AIEP es un PNG opaco sobre blanco: va en su propia pastilla blanca. */
+.kimos-aiep-gestion .ai-chip-logo {
+  background: #fff; border-radius: 8px; padding: .3em .5em; display: flex; align-items: center; flex-shrink: 0;
+}
+.kimos-aiep-gestion .ai-chip-logo img { display: block; height: 1.9em; width: auto; }
+.modo-totem.kimos-aiep-gestion .ai-chip-logo img { height: 2.4em; }
+.kimos-aiep-gestion .ai-hd-t {
+  font-size: var(--f-sm); font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  color: #fff; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kimos-aiep-gestion .ai-hd-est { display: flex; align-items: center; gap: 10px; }
+.kimos-aiep-gestion .ai-reloj {
+  font-size: var(--f-h2); font-weight: 800; line-height: 1; color: #fff; font-variant-numeric: tabular-nums;
+}
+.kimos-aiep-gestion .ai-pill {
+  display: inline-flex; align-items: center; gap: .5em; padding: .35em .8em; border-radius: 999px;
+  font-size: var(--f-sm); font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  border: 1px solid var(--ai-linea-fuerte); color: var(--ai-soft); white-space: nowrap;
+}
+.kimos-aiep-gestion .ai-pill.vivo { background: var(--ai-rojo); border-color: var(--ai-rojo); color: #fff; }
+.kimos-aiep-gestion .ai-punto { width: .55em; height: .55em; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.kimos-aiep-gestion .ai-pill.vivo .ai-punto { animation: ai-late 1.6s ease-in-out infinite; }
+@keyframes ai-late { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .kimos-aiep-gestion .ai-pill.vivo .ai-punto { animation: none; } }
+.kimos-aiep-gestion .ai-ver { font-size: var(--f-sm); color: var(--ai-tenue); opacity: .5; }
+
+/* ───────────────────────── Cuerpo ───────────────────────── */
+.kimos-aiep-gestion .ai-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+/* En vitrina el widget de chat flota sobre la app: se reserva ese alto para que
+   el final del contenido nunca quede tapado por el microfono. */
+.modo-totem.kimos-aiep-gestion .ai-body { padding-bottom: var(--ai-dock-safe); }
+.kimos-aiep-gestion .ai-wrap { max-width: 980px; margin: 0 auto; padding: var(--pad) var(--pad) calc(var(--pad) * 2); }
+.modo-totem.kimos-aiep-gestion .ai-wrap { max-width: 100%; }
+
+.kimos-aiep-gestion .ai-card {
+  background: var(--ai-panel); border: 1px solid var(--ai-linea);
+  border-radius: var(--ai-radius-lg); padding: var(--pad); margin-bottom: calc(var(--pad) * .7);
+  box-shadow: var(--ai-shadow-sm);
+}
+.kimos-aiep-gestion .ai-card.hero { background: rgb(3 26 72 / .42); border-color: var(--ai-linea-fuerte); }
+.kimos-aiep-gestion .ai-card.blanca { background: #fff; border-color: rgb(0 0 0 / .1); color: var(--ai-navy); }
+.kimos-aiep-gestion .ai-card.blanca .ai-h3 { color: var(--ai-navy); }
+.kimos-aiep-gestion .ai-card.blanca .ai-p { color: #33445c; }
+
+/* Fecha grande al estilo del afiche: «03  Septiembre». */
+.kimos-aiep-gestion .ai-fecha { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; }
+.kimos-aiep-gestion .ai-fecha-d {
+  font-size: var(--f-num); font-weight: 900; line-height: .9; color: #fff; letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
+}
+.kimos-aiep-gestion .ai-fecha-m { font-size: var(--f-h2); font-weight: 800; color: #fff; line-height: 1.1; }
+.kimos-aiep-gestion .ai-fecha-a { font-size: var(--f-base); color: var(--ai-tenue); display: block; font-weight: 500; }
+.kimos-aiep-gestion .ai-hora-pill {
+  display: inline-flex; align-items: center; gap: .5em; margin-top: .5em;
+  background: rgb(255 255 255 / .18); border-radius: 10px; padding: .35em .9em;
+  font-size: var(--f-lg); font-weight: 800; color: #fff;
+}
+.kimos-aiep-gestion .ai-lugar { display: flex; align-items: flex-start; gap: .6em; margin-top: .9em; }
+.kimos-aiep-gestion .ai-lugar-n { font-size: var(--f-lg); font-weight: 800; color: #fff; margin: 0; }
+.kimos-aiep-gestion .ai-lugar-d { font-size: var(--f-base); color: var(--ai-tenue); margin: .2em 0 0; }
+
+/* Cuenta regresiva */
+.kimos-aiep-gestion .ai-count { display: flex; align-items: flex-start; gap: .7em; }
+.kimos-aiep-gestion .ai-count-u { text-align: center; }
+.kimos-aiep-gestion .ai-count-n {
+  display: block; font-size: calc(var(--f-num) * .82); font-weight: 900; line-height: 1; color: #fff;
+  font-variant-numeric: tabular-nums; letter-spacing: -.04em;
+}
+.kimos-aiep-gestion .ai-count-s {
+  display: block; margin-top: .5em; font-size: var(--f-sm); font-weight: 700;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--ai-tenue);
+}
+.kimos-aiep-gestion .ai-count-sep {
+  align-self: flex-start; font-size: calc(var(--f-num) * .66); line-height: 1; font-weight: 300;
+  color: var(--ai-rojo); opacity: .9;
+}
+
+/* ───────────────────────── Botones y navegación ───────────────────────── */
+.kimos-aiep-gestion .ai-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .6em;
+  min-height: var(--tap); padding: 0 1.5em; border: 1px solid transparent; border-radius: var(--ai-radius);
+  background: var(--ai-rojo); color: #fff; cursor: pointer;
+  font: 800 var(--f-base)/1 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  letter-spacing: .05em; text-decoration: none; text-align: center;
+  transition: filter .15s ease, transform .06s ease;
+}
+.kimos-aiep-gestion .ai-btn:hover { filter: brightness(1.12); }
+.kimos-aiep-gestion .ai-btn:active { transform: translateY(1px); }
+.kimos-aiep-gestion .ai-btn:disabled { opacity: .45; cursor: default; }
+.kimos-aiep-gestion .ai-btn.ghost { background: transparent; color: #fff; border-color: var(--ai-linea-fuerte); }
+.kimos-aiep-gestion .ai-btn.ghost:hover { background: rgb(255 255 255 / .12); filter: none; }
+
+/* La barra de secciones vive BAJO el header (1.5.0): el pie de la pantalla
+   queda libre para el footer y para el widget de chat de la vitrina. */
+.kimos-aiep-gestion .ai-nav {
+  display: flex; gap: 8px; flex-shrink: 0; padding: calc(var(--pad) * .5) var(--pad);
+  border-bottom: 1px solid var(--ai-linea); background: rgb(0 16 48 / .42);
+  overflow-x: auto; scrollbar-width: none;
+}
+.kimos-aiep-gestion .ai-nav::-webkit-scrollbar { display: none; }
+.kimos-aiep-gestion .ai-nav-b {
+  flex: 1 1 0; min-width: max-content; min-height: var(--tap);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25em;
+  padding: .5em .9em; border: 1px solid transparent; border-radius: var(--ai-radius);
+  background: transparent; color: var(--ai-tenue); cursor: pointer;
+  font: 700 var(--f-sm)/1.2 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  letter-spacing: .04em; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.kimos-aiep-gestion .ai-nav-b:hover { color: #fff; background: rgb(255 255 255 / .1); }
+.kimos-aiep-gestion .ai-nav-b.on { background: var(--ai-rojo); color: #fff; font-weight: 800; }
+.kimos-aiep-gestion .ai-nav-ico { font-size: 1.5em; line-height: 1; }
+
+/* ───────────────────────── Pie ─────────────────────────
+   Banda de cierre con el credito del organizador y el logotipo de Kimos, en la
+   misma linea que el resto de los totem del sistema. Va SIEMPRE al fondo de la
+   columna, por debajo del cuerpo desplazable. */
+.kimos-aiep-gestion .ai-ft {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: .5em 1.3em;
+  padding: calc(var(--pad) * .45) var(--pad);
+  background: var(--ai-navy);
+  border-top: 1px solid var(--ai-linea);
+  color: #fff;
+  font-size: var(--f-sm); font-weight: 600; letter-spacing: .01em; text-align: center;
+  z-index: 8;
+}
+.kimos-aiep-gestion .ai-ft-c { margin: 0; color: rgb(255 255 255 / .82); }
+.kimos-aiep-gestion .ai-ft-sep { width: 1px; height: 1.4em; background: rgb(255 255 255 / .35); }
+.kimos-aiep-gestion .ai-ft-k { display: flex; align-items: center; gap: .55em; color: #fff; }
+.kimos-aiep-gestion .ai-ft-k-lbl { font-weight: 500; opacity: .9; }
+/* Logo de Kimos: isotipo (icosaedro) + wordmark, en blanco, a escala de pie. */
+.kimos-aiep-gestion .ai-ft-k-ico { display: block; height: 1.15em; width: auto; }
+.kimos-aiep-gestion .ai-ft-k-logo { display: block; height: .82em; width: auto; }
+/* En vertical el pie se mantiene delgado para no pelear con el widget. */
+.modo-totem.kimos-aiep-gestion .ai-ft { gap: .4em 1.1em; padding: 14px var(--pad); font-size: 18px; }
+
+/* ───────────────────────── Resalte del agente ─────────────────────────
+   El agente consultivo de la vitrina responde y, a la vez, trae a la vista la
+   ficha de la que habla. Este anillo dura unos segundos: es un aviso, no un
+   estado, y por eso no cambia el color de fondo ni el texto de la ficha. */
+.kimos-aiep-gestion .destacado {
+  outline: 3px solid var(--ai-rojo);
+  outline-offset: 3px;
+  animation: ai-foco 1.4s ease-out 2;
+}
+@keyframes ai-foco {
+  0% { box-shadow: 0 0 0 0 rgb(228 48 60 / .55); }
+  100% { box-shadow: 0 0 0 18px rgb(228 48 60 / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kimos-aiep-gestion .destacado { animation: none; }
+}
+
+
+/* ═════════════════ Gestión: panel de trabajo ═════════════════ */
+/* Esto NO es un totem: se usa en una ventana del escritorio, sentado y con
+   teclado. Por eso el cuerpo es dos columnas cuando hay sitio, la tipografía
+   baja a tamaño de lectura y la tabla manda. El chrome (paleta, cabecera,
+   barra, pie) sigue siendo el del seminario para que sea la misma familia. */
+
+.kimos-aiep-gestion .ge-barra {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  padding: calc(var(--pad) * .6) var(--pad) 0;
+}
+.kimos-aiep-gestion .ge-buscar {
+  flex: 1 1 260px; min-height: var(--tap); min-width: 0;
+  padding: .5em .9em; border-radius: var(--ai-radius);
+  border: 1px solid var(--ai-linea-fuerte); background: var(--ai-panel);
+  color: #fff; font: 600 var(--f-base)/1.3 inherit;
+}
+.kimos-aiep-gestion .ge-buscar::placeholder { color: var(--ai-tenue); }
+.kimos-aiep-gestion .ge-buscar:focus { outline: 2px solid var(--ai-rojo); outline-offset: 1px; }
+.kimos-aiep-gestion .ge-filtros { display: flex; gap: 6px; flex-wrap: wrap; }
+.kimos-aiep-gestion .ge-f {
+  padding: .45em .9em; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--ai-linea-fuerte); background: transparent;
+  color: var(--ai-soft); font: 700 var(--f-sm)/1.2 inherit; white-space: nowrap;
+}
+.kimos-aiep-gestion .ge-f:hover { background: var(--ai-panel-alto); }
+.kimos-aiep-gestion .ge-f.on { background: var(--ai-rojo); border-color: var(--ai-rojo); color: #fff; }
+
+/* ── Cifras de cabecera ─────────────────────────────────────────────── */
+.kimos-aiep-gestion .ge-kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: calc(var(--pad) * .7); }
+.kimos-aiep-gestion .ge-kpi {
+  flex: 1 1 150px; padding: calc(var(--pad) * .7);
+  background: var(--ai-panel); border: 1px solid var(--ai-linea);
+  border-left: 5px solid var(--ai-sercotec); border-radius: var(--ai-radius);
+}
+.kimos-aiep-gestion .ge-kpi.si { border-left-color: var(--ai-rojo); }
+.kimos-aiep-gestion .ge-kpi-n { font-size: var(--f-num); font-weight: 900; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
+.kimos-aiep-gestion .ge-kpi-l { font-size: var(--f-sm); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ai-tenue); margin-top: .3em; }
+.kimos-aiep-gestion .ge-kpi-x { font-size: var(--f-sm); color: var(--ai-tenue); margin-top: .2em; }
+
+/* Barra de avance de la acreditación: se lee de un vistazo desde lejos. */
+.kimos-aiep-gestion .ge-avance { height: 12px; border-radius: 999px; background: rgb(255 255 255 / .14); overflow: hidden; margin: .6em 0 0; }
+.kimos-aiep-gestion .ge-avance-f { height: 100%; background: var(--ai-rojo); transition: width .4s ease; }
+
+/* ── Tabla ──────────────────────────────────────────────────────────── */
+.kimos-aiep-gestion .ge-tabla { width: 100%; border-collapse: collapse; font-size: var(--f-base); }
+.kimos-aiep-gestion .ge-tabla th {
+  position: sticky; top: 0; z-index: 2;
+  text-align: left; padding: .6em .7em; background: var(--ai-hondo);
+  font-size: var(--f-sm); font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ai-tenue); border-bottom: 2px solid var(--ai-linea-fuerte); white-space: nowrap; cursor: pointer;
+}
+.kimos-aiep-gestion .ge-tabla th:hover { color: #fff; }
+.kimos-aiep-gestion .ge-tabla td { padding: .55em .7em; border-bottom: 1px solid var(--ai-linea); vertical-align: top; }
+.kimos-aiep-gestion .ge-tabla tr.llego td { background: rgb(228 48 60 / .1); }
+.kimos-aiep-gestion .ge-nom { font-weight: 800; color: #fff; }
+.kimos-aiep-gestion .ge-rut { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kimos-aiep-gestion .ge-emp { color: var(--ai-tenue); }
+.kimos-aiep-gestion .ge-marca {
+  display: inline-flex; align-items: center; gap: .4em; white-space: nowrap;
+  padding: .25em .7em; border-radius: 999px; font-size: var(--f-sm); font-weight: 800;
+}
+.kimos-aiep-gestion .ge-marca.si { background: var(--ai-rojo); color: #fff; }
+.kimos-aiep-gestion .ge-marca.no { background: rgb(255 255 255 / .1); color: var(--ai-tenue); }
+.kimos-aiep-gestion .ge-marca.extra { background: var(--ai-sercotec); color: #fff; }
+.kimos-aiep-gestion .ge-mini {
+  padding: .3em .8em; border-radius: var(--ai-radius); cursor: pointer;
+  border: 1px solid var(--ai-linea-fuerte); background: transparent;
+  color: var(--ai-soft); font: 700 var(--f-sm)/1.2 inherit; white-space: nowrap;
+}
+.kimos-aiep-gestion .ge-mini:hover { background: var(--ai-panel-alto); color: #fff; }
+.kimos-aiep-gestion .ge-scroll { overflow: auto; max-height: 100%; }
+
+/* ── Publicación ────────────────────────────────────────────────────── */
+.kimos-aiep-gestion .ge-id {
+  display: block; padding: .6em .9em; margin: .5em 0;
+  background: rgb(0 20 60 / .5); border: 1px solid var(--ai-linea-fuerte);
+  border-radius: var(--ai-radius); color: #fff;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--f-base);
+  word-break: break-all; user-select: all;
+}
+.kimos-aiep-gestion .ge-estado { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
+.kimos-aiep-gestion .ge-estado.on { color: #7ef0a8; }
+.kimos-aiep-gestion .ge-estado.off { color: #ffb4b9; }
+.kimos-aiep-gestion .ge-paso { display: flex; gap: .8em; padding: .5em 0; border-top: 1px solid var(--ai-linea); }
+.kimos-aiep-gestion .ge-paso-n {
+  flex-shrink: 0; width: 1.9em; height: 1.9em; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ai-sercotec); color: #fff; font-weight: 900; font-size: var(--f-sm);
+}
+.kimos-aiep-gestion .ge-vacio { padding: calc(var(--pad) * 2); text-align: center; color: var(--ai-tenue); }
