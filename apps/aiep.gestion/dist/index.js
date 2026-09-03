@@ -26,7 +26,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 
 const EVENTO = {
   titulo: 'IA y Protección de Datos',
@@ -51,6 +51,7 @@ const REFRESCO_MS = 15000;
 const SECCIONES = [
   { id: 'asistencia', ico: '✅', label: 'Asistencia' },
   { id: 'centros', ico: '📍', label: 'Por centro' },
+  { id: 'conectar', ico: '🔗', label: 'Conectar totem' },
 ];
 const IDS_SECCION = SECCIONES.map((s) => s.id);
 
@@ -581,6 +582,12 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'CODIGO_PARA_EL_TOTEM',
+          description: 'Muestra en pantalla el código de esta instancia y dónde pegarlo para '
+            + 'conectar un totem de acreditación.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'REFRESCAR',
           description: 'Vuelve a leer las acreditaciones ahora mismo.',
           inputSchema: { type: 'object', properties: {} },
@@ -605,6 +612,7 @@ export default function mount(shell) {
           porCentroDeNegocios: e.centros,
           enviosRecibidos: e.envios,
           recepcionAbierta: e.recepcion === 'lista',
+          codigoParaElTotem: e.instanciaId || null,
           marcadosAMano: Object.keys(doc.manuales).length,
           enPantalla: {
             seccion: vista.seccion,
@@ -701,6 +709,27 @@ export default function mount(shell) {
                 ? 'Marcada la asistencia de ' + (persona ? persona.nombre : formatearRut(rut)) + ' a mano.'
                 : 'Retirada la marca manual de ' + (persona ? persona.nombre : formatearRut(rut)) + '.',
               data: { rut: formatearRut(rut), marcado: r.marcado },
+            };
+          }
+          if (tipo === 'CODIGO_PARA_EL_TOTEM') {
+            const id = (shell.app && shell.app.instanceId) || '';
+            irA('conectar');
+            if (!id) {
+              return {
+                success: false,
+                error: 'Esta ventana no tiene instancia. Hay que abrir la app como documento '
+                  + '(menú 🗂️ → Nuevo) para que tenga código.',
+              };
+            }
+            return {
+              success: true,
+              message: 'En pantalla: el código y dónde pegarlo.',
+              data: {
+                codigo: id,
+                seAnadeALaUrlDeLaVitrinaComo: '?aiep=' + id,
+                nota: 'Va al final de la dirección de la vitrina donde corre AIEP INSCRIPCIÓN. '
+                  + 'Todos los totem llevan el mismo código.',
+              },
             };
           }
           if (tipo === 'REFRESCAR') {
@@ -837,18 +866,17 @@ export default function mount(shell) {
     return h('div', { className: 'ai-wrap' },
       h(Kpis, { e: e }),
       v.error ? h('div', { className: 'ai-card' }, h('p', { className: 'ai-aviso' }, v.error)) : null,
-      /* Mientras no llegue nada, esto explica el único paso que existe: pegar
-         el parámetro en la URL de la vitrina. En cuanto entra la primera
-         acreditación desaparece solo. */
+      /* Mientras no llegue nada, se avisa de que falta conectar el totem. El
+         identificador vive en su propia sección, que no desaparece nunca. */
       !v.cargando && !e.envios ? h('div', { className: 'ai-card' },
-        h('p', { className: 'ai-h3 rojo' }, 'Conectar los totem'),
+        h('p', { className: 'ai-h3 rojo' }, 'Todavía no llega ninguna acreditación'),
         h('p', { className: 'ai-p' },
-          'La recepción ya está abierta. Falta que la vitrina del totem lleve este parámetro '
-          + 'en su URL, una sola vez:'),
-        h('code', { className: 'ge-id' }, '?aiep=' + (e.instanciaId || '(abre la app como documento)')),
-        h('p', { className: 'ai-p tenue' },
-          'Es decir: la URL de la vitrina, y al final ese texto. El totem lo guarda y no vuelve '
-          + 'a hacer falta. Este aviso desaparece con la primera acreditación.')) : null,
+          'La recepción ya está abierta por esta app. Falta conectar el totem: es pegar un '
+          + 'texto al final de la URL de su vitrina, una sola vez.'),
+        h('button', {
+          type: 'button', className: 'ai-btn',
+          onClick: () => irA('conectar'),
+        }, '🔗 Ver cómo conectarlo')) : null,
       h('div', { className: 'ai-card' },
         h('p', { className: 'ai-h3 rojo' }, 'Lista'),
         h('p', { className: 'ai-p tenue' },
@@ -856,6 +884,51 @@ export default function mount(shell) {
           + (v.busqueda || v.centro || v.soloFaltan ? ' (filtrado)' : '')),
         h('div', { className: 'ge-scroll', style: { maxHeight: '58vh', marginTop: '.8em' } },
           h(Tabla, { filas: filas, orden: v.orden, destacado: v.destacado, cargando: v.cargando }))));
+  }
+
+  /* Conectar totem: no hay nada que activar aquí, es donde vive el
+     identificador de esta instancia. Se necesita cada vez que se suma un
+     totem o se reinstala el navegador del kiosco, así que NO desaparece. */
+  function Conectar(props) {
+    const id = props.instanciaId;
+    return h('div', { className: 'ai-wrap' },
+      h('div', { className: 'ai-card' },
+        h('p', { className: 'ai-h3 rojo' }, 'Conectar un totem'),
+        h('h2', { className: 'ai-h2' }, 'El código de esta instancia'),
+        id
+          ? h('div', null,
+            h('p', { className: 'ai-p' },
+              'Este es el identificador que el totem necesita para enviarte las '
+              + 'acreditaciones. Tócalo para seleccionarlo entero y cópialo:'),
+            h('code', { className: 'ge-id' }, id))
+          : h('p', { className: 'ai-aviso' },
+            'Esta ventana no tiene instancia, así que todavía no hay código. Abre la app como '
+            + 'documento (menú 🗂️ → Nuevo) y vuelve aquí.')),
+
+      h('div', { className: 'ai-card' },
+        h('p', { className: 'ai-h3 rojo' }, 'Dónde se pega'),
+        h('p', { className: 'ai-p' },
+          'En la URL de la vitrina donde corre AIEP INSCRIPCIÓN — la misma dirección que abres '
+          + 'en el totem. Al final de esa dirección se añade ',
+          h('code', null, '?aiep=' + (id || 'CÓDIGO')), '.'),
+        h('p', { className: 'ai-p tenue' }, 'Por ejemplo, si la vitrina del totem es:'),
+        h('code', { className: 'ge-id' }, 'https://tu-kimos/vitrina/abc123'),
+        h('p', { className: 'ai-p tenue' }, 'la dirección que se abre en el totem pasa a ser:'),
+        h('code', { className: 'ge-id' },
+          'https://tu-kimos/vitrina/abc123?aiep=' + (id || 'CÓDIGO')),
+        h('p', { className: 'ai-p' },
+          'El totem lo guarda en ese equipo, así que una recarga sin el parámetro no lo deja '
+          + 'huérfano. Si tienes varios totem, todos llevan el mismo código.')),
+
+      h('div', { className: 'ai-card' },
+        h('p', { className: 'ai-h3 rojo' }, 'Por qué hace falta'),
+        h('p', { className: 'ai-p' },
+          'El totem corre en la vitrina, donde no hay sesión iniciada: no puede preguntarle a '
+          + 'la plataforma cuál de las apps de gestión es la tuya. El buzón donde deja las '
+          + 'acreditaciones se direcciona por este código, así que hay que dárselo una vez.'),
+        h('p', { className: 'ai-p tenue' },
+          'Un totem sin el código no acredita a nadie: avisa en pantalla en vez de dar por '
+          + 'registrada a una persona cuyo registro no llegaría a ninguna parte.')));
   }
 
   function Centros(props) {
@@ -940,6 +1013,7 @@ export default function mount(shell) {
     const secciones = {
       asistencia: () => h(Asistencia, { e: e, vista: v }),
       centros: () => h(Centros, { e: e }),
+      conectar: () => h(Conectar, { instanciaId: e.instanciaId }),
     };
     const activa = IDS_SECCION.includes(v.seccion) ? v.seccion : 'asistencia';
     const centros = [''].concat(Object.keys(e.centros).sort());
