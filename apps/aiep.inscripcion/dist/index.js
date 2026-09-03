@@ -36,7 +36,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el catálogo raíz /manifest.json.
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.2.0';
 
 /* ── El seminario (mismos datos que ANFITRIÓN AIEP) ───────────────────── */
 
@@ -67,6 +67,17 @@ const CANAL = 'asistencia';
 const LS_COLA = 'aiep.inscripcion.cola.v3';
 const LS_INSTANCIA = 'aiep.inscripcion.instancia.v3';
 
+/* Instancia de AIEP GESTIÓN del seminario, puesta de fábrica.
+ *
+ * Esta app existe para UN evento y UNA gestión, así que el código va aquí y el
+ * totem funciona nada más abrirlo: sin parámetros en la URL, sin pantallas de
+ * emparejamiento y sin nada que pegar.
+ *
+ * Se puede pisar con `?aiep=OTRO-ID` en la URL de la vitrina — es lo que hay
+ * que usar si en gestión se crea un documento NUEVO, porque entonces cambia el
+ * identificador. El de aquí es el del documento que ya existe. */
+const INSTANCIA_GESTION = 'aiep.gestion-518a2337';
+
 /* Topes del gateway público (backend/appPublicAPI.py), que mandan sobre cómo
    se envía esto:
    - 8 peticiones por IP+instancia cada 5 minutos. Un totem en la fila de
@@ -80,7 +91,15 @@ const LS_INSTANCIA = 'aiep.inscripcion.instancia.v3';
      minutos, muy por encima del ritmo de una fila real. */
 const LOTE_MAX_PERSONAS = 12;
 const LOTE_MAX_CARACTERES = 4500;
-const ENVIO_MIN_MS = 40000;
+/* Presupuesto real del gateway: 8 peticiones por IP+instancia cada 300 s. En
+   vez de espaciar a ciegas 40 s —que hace esperar al segundo envío aunque no
+   haya gastado nada— se lleva la cuenta de las peticiones de la ventana y se
+   sale enseguida mientras quede presupuesto. Así la primera persona aparece en
+   gestión en segundos, que es lo que se mira al probar que funciona, y en hora
+   punta el ritmo se frena solo antes de chocar contra el 429. */
+const VENTANA_MS = 300000;
+const PETICIONES_POR_VENTANA = 6;   // 6 de 8: se deja aire para reintentos
+const ENVIO_MIN_MS = 4000;          // agrupa la ráfaga de la fila sin hacer esperar
 const ESPERA_429_MS = 70000;
 /* Códigos en los que el envío ES el problema y reintentarlo no arregla nada.
    Todo lo demás se reintenta: ver el comentario en vaciarCola. */
@@ -173,7 +192,9 @@ function resolverInstancia() {
     const deUrl = String(q.get('aiep') || '').trim();
     if (deUrl) { escribirLS(LS_INSTANCIA, deUrl); return deUrl; }
   } catch (e) { /* sin location */ }
-  return String(leerLS(LS_INSTANCIA, '') || '').trim();
+  const guardada = String(leerLS(LS_INSTANCIA, '') || '').trim();
+  if (guardada) return guardada;
+  return INSTANCIA_GESTION;
 }
 
 /* ── Logo de la sede anfitriona, extraído del .docx del programa ─────── */
@@ -377,6 +398,12 @@ export default function mount(shell) {
   let vaciando = false;        // un solo vaciado a la vez: dos concurrentes
   let ultimoEnvioTs = 0;       // recorrerían la misma cola y duplicarían gente
   let esperaExtraMs = 0;
+  let peticiones = [];         // cuándo salió cada petición de la ventana
+  /* Contador para el id de cada acreditación. NO basta con Date.now(): dos
+     personas confirmadas en el mismo milisegundo compartirían id, y al enviarse
+     una, el filtro que limpia la cola se llevaría las dos por delante. La
+     segunda desaparecería sin rastro y sin error. */
+  let secuencia = 0;
 
   /** Parte la cola en lotes que quepan en un campo del gateway. */
   function armarLotes(pendientes) {
@@ -400,6 +427,7 @@ export default function mount(shell) {
     if (!instancia || !cola.length) { programarVaciado(); return; }
     vaciando = true;
     ultimoEnvioTs = Date.now();
+    peticiones = peticiones.filter((t) => ultimoEnvioTs - t < VENTANA_MS).concat([ultimoEnvioTs]);
     const url = baseApi(shell) + '/api/public/app/' + encodeURIComponent(instancia) + '/submit/' + CANAL;
     // Foto de la cola: lo que se acredite MIENTRAS este vaciado corre no puede
     // quedar fuera al reescribirla al final.
@@ -455,13 +483,21 @@ export default function mount(shell) {
     programarVaciado();
   }
 
-  /** Próximo vaciado, respetando el espaciado mínimo entre peticiones. */
+  /** Próximo vaciado: en cuanto se pueda, sin salirse del presupuesto. */
   const programarVaciado = () => {
     clearTimeout(vaciandoT);
     if (!cola.length) return;
+    const ahora = Date.now();
+    const recientes = peticiones.filter((t) => ahora - t < VENTANA_MS);
+    peticiones = recientes;
+    // Si la ventana ya está llena, se espera a que caduque la más antigua.
+    const porPresupuesto = recientes.length >= PETICIONES_POR_VENTANA
+      ? (recientes[0] + VENTANA_MS) - ahora
+      : 0;
     const espera = Math.max(
       esperaExtraMs || 0,
-      ENVIO_MIN_MS - (Date.now() - ultimoEnvioTs),
+      ENVIO_MIN_MS - (ahora - ultimoEnvioTs),
+      porPresupuesto,
       0,
     );
     vaciandoT = setTimeout(() => { vaciarCola(); }, espera);
@@ -480,7 +516,10 @@ export default function mount(shell) {
       acreditadoEn: new Date(ts).toISOString(),
     };
     hechos[p.r] = { ts, nombre: p.n };
-    cola = cola.concat([{ id: 'e' + ts.toString(36), data: registro }]);
+    secuencia += 1;
+    const id = 'e' + ts.toString(36) + '-' + secuencia.toString(36)
+      + '-' + Math.random().toString(36).slice(2, 7);
+    cola = cola.concat([{ id, data: registro }]);
     escribirLS(LS_COLA, cola);
     emitir();
     programarVaciado();

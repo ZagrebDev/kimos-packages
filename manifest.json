@@ -1040,9 +1040,9 @@
     {
       "id": "aiep.inscripcion",
       "name": "AIEP INSCRIPCIÓN",
-      "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, para vitrina: el asistente marca su RUT, confirma sus datos y queda registrado como que asistió. Solo se acredita quien está en el padrón, y un totem sin conectar avisa en vez de fingir. Envía a AIEP GESTIÓN por el gateway público, con cola local a prueba de cortes de red. Mismo sistema visual que ANFITRIÓN AIEP.",
+      "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, para vitrina: se abre y ya manda: trae puesto el código de la instancia de AIEP GESTIÓN, así que el asistente marca su RUT, confirma sus datos y su acreditación llega en segundos. Solo se acredita quien está en el padrón. Cola local a prueba de cortes de red. Mismo sistema visual que ANFITRIÓN AIEP.",
       "icon": "🪪",
-      "version": "3.0.0",
+      "version": "3.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
