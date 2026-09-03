@@ -1,8 +1,8 @@
 {
   "id": "anfitrion-aiep",
   "name": "ANFITRION AIEP",
-  "version": "1.1.0",
-  "description": "Anfitrión para el totem del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, organizado con los Centros de Negocios SERCOTEC: programa en vivo, expositores con QR a su perfil, contexto, consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
+  "version": "1.4.0",
+  "description": "Anfitrión para el totem del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, organizado con los Centros de Negocios SERCOTEC: programa en vivo de nueve bloques, expositores con reseña desplegable y QR a su perfil, contexto, consulta guiada, tablón de preguntas y QR para el teléfono del asistente.",
   "icon": "🤖",
   "author": "kimos",
   "entry": "dist/index.js",
@@ -47,12 +47,18 @@
         "key": "mostrarContexto",
         "label": "Mostrar la sección Contexto (material complementario)",
         "type": "boolean"
+      },
+      {
+        "key": "mostrarFotos",
+        "label": "Mostrar las fotos de los expositores",
+        "type": "boolean"
       }
     ]
   },
   "defaultConfig": {
     "modo": "auto",
     "segundosInactividad": 90,
-    "mostrarContexto": true
+    "mostrarContexto": true,
+    "mostrarFotos": true
   }
 }
