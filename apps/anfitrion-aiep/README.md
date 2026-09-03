@@ -5,7 +5,7 @@ Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquí
 organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 1.1.0**
+**Versión actual: 1.2.0**
 
 ---
 
@@ -27,7 +27,7 @@ Independencia.
 | 10:15–10:20 | Palabras de Bienvenida | Patricia Sandoval, Directora Sede San Joaquín, AIEP |
 | 10:20–10:30 | Saludo Institucional | Jack Esquenazi, Director Regional Metropolitano, SERCOTEC |
 | 10:30–11:30 | «Protege tu Negocio en la Era de la IA» | Nicolás Seguel |
-| 11:30–12:30 | «IA y Automatización: Menos Tiempo Operativo, Más Crecimiento» | Marcos Mella |
+| 11:30–12:30 | «IA y Automatización: Menos Tiempo Operativo, Más Crecimiento» | Marco Mella |
 | 12:30–13:00 | «Datos, IA y las Nuevas Reglas del Juego» | Nicolás Seguel |
 | 13:00–13:15 | Cierre de la Jornada | — |
 
@@ -39,6 +39,7 @@ Independencia.
 | Título, subtítulo, fecha e identidad visual | Afiche oficial del seminario |
 | Logos AIEP y Centros de Negocios SERCOTEC | Extraídos del propio `.docx` del programa |
 | Perfiles profesionales de los cuatro expositores | URLs entregadas por el organizador |
+| Retratos y nombres completos de los expositores | Lámina oficial de fotos del organizador |
 | Sección «Contexto» | Fuentes públicas — marcado en pantalla como material complementario |
 
 **Nada está inventado.** El programa oficial no incluye biografías. De las cuatro
@@ -47,10 +48,12 @@ la única con biografía —y su ficha declara la fuente en pantalla—. Las otr
 **no la inventan**: dicen que el programa no la trae, muestran el cargo que sí
 consta y remiten al QR de su perfil.
 
-**Un nombre a confirmar:** el programa escribe «Marcos Mella» y su perfil
-profesional figura como «Marco Antonio Mella González». El cronograma respeta el
-programa y la ficha muestra el nombre completo; conviene verificar cuál va en el
-material impreso.
+**Un nombre con tres grafías, resuelto.** El programa escribe «Marcos Mella»; la
+lámina oficial de retratos, «MARCO MELLA»; su perfil profesional, «Marco Antonio
+Mella González». Dos fuentes contra una, así que el nombre visible pasa a **Marco
+Mella**. El del programa no se pierde: viaja en el snapshot del agente como
+`nombreEnPrograma`. De la misma lámina sale «Patricia Carolina Sandoval» como
+nombre completo.
 
 ### Dos inconsistencias del documento original
 
@@ -119,6 +122,27 @@ Los PNG oficiales venían **dentro del `.docx` del programa** y van embebidos
 como `data:` URI en el bundle, así que son los archivos reales y cargan sin red.
 Son opacos sobre blanco, por eso se presentan sobre tarjetas blancas, igual que
 la franja inferior del afiche.
+
+## Fotos
+
+> **Pendientes en 1.2.0.** La infraestructura está completa y las cuatro ranuras
+> de `FOTOS` (en `dist/index.js`) están puestas y **vacías**: hoy las cuatro
+> fichas muestran iniciales. El archivo de la lámina no pudo llegar al entorno
+> donde se construyó esta versión. Para completarlas basta rellenar esas cuatro
+> cadenas con los `data:` URI de los recortes; no hay que tocar nada más.
+
+Los retratos salen de la lámina 2×2 que entrega el organizador. Se recortan por
+cuadrantes en orden de lectura —Jack ↖, Patricia ↗, Marco ↙, Nicolás ↘—, se
+reescalan a 320 px y se embeben como `data:` URI en JPEG, igual que los logos:
+el totem no pide nada a la red.
+
+Cada ficha usa el componente `Avatar`, que cae a las iniciales de la persona si
+la foto falta o no carga, así que la app nunca queda con un hueco. El recorte es
+circular con `object-position: 50% 22%` para no cortar la frente. Se pueden
+apagar todas desde ⚙️ Configurar → *Mostrar las fotos de los expositores*.
+
+El snapshot del agente expone `foto: true|false` por persona, de modo que se
+puede auditar cuántas hay embebidas sin abrir el bundle.
 
 ## QR
 
@@ -189,5 +213,6 @@ node tools/pack.mjs apps/anfitrion-aiep
 
 | Versión | Cambios |
 |---------|---------|
+| 1.2.0 | Nombres reconciliados con la lámina oficial de retratos: «Marco Mella» (el programa decía «Marcos») y «Patricia Carolina Sandoval», conservando el nombre del programa en el snapshot. Infraestructura de fotos: componente `Avatar` con caída a iniciales, recorte circular, interruptor `mostrarFotos` y `foto` en el snapshot. |
 | 1.1.0 | Perfiles profesionales de los cuatro expositores: QR por persona en la ficha desplegable (verificados con `jsQR`), biografía de Jack Esquenazi con su fuente, y nombre completo de Marco Antonio Mella González junto al «Marcos Mella» del programa. |
 | 1.0.0 | Primera versión: seis secciones, programa de siete bloques con bloque en vivo, cuatro expositores, contexto complementario, consulta guiada, tablón de preguntas y encuesta colectivos, tres QR embebidos, logos oficiales extraídos del `.docx` y reinicio por inactividad. |

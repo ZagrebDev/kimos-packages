@@ -283,11 +283,19 @@
 .kimos-anfitrion-aiep .ai-sp:hover { background: var(--ai-panel-alto); }
 .kimos-anfitrion-aiep .ai-sp.abierta { border-color: var(--ai-rojo); }
 .kimos-anfitrion-aiep .ai-sp-top { display: flex; align-items: center; gap: 1em; }
-.kimos-anfitrion-aiep .ai-sp-ini {
+.kimos-anfitrion-aiep .ai-sp-ini,
+.kimos-anfitrion-aiep .ai-sp-foto {
   width: 4.6em; height: 4.6em; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--ai-linea-fuerte); background: rgb(255 255 255 / .16);
+}
+.kimos-anfitrion-aiep .ai-sp-ini {
   display: flex; align-items: center; justify-content: center;
-  background: rgb(255 255 255 / .16); border: 2px solid var(--ai-linea-fuerte);
   font-size: var(--f-lg); font-weight: 900; color: #fff;
+}
+/* Los retratos vienen sobre fondo blanco: object-position arriba para que el
+   recorte circular no corte la frente. */
+.kimos-anfitrion-aiep .ai-sp-foto {
+  display: block; object-fit: cover; object-position: 50% 22%; background: #fff;
 }
 .kimos-anfitrion-aiep .ai-sp-ini.rojo { background: var(--ai-rojo); border-color: var(--ai-rojo); }
 .kimos-anfitrion-aiep .ai-sp-nom { font-size: var(--f-lg); font-weight: 800; color: #fff; line-height: 1.2; }
