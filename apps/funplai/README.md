@@ -37,10 +37,34 @@ recorte que sigue a la persona se hace por software, así que se consigue el
 encuadre de una cámara con gimbal sin perder la referencia geométrica que
 permite medir en centímetros.
 
+## Con Kinect for Xbox One (v2)
+
+Además de la webcam, la app puede leer el cuerpo con un **Kinect v2** a través
+de un puente local por WebSocket. El sensor aporta lo que una cámara RGB no
+puede dar: 25 articulaciones **en metros reales**, hasta 6 cuerpos, estado de
+cada mano (puño, abierta o señalando), orientación de cada hueso, inclinación
+del torso medida por el propio sensor y el **plano del piso**.
+
+| Juego | Qué gana con el Kinect |
+|---|---|
+| Boxeo | El golpe exige **puño cerrado**; esquivar usa la inclinación del sensor |
+| Rayuela | El tejo se suelta cuando la mano **se abre**, no por tiempo estimado |
+| Alas de cóndor y 3D | El aleteo se mide en metros; virar usa la inclinación |
+| Mete gol | Usa la articulación del **pie** y cuánto avanza hacia la pantalla |
+| Esquiva y gana y 3D | Salto y agachada contra el **suelo real**, sin calibrar |
+| LaserGun | Modo **apuntar con la mano**: el brazo es la pistola y el puño el gatillo |
+
+Se elige en **⚙️ Editor → 🔌 Hardware → Motor de pose**; en `auto` prueba el
+puente y cae a la webcam si no está. El Kinect v2 **no entrega esqueleto de
+dedos** —la mano son muñeca, punta y pulgar más el estado—, y su seguimiento de
+cuerpo solo existe en el SDK de Windows. Sin Kinect, todos los juegos siguen
+funcionando igual con la cámara.
+
 Incluye ranking del tótem, editor completo (marca, juegos, espacio, hardware,
 export e import de configuración) y una pantalla de **diagnóstico** que mide en
 el equipo real qué cámara hay, cuántos FPS entrega, si detecta el cuerpo, cuánto
-mide la persona que está al frente y si el puntero de la pistola es compatible.
+mide la persona que está al frente, si el puntero de la pistola es compatible y
+el estado del puente Kinect (cuerpos, manos, inclinación y plano del piso).
 
 - `multiInstance`: cada tótem o evento es un documento independiente.
 - Permisos: `instance.read`, `instance.write`, `agent.control`.
@@ -54,5 +78,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai apps/funplai/funplai-1.7.0.kapp
+node tools/pack.mjs apps/funplai apps/funplai/funplai-1.8.0.kapp
 ```

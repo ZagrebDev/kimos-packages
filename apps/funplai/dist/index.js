@@ -382,8 +382,8 @@ export default function mount(shell) {
       config: {
         largoCircuito: 60,       // segundos de circuito
         velocidad: 0.42,         // qué tan rápido se acercan las frutas
-        gravedad: 0.62,          // cuánto tira hacia abajo
-        empujeAleteo: 0.42,      // cuánto sube cada aleteo
+        gravedad: 0.42,          // cuánto tira hacia abajo (≈1 aleteo/s para sostenerse)
+        empujeAleteo: 0.45,      // cuánto sube cada aleteo
         frenoPlaneo: 0.72,       // cuánto frena la caída el planeo
         frutasCada: 1.5,
         energia: 3,
@@ -398,8 +398,8 @@ export default function mount(shell) {
       config: {
         largoCircuito: 60,
         velocidad: 0.40,
-        gravedad: 0.60,
-        empujeAleteo: 0.42,
+        gravedad: 0.42,
+        empujeAleteo: 0.45,
         frenoPlaneo: 0.72,
         frutasCada: 1.6,
         obstaculosCada: 2.6,     // cada cuánto aparece un peñón o una araucaria
@@ -442,7 +442,8 @@ export default function mount(shell) {
       camaraHabilitada: true,
       camaraDeviceId: '',
       espejo: true,
-      motorPose: 'auto',       // auto | mediapipe | demo | ninguno
+      motorPose: 'auto',       // auto | kinect | mediapipe | demo | ninguno
+      kinectUrl: 'ws://127.0.0.1:8787',  // puente local del Kinect v2
       poseModuleUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs',
       poseWasmUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
       poseModelUrl: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
@@ -1587,6 +1588,283 @@ export default function mount(shell) {
     ultimoContorno = arriba.length >= 4 ? arriba.concat(abajo.reverse()) : null;
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.c Kinect for Xbox One (v2) a través de un puente local
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // El navegador NO puede hablar con el sensor: el Kinect v2 va por USB 3.0 y
+  // su seguimiento de cuerpo vive en el SDK de Windows. Por eso corre un
+  // PUENTE en el mismo equipo del tótem, que lee el sensor y publica los
+  // cuerpos por WebSocket; la app se conecta a `ws://127.0.0.1:8787`.
+  //
+  // Lo que el Kinect v2 SÍ entrega, y que una webcam no puede dar:
+  //   · 25 articulaciones POR CUERPO, hasta 6 cuerpos, en METROS reales.
+  //   · Estado de cada mano: abierta, cerrada o "lasso" (dos dedos).
+  //   · Orientación de cada hueso (cuaternión), no solo su posición.
+  //   · Inclinación del torso (lean X/Y) medida por el propio sensor.
+  //   · Plano del piso, así que la altura sale sin calibrar nada.
+  //   · Profundidad real: la distancia no se estima, se mide.
+  //
+  // Lo que NO entrega, y conviene no prometer: no hay esqueleto de dedos. La
+  // mano son tres puntos (muñeca, punta y pulgar) más el estado. Con eso se
+  // detecta puño, mano abierta y señalar, que es lo que usan los juegos.
+
+  /** Orden de articulaciones del SDK de Kinect v2 (índices 0..24). */
+  const KINECT_JOINTS = [
+    'baseColumna', 'medioColumna', 'cuello', 'cabeza',
+    'hombroI', 'codoI', 'munecaI', 'manoI',
+    'hombroD', 'codoD', 'munecaD', 'manoD',
+    'caderaI', 'rodillaI', 'tobilloI', 'pieI',
+    'caderaD', 'rodillaD', 'tobilloD', 'pieD',
+    'hombroCentro', 'puntaManoI', 'pulgarI', 'puntaManoD', 'pulgarD',
+  ];
+  const KJ = KINECT_JOINTS.reduce((o, n, i) => { o[n] = i; return o; }, {});
+
+  /**
+   * Traduce un cuerpo de Kinect al arreglo de 33 landmarks que usan todos los
+   * juegos. Así el sensor entra por la misma puerta que la webcam y NINGÚN
+   * juego necesita saber de dónde vienen los datos: los que ya funcionaban
+   * siguen funcionando, y los que aprovechan lo extra lo piden aparte.
+   */
+  function kinectALandmarks(cuerpo) {
+    if (!cuerpo || !cuerpo.joints) return null;
+    const J = cuerpo.joints;
+    const L = new Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0 }));
+    const poner = (idx, kj) => {
+      const j = J[kj];
+      if (!j) return;
+      L[idx] = {
+        x: clamp(num(j.x, 0.5), -0.5, 1.5),
+        y: clamp(num(j.y, 0.5), -0.5, 1.5),
+        // El SDK marca cada articulación como seguida, inferida o no seguida.
+        visibility: j.estado === 2 ? 0.95 : j.estado === 1 ? 0.55 : 0.05,
+      };
+    };
+    poner(0, KJ.cabeza);
+    poner(11, KJ.hombroI); poner(12, KJ.hombroD);
+    poner(13, KJ.codoI); poner(14, KJ.codoD);
+    poner(15, KJ.munecaI); poner(16, KJ.munecaD);
+    poner(17, KJ.pulgarI); poner(18, KJ.pulgarD);
+    poner(19, KJ.puntaManoI); poner(20, KJ.puntaManoD);
+    poner(21, KJ.manoI); poner(22, KJ.manoD);
+    poner(23, KJ.caderaI); poner(24, KJ.caderaD);
+    poner(25, KJ.rodillaI); poner(26, KJ.rodillaD);
+    poner(27, KJ.tobilloI); poner(28, KJ.tobilloD);
+    poner(31, KJ.pieI); poner(32, KJ.pieD);
+    return L;
+  }
+
+  /** Coordenadas métricas (metros, relativas a la cadera) como las de MediaPipe. */
+  function kinectAMundo(cuerpo) {
+    if (!cuerpo || !cuerpo.joints) return null;
+    const J = cuerpo.joints;
+    const base = J[KJ.baseColumna];
+    if (!base || base.cx == null) return null;
+    const M = new Array(33).fill(null);
+    const poner = (idx, kj) => {
+      const j = J[kj];
+      if (!j || j.cx == null) return;
+      M[idx] = { x: j.cx - base.cx, y: -(j.cy - base.cy), z: j.cz - base.cz };
+    };
+    poner(0, KJ.cabeza);
+    poner(11, KJ.hombroI); poner(12, KJ.hombroD);
+    poner(13, KJ.codoI); poner(14, KJ.codoD);
+    poner(15, KJ.munecaI); poner(16, KJ.munecaD);
+    poner(23, KJ.caderaI); poner(24, KJ.caderaD);
+    poner(25, KJ.rodillaI); poner(26, KJ.rodillaD);
+    poner(27, KJ.tobilloI); poner(28, KJ.tobilloD);
+    poner(31, KJ.pieI); poner(32, KJ.pieD);
+    return M;
+  }
+
+  /**
+   * Datos que solo el Kinect entrega, listos para que los usen los juegos.
+   * Se calculan una vez por cuadro y se pasan tal cual.
+   */
+  function kinectExtras(cuerpo) {
+    if (!cuerpo) return null;
+    const J = cuerpo.joints || {};
+    const mano = (v) => (v === 3 ? 'cerrada' : v === 2 ? 'abierta' : v === 4 ? 'senalando' : 'desconocida');
+    const cabeza = J[KJ.cabeza], base = J[KJ.baseColumna];
+    return {
+      id: s(cuerpo.id),
+      manoI: mano(cuerpo.manoI), manoD: mano(cuerpo.manoD),
+      confianzaManoI: num(cuerpo.confianzaManoI, 0), confianzaManoD: num(cuerpo.confianzaManoD, 0),
+      // Inclinación medida por el sensor: −1..1 ≈ 45° a cada lado.
+      lean: { x: num(cuerpo.leanX, 0), y: num(cuerpo.leanY, 0) },
+      // Distancia real al sensor, en metros, sin estimar nada.
+      distancia: base && base.cz != null ? num(base.cz, null) : null,
+      // Estatura sobre el plano del piso, si el sensor lo encontró.
+      estatura: cuerpo.piso && cabeza && cabeza.cy != null
+        ? alturaSobrePiso(cabeza, cuerpo.piso) : null,
+      piso: cuerpo.piso || null,
+      orientaciones: cuerpo.orientaciones || null,
+      cuerposEnEscena: num(cuerpo.cuerposEnEscena, 1),
+    };
+  }
+
+  /**
+   * Altura de un punto sobre el plano del piso que reporta el Kinect.
+   * El plano viene en forma hessiana: (x,y,z) es la normal unitaria y `w` la
+   * distancia del plano al origen, así que la altura es el producto punto.
+   */
+  function alturaSobrePiso(punto, piso) {
+    if (!punto || !piso) return null;
+    const d = punto.cx * num(piso.x, 0) + punto.cy * num(piso.y, 1) + punto.cz * num(piso.z, 0) + num(piso.w, 0);
+    // SIN valor absoluto a propósito: si un puente manda `w` con el signo al
+    // revés, la altura sale negativa y quien la usa la descarta. Con abs, una
+    // persona de 1,60 m se leería como 0,40 m y nadie se daría cuenta.
+    return Number.isFinite(d) ? d * 100 : null;               // en centímetros
+  }
+
+  /**
+   * Proveedor de pose por Kinect v2. Se conecta al puente local por WebSocket
+   * y reconecta solo: en una feria, el puente puede reiniciarse y el juego no
+   * tiene por qué morirse con él.
+   */
+  function proveedorKinect(hw) {
+    const url = s(hw && hw.kinectUrl) || 'ws://127.0.0.1:8787';
+    let ws = null, ultima = null, vivo = false, reintento = null, cerrado = false;
+    let ultimoCuadro = 0, cuadros = 0, estado = 'conectando';
+
+    const conectar = () => new Promise((resolve, reject) => {
+      if (typeof WebSocket === 'undefined') {
+        reject(new Error('Este navegador no tiene WebSocket, que es como se habla con el puente Kinect.'));
+        return;
+      }
+      let resuelto = false;
+      try { ws = new WebSocket(url); } catch (e) { reject(e); return; }
+      ws.onopen = () => { vivo = true; estado = 'conectado'; resuelto = true; resolve(true); };
+      ws.onmessage = (ev) => {
+        let m = null;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (!m || m.tipo !== 'cuerpos') return;
+        cuadros++;
+        ultimoCuadro = nowMs();
+        // Se juega con el cuerpo más cercano al sensor: en una feria hay
+        // público detrás y sin esto el juego salta de persona en persona.
+        const lista = Array.isArray(m.cuerpos) ? m.cuerpos.filter((c) => c && c.joints) : [];
+        const elegido = lista.slice().sort((a, b) => {
+          const za = (a.joints[KJ.baseColumna] || {}).cz, zb = (b.joints[KJ.baseColumna] || {}).cz;
+          return num(za, 99) - num(zb, 99);
+        })[0];
+        if (!elegido) { ultima = null; return; }
+        elegido.piso = m.piso || null;
+        elegido.cuerposEnEscena = lista.length;
+        ultima = {
+          landmarks: kinectALandmarks(elegido),
+          mundo: kinectAMundo(elegido),
+          angulos: null, sintetico: false, contorno: null,
+          kinect: kinectExtras(elegido),
+        };
+      };
+      ws.onerror = () => {
+        if (!resuelto) { resuelto = true; reject(new Error('No se pudo conectar con el puente Kinect en ' + url + '.')); }
+      };
+      ws.onclose = () => {
+        vivo = false; estado = 'desconectado'; ultima = null;
+        if (cerrado) return;
+        // Reintento con espera, para no martillar al puente caído.
+        reintento = setT(() => { conectar().catch(() => {}); }, 1500);
+      };
+    });
+
+    return {
+      tipo: 'kinect',
+      nombre: 'Kinect for Xbox One (puente local)',
+      setVideo() { /* el Kinect no necesita el <video> de la página */ },
+      async iniciar() {
+        cerrado = false;
+        await conectar();
+        return true;
+      },
+      detener() {
+        cerrado = true;
+        if (reintento) { clrT(reintento); reintento = null; }
+        try { ws && ws.close(); } catch (e) { /* noop */ }
+        ws = null; ultima = null; vivo = false; estado = 'detenido';
+      },
+      /** Estado del puente, para el Diagnóstico. */
+      salud() {
+        return {
+          url, estado, vivo, cuadros,
+          desdeUltimoCuadro: ultimoCuadro ? nowMs() - ultimoCuadro : null,
+          cuerpos: ultima && ultima.kinect ? ultima.kinect.cuerposEnEscena : 0,
+        };
+      },
+      leer() {
+        // Si el puente calla más de medio segundo, es que no hay nadie o se
+        // cortó: mejor devolver nada que congelar al jugador en una pose.
+        if (ultimoCuadro && nowMs() - ultimoCuadro > 600) return null;
+        return ultima;
+      },
+    };
+  }
+
+  /**
+   * Elige el motor de pose según la configuración del tótem.
+   * `auto` prueba primero el Kinect —si hay puente, es el mejor dato— y si no
+   * responde cae a la webcam con MediaPipe, sin que el operador tenga que
+   * tocar nada cuando se cambia el hardware.
+   */
+  /**
+   * URL del puente que ya se probó y no respondió, para no reintentarla en
+   * cada juego. Se limpia si el puente aparece o si cambian la URL.
+   */
+  let puenteAusente = null;
+
+  function crearProveedor(hw) {
+    const motor = s(hw && hw.motorPose) || 'auto';
+    if (motor === 'kinect') return proveedorKinect(hw);
+    if (motor === 'demo') return proveedorDemo();
+    return proveedorMediaPipe(hw);
+  }
+
+  /**
+   * Arranca el motor de pose y, SOLO si ese motor lo necesita, la cámara web.
+   * El Kinect va por USB al puente local: pedirle permiso de cámara al
+   * navegador ahí sería un diálogo inútil y una webcam encendida de gusto.
+   *
+   * Devuelve el proveedor ya iniciado. Si el Kinect estaba elegido como
+   * automático y no hay puente, cae a la webcam sin molestar al jugador.
+   */
+  async function arrancarPose(hw, videoRef, streamRef) {
+    const motor = s(hw && hw.motorPose) || 'auto';
+
+    if (motor === 'kinect' || (motor === 'auto' && puenteAusente !== s(hw && hw.kinectUrl))) {
+      const k = proveedorKinect(hw);
+      try {
+        await k.iniciar();
+        puenteAusente = null;
+        return k;
+      } catch (e) {
+        try { k.detener(); } catch (e2) { /* noop */ }
+        // Elegido a mano: el operador tiene que enterarse de que no hay puente.
+        if (motor === 'kinect') throw e;
+        // En automático, seguimos con la webcam sin decir nada. Y se anota que
+        // en este tótem no hay puente: sin esto, cada juego que abre vuelve a
+        // golpear un WebSocket que no existe y llena la consola de errores.
+        puenteAusente = s(hw && hw.kinectUrl);
+      }
+    }
+    if (motor === 'ninguno') throw new Error('El motor de pose está desactivado en ⚙️ Editor → Hardware.');
+
+    const prov = motor === 'demo' ? proveedorDemo() : proveedorMediaPipe(hw);
+    if (prov.tipo === 'demo') { await prov.iniciar(); return prov; }
+
+    const stream = await abrirCamara(hw);
+    if (streamRef) streamRef.current = stream;
+    const v = videoRef && videoRef.current;
+    if (!v) {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
+      throw new Error('No se pudo montar el elemento de video.');
+    }
+    v.srcObject = stream;
+    await v.play().catch(() => {});
+    await prov.iniciar(v);
+    return prov;
+  }
+
   function proveedorMediaPipe(hw) {
     let landmarker = null, video = null, ultimoTs = -1, ultima = null;
     return {
@@ -2519,14 +2797,7 @@ export default function mount(shell) {
       }
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         setMotor(prov.nombre);
         irA(cfg.exigirCalibracion === false ? 'cuenta' : 'calibrando');
@@ -2787,8 +3058,112 @@ export default function mount(shell) {
       h('path', { d: 'M-16 -6 l0 30 M0 -8 l0 32 M14 -6 l0 28', stroke: 'rgba(255,255,255,.45)', strokeWidth: 4 }));
   }
 
+  /**
+   * Puntería con la mano: convierte el brazo en la pistola.
+   *
+   * La mira es la PUNTA de la mano (landmark 19/20), no la muñeca: es el punto
+   * que la persona siente que apunta, y el Kinect lo entrega como articulación
+   * propia. El brazo no alcanza toda la pantalla, así que se mapea una "caja
+   * de puntería" centrada en los hombros y medida en anchos de hombro: el
+   * mismo gesto apunta igual siendo niño o adulto, cerca o lejos.
+   *
+   * El disparo tiene dos formas, y cuál se usa depende de lo que el sensor
+   * pueda decir de verdad:
+   *   · Con Kinect hay ESTADO DE MANO, así que se dispara cerrando el puño,
+   *     que es el gesto natural del gatillo.
+   *   · Con webcam no existe ese dato: se dispara sosteniendo la mira quieta
+   *     sobre el blanco (dwell), que además es lo accesible.
+   */
+  function detectorPunteria(opts) {
+    const o = opts || {};
+    // Medidas de la caja, en anchos de hombro. Salen de lo que el brazo
+    // alcanza de verdad: la envergadura ronda la estatura, así que una mano
+    // estirada al costado queda a unos 2,2 anchos de hombro del centro, y
+    // verticalmente se llega desde sobre la cabeza hasta la cadera. Con una
+    // caja más chica la mira se clava en el borde antes de estirar el brazo.
+    const ampX = num(o.amplitudX, 2.2);      // medio ancho de la caja
+    const ampY = num(o.amplitudY, 1.4);      // media altura
+    const alza = num(o.alza, -0.2);          // el centro cae un poco BAJO los hombros
+    const dwellMs = num(o.dwellMs, 620);     // cuánto hay que sostener sin sensor de mano
+    const quietud = num(o.quietud, 0.035);   // cuánto puede temblar y seguir contando
+    const cadencia = num(o.cadenciaMs, 230); // tiempo mínimo entre dos tiros
+    // `tUltimo` en null es "todavía no se disparó": con 0 el reloj recién
+    // arrancado del navegador ya parecería estar en la espera entre tiros.
+    let mano = null, cerradaAntes = false, tUltimo = null;
+    let sx = null, sy = null, ancla = null, tQuieto = 0, rearmar = false;
+    const listo = (t) => tUltimo == null || t - tUltimo > cadencia;
+    return {
+      reset() {
+        mano = null; cerradaAntes = false; tUltimo = null;
+        sx = sy = null; ancla = null; tQuieto = 0; rearmar = false;
+      },
+      /** `{ visible, x, y, disparo, mano, gesto, carga }` con x,y en 0..1. */
+      actualizar(L, espejo, k, dt) {
+        const vacio = { visible: false, x: 0.5, y: 0.5, disparo: false, mano: null, gesto: 'sin lectura', carga: 0 };
+        if (!L) return vacio;
+        const esc = escalaCorporal(L, 'superior');
+        const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
+        if (!esc || !hI || !hD) return vacio;
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+
+        // ── Qué mano apunta ───────────────────────────────────────────
+        // La más alta, con histéresis: sin ella la mira salta de una mano a
+        // la otra cada vez que quedan parejas, y apuntar se vuelve imposible.
+        const cand = [];
+        const punta = (tip, muneca) => (ver(L[tip]) ? L[tip] : ver(L[muneca]) ? L[muneca] : null);
+        const pI = punta(19, IDX.munecaI), pD = punta(20, IDX.munecaD);
+        if (pI) cand.push({ lado: 'I', p: pI });
+        if (pD) cand.push({ lado: 'D', p: pD });
+        if (!cand.length) return vacio;
+        const actual = cand.find((c) => c.lado === mano);
+        let elegida = cand.reduce((a, b) => (b.p.y < a.p.y ? b : a));
+        if (actual && elegida.lado !== mano && actual.p.y - elegida.p.y < 0.06) elegida = actual;
+        mano = elegida.lado;
+
+        // ── De la caja de puntería a la pantalla ──────────────────────
+        const cxH = (hI.x + hD.x) / 2, cyH = (hI.y + hD.y) / 2;
+        const nx = ((elegida.p.x - cxH) / (esc * ampX)) * (espejo ? -1 : 1);
+        const ny = (elegida.p.y - (cyH - esc * alza)) / (esc * ampY);
+        const bx = clamp((nx + 1) / 2, 0, 1), by = clamp((ny + 1) / 2, 0, 1);
+        const a = clamp(num(dt, 1 / 60) * 14, 0, 1);
+        sx = sx == null ? bx : sx + (bx - sx) * a;
+        sy = sy == null ? by : sy + (by - sy) * a;
+
+        // ── Gatillo ───────────────────────────────────────────────────
+        const t = nowMs();
+        const est = k && (mano === 'I' ? k.manoI : k.manoD);
+        const conf = k ? (mano === 'I' ? k.confianzaManoI : k.confianzaManoD) : 0;
+        const hayEstado = !!est && est !== 'desconocida' && est !== 'noSeguida' && conf >= 0.5;
+        let disparo = false, carga = 0, gesto = '';
+        if (hayEstado) {
+          const cerrada = est === 'cerrada';
+          if (cerrada && !cerradaAntes && listo(t)) { disparo = true; tUltimo = t; }
+          cerradaAntes = cerrada;
+          gesto = cerrada ? 'disparando' : 'apunta y cierra el puño';
+          ancla = null; tQuieto = 0;
+        } else {
+          // Sin estado de mano: sostener la mira quieta sobre el blanco.
+          cerradaAntes = false;
+          if (!ancla || Math.hypot(sx - ancla.x, sy - ancla.y) > quietud) {
+            ancla = { x: sx, y: sy }; tQuieto = 0;
+            if (rearmar) rearmar = false;
+          } else if (!rearmar) {
+            tQuieto += num(dt, 1 / 60) * 1000;
+          }
+          carga = rearmar ? 0 : clamp(tQuieto / dwellMs, 0, 1);
+          if (carga >= 1 && listo(t)) {
+            disparo = true; tUltimo = t; tQuieto = 0; carga = 0; rearmar = true;
+          }
+          gesto = rearmar ? 'mueve la mano para volver a cargar' : 'sostén la mira sobre el blanco';
+        }
+        return { visible: true, x: sx, y: sy, disparo, mano, gesto, carga };
+      },
+    };
+  }
+
   function JuegoLaser(props) {
     const cfg = props.game.config || {};
+    const hw = model.hardware;
     const svgRef = useRef(null);
     const objsRef = useRef([]);
     const spawnRef = useRef(0);
@@ -2800,6 +3175,14 @@ export default function mount(shell) {
     const [flash, setFlash] = useState(null);
     const [mira, setMira] = useState(null);
     const [combo, setCombo] = useState(0);
+    // Puntería con la mano: el brazo hace de pistola (ver `detectorPunteria`).
+    const videoRef = useRef(null);
+    const streamRef = useRef(null);
+    const provRef = useRef(null);
+    const punRef = useRef(detectorPunteria());
+    const [conMano, setConMano] = useState(false);
+    const [manoHud, setManoHud] = useState(null);
+    const [avisoMano, setAvisoMano] = useState('');
 
     const municionMax = Math.max(1, num(cfg.municion, 6));
 
@@ -2844,9 +3227,9 @@ export default function mount(shell) {
       });
     }, [fase, cfg.duracion, cfg.spawnMs, cfg.velocidad]);
 
-    const disparar = (e) => {
-      if (fase !== 'jugando' || !svgRef.current) return;
-      const p = svgPoint(svgRef.current, e, LASER_VB);
+    /** Un disparo en coordenadas del viewBox, venga del dedo o de la mano. */
+    const tirarEn = (p) => {
+      if (fase !== 'jugando') return;
       // Zona de recarga (barra inferior) = "disparar fuera de pantalla".
       if (p.y > LASER_VB.h - 150) {
         setMunicion(municionMax);
@@ -2882,6 +3265,79 @@ export default function mount(shell) {
       if (navigator.vibrate) { try { navigator.vibrate(20); } catch (err) { /* noop */ } }
     };
 
+    const disparar = (e) => {
+      if (fase !== 'jugando' || !svgRef.current) return;
+      tirarEn(svgPoint(svgRef.current, e, LASER_VB));
+    };
+
+    // ── Puntería con la mano ────────────────────────────────────────────
+    const montarVideo = useCallback((el) => {
+      videoRef.current = el;
+      if (el && streamRef.current && el.srcObject !== streamRef.current) {
+        el.srcObject = streamRef.current;
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      if (provRef.current && provRef.current.setVideo) provRef.current.setVideo(el);
+    }, []);
+    const soltarMano = useCallback(() => {
+      try { provRef.current && provRef.current.detener(); } catch (e) { /* noop */ }
+      provRef.current = null;
+      const st = streamRef.current;
+      if (st) { try { st.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      streamRef.current = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+      setManoHud(null);
+    }, []);
+    useEffect(() => soltarMano, [soltarMano]);
+
+    const alternarMano = useCallback(async () => {
+      if (conMano) { setConMano(false); setAvisoMano(''); soltarMano(); return; }
+      setAvisoMano('Abriendo el sensor…');
+      try {
+        punRef.current.reset();
+        provRef.current = await arrancarPose(hw, videoRef, streamRef);
+        setConMano(true); setAvisoMano('');
+      } catch (e) {
+        soltarMano();
+        setAvisoMano(mensajeCamara(e));
+      }
+    }, [conMano, soltarMano]);
+
+    // El brazo estirado del todo llega justo al borde, y ahí la mira quedaría
+    // cortada por el marco. Se mapea a un rectángulo con un margen del ancho
+    // de la mira, y ese mismo punto es el que dispara: si se dibujara en un
+    // lado y se disparara en otro, el jugador no entendería por qué falla.
+    const MARGEN = 56;
+    const aPantalla = (r) => ({
+      x: MARGEN + r.x * (LASER_VB.w - MARGEN * 2),
+      y: MARGEN + r.y * (LASER_VB.h - MARGEN * 2),
+    });
+
+    // El componente se redibuja en cada cuadro, así que el disparo va por
+    // referencia: si entrara en las dependencias, el bucle se reiniciaría
+    // sesenta veces por segundo y el detector perdería su estado.
+    const tirarRef = useRef(tirarEn);
+    tirarRef.current = tirarEn;
+
+    useEffect(() => {
+      if (!conMano || fase !== 'jugando') return undefined;
+      const espejo = hw.espejo !== false;
+      let ultimoHud = 0;
+      return loop((dt) => {
+        const prov = provRef.current;
+        const lec = prov ? prov.leer() : null;
+        const r = punRef.current.actualizar(lec && lec.landmarks, espejo, lec && lec.kinect, dt);
+        if (r.disparo) tirarRef.current(aPantalla(r));
+        const t = nowMs();
+        if (t - ultimoHud > 45) {
+          ultimoHud = t;
+          setManoHud(r.visible ? r : null);
+          setAvisoMano(r.visible ? r.gesto : 'No te veo: ponte frente al tótem');
+        }
+      });
+    }, [conMano, fase, hw.espejo]);
+
     const meta = Math.max(50, num(cfg.metaPuntos, 300));
     if (fase === 'fin') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -2909,9 +3365,22 @@ export default function mount(shell) {
         h(Chip, { tone: 'accent' }, puntos + ' pts'),
         h(Chip, null, '⏱ ' + tiempo + 's'),
         h(Chip, null, cfg.recargaAuto ? '∞ munición' : '🔴'.repeat(Math.max(0, municion)) || 'Recarga abajo'),
-        combo > 1 ? h(Chip, { tone: 'ok' }, 'combo x' + combo) : null),
+        combo > 1 ? h(Chip, { tone: 'ok' }, 'combo x' + combo) : null,
+        h(Boton, {
+          className: 'fp-btn--mini', variant: conMano ? 'primary' : 'ghost', onClick: alternarMano,
+          title: 'Apuntar moviendo el brazo, leído por el sensor',
+        }, conMano ? '🖐 Mano activa' : '🖐 Apuntar con la mano')),
     },
       h('div', { className: 'fp-laser-wrap' },
+        // El <video> vive siempre montado, aunque no se vea: MediaPipe no
+        // puede engancharse a un elemento que aún no existe. Y se queda
+        // oculto SIEMPRE: acá la mira ya dice dónde está la mano, y con
+        // Kinect el elemento ni siquiera recibe imagen (sería un rectángulo
+        // negro tapando el juego).
+        h('video', {
+          ref: montarVideo, className: 'fp-ray-cam is-hidden',
+          autoPlay: true, muted: true, playsInline: true,
+        }),
         h('svg', {
           ref: svgRef, className: 'fp-laser-svg', viewBox: '0 0 1000 1400',
           onPointerDown: disparar,
@@ -2949,10 +3418,29 @@ export default function mount(shell) {
             h('text', { x: 500, y: LASER_VB.h - 40, textAnchor: 'middle', className: 'fp-svg-sub' },
               'Empanada +20 · Choripán +15 · Volantín +10 · Ají y schop −' + Math.abs(num(cfg.penalizacion, 5)))),
           // mira de la pistola
-          mira ? h('g', { transform: 'translate(' + mira.x + ',' + mira.y + ')', opacity: 0.9 },
+          mira && !conMano ? h('g', { transform: 'translate(' + mira.x + ',' + mira.y + ')', opacity: 0.9 },
             h('circle', { r: 34, fill: 'none', stroke: '#fff', strokeWidth: 3 }),
             h('path', { d: 'M-52 0 L-22 0 M22 0 L52 0 M0 -52 L0 -22 M0 22 L0 52', stroke: '#fff', strokeWidth: 3 }),
             h('circle', { r: 4, fill: '#D52B1E' })) : null,
+          // Mira de la mano. El anillo se cierra mientras se sostiene el
+          // apunte: sin sensor de puño, es la única señal de que el disparo
+          // viene, y sin ella el dwell se siente roto.
+          conMano && manoHud
+            ? h('g', { transform: 'translate(' + aPantalla(manoHud).x.toFixed(1) + ',' + aPantalla(manoHud).y.toFixed(1) + ')' },
+                h('circle', { r: 44, fill: 'none', stroke: 'rgba(0,0,0,.45)', strokeWidth: 9 }),
+                h('circle', { r: 44, fill: 'none', stroke: fLa.luz, strokeWidth: 5 }),
+                manoHud.carga > 0
+                  ? h('circle', {
+                      r: 44, fill: 'none', stroke: '#FFE066', strokeWidth: 9,
+                      strokeLinecap: 'round', transform: 'rotate(-90)',
+                      strokeDasharray: (2 * Math.PI * 44).toFixed(1),
+                      strokeDashoffset: (2 * Math.PI * 44 * (1 - manoHud.carga)).toFixed(1),
+                    })
+                  : null,
+                h('path', { d: 'M-70 0 L-30 0 M30 0 L70 0 M0 -70 L0 -30 M0 30 L0 70', stroke: '#fff', strokeWidth: 5, strokeLinecap: 'round' }),
+                h('circle', { r: 6, fill: '#D52B1E' }),
+                h('text', { y: 82, textAnchor: 'middle', className: 'fp-svg-sub' }, manoHud.mano === 'I' ? 'IZQ' : 'DER'))
+            : null,
           // fogonazo
           flashVivo ? h('g', { transform: 'translate(' + flashVivo.x + ',' + flashVivo.y + ')' },
             flashVivo.vacio
@@ -2960,7 +3448,9 @@ export default function mount(shell) {
               : h(EstallidoDC, { cx: 0, cy: 0, r: flashVivo.recarga ? 56 : 40, puntas: 10, color: '#FFE066', borde: '#C2410C', linea: 5 }),
             flashVivo.vacio ? h('text', { y: -40, textAnchor: 'middle', className: 'fp-svg-warn' }, 'SIN BALAS') : null) : null)),
         h('p', { className: 'fp-hint' },
-          'Dispara a las empanadas, los choripanes y los volantines. Los ajíes y los schops te restan puntos.')));
+          conMano
+            ? (avisoMano || 'Apunta con la mano y cierra el puño para disparar.')
+            : 'Dispara a las empanadas, los choripanes y los volantines. Los ajíes y los schops te restan puntos.')));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -3046,8 +3536,14 @@ export default function mount(shell) {
     return {
       reset() { armado = false; enSwing = false; pico = null; hist = []; },
       estado() { return enSwing ? 'lanzando' : armado ? 'listo' : 'baja la mano'; },
-      /** Devuelve null, o {fuerza, lateral, brazo} cuando detecta el lanzamiento. */
-      actualizar(L, espejo) {
+      /**
+       * Devuelve null, o {fuerza, lateral, brazo} cuando detecta el lanzamiento.
+       *
+       * `k` son los datos del Kinect. Con sensor, el tejo sale cuando la mano
+       * SE ABRE, que es lo que hace un jugador de verdad al soltarlo; con
+       * webcam hay que adivinar el momento por el punto más rápido del swing.
+       */
+      actualizar(L, espejo, k) {
         if (!L) return null;
         const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
         if (!hI || !hD) return null;
@@ -3089,8 +3585,12 @@ export default function mount(shell) {
           return null;
         }
         if (mejor.rapidez > pico.rapidez) pico = mejor;
-        // Se suelta el tejo en el punto más rápido del swing (ventana corta).
-        if (t - tSwing > 220 || mejor.rapidez < pico.rapidez * 0.6) {
+        // Con Kinect: la mano que lanza se abre y ahí sale el tejo.
+        const manoDelSwing = k ? (pico.brazo === 'izquierdo' ? k.manoI : k.manoD) : null;
+        const confianza = k ? (pico.brazo === 'izquierdo' ? k.confianzaManoI : k.confianzaManoD) : 0;
+        const soltoLaMano = !!manoDelSwing && confianza >= 0.5 && manoDelSwing === 'abierta';
+        // Sin sensor, se suelta en el punto más rápido del swing (ventana corta).
+        if (soltoLaMano || t - tSwing > 220 || mejor.rapidez < pico.rapidez * 0.6) {
           const r = { fuerza: pico.rapidez, lateral: pico.vx, brazo: pico.brazo };
           armado = false; enSwing = false; pico = null; hist = [];
           return r;
@@ -3117,8 +3617,16 @@ export default function mount(shell) {
       /**
        * Devuelve { golpe, guardia, inclinacion, listo }.
        * `golpe` es null o { brazo, altura: 'alta'|'media', fuerza }.
+       *
+       * `k` son los datos que solo entrega el Kinect. Cuando están:
+       *   · un golpe cuenta solo con el PUÑO CERRADO, que es lo que distingue
+       *     pegar de estirar el brazo para señalar algo;
+       *   · la guardia se lee de las manos cerradas junto a la cara, no de la
+       *     posición sola;
+       *   · la esquiva usa el `lean` que mide el sensor, en vez de deducirla
+       *     de cuánto se corrió el torso en la imagen.
        */
-      actualizar(L, espejo, dt) {
+      actualizar(L, espejo, dt, k) {
         const vacio = { golpe: null, guardia: false, inclinacion: 0, listo: false };
         if (!L) return vacio;
         const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
@@ -3142,8 +3650,13 @@ export default function mount(shell) {
           const vel = prev && prev[b.brazo] != null ? (ext - prev[b.brazo]) / Math.max(0.016, dt) : 0;
           if (nariz && Math.abs(b.muneca.y - nariz.y) < escala * 0.85
               && Math.abs(b.muneca.x - centroX) < escala * 0.9) manosArriba++;
-          if (!e.fuera && ext > 1.15 && vel > 1.6) {
-            // Golpe: el brazo se extendió rápido.
+          // Con Kinect, el puño tiene que estar CERRADO: estirar el brazo con
+          // la mano abierta es señalar, no pegar.
+          const mano = k ? (b.brazo === 'izquierdo' ? k.manoI : k.manoD) : null;
+          const confianza = k ? (b.brazo === 'izquierdo' ? k.confianzaManoI : k.confianzaManoD) : 0;
+          const puno = !mano || mano === 'desconocida' || confianza < 0.5 ? true : mano === 'cerrada';
+          if (!e.fuera && ext > 1.15 && vel > 1.6 && puno) {
+            // Golpe: el brazo se extendió rápido (y con el puño cerrado).
             e.fuera = true;
             e.pico = vel;
             const altura = nariz && b.muneca.y < nariz.y + escala * 0.35 ? 'alta' : 'media';
@@ -3156,12 +3669,22 @@ export default function mount(shell) {
           prev[b.brazo] = ext;
         }
         if (prev == null) prev = {};
-        // Inclinación del torso respecto del centro de la imagen (esquiva).
-        let incl = (centroX - 0.5) / Math.max(0.08, escala);
-        if (espejo) incl = -incl;
+        // Inclinación del torso. El Kinect la mide; con webcam se deduce de
+        // cuánto se corrió el torso respecto del centro de la imagen.
+        let incl;
+        if (k && k.lean && Number.isFinite(k.lean.x)) {
+          incl = k.lean.x * 2;                       // lean −1..1 ≈ 45°
+          if (espejo) incl = -incl;
+        } else {
+          incl = (centroX - 0.5) / Math.max(0.08, escala);
+          if (espejo) incl = -incl;
+        }
+        // Guardia: manos arriba y, si el sensor lo sabe, además cerradas.
+        const punos = k ? (k.manoI === 'cerrada' ? 1 : 0) + (k.manoD === 'cerrada' ? 1 : 0) : 2;
+        const guardia = manosArriba >= 2 && (!k || punos >= 2);
         return {
           golpe,
-          guardia: manosArriba >= 2,
+          guardia,
           inclinacion: clamp(incl, -2, 2),
           listo: manosVistas > 0 && !!nariz,
           hombroY,
@@ -3283,14 +3806,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('posicion');
       } catch (e) {
@@ -3327,7 +3843,7 @@ export default function mount(shell) {
           return;
         }
         if (volandoRef.current) return;
-        const r = detRef.current.actualizar(L, hw.espejo !== false);
+        const r = detRef.current.actualizar(L, hw.espejo !== false, lec && lec.kinect);
         if (t - ultimoHud > 150) {
           ultimoHud = t;
           setGuia((g) => Object.assign({}, g, { landmarks: L }));
@@ -3896,14 +4412,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('posicion');
       } catch (e) {
@@ -3942,7 +4451,7 @@ export default function mount(shell) {
 
         // ── Lectura del jugador ──────────────────────────────────────
         if (!modoTactil) {
-          const lect = detRef.current.actualizar(L, hw.espejo !== false, dt);
+          const lect = detRef.current.actualizar(L, hw.espejo !== false, dt, lec && lec.kinect);
           R.guardia = lect.guardia;
           R.incl = lect.inclinacion;
           if (lect.golpe) golpearJugador(lect.golpe);
@@ -4439,23 +4948,55 @@ export default function mount(shell) {
    */
   function detectorPatada() {
     let armado = false, enSwing = false, tSwing = 0, pico = null, hist = [];
+    let usaPie = false, usaProfundidad = false;
     return {
-      reset() { armado = false; enSwing = false; pico = null; hist = []; },
+      reset() { armado = false; enSwing = false; pico = null; hist = []; usaPie = false; usaProfundidad = false; },
       estado() { return enSwing ? 'pateando' : armado ? 'listo' : 'pies al suelo'; },
-      /** null, o { fuerza, lateral, altura, pierna }. */
-      actualizar(L, espejo) {
+      /** Qué está leyendo: sirve para decirlo en pantalla sin adivinar. */
+      fuente() {
+        return (usaPie ? 'pie' : 'tobillo') + (usaProfundidad ? ' + profundidad' : '');
+      },
+      /**
+       * null, o `{ fuerza, lateral, altura, pierna, profundidad }`.
+       *
+       * `mundo` son las coordenadas métricas del sensor. Con ellas se puede ver
+       * algo que una cámara sola NO ve: cuánto avanza el pie HACIA la pantalla.
+       * Sin eso, una patada al frente y una patada al aire de costado se leen
+       * casi igual, y el juego premia por igual dos gestos muy distintos.
+       */
+      actualizar(L, espejo, mundo) {
         if (!L) return null;
         const escala = escalaCorporal(L, 'completo');
         if (!escala) return null;
         const cI = L[IDX.caderaI], cD = L[IDX.caderaD];
         if (!cI || !cD) return null;
         const caderaY = (cI.y + cD.y) / 2;
-        const pies = [];
-        if (L[IDX.tobilloD]) pies.push({ pierna: 'derecha', p: L[IDX.tobilloD] });
-        if (L[IDX.tobilloI]) pies.push({ pierna: 'izquierda', p: L[IDX.tobilloI] });
-        if (!pies.length) return null;
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+        // El Kinect entrega el PIE como articulación propia, más adelantada que
+        // el tobillo: es el punto que de verdad golpea el balón. Si no está
+        // (webcam, o pie fuera de cuadro) se sigue con el tobillo de siempre.
+        const punta = (pie, tobillo) => {
+          const t2 = ver(L[tobillo]) ? L[tobillo] : null;
+          // El pie va SIEMPRE por debajo del tobillo. Si no lo está, no es un
+          // pie: es un punto de relleno de algún proveedor, y seguirlo pondría
+          // el remate a la altura del pecho.
+          if (ver(L[pie]) && (!t2 || L[pie].y > t2.y)) return { p: L[pie], propio: true };
+          return t2 ? { p: t2, propio: false } : null;
+        };
+        const lados = [
+          { pierna: 'derecha', sel: punta(32, IDX.tobilloD), wi: 32, wt: IDX.tobilloD },
+          { pierna: 'izquierda', sel: punta(31, IDX.tobilloI), wi: 31, wt: IDX.tobilloI },
+        ].filter((x) => x.sel);
+        if (!lados.length) return null;
+        usaPie = lados.every((x) => x.sel.propio);
         const t = nowMs();
-        hist.push({ t, pies: pies.map((x) => ({ pierna: x.pierna, x: x.p.x, y: x.p.y })) });
+        hist.push({
+          t,
+          pies: lados.map((x) => {
+            const w = mundo && (mundo[x.wi] || mundo[x.wt]);
+            return { pierna: x.pierna, x: x.sel.p.x, y: x.sel.p.y, z: w ? w.z : null };
+          }),
+        });
         if (hist.length > 14) hist.shift();
         if (hist.length < 4) return null;
 
@@ -4468,10 +5009,13 @@ export default function mount(shell) {
           const vx = ((f.x - prev.x) / dt) / escala * (espejo ? -1 : 1);
           const vy = ((f.y - prev.y) / dt) / escala;
           const subida = -vy;
+          // `z` crece alejándose del sensor, así que acercarse es negativo.
+          const avance = f.z != null && prev.z != null ? -(f.z - prev.z) / dt : null;
           const rapidez = Math.hypot(vx, subida);
-          if (!mejor || rapidez > mejor.rapidez) mejor = { pierna: f.pierna, vx, subida, rapidez, y: f.y };
+          if (!mejor || rapidez > mejor.rapidez) mejor = { pierna: f.pierna, vx, subida, rapidez, avance, y: f.y };
         }
         if (!mejor) return null;
+        usaProfundidad = mejor.avance != null;
 
         if (!armado) {
           // Pie abajo (bien por debajo de la cadera) y quieto.
@@ -4484,12 +5028,16 @@ export default function mount(shell) {
         }
         if (mejor.rapidez > pico.rapidez) pico = mejor;
         if (t - tSwing > 200 || mejor.rapidez < pico.rapidez * 0.6) {
+          // Un remate frontal decidido llega cerca de 2 m/s de avance; ahí la
+          // patada vale su fuerza entera. Una que solo va de lado, no.
+          const profundidad = pico.avance == null ? null : clamp(pico.avance / 2, -1, 1);
           const r = {
-            fuerza: pico.rapidez,
+            fuerza: profundidad == null ? pico.rapidez : pico.rapidez * (0.72 + 0.38 * clamp(profundidad, 0, 1)),
             lateral: pico.vx,
             // Cuánto levantó el pie decide si el balón va alto o raso.
             altura: clamp(pico.subida / Math.max(0.5, pico.rapidez), 0, 1),
             pierna: pico.pierna,
+            profundidad,
           };
           armado = false; enSwing = false; pico = null; hist = [];
           return r;
@@ -4505,23 +5053,42 @@ export default function mount(shell) {
    * ella, en anchos de hombro: así funciona igual de cerca o de lejos.
    */
   function detectorSaltoAgacharse() {
-    let base = null, suave = null, calib = 0;
+    let base = null, suave = null, calib = 0, enCm = false;
     return {
-      reset() { base = null; suave = null; calib = 0; },
+      reset() { base = null; suave = null; calib = 0; enCm = false; },
       listo() { return base != null; },
-      /** { accion: 'saltar'|'agachar'|null, desvio, calibrando }. */
-      actualizar(L, dt) {
-        if (!L) return { accion: null, desvio: 0, calibrando: base == null };
-        const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
-        const escala = escalaCorporal(L, 'superior');
-        if (!hI || !hD || !escala) return { accion: null, desvio: 0, calibrando: base == null };
-        const y = (hI.y + hD.y) / 2;
+      /** Qué referencia se está usando, para poder mostrarlo. */
+      fuente() { return enCm ? 'piso' : 'hombros'; },
+      /** { accion: 'saltar'|'agachar'|null, desvio, calibrando, fuente }. */
+      actualizar(L, dt, k) {
+        // Con el Kinect hay PLANO DEL PISO: la estatura sale en centímetros
+        // reales y el salto se mide contra el suelo, no contra una referencia
+        // que la persona fija estando quieta. Es más honesto y no se desvía
+        // si el jugador se acerca o se aleja durante la partida.
+        const cm = k && Number.isFinite(k.estatura) && k.estatura > 60 ? k.estatura : null;
+        const vacio = () => ({ accion: null, desvio: 0, calibrando: base == null, fuente: enCm ? 'piso' : 'hombros' });
+        let y, escala;
+        if (cm != null) {
+          // Si se venía midiendo en la imagen, la referencia ya no sirve.
+          if (!enCm) { enCm = true; base = null; suave = null; calib = 0; }
+          y = -cm;                                   // − para que + siga siendo "subió"
+          // El ancho de hombros ronda el 23 % de la estatura: así el umbral
+          // vale lo mismo midiendo en la imagen o midiendo en centímetros.
+          escala = Math.max(20, cm * 0.23);
+        } else {
+          if (enCm) { enCm = false; base = null; suave = null; calib = 0; }
+          if (!L) return vacio();
+          const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
+          escala = escalaCorporal(L, 'superior');
+          if (!hI || !hD || !escala) return vacio();
+          y = (hI.y + hD.y) / 2;
+        }
         suave = suave == null ? y : suave + (y - suave) * clamp(dt * 12, 0, 1);
         if (base == null) {
           // Primer segundo de pie quieto: eso fija la referencia.
           calib += dt;
           base = calib > 1 ? suave : null;
-          return { accion: null, desvio: 0, calibrando: base == null };
+          return vacio();
         }
         // Deriva lenta para que la referencia siga a la persona si se reacomoda.
         base += (suave - base) * clamp(dt * 0.12, 0, 1);
@@ -4529,7 +5096,7 @@ export default function mount(shell) {
         let accion = null;
         if (desvio > 0.33) accion = 'saltar';
         else if (desvio < -0.30) accion = 'agachar';
-        return { accion, desvio, calibrando: false };
+        return { accion, desvio, calibrando: false, fuente: enCm ? 'piso' : 'hombros' };
       },
     };
   }
@@ -4561,8 +5128,12 @@ export default function mount(shell) {
       /**
        * `{ aleteo, fuerza, planeo, altura, cadencia, visible }`.
        * `altura` va en anchos de hombro: + = muñecas sobre los hombros.
+       *
+       * `mundo` son las coordenadas MÉTRICAS (Kinect, o MediaPipe world). Con
+       * ellas el aleteo se mide en el espacio real y no en la imagen, así que
+       * no cambia si la persona se acerca, se aleja o se corre de lado.
        */
-      actualizar(L, dt) {
+      actualizar(L, dt, mundo) {
         const vacio = { aleteo: false, fuerza: 0, planeo: false, altura: 0, cadencia: 0, visible: false };
         if (!L) return vacio;
         const escala = escalaCorporal(L, 'superior');
@@ -4577,7 +5148,24 @@ export default function mount(shell) {
         const yHombro = (hI.y + hD.y) / 2;
         const yMuneca = munecas.reduce((a, p) => a + p.y, 0) / munecas.length;
         // En imagen, `y` crece hacia abajo: se invierte para que + sea arriba.
-        const altura = (yHombro - yMuneca) / escala;
+        let altura = (yHombro - yMuneca) / escala;
+        // Con datos métricos se prefiere el mundo real: mismo gesto, misma
+        // lectura, esté la persona donde esté.
+        if (mundo) {
+          const w = (i) => mundo[i];
+          const wH = [w(IDX.hombroI), w(IDX.hombroD)].filter(Boolean);
+          const wM = [w(IDX.munecaI), w(IDX.munecaD)].filter(Boolean);
+          if (wH.length === 2 && wM.length) {
+            const anchoM = Math.hypot(wH[0].x - wH[1].x, wH[0].y - wH[1].y, wH[0].z - wH[1].z);
+            if (anchoM > 0.05) {
+              const yh = (wH[0].y + wH[1].y) / 2;
+              const ym = wM.reduce((a, p) => a + p.y, 0) / wM.length;
+              // Los dos mundos (Kinect y MediaPipe) usan +y hacia ABAJO, igual
+              // que la imagen: `kinectAMundo` ya invierte el eje del sensor.
+              altura = (yh - ym) / anchoM;
+            }
+          }
+        }
         const k = clamp(dt * 16, 0, 1);
         suave = suave == null ? altura : suave + (altura - suave) * k;
 
@@ -4642,8 +5230,21 @@ export default function mount(shell) {
     let suave = null;
     return {
       reset() { suave = null; },
-      /** `{ giro, crudo, visible }`; giro va de −1 (izquierda) a 1 (derecha). */
-      actualizar(L, dt, espejo) {
+      /**
+       * `{ giro, crudo, visible }`; giro va de −1 (izquierda) a 1 (derecha).
+       *
+       * `k` son los datos del Kinect: el sensor MIDE la inclinación del torso
+       * y la entrega en `lean`, así que cuando está no hace falta deducirla de
+       * la posición de hombros y caderas en la imagen.
+       */
+      actualizar(L, dt, espejo, k) {
+        if (k && k.lean && Number.isFinite(k.lean.x)) {
+          const bruto = k.lean.x / Math.max(0.05, num(o.leanPleno, 0.45));
+          const mag = Math.max(0, Math.abs(bruto) - 0.18) / 0.82;
+          let g = clamp(mag, 0, 1) * (bruto < 0 ? -1 : 1);
+          if (espejo) g = -g;
+          return { giro: g, crudo: k.lean.x, visible: true, fuente: 'kinect' };
+        }
         if (!L) return { giro: 0, crudo: 0, visible: false };
         const escala = escalaCorporal(L, 'superior');
         const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
@@ -4657,8 +5258,8 @@ export default function mount(shell) {
         // Señal 2: hombro que baja. En imagen `y` crece hacia abajo.
         const angulo = (hD.y - hI.y) / escala;
         const crudo = desplazamiento * 1.6 + angulo * 0.9;
-        const k = clamp(dt * 9, 0, 1);
-        suave = suave == null ? crudo : suave + (crudo - suave) * k;
+        const alfa = clamp(dt * 9, 0, 1);
+        suave = suave == null ? crudo : suave + (crudo - suave) * alfa;
         const magnitud = Math.max(0, Math.abs(suave) - muerta) / Math.max(0.01, plena - muerta);
         let giro = clamp(magnitud, 0, 1) * (suave < 0 ? -1 : 1);
         // Con la imagen en espejo, inclinarse a la derecha se ve a la izquierda.
@@ -4682,8 +5283,12 @@ export default function mount(shell) {
   function motorVuelo(cfg) {
     const c = cfg || {};
     const largo = clamp(num(c.largoCircuito, 60), 10, 600);   // segundos de vuelo
-    const gravedad = clamp(num(c.gravedad, 0.62), 0.05, 3);   // alturas/s²
-    const empuje = clamp(num(c.empujeAleteo, 0.42), 0.05, 2); // salto de velocidad por aleteo
+    // La cadencia que hace falta para sostenerse es gravedad / empuje. Con
+    // 0.42 / 0.45 sale un aleteo por segundo, que una persona aguanta el
+    // minuto que dura el circuito; con la relación anterior hacían falta 1,5
+    // por segundo y el juego se volvía un ejercicio, no un juego.
+    const gravedad = clamp(num(c.gravedad, 0.42), 0.05, 3);   // alturas/s²
+    const empuje = clamp(num(c.empujeAleteo, 0.45), 0.05, 2); // salto de velocidad por aleteo
     const frenoPlaneo = clamp(num(c.frenoPlaneo, 0.72), 0, 1); // cuánto frena la caída
     const cada = clamp(num(c.frutasCada, 1.5), 0.3, 10);      // segundos entre frutas
     const energiaMax = Math.max(1, Math.round(num(c.energia, 3)));
@@ -5018,14 +5623,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('posicion');
       } catch (e) {
@@ -5071,7 +5669,7 @@ export default function mount(shell) {
         A.x = clamp(A.x, -1.05, 1.05);
 
         if (!modoTactil) {
-          const r = detRef.current.actualizar(L, hw.espejo !== false);
+          const r = detRef.current.actualizar(L, hw.espejo !== false, lec && lec.mundo);
           if (r) patear(r.fuerza, r.lateral, r.altura);
         }
 
@@ -5442,14 +6040,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('juego');
       } catch (e) {
@@ -5488,7 +6079,7 @@ export default function mount(shell) {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
-          const r = detRef.current.actualizar(L, dt);
+          const r = detRef.current.actualizar(L, dt, lec && lec.kinect);
           accion = r.accion;
           calibrando = r.calibrando;
           if (accionRef.current.hasta > t) accion = accionRef.current.accion;   // respaldo táctil siempre activo
@@ -5917,14 +6508,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('volando');
       } catch (e) {
@@ -5971,7 +6555,7 @@ export default function mount(shell) {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
-          const r = detRef.current.actualizar(L, dt);
+          const r = detRef.current.actualizar(L, dt, lec && lec.mundo);
           entrada = { aleteo: r.aleteo, fuerza: r.fuerza, planeo: r.planeo };
           cadencia = r.cadencia;
           alas = clamp(r.altura, -1, 1);
@@ -6324,14 +6908,7 @@ export default function mount(shell) {
       setModoTactil(false);
       irA('abriendo');
       try {
-        const stream = await abrirCamara(hw);
-        streamRef.current = stream;
-        const v = videoRef.current;
-        if (!v) throw new Error('No se pudo montar el elemento de video.');
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(hw);
-        await prov.iniciar(v);
+        const prov = await arrancarPose(hw, videoRef, streamRef);
         provRef.current = prov;
         irA('volando');
       } catch (e) {
@@ -6382,8 +6959,8 @@ export default function mount(shell) {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
-          const a = alaRef.current.actualizar(L, dt);
-          const i = incRef.current.actualizar(L, dt, espejo);
+          const a = alaRef.current.actualizar(L, dt, lec && lec.mundo);
+          const i = incRef.current.actualizar(L, dt, espejo, lec && lec.kinect);
           entrada = { aleteo: a.aleteo, fuerza: a.fuerza, planeo: a.planeo, giro: i.giro };
           alas = clamp(a.altura, -1, 1);
           if (!a.visible) aviso = 'No te veo: ponte frente al tótem';
@@ -6658,6 +7235,9 @@ export default function mount(shell) {
     const [cargando, setCargando] = useState('');
     const [cuerpo, setCuerpo] = useState(null);      // parametrización en cm
     const [midiendo, setMidiendo] = useState(false);
+    const [kin, setKin] = useState(null);            // estado del puente Kinect
+    const [oyendoKinect, setOyendoKinect] = useState(false);
+    const kinRef = useRef({ parar: null, prov: null });
     const medirRef = useRef({ parar: null, prov: null, stream: null });
     const videoRef = useRef(null);
     const stopRef = useRef(null);
@@ -6668,7 +7248,60 @@ export default function mount(shell) {
       if (M.parar) M.parar();
       try { M.prov && M.prov.detener(); } catch (e) { /* noop */ }
       if (M.stream) { try { M.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      const K = kinRef.current;
+      if (K.parar) K.parar();
+      try { K.prov && K.prov.detener(); } catch (e) { /* noop */ }
     }, []);
+
+    /**
+     * Escucha el puente Kinect y muestra TODO lo que llega: sirve para saber,
+     * en el tótem del cliente, si el problema es el puente, el sensor o la app.
+     */
+    const escucharKinect = async () => {
+      const K = kinRef.current;
+      if (oyendoKinect) {                               // segundo toque: detener
+        if (K.parar) K.parar();
+        try { K.prov && K.prov.detener(); } catch (e) { /* noop */ }
+        K.parar = null; K.prov = null;
+        setOyendoKinect(false);
+        return;
+      }
+      setCargando('kinect'); setKin(null);
+      const prov = proveedorKinect(model.hardware);
+      try {
+        await prov.iniciar();
+      } catch (e) {
+        setCargando('');
+        try { prov.detener(); } catch (err) { /* noop */ }
+        setKin({ error: e && e.message ? e.message : String(e) });
+        return;
+      }
+      K.prov = prov;
+      setOyendoKinect(true);
+      setCargando('');
+      let ultimo = 0;
+      K.parar = loop(() => {
+        const t = nowMs();
+        if (t - ultimo < 220) return;
+        ultimo = t;
+        const lec = prov.leer();
+        const k = lec && lec.kinect;
+        const L = lec && lec.landmarks;
+        setKin({
+          salud: prov.salud(),
+          hay: !!k,
+          manoI: k ? k.manoI : null, manoD: k ? k.manoD : null,
+          confI: k ? k.confianzaManoI : 0, confD: k ? k.confianzaManoD : 0,
+          lean: k ? k.lean : null,
+          distancia: k ? k.distancia : null,
+          estatura: k ? k.estatura : null,
+          piso: k ? k.piso : null,
+          orientaciones: k && k.orientaciones ? k.orientaciones.filter(Boolean).length : 0,
+          cuerpos: k ? k.cuerposEnEscena : 0,
+          seguidas: L ? L.filter((p) => p && p.visibility > 0.6).length : 0,
+        });
+      });
+    };
 
     /**
      * Mide al participante en centímetros: distancia, altura, envergadura y
@@ -6854,7 +7487,29 @@ export default function mount(shell) {
               pose.error ? h('li', null, '⚠ ' + pose.error) : null,
               h('li', null, 'Motor: ' + s(model.hardware.poseModuleUrl).slice(0, 60) + '…')) : null),
           h('div', { className: 'fp-diag-card' },
-            h('h3', null, '5. Puntero / pistola laser'),
+            h('h3', null, '5. Kinect for Xbox One (puente)'),
+            h('p', { className: 'fp-note' },
+              'Escucha el puente en ' + (s(model.hardware.kinectUrl) || 'ws://127.0.0.1:8787') +
+              '. Sin sensor a mano: node puente-kinect/simulador.mjs'),
+            h(Boton, { variant: oyendoKinect ? 'danger' : 'soft', onClick: escucharKinect, disabled: cargando === 'kinect' },
+              cargando === 'kinect' ? 'Conectando…' : oyendoKinect ? 'Dejar de escuchar' : 'Probar el puente'),
+            kin ? (kin.error
+              ? h('p', { className: 'fp-error' }, '⚠ ' + kin.error)
+              : h('ul', null,
+                  h('li', null, (kin.salud.vivo ? '✅' : '⏳') + ' Puente: ' + kin.salud.estado + ' · ' + kin.salud.cuadros + ' cuadros'),
+                  h('li', null, (kin.hay ? '✅' : '❌') + ' Cuerpos en escena: ' + kin.cuerpos +
+                    (kin.hay ? ' · ' + kin.seguidas + ' de 33 puntos seguidos' : ' — ponte frente al sensor')),
+                  kin.hay ? h('li', null, '🖐 Manos: izquierda ' + kin.manoI + ' (confianza ' + kin.confI + ') · derecha ' + kin.manoD + ' (confianza ' + kin.confD + ')') : null,
+                  kin.hay && kin.lean ? h('li', null, '↔️ Inclinación del torso: x ' + kin.lean.x.toFixed(2) + ' · y ' + kin.lean.y.toFixed(2)) : null,
+                  kin.hay ? h('li', null, '📏 Distancia: ' + (kin.distancia != null ? kin.distancia.toFixed(2) + ' m' : '—') +
+                    ' · altura de la cabeza sobre el piso: ' + (kin.estatura != null ? Math.round(kin.estatura) + ' cm' : '—')) : null,
+                  h('li', null, (kin.piso ? '✅' : '❌') + ' Plano del piso' +
+                    (kin.piso ? '' : ' — sin él, el salto se calibra con los hombros')),
+                  h('li', null, (kin.orientaciones ? '✅ ' + kin.orientaciones : '❌ 0') + ' orientaciones de hueso'),
+                  h('li', { className: 'fp-note' }, 'El Kinect v2 no entrega esqueleto de dedos: la mano son muñeca, punta y pulgar más el estado abierta/cerrada/señalando.')))
+              : null),
+          h('div', { className: 'fp-diag-card' },
+            h('h3', null, '6. Puntero / pistola laser'),
             h('div', {
               className: 'fp-target-test',
               onPointerDown: (e) => setPuntero({ tipo: e.pointerType, x: Math.round(e.clientX), y: Math.round(e.clientY), presion: e.pressure }),
@@ -6863,7 +7518,7 @@ export default function mount(shell) {
               h('li', null, 'Tipo de puntero: ' + puntero.tipo + (puntero.tipo === 'mouse' ? ' (compatible con lightgun IR en modo mouse absoluto)' : '')),
               h('li', null, 'Coordenadas: ' + puntero.x + ', ' + puntero.y)) : null),
           h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
-            h('h3', null, '6. Cuerpo y espacio de juego'),
+            h('h3', null, '7. Cuerpo y espacio de juego'),
             h('p', { className: 'fp-note' },
               'Mide en centímetros con la geometría declarada en ⚙️ Editor → 📐 Espacio: ' +
               'la cámara está a ' + num(model.espacio.camaraAltura, 160) + ' cm, inclinada ' +
@@ -7080,8 +7735,19 @@ export default function mount(shell) {
           h(Campo, { label: 'Imagen en espejo', type: 'boolean', value: m.hardware.espejo, onChange: (v) => patch({ hardware: { espejo: v } }) }),
           h(Campo, {
             label: 'Motor de pose', type: 'select', value: m.hardware.motorPose,
-            options: [{ value: 'auto', label: 'Automático' }, { value: 'mediapipe', label: 'MediaPipe' }, { value: 'demo', label: 'Simulador (sin cámara)' }, { value: 'ninguno', label: 'Desactivado' }],
+            options: [
+              { value: 'auto', label: 'Automático (Kinect si hay puente, si no la webcam)' },
+              { value: 'kinect', label: 'Kinect for Xbox One (puente local)' },
+              { value: 'mediapipe', label: 'Webcam + MediaPipe' },
+              { value: 'demo', label: 'Simulador (sin cámara)' },
+              { value: 'ninguno', label: 'Desactivado' },
+            ],
             onChange: (v) => patch({ hardware: { motorPose: v } }),
+          }),
+          h(Campo, {
+            label: 'URL del puente Kinect', value: m.hardware.kinectUrl,
+            help: 'WebSocket del programa que lee el Kinect v2 en este mismo equipo. Ver docs/KINECT.md.',
+            onChange: (v) => patch({ hardware: { kinectUrl: v } }),
           }),
           h(Campo, { label: 'URL del módulo de pose', value: m.hardware.poseModuleUrl, help: 'Puede apuntar a un asset local del tótem para funcionar sin internet.', onChange: (v) => patch({ hardware: { poseModuleUrl: v } }) }),
           h(Campo, { label: 'URL del runtime WASM', value: m.hardware.poseWasmUrl, onChange: (v) => patch({ hardware: { poseWasmUrl: v } }) }),
