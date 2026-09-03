@@ -5,7 +5,7 @@ Todo Negocio Debe Saber para No Quedarse Atrás»**, en la Sede AIEP San Joaquí
 organizado con los Centros de Negocios SERCOTEC de Ñuñoa, San Pablo e
 Independencia.
 
-**Versión actual: 1.4.0**
+**Versión actual: 1.4.1**
 
 ---
 
@@ -232,6 +232,7 @@ node tools/pack.mjs apps/anfitrion-aiep
 
 | Versión | Cambios |
 |---------|---------|
+| 1.4.1 | Las fichas de expositor apilan el avatar sobre el texto en ambos modos. Con la foto al lado, en una tarjeta de rejilla se llevaba un tercio del ancho y el cargo se partía en dos o cuatro líneas según la resolución; ahora el texto dispone del ancho completo del recuadro en cualquier orientación. Avatares en px en vez de em, para que no se compongan con la escala del modo. |
 | 1.4.0 | Cronograma actualizado a nueve bloques (pausa de 11:30 y presentación de Figit.ai de 12:35). Figit.ai como ficha de empresa con su logotipo oficial. Reseña para las cuatro personas, cada una con su fuente, desplegable con un botón **«Ver reseña»** bajo el horario. Corregidos dos QR que apuntaban a homónimos. |
 | 1.3.0 | Los cuatro retratos oficiales, recortados a cuadrado y embebidos como `data:` URI (71 KB en total), cotejados uno por uno contra la lámina rotulada. Avatar más grande en modo totem para que la cara se lea a distancia. |
 | 1.2.0 | Nombres reconciliados con la lámina oficial de retratos: «Marco Mella» (el programa decía «Marcos») y «Patricia Carolina Sandoval», conservando el nombre del programa en el snapshot. Infraestructura de fotos: componente `Avatar` con caída a iniciales, recorte circular, interruptor `mostrarFotos` y `foto` en el snapshot. |
