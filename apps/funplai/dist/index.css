@@ -528,6 +528,32 @@
 .kimos-funplai .fp-note { opacity: .7; font-size: 13px; margin-top: 12px; }
 .kimos-funplai .fp-h3 { margin: 20px 0 10px; font-size: 18px; }
 .kimos-funplai .fp-h4 { margin: 18px 0 8px; font-size: 15px; opacity: .8; grid-column: 1 / -1; }
+/* Ocupa la fila entera dentro de la rejilla de campos del editor. */
+.kimos-funplai .fp-form-ancho { grid-column: 1 / -1; }
+/* Qué motor de pose está corriendo, visible durante la partida. */
+.kimos-funplai .fp-motor {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 700; letter-spacing: .02em;
+  padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  background: rgba(0, 0, 0, .32); border: 1px solid rgba(255, 255, 255, .22);
+}
+.kimos-funplai .fp-motor.is-kinect {
+  background: rgba(16, 122, 87, .45); border-color: rgba(110, 231, 183, .5); color: #d1fae5;
+}
+/* Pasos numerados de "qué hacer" cuando un diagnóstico falla. */
+.kimos-funplai .fp-pasos { margin: 10px 0 0; padding-left: 22px; font-size: 13px; line-height: 1.55; opacity: .88; }
+.kimos-funplai .fp-pasos li { margin-bottom: 6px; }
+.kimos-funplai .fp-pasos code {
+  background: rgba(0, 0, 0, .35); padding: 1px 6px; border-radius: 6px;
+  font-size: 12px; white-space: nowrap;
+}
+.kimos-funplai .fp-ok { color: #bbf7d0; background: rgba(20, 83, 45, .5); padding: 10px 14px; border-radius: 12px; }
+.kimos-funplai .fp-nota-kinect {
+  background: rgba(0, 0, 0, .22); border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column;
+  gap: 10px; align-items: flex-start;
+}
+.kimos-funplai .fp-nota-kinect .fp-note { margin-top: 0; }
 
 .kimos-funplai .fp-tabs { display: flex; gap: 6px; padding: 10px 18px 0; flex-wrap: wrap; }
 .kimos-funplai .fp-tab {

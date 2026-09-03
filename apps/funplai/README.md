@@ -55,7 +55,18 @@ del torso medida por el propio sensor y el **plano del piso**.
 | LaserGun | Modo **apuntar con la mano**: el brazo es la pistola y el puño el gatillo |
 
 Se elige en **⚙️ Editor → 🔌 Hardware → Motor de pose**; en `auto` prueba el
-puente y cae a la webcam si no está. El Kinect v2 **no entrega esqueleto de
+puente y cae a la webcam si no está. Ahí mismo se ajustan las **propiedades del
+sensor** —con cuál de las seis personas que ve se juega, rango de distancia,
+suavizado del esqueleto, y si se usan el plano del piso, la inclinación del
+torso y el estado de las manos— y un botón prueba el puente al momento. El
+Kinect también está en el catálogo de cámaras de **📐 Espacio**, con el campo
+de su sensor de profundidad, así que el análisis del montaje lo evalúa como a
+cualquier otra.
+
+El Kinect **no aparece en la lista de cámaras del sistema** aunque esté
+funcionando: no es una webcam. Durante la partida un indicador dice si se juega
+con 🦴 Kinect o con 📷 Webcam, y si se pidió Kinect y el puente no responde el
+juego avisa y sigue con la cámara en vez de quedarse muerto. El Kinect v2 **no entrega esqueleto de
 dedos** —la mano son muñeca, punta y pulgar más el estado—, y su seguimiento de
 cuerpo solo existe en el SDK de Windows. Sin Kinect, todos los juegos siguen
 funcionando igual con la cámara.
@@ -78,5 +89,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai apps/funplai/funplai-1.8.0.kapp
+node tools/pack.mjs apps/funplai apps/funplai/funplai-1.9.0.kapp
 ```
