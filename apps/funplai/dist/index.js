@@ -470,6 +470,9 @@ export default function mount(shell) {
       camaraInclinacion: 5,    // grados hacia abajo: con la cámara arriba hay que inclinarla
       fovHorizontal: 90,       // campo de visión horizontal del lente
       mostrarGuia: true,       // dibuja la zona en las pantallas de ubicación
+      // Estatura de quien se para a calibrar. Sin una referencia real no hay
+      // forma de pasar de píxeles a centímetros con una cámara sola.
+      estaturaReferencia: 170,
       camaraModelo: 'gran-angular',  // perfil del catálogo (ver CAMARAS)
       seguimiento: 'digital',  // ninguno | digital | mecanico (PTZ con gimbal)
     },
@@ -1770,6 +1773,30 @@ export default function mount(shell) {
 
     let ws = null, ultima = null, vivo = false, reintento = null, cerrado = false;
     let ultimoCuadro = 0, cuadros = 0, estado = 'conectando', fueraDeRango = 0;
+    // Imagen de color del sensor. Es lo que permite que el Kinect REEMPLACE a
+    // la webcam en vez de convivir con ella: sin esto habría que encender una
+    // cámara solo para que el jugador se vea, con el sensor al lado sin usar.
+    let imagen = null, imagenes = 0, ultimaImagen = 0;
+
+    /**
+     * Desempaqueta un cuadro: 'KF', versión, formato, ancho, alto y píxeles
+     * RGB. Se guarda como ImageData para que pintarlo sea una sola llamada.
+     */
+    const recibirImagen = (buf) => {
+      const b = new Uint8Array(buf);
+      if (b.length < 8 || b[0] !== 0x4B || b[1] !== 0x46 || b[2] !== 1 || b[3] !== 1) return;
+      const ancho = (b[4] << 8) | b[5];
+      const alto = (b[6] << 8) | b[7];
+      if (ancho < 8 || alto < 8 || b.length < 8 + ancho * alto * 3) return;
+      if (typeof ImageData === 'undefined') return;
+      const rgba = new Uint8ClampedArray(ancho * alto * 4);
+      for (let i = 0, o = 8; i < ancho * alto; i++, o += 3) {
+        rgba[i * 4] = b[o]; rgba[i * 4 + 1] = b[o + 1];
+        rgba[i * 4 + 2] = b[o + 2]; rgba[i * 4 + 3] = 255;
+      }
+      try { imagen = new ImageData(rgba, ancho, alto); } catch (e) { return; }
+      imagenes++; ultimaImagen = nowMs();
+    };
 
     /**
      * El esqueleto del Kinect tiembla unos milímetros aunque la persona esté
@@ -1803,8 +1830,11 @@ export default function mount(shell) {
       }
       let resuelto = false;
       try { ws = new WebSocket(url); } catch (e) { reject(e); return; }
+      ws.binaryType = 'arraybuffer';
       ws.onopen = () => { vivo = true; estado = 'conectado'; resuelto = true; resolve(true); };
       ws.onmessage = (ev) => {
+        // Los cuadros de imagen vienen en binario, aparte del JSON del cuerpo.
+        if (ev.data instanceof ArrayBuffer) { recibirImagen(ev.data); return; }
         let m = null;
         try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (!m || m.tipo !== 'cuerpos') return;
@@ -1861,6 +1891,7 @@ export default function mount(shell) {
         if (reintento) { clrT(reintento); reintento = null; }
         try { ws && ws.close(); } catch (e) { /* noop */ }
         ws = null; ultima = null; vivo = false; estado = 'detenido';
+        imagen = null; ultimaImagen = 0;
       },
       /** Estado del puente, para el Diagnóstico. */
       salud() {
@@ -1871,8 +1902,18 @@ export default function mount(shell) {
           // Cuánta gente vio el sensor pero quedó fuera del rango de juego:
           // es la explicación de "estoy delante y no me toma".
           fueraDeRango,
+          imagenes,
+          imagenViva: !!(ultimaImagen && nowMs() - ultimaImagen < 1500),
           propiedades: { cuerpoModo, minCm, maxCm, suave, usarPiso, usarLean, usarManos },
         };
+      },
+      /**
+       * Último cuadro de color del sensor, o null. Se entrega como ImageData
+       * para que quien lo pinte no tenga que volver a recorrer los píxeles.
+       */
+      imagen() {
+        if (!ultimaImagen || nowMs() - ultimaImagen > 1500) return null;
+        return imagen;
       },
       leer() {
         // Si el puente calla más de medio segundo, es que no hay nadie o se
@@ -1963,6 +2004,16 @@ export default function mount(shell) {
 
   /** Se llama al soltar el motor: fuera de una partida no hay nada que mostrar. */
   function olvidarMotor() { motorActivo = null; }
+
+  /**
+   * Último cuadro de imagen del proveedor, si lo entrega. Solo el Kinect lo
+   * hace: la webcam ya pinta sola en su <video>. Se lee en cada render, que es
+   * cuando se va a pintar; guardarlo en estado sería copiar píxeles de más.
+   */
+  function imagenDe(ref) {
+    const p = ref && ref.current;
+    return p && typeof p.imagen === 'function' ? p.imagen() : null;
+  }
 
   function proveedorMediaPipe(hw) {
     let landmarker = null, video = null, ultimoTs = -1, ultima = null;
@@ -2317,6 +2368,182 @@ export default function mount(shell) {
     };
   }
 
+  // ── Autocalibración del montaje ────────────────────────────────────────
+  //
+  // El tótem mide 180 cm, pero la app tiene que servir igual con la cámara de
+  // una tablet a 120, con un teléfono en un trípode a 60 para que jueguen niños
+  // o con el Kinect sobre un mueble a 200. Pedirle al operador que mida con
+  // huincha la altura y el ángulo es pedirle demasiado, y cualquier error ahí
+  // envenena todas las medidas en centímetros.
+  //
+  // Así que se deduce mirando a una persona. La geometría es la de siempre: un
+  // punto a distancia `d` y altura `y` sobre el piso, con la cámara a altura
+  // `h` inclinada `t` hacia abajo, cae en la imagen donde
+  //
+  //     tan( atan((h − y) / d) − t ) = (2·yImagen − 1) · tanV
+  //
+  // Con la CABEZA y los PIES de la misma persona hay dos ecuaciones. Las
+  // incógnitas son `h`, `t` y la distancia `d` de esa observación: una sola
+  // pose deja una curva de soluciones, no una. Por eso se piden DOS distancias
+  // —"párate en la marca" y "da dos pasos atrás"—: ahí el sistema se cierra.
+  //
+  // Con Kinect no hace falta nada de esto: el sensor entrega el plano del piso,
+  // y de ahí salen la altura y la inclinación exactas.
+
+  /**
+   * Distancia y altura que implica una observación, dados un montaje candidato.
+   * Devuelve las dos estimaciones de `d` —la que sale de los pies y la que sale
+   * de la cabeza— para poder medir cuánto se contradicen.
+   */
+  function distanciasDeObservacion(obs, h, t, tanV, estatura) {
+    const angulo = (yImg) => Math.atan((2 * yImg - 1) * tanV) + t;
+    const aPies = angulo(obs.yPies);
+    const aCabeza = angulo(obs.yCabeza);
+    // Los pies están en el suelo: el rayo tiene que bajar desde la cámara.
+    if (aPies <= 0.001) return null;
+    const dPies = h / Math.tan(aPies);
+    // La cabeza está a `estatura` del suelo; si la cámara está por debajo de
+    // ella, el rayo sube y la tangente cambia de signo sola.
+    const tCab = Math.tan(aCabeza);
+    if (Math.abs(tCab) < 1e-6) return null;
+    const dCabeza = (h - estatura) / tCab;
+    if (!Number.isFinite(dPies) || !Number.isFinite(dCabeza) || dPies <= 0 || dCabeza <= 0) return null;
+    return { dPies, dCabeza, d: (dPies + dCabeza) / 2 };
+  }
+
+  /**
+   * Busca la altura e inclinación que mejor explican lo observado.
+   * Búsqueda numérica en dos pasadas: no hay solución cerrada y el espacio es
+   * chico (altura de 40 a 260 cm, inclinación de 0 a 45°), así que buscar es
+   * más honesto que despejar a mano una ecuación que no se despeja.
+   */
+  function resolverMontaje(observaciones, tanV, estatura) {
+    const obs = (observaciones || []).filter((o) => o && Number.isFinite(o.yPies) && Number.isFinite(o.yCabeza));
+    if (obs.length < 2) return null;
+    const error = (h, t) => {
+      let suma = 0;
+      for (const o of obs) {
+        const r = distanciasDeObservacion(o, h, t, tanV, estatura);
+        if (!r) return Infinity;
+        // Cuánto se contradicen las dos lecturas de la misma persona.
+        suma += Math.pow((r.dPies - r.dCabeza) / Math.max(30, r.d), 2);
+      }
+      return suma / obs.length;
+    };
+    let mejor = null;
+    const barrer = (h0, h1, dh, t0, t1, dt) => {
+      for (let h = h0; h <= h1; h += dh) {
+        for (let t = t0; t <= t1; t += dt) {
+          const e = error(h, rad(t));
+          if (Number.isFinite(e) && (!mejor || e < mejor.e)) mejor = { h, t, e };
+        }
+      }
+    };
+    // La inclinación puede ser NEGATIVA: una cámara baja —un teléfono en un
+    // trípode a 60 cm— hay que apuntarla hacia arriba para que quepa la cabeza.
+    barrer(40, 260, 5, -20, 45, 1);
+    if (!mejor) return null;
+    barrer(Math.max(40, mejor.h - 6), Math.min(260, mejor.h + 6), 0.5,
+      Math.max(-20, mejor.t - 1.5), Math.min(45, mejor.t + 1.5), 0.1);
+    const dists = obs.map((o) => distanciasDeObservacion(o, mejor.h, rad(mejor.t), tanV, estatura)).filter(Boolean);
+    if (!dists.length) return null;
+    return {
+      camaraAltura: Math.round(mejor.h),
+      camaraInclinacion: Math.round(mejor.t * 10) / 10,
+      distancias: dists.map((x) => Math.round(x.d)),
+      residuo: Math.sqrt(mejor.e),
+      fuente: 'observacion',
+    };
+  }
+
+  /**
+   * Acumula observaciones de una persona y deduce el montaje.
+   *
+   * Con Kinect es directo y exacto: el plano del piso da la altura de la cámara
+   * y su inclinación sin que nadie se mueva. Con una cámara RGB hace falta que
+   * la persona se pare en dos sitios a distinta distancia, y una estatura de
+   * referencia; el resultado se declara como estimado, porque lo es.
+   */
+  function calibradorMontaje(opts) {
+    const o = opts || {};
+    const estatura = clamp(num(o.estatura, 170), 90, 220);
+    const tanV = Math.tan(rad(clamp(num(o.fovV, 50), 20, 140) / 2));
+    const minMuestras = Math.max(6, num(o.minMuestras, 12));
+    let puntos = [];          // observaciones RGB por posición
+    let actual = null;        // acumulador de la posición que se está tomando
+    let porPiso = null;       // lo que dijo el Kinect, si estaba
+    return {
+      reset() { puntos = []; actual = null; porPiso = null; },
+      posiciones() { return puntos.length; },
+      /** Cuántas muestras lleva la posición en curso, de las que hacen falta. */
+      progreso() { return actual ? clamp(actual.n / minMuestras, 0, 1) : 0; },
+      /** Con Kinect basta una toma; con RGB hacen falta dos posiciones. */
+      listo() { return !!porPiso || puntos.length >= 2; },
+
+      /** Una lectura de pose. Devuelve el motivo si no sirve para calibrar. */
+      muestra(L, k) {
+        // ── Camino exacto: el sensor ya midió el piso ──────────────────
+        if (k && k.piso && Number.isFinite(k.piso.y)) {
+          const p = k.piso;
+          const largo = Math.hypot(num(p.x, 0), num(p.y, 1), num(p.z, 0)) || 1;
+          // `w` es la altura de la cámara sobre el suelo, en metros.
+          const altura = Math.abs(num(p.w, 0)) * 100;
+          // La normal del piso apunta hacia arriba; cuánto se inclinó la
+          // cámara es cuánto se desvió esa normal de la vertical de la imagen.
+          const inclinacion = Math.atan2(num(p.z, 0) / largo, num(p.y, 1) / largo) * 180 / Math.PI;
+          if (altura > 30 && altura < 300) {
+            porPiso = {
+              camaraAltura: Math.round(altura),
+              camaraInclinacion: Math.round(Math.abs(inclinacion) * 10) / 10,
+              distancias: k.distancia != null ? [Math.round(k.distancia * 100)] : [],
+              residuo: 0, fuente: 'piso-kinect',
+            };
+            return null;
+          }
+        }
+        // ── Camino estimado: cabeza y pies en la imagen ────────────────
+        if (!L) return 'No te veo';
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+        const cabeza = ver(L[IDX.nariz]) ? L[IDX.nariz] : null;
+        const pies = [L[31], L[32], L[IDX.tobilloI], L[IDX.tobilloD]].filter(ver);
+        if (!cabeza) return 'No veo tu cabeza';
+        if (!pies.length) return 'No veo tus pies: la cámara tiene que alcanzar el suelo';
+        const yPies = Math.max.apply(null, pies.map((p) => p.y));
+        // La nariz no es la coronilla: hay ~10 cm de cabeza por encima, que a
+        // esta escala son una fracción del alto aparente de la persona.
+        const alto = yPies - cabeza.y;
+        if (alto < 0.1) return 'Acércate: te ves muy pequeño';
+        const yCabeza = cabeza.y - alto * 0.09;
+        if (!actual) actual = { n: 0, sPies: 0, sCabeza: 0 };
+        actual.n++; actual.sPies += yPies; actual.sCabeza += yCabeza;
+        return null;
+      },
+
+      /** Cierra la posición en curso. Se llama al terminar cada toma. */
+      fijarPosicion() {
+        if (!actual || actual.n < minMuestras) return false;
+        puntos.push({ yPies: actual.sPies / actual.n, yCabeza: actual.sCabeza / actual.n });
+        actual = null;
+        return true;
+      },
+
+      /** El montaje deducido, o null si todavía no alcanza. */
+      resultado() {
+        if (porPiso) return porPiso;
+        const r = resolverMontaje(puntos, tanV, estatura);
+        if (!r) return null;
+        // Dos posiciones casi a la misma distancia no cierran el sistema: la
+        // solución sale, pero apoyada en nada. Vale más decirlo que publicarla.
+        const ds = r.distancias.slice().sort((a, b) => a - b);
+        const separacion = ds.length > 1 ? ds[ds.length - 1] - ds[0] : 0;
+        return Object.assign({}, r, {
+          separacion,
+          confiable: separacion >= 40 && r.residuo < 0.12,
+        });
+      },
+    };
+  }
+
   // ── Catálogo de cámaras ────────────────────────────────────────────────
   //
   // El tótem trae la cámara arriba, fija y mirando al frente. Esa posición es
@@ -2346,6 +2573,20 @@ export default function mount(shell) {
       id: 'ultra-ancha', nombre: 'Módulo USB ultra ancho (120°)', fovH: 120, res: '1080p', fps: 30,
       seguimiento: 'ninguno', profundidad: false, montaje: 'fija arriba, sin inclinar',
       nota: 'Permite dejar la cámara arriba y horizontal, pero el lente distorsiona en los bordes: la medición en centímetros pierde precisión si no se corrige la distorsión.',
+    },
+    {
+      // Un teléfono con Iriun o DroidCam aparece como una cámara más del
+      // sistema, así que la app no necesita saber nada especial. Su gracia no
+      // es el lente: es que se puede poner a la altura que uno quiera, que es
+      // justo lo que un tótem con la cámara empotrada a 175 cm no permite.
+      id: 'telefono', nombre: 'Teléfono en trípode (Iriun / DroidCam)', fovH: 70, res: '1080p', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'trípode, altura libre de 60 a 200 cm',
+      nota: 'La forma más barata de bajar la cámara. A 60–90 cm juegan los niños de cuerpo entero sin alejarse; a 120–140 cm sirve para todo el mundo. Se conecta con Iriun o DroidCam y sale en la lista de cámaras como una webcam más. Usa la autocalibración para que la app sepa a qué altura quedó.',
+    },
+    {
+      id: 'telefono-ancho', nombre: 'Teléfono, lente ultra ancho (Iriun / DroidCam)', fovH: 106, res: '1080p', fps: 30,
+      seguimiento: 'ninguno', profundidad: false, montaje: 'trípode, altura libre',
+      nota: 'El ultra ancho del teléfono cubre el cuerpo entero desde mucho más cerca: es la opción para espacios chicos. Distorsiona en los bordes, así que conviene dejar a la persona centrada.',
     },
     {
       id: 'ptz-ia', nombre: 'PTZ de escritorio con gimbal e IA (tipo OBSBOT Tiny 2)', fovH: 86, res: '4K', fps: 30,
@@ -2609,11 +2850,28 @@ export default function mount(shell) {
       segRef.current = seguimientoDigital(props.landmarks, segRef.current, { margen: num(props.margen, 0.14), zoomMax: num(props.zoomMax, 1.7) });
       estilo = { transform: transformSeguimiento(segRef.current, !!props.espejo) };
     }
+    // El Kinect no llena un <video>: manda sus cuadros por el puente. Se
+    // pintan en un <canvas> que ocupa el mismo lugar, así el jugador se ve
+    // igual y no hace falta encender una webcam al lado del sensor.
+    const lienzoRef = useRef(null);
+    const img = props.imagenKinect || null;
+    useEffect(() => {
+      const c = lienzoRef.current;
+      if (!c || !img) return;
+      if (c.width !== img.width || c.height !== img.height) { c.width = img.width; c.height = img.height; }
+      const ctx = c.getContext('2d');
+      if (ctx) ctx.putImageData(img, 0, 0);
+    });
     return h('div', { className: 'fp-cam-track' + (activo ? ' is-activo' : ''), style: estilo },
       h('video', {
-        ref: props.attach, className: 'fp-video' + (props.espejo ? ' is-mirror' : '') + (props.mini ? ' fp-video--mini' : ''),
+        ref: props.attach,
+        className: 'fp-video' + (props.espejo ? ' is-mirror' : '') + (props.mini ? ' fp-video--mini' : '') + (img ? ' is-oculto' : ''),
         autoPlay: true, playsInline: true, muted: true,
       }),
+      img ? h('canvas', {
+        ref: lienzoRef,
+        className: 'fp-video' + (props.espejo ? ' is-mirror' : '') + (props.mini ? ' fp-video--mini' : ''),
+      }) : null,
       props.children);
   }
 
@@ -3040,7 +3298,7 @@ export default function mount(shell) {
     // ── Render ────────────────────────────────────────────────────────
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' ? ' is-hidden' : '') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: vista.landmarks, espacio: model.espacio, margen: 0.18 },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: vista.landmarks, espacio: model.espacio, margen: 0.18, imagenKinect: imagenDe(provRef) },
         cfg.mostrarEsqueleto !== false && vista.landmarks
           ? h(Esqueleto, { landmarks: vista.landmarks, espejo: espejo }) : null),
       fase === 'calibrando' ? h(Silueta, { ok: hud.ok }) : null,
@@ -3654,6 +3912,8 @@ export default function mount(shell) {
   function detectorLanzamiento() {
     let armado = false, enSwing = false, tSwing = 0;
     let pico = null, hist = [];
+    // `cuerpo` es la lectura de cuerpo completo: con ella el paso adelante
+    // suma fuerza al tiro, que es como se lanza un tejo de verdad.
     return {
       reset() { armado = false; enSwing = false; pico = null; hist = []; },
       estado() { return enSwing ? 'lanzando' : armado ? 'listo' : 'baja la mano'; },
@@ -3664,7 +3924,7 @@ export default function mount(shell) {
        * SE ABRE, que es lo que hace un jugador de verdad al soltarlo; con
        * webcam hay que adivinar el momento por el punto más rápido del swing.
        */
-      actualizar(L, espejo, k) {
+      actualizar(L, espejo, k, cuerpo) {
         if (!L) return null;
         const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
         if (!hI || !hD) return null;
@@ -3712,7 +3972,15 @@ export default function mount(shell) {
         const soltoLaMano = !!manoDelSwing && confianza >= 0.5 && manoDelSwing === 'abierta';
         // Sin sensor, se suelta en el punto más rápido del swing (ventana corta).
         if (soltoLaMano || t - tSwing > 220 || mejor.rapidez < pico.rapidez * 0.6) {
-          const r = { fuerza: pico.rapidez, lateral: pico.vx, brazo: pico.brazo };
+          // Un tejo se lanza con el cuerpo, no con el brazo: el paso adelante
+          // acompaña el swing y suma hasta un 25 % de fuerza. Si la cámara no
+          // ve las piernas, `paso` llega en 0 y el tiro vale lo de siempre.
+          const paso = clamp(num(cuerpo && cuerpo.cobertura === 'completo' ? cuerpo.pasoAdelante : 0, 0), 0, 1);
+          const r = {
+            fuerza: pico.rapidez * (1 + paso * 0.25),
+            lateral: pico.vx, brazo: pico.brazo,
+            paso, conCuerpo: paso > 0.12,
+          };
           armado = false; enSwing = false; pico = null; hist = [];
           return r;
         }
@@ -3825,6 +4093,7 @@ export default function mount(shell) {
     const streamRef = useRef(null);
     const provRef = useRef(null);
     const detRef = useRef(detectorLanzamiento());
+    const cuerpoRef = useRef(seguidorCuerpo());
     const faseRef = useRef('intro');
     const calibRef = useRef(0);
     const bodyRef = useRef(null);
@@ -3960,12 +4229,14 @@ export default function mount(shell) {
             // Escala corporal (ancho de hombros): normaliza la fuerza del tiro.
             bodyRef.current = { ancho: enc.ancho || null, escala: escalaCorporal(L, 'superior') };
             detRef.current.reset();
+            cuerpoRef.current.reset();
             irA('cancha');
           }
           return;
         }
         if (volandoRef.current) return;
-        const r = detRef.current.actualizar(L, hw.espejo !== false, lec && lec.kinect);
+        const cuerpo = cuerpoRef.current.actualizar(L, dt, hw.espejo !== false, lec && lec.mundo);
+        const r = detRef.current.actualizar(L, hw.espejo !== false, lec && lec.kinect, cuerpo);
         if (t - ultimoHud > 150) {
           ultimoHud = t;
           setGuia((g) => Object.assign({}, g, { landmarks: L }));
@@ -4050,7 +4321,7 @@ export default function mount(shell) {
     const espejo = hw.espejo !== false;
 
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
@@ -4634,7 +4905,7 @@ export default function mount(shell) {
 
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
@@ -5060,7 +5331,138 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // 12.e Detectores compartidos: patada y salto/agachada
+  // 12.e Seguimiento de cuerpo completo, compartido por los juegos
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Los juegos nacieron leyendo el tren superior, porque es lo único que una
+  // cámara puesta encima de una pantalla ve seguro. Pero el cuerpo entero está
+  // ahí —los 33 puntos incluyen caderas, rodillas, tobillos y pies— y jugar
+  // con las piernas es la mitad de la gracia de jugar con el cuerpo.
+  //
+  // Esta capa lo mide UNA vez por cuadro y se lo pasa a todos: dónde están los
+  // pies, cuánto se corrió la persona de donde empezó, si dio un paso
+  // adelante, si flexionó las rodillas, si juntó las piernas.
+  //
+  // Lo importante es que DEGRADA. Si la cámara no ve los pies —que es el caso
+  // del tótem a 175 cm— no se rompe nada: declara `cobertura: 'superior'`, deja
+  // en null lo que no puede medir, y cada juego decide si usa esa señal o
+  // sigue con la de siempre. Prometer piernas donde no se ven sería peor que
+  // no tenerlas.
+
+  /**
+   * Seguidor de cuerpo completo. Se calibra solo con el primer segundo de
+   * persona quieta, y desde ahí mide todo RESPECTO DE ESA POSTURA: así un paso
+   * lateral es un paso lateral aunque la persona haya empezado descentrada.
+   */
+  function seguidorCuerpo(opts) {
+    const o = opts || {};
+    const tCalib = num(o.calibracion, 1.0);
+    let base = null, calib = 0, suave = null;
+    const vacio = {
+      visible: false, cobertura: 'nada', escala: null, calibrando: true,
+      pasoLateral: 0, pasoAdelante: 0, flexionRodillas: 0, piernasJuntas: 0,
+      apoyo: 'ninguno', pies: null, fuenteProfundidad: null,
+    };
+    return {
+      reset() { base = null; calib = 0; suave = null; },
+      listo() { return base != null; },
+      /**
+       * `mundo` son las coordenadas métricas (Kinect o MediaPipe world). Solo
+       * con ellas se puede saber si un pie avanzó HACIA la pantalla; sin ellas
+       * se deduce de la separación vertical, que es más pobre y se declara.
+       */
+      actualizar(L, dt, espejo, mundo) {
+        if (!L) { return Object.assign({}, vacio, { calibrando: base == null }); }
+        const escala = escalaCorporal(L, 'superior');
+        const cI = L[IDX.caderaI], cD = L[IDX.caderaD];
+        if (!escala || !cI || !cD) return Object.assign({}, vacio, { calibrando: base == null });
+        const ver = (p) => p && (p.visibility == null || p.visibility > 0.4);
+
+        // Los pies primero, el tobillo si el pie no se ve.
+        const pie = (idxPie, idxTobillo) => {
+          if (ver(L[idxPie])) return { x: L[idxPie].x, y: L[idxPie].y, propio: true };
+          if (ver(L[idxTobillo])) return { x: L[idxTobillo].x, y: L[idxTobillo].y, propio: false };
+          return null;
+        };
+        const pI = pie(31, IDX.tobilloI), pD = pie(32, IDX.tobilloD);
+        const cobertura = pI && pD ? 'completo' : (pI || pD) ? 'parcial' : 'superior';
+
+        const caderaX = (cI.x + cD.x) / 2;
+        const caderaY = (cI.y + cD.y) / 2;
+        const sep = pI && pD ? Math.abs(pI.x - pD.x) / escala : null;
+        const marco = { caderaX, caderaY, sep };
+        const k = clamp(dt * 10, 0, 1);
+        suave = suave == null ? marco : {
+          caderaX: suave.caderaX + (caderaX - suave.caderaX) * k,
+          caderaY: suave.caderaY + (caderaY - suave.caderaY) * k,
+          sep: sep == null ? suave.sep : (suave.sep == null ? sep : suave.sep + (sep - suave.sep) * k),
+        };
+
+        if (base == null) {
+          calib += dt;
+          if (calib >= tCalib) base = { caderaX: suave.caderaX, caderaY: suave.caderaY, sep: suave.sep };
+          return Object.assign({}, vacio, { visible: true, cobertura, escala, calibrando: base == null });
+        }
+
+        // ── Paso lateral ───────────────────────────────────────────────
+        // Cuánto se movió la cadera respecto de donde empezó, en anchos de
+        // hombro. Es lo que convierte "esquivar" en un movimiento de verdad.
+        let lateral = ((suave.caderaX - base.caderaX) / escala) * (espejo ? -1 : 1);
+        // Deriva lenta: si alguien se reacomoda y se queda ahí, esa pasa a ser
+        // su nueva postura de reposo en vez de un paso permanente.
+        base.caderaX += (suave.caderaX - base.caderaX) * clamp(dt * 0.08, 0, 1);
+
+        // ── Flexión de rodillas ────────────────────────────────────────
+        // La cadera baja al flectar. En imagen `y` crece hacia abajo.
+        const flexion = clamp(((suave.caderaY - base.caderaY) / escala) / 0.55, -1, 1);
+        base.caderaY += (suave.caderaY - base.caderaY) * clamp(dt * 0.05, 0, 1);
+
+        // ── Piernas juntas o abiertas ──────────────────────────────────
+        let juntas = 0;
+        if (suave.sep != null && base.sep != null && base.sep > 0.05) {
+          // 1 = mucho más juntas que en reposo, −1 = mucho más abiertas.
+          juntas = clamp((base.sep - suave.sep) / (base.sep * 0.8), -1, 1);
+        }
+
+        // ── Paso adelante ──────────────────────────────────────────────
+        let adelante = 0, fuenteProf = null;
+        if (mundo) {
+          const wC = [mundo[IDX.caderaI], mundo[IDX.caderaD]].filter(Boolean);
+          const wP = [mundo[31], mundo[32], mundo[IDX.tobilloI], mundo[IDX.tobilloD]].filter(Boolean);
+          if (wC.length === 2 && wP.length) {
+            const zCadera = (wC[0].z + wC[1].z) / 2;
+            // El pie más adelantado es el de menor z: z crece alejándose.
+            const zPie = Math.min.apply(null, wP.map((p) => p.z));
+            const anchoM = Math.hypot(wC[0].x - wC[1].x, wC[0].y - wC[1].y, wC[0].z - wC[1].z);
+            if (anchoM > 0.05) {
+              adelante = clamp((zCadera - zPie) / (anchoM * 2.2), -1, 1);
+              fuenteProf = 'metrico';
+            }
+          }
+        }
+        if (fuenteProf == null && pI && pD) {
+          // Sin métrica: el pie adelantado se ve MÁS ABAJO en la imagen, por
+          // perspectiva. Es una señal pobre pero real, y se declara como tal.
+          adelante = clamp((Math.abs(pI.y - pD.y) / escala) / 0.5, 0, 1);
+          fuenteProf = 'imagen';
+        }
+
+        const apoyo = pI && pD ? 'ambos' : pI ? 'izquierdo' : pD ? 'derecho' : 'ninguno';
+        return {
+          visible: true, cobertura, escala, calibrando: false,
+          pasoLateral: clamp(lateral / 0.9, -1, 1),
+          pasoAdelante: adelante,
+          flexionRodillas: flexion,
+          piernasJuntas: juntas,
+          apoyo, pies: { I: pI, D: pD },
+          fuenteProfundidad: fuenteProf,
+        };
+      },
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 12.e.2 Detectores compartidos: patada y salto/agachada
   // ══════════════════════════════════════════════════════════════════════
 
   /**
@@ -5176,30 +5578,44 @@ export default function mount(shell) {
    * ella, en anchos de hombro: así funciona igual de cerca o de lejos.
    */
   function detectorSaltoAgacharse() {
-    let base = null, suave = null, calib = 0, enCm = false;
+    let base = null, suave = null, calib = 0, modo = 'hombros';
+    const reiniciar = (m) => { modo = m; base = null; suave = null; calib = 0; };
     return {
-      reset() { base = null; suave = null; calib = 0; enCm = false; },
+      reset() { base = null; suave = null; calib = 0; modo = 'hombros'; },
       listo() { return base != null; },
       /** Qué referencia se está usando, para poder mostrarlo. */
-      fuente() { return enCm ? 'piso' : 'hombros'; },
-      /** { accion: 'saltar'|'agachar'|null, desvio, calibrando, fuente }. */
-      actualizar(L, dt, k) {
+      fuente() { return modo; },
+      /**
+       * `{ accion: 'saltar'|'agachar'|null, desvio, calibrando, fuente }`.
+       *
+       * `cuerpo` es la lectura de cuerpo completo. Cuando las piernas están a
+       * la vista se mide con la CADERA en vez de los hombros: los hombros
+       * suben y bajan al mover los brazos, y en un juego donde la gente
+       * manotea eso son saltos fantasma. La cadera solo sube si el cuerpo sube.
+       */
+      actualizar(L, dt, k, cuerpo) {
         // Con el Kinect hay PLANO DEL PISO: la estatura sale en centímetros
         // reales y el salto se mide contra el suelo, no contra una referencia
         // que la persona fija estando quieta. Es más honesto y no se desvía
         // si el jugador se acerca o se aleja durante la partida.
         const cm = k && Number.isFinite(k.estatura) && k.estatura > 60 ? k.estatura : null;
-        const vacio = () => ({ accion: null, desvio: 0, calibrando: base == null, fuente: enCm ? 'piso' : 'hombros' });
+        const conPiernas = !!(cuerpo && cuerpo.visible && cuerpo.cobertura === 'completo' && cuerpo.escala);
+        const quiere = cm != null ? 'piso' : conPiernas ? 'cadera' : 'hombros';
+        // Cambiar de referencia invalida la anterior: se vuelve a calibrar.
+        if (quiere !== modo) reiniciar(quiere);
+        const vacio = () => ({ accion: null, desvio: 0, calibrando: base == null, fuente: modo });
         let y, escala;
-        if (cm != null) {
-          // Si se venía midiendo en la imagen, la referencia ya no sirve.
-          if (!enCm) { enCm = true; base = null; suave = null; calib = 0; }
+        if (modo === 'piso') {
           y = -cm;                                   // − para que + siga siendo "subió"
           // El ancho de hombros ronda el 23 % de la estatura: así el umbral
           // vale lo mismo midiendo en la imagen o midiendo en centímetros.
           escala = Math.max(20, cm * 0.23);
+        } else if (modo === 'cadera') {
+          const cI = L && L[IDX.caderaI], cD = L && L[IDX.caderaD];
+          if (!cI || !cD) return vacio();
+          y = (cI.y + cD.y) / 2;
+          escala = cuerpo.escala;
         } else {
-          if (enCm) { enCm = false; base = null; suave = null; calib = 0; }
           if (!L) return vacio();
           const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
           escala = escalaCorporal(L, 'superior');
@@ -5219,7 +5635,7 @@ export default function mount(shell) {
         let accion = null;
         if (desvio > 0.33) accion = 'saltar';
         else if (desvio < -0.30) accion = 'agachar';
-        return { accion, desvio, calibrando: false, fuente: enCm ? 'piso' : 'hombros' };
+        return { accion, desvio, calibrando: false, fuente: modo };
       },
     };
   }
@@ -5441,6 +5857,7 @@ export default function mount(shell) {
       // `y` = altura normalizada, 0 = suelo, 1 = techo. Se parte a media altura.
       y: 0.55, vy: 0, t: 0, recorrido: 0, frutas: [], comidas: 0, puntos: 0,
       energia: energiaMax, energiaMax, aleteos: 0, planeando: false,
+      picando: false, frenando: false,
       proxima: 0.8, fin: false, motivo: '',
       // Eje lateral: −1 = borde izquierdo de la ruta, 1 = borde derecho.
       x: 0, vx: 0, obstaculos: [], esquivados: 0, choquesObst: 0, proximoObst: 1.6,
@@ -5448,7 +5865,7 @@ export default function mount(shell) {
       /** Progreso del circuito, 0..1. */
       progreso() { return clamp(this.t / largo, 0, 1); },
       /**
-       * Avanza el vuelo. `entrada` = { aleteo, fuerza, planeo }.
+       * Avanza el vuelo. `entrada` = { aleteo, fuerza, planeo, giro, piernas }.
        * Devuelve los sucesos del paso.
        */
       paso(dt, entrada) {
@@ -5471,6 +5888,13 @@ export default function mount(shell) {
           if (this.x <= -1 || this.x >= 1) this.vx = 0;
         }
 
+        // Piernas: un cóndor pica juntando las patas al cuerpo y frena
+        // abriéndolas. `piernas` va de 1 (juntas) a −1 (abiertas); si la
+        // cámara no ve las piernas llega en 0 y el vuelo es el de siempre.
+        const piernas = clamp(num(e.piernas, 0), -1, 1);
+        this.picando = piernas > 0.45;
+        this.frenando = piernas < -0.45;
+
         // Física: gravedad, empuje del aleteo y freno del planeo.
         if (e.aleteo) {
           this.vy += empuje * clamp(num(e.fuerza, 1), 0.25, 1.4);
@@ -5478,6 +5902,11 @@ export default function mount(shell) {
         }
         let g = gravedad;
         if (this.planeando && this.vy < 0) g *= 1 - frenoPlaneo;
+        // Picada: juntar las piernas hace caer más rápido, que es como se baja
+        // a por una fruta sin gastar un aleteo en volver a subir.
+        if (this.picando) g *= 1 + clamp(piernas, 0, 1) * 0.9;
+        // Freno: abrirlas frena la caída, aunque no sube.
+        if (this.frenando && this.vy < 0) g *= 1 - clamp(-piernas, 0, 1) * 0.55;
         this.vy -= g * dt;
         this.vy = clamp(this.vy, -1.2, 1.2);
         this.y += this.vy * dt;
@@ -5830,7 +6259,7 @@ export default function mount(shell) {
     const goles = remates.filter((r) => r.gol).length;
     const espejo = hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (fase === 'intro' || fase === 'fin' ? ' is-hidden' : '') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
       hw.avisoCamara !== false && streamRef.current
@@ -5998,6 +6427,11 @@ export default function mount(shell) {
   const OBST = {
     bajo: { accion: 'saltar', nombre: 'Salta' },
     alto: { accion: 'agachar', nombre: 'Agáchate' },
+    // Los laterales solo aparecen en la versión 3D, donde se corre HACIA la
+    // pantalla y correrse a un lado es un movimiento que significa algo. En la
+    // vista lateral 2D no hay a dónde esquivar: el cuerpo ya está de perfil.
+    izquierda: { accion: 'izquierda', nombre: 'Muévete a la izquierda' },
+    derecha: { accion: 'derecha', nombre: 'Muévete a la derecha' },
   };
 
   /**
@@ -6008,6 +6442,11 @@ export default function mount(shell) {
     const base = clamp(num(cfg.velocidad, 0.42), 0.1, 2);
     const acel = clamp(num(cfg.aceleracion, 0.02), 0, 0.3);
     const cada = clamp(num(cfg.cadaSegundos, 1.6), 0.6, 5);
+    // Con laterales activados hay que correrse de verdad, no solo saltar y
+    // agacharse: es lo que convierte el juego en algo de cuerpo entero.
+    const tipos = cfg.lateral
+      ? ['bajo', 'bajo', 'alto', 'alto', 'izquierda', 'derecha']
+      : ['bajo', 'alto'];
     return {
       obstaculos: [], distancia: 0, vidas: Math.max(1, Math.round(num(cfg.vidas, 3))),
       esquivados: 0, choques: 0, t: 0, proximo: 1.2, invulnerable: 0,
@@ -6024,7 +6463,7 @@ export default function mount(shell) {
         this.invulnerable = Math.max(0, this.invulnerable - dt);
         this.proximo -= dt;
         if (this.proximo <= 0) {
-          const tipo = Math.random() > 0.5 ? 'bajo' : 'alto';
+          const tipo = tipos[Math.floor(Math.random() * tipos.length)];
           this.obstaculos.push({ id: uid('ob'), tipo, d: 1, resuelto: false });
           this.proximo = cada * (0.7 + Math.random() * 0.6) / Math.max(0.3, v / 0.42);
         }
@@ -6122,9 +6561,13 @@ export default function mount(shell) {
     const streamRef = useRef(null);
     const provRef = useRef(null);
     const detRef = useRef(detectorSaltoAgacharse());
+    const cuerpoRef = useRef(seguidorCuerpo());
     const faseRef = useRef('intro');
     const pistaRef = useRef(null);
     const accionRef = useRef({ accion: null, hasta: 0 });
+    // En la vista 3D se corre HACIA la pantalla, así que correrse a un lado
+    // es un movimiento con sentido y aparecen obstáculos laterales.
+    const conLateral = !!(opciones && opciones.lateral);
 
     const [fase, setFase] = useState('intro');
     const [error, setError] = useState('');
@@ -6160,7 +6603,8 @@ export default function mount(shell) {
     const iniciar = useCallback(async (modo) => {
       setError(''); setFin(null);
       detRef.current.reset();
-      pistaRef.current = motorEsquiva(cfg);
+      cuerpoRef.current.reset();
+      pistaRef.current = motorEsquiva(Object.assign({}, cfg, { lateral: conLateral }));
       if (modo === 'tactil') { setModoTactil(true); irA('juego'); return; }
       setModoTactil(false);
       irA('abriendo');
@@ -6197,16 +6641,26 @@ export default function mount(shell) {
         const P = pistaRef.current;
         if (!P) return;
         const t = nowMs();
-        let accion = null, calibrando = false;
+        let accion = null, calibrando = false, lateral = 0, fuente = '', cobertura = '';
         if (modoTactil) {
           if (accionRef.current.hasta > t) accion = accionRef.current.accion;
         } else {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
-          const r = detRef.current.actualizar(L, dt, lec && lec.kinect);
+          const cuerpo = cuerpoRef.current.actualizar(L, dt, hw.espejo !== false, lec && lec.mundo);
+          const r = detRef.current.actualizar(L, dt, lec && lec.kinect, cuerpo);
           accion = r.accion;
-          calibrando = r.calibrando;
+          calibrando = r.calibrando || cuerpo.calibrando;
+          fuente = r.fuente;
+          cobertura = cuerpo.cobertura;
+          // Saltar y agacharse mandan sobre el paso: si alguien salta mientras
+          // se corre, lo que quiso hacer fue saltar.
+          if (!accion && conLateral && cuerpo.visible && !cuerpo.calibrando) {
+            if (cuerpo.pasoLateral > 0.42) accion = 'derecha';
+            else if (cuerpo.pasoLateral < -0.42) accion = 'izquierda';
+          }
+          lateral = cuerpo.pasoLateral;
           if (accionRef.current.hasta > t) accion = accionRef.current.accion;   // respaldo táctil siempre activo
           if (t - ultimoHud > 60) {
             setLandmarks(L);
@@ -6225,6 +6679,7 @@ export default function mount(shell) {
           setObstaculos(P.obstaculos.slice());
           setHud({
             vidas: P.vidas, puntos: P.puntaje(), accion: accion,
+            lateral: lateral, fuente: fuente, cobertura: cobertura,
             aviso: calibrando ? 'Quédate quieto un segundo para calibrar…' : '',
             calibrando: calibrando, t: P.t,
             invulnerable: P.invulnerable > 0,
@@ -6237,7 +6692,7 @@ export default function mount(shell) {
       cfg, hw, fase, error, modoTactil, hud, obstaculos, landmarks, contorno, fin,
       iniciar, accionar, soltarTodo, irA, attachVideo, streamRef, provRef, detRef, pistaRef,
       reiniciar: () => {
-        pistaRef.current = motorEsquiva(cfg);
+        pistaRef.current = motorEsquiva(Object.assign({}, cfg, { lateral: conLateral }));
         detRef.current.reset();
         setFin(null); setObstaculos([]);
         irA('juego');
@@ -6249,7 +6704,7 @@ export default function mount(shell) {
   function marcoEsquiva(props, E, extra) {
     const espejo = E.hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (E.fase === 'intro' || E.fase === 'fin' ? ' is-hidden' : '') },
-      h(CamaraVista, { attach: E.attachVideo, espejo: espejo, landmarks: E.landmarks, espacio: model.espacio }),
+      h(CamaraVista, { attach: E.attachVideo, espejo: espejo, landmarks: E.landmarks, espacio: model.espacio, imagenKinect: imagenDe(E.provRef) }),
       E.hw.avisoCamara !== false && E.streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
 
@@ -6327,7 +6782,11 @@ export default function mount(shell) {
       meta: h('div', { className: 'fp-meta-row' },
         h(Chip, { tone: 'accent' }, E.hud.puntos + ' pts'),
         h(Chip, null, '❤️'.repeat(Math.max(0, E.hud.vidas)) || 'sin vidas'),
-        accion ? h(Chip, { tone: 'ok' }, accion === 'saltar' ? '⬆️ salto' : '⬇️ agachado') : null),
+        accion ? h(Chip, { tone: 'ok' },
+          accion === 'saltar' ? '⬆️ salto'
+            : accion === 'agachar' ? '⬇️ agachado'
+              : accion === 'izquierda' ? '⬅️ a la izquierda' : '➡️ a la derecha') : null,
+        E.hud.cobertura === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
@@ -6387,7 +6846,7 @@ export default function mount(shell) {
 
   // ── Juego 9: versión 3D en profundidad ───────────────────────────────
   function JuegoEsquiva3D(props) {
-    const E = usarEsquiva(props, {});
+    const E = usarEsquiva(props, { lateral: true });
     const comun = marcoEsquiva(props, E, {
       arte: h('svg', { viewBox: '0 0 320 180', className: 'fp-intro-svg fp-intro-svg--ancho' },
         h('rect', { width: 320, height: 180, fill: '#0E1729' }),
@@ -6400,6 +6859,9 @@ export default function mount(shell) {
 
     const accion = E.hud.accion;
     const desplazo = accion === 'saltar' ? -140 : accion === 'agachar' ? 120 : 0;
+    // El cuerpo se corre en pantalla lo mismo que se corrió la persona: sin
+    // esto, esquivar de lado se siente como apretar un botón invisible.
+    const desplazoX = clamp(num(E.hud.lateral, 0), -1, 1) * 170;
     // Proyección: un obstáculo lejano es chico y está arriba; cerca es grande.
     const proyectar = (d) => {
       const z = clamp(d, 0, 1);
@@ -6412,7 +6874,11 @@ export default function mount(shell) {
       meta: h('div', { className: 'fp-meta-row' },
         h(Chip, { tone: 'accent' }, E.hud.puntos + ' pts'),
         h(Chip, null, '❤️'.repeat(Math.max(0, E.hud.vidas)) || 'sin vidas'),
-        accion ? h(Chip, { tone: 'ok' }, accion === 'saltar' ? '⬆️ salto' : '⬇️ agachado') : null),
+        accion ? h(Chip, { tone: 'ok' },
+          accion === 'saltar' ? '⬆️ salto'
+            : accion === 'agachar' ? '⬇️ agachado'
+              : accion === 'izquierda' ? '⬅️ a la izquierda' : '➡️ a la derecha') : null,
+        E.hud.cobertura === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq3d-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
@@ -6443,12 +6909,22 @@ export default function mount(shell) {
           // obstáculos que se acercan
           E.obstaculos.slice().sort((a, b) => b.d - a.d).map((o) => {
             const p = proyectar(o.d);
-            const w = 620 * p.escala, hh = 150 * p.escala;
-            const y = o.tipo === 'bajo' ? p.y : p.y - 300 * p.escala;
-            const col = o.tipo === 'bajo' ? '#D52B1E' : '#F4B400';
+            const esLateral = o.tipo === 'izquierda' || o.tipo === 'derecha';
+            // Un muro lateral tapa el lado que hay que ABANDONAR y es alto:
+            // no se salta ni se agacha, hay que correrse.
+            const w = (esLateral ? 340 : 620) * p.escala;
+            const hh = (esLateral ? 460 : 150) * p.escala;
+            const y = esLateral ? p.y - 190 * p.escala
+              : o.tipo === 'bajo' ? p.y : p.y - 300 * p.escala;
+            const cx = esLateral ? (o.tipo === 'izquierda' ? 1 : -1) * 190 * p.escala : 0;
+            const col = esLateral ? '#7C3AED' : o.tipo === 'bajo' ? '#D52B1E' : '#F4B400';
             const fO = facetas(col);
             const pr = Math.max(4, 26 * p.escala);
-            return h('g', { key: o.id, transform: 'translate(500,' + y.toFixed(0) + ')', opacity: clamp(1.15 - o.d, 0.25, 1) },
+            return h('g', {
+              key: o.id,
+              transform: 'translate(' + (500 + cx).toFixed(0) + ',' + y.toFixed(0) + ')',
+              opacity: clamp(1.15 - o.d, 0.25, 1),
+            },
               // Cara superior y frontal: la barra es un bloque que se acerca,
               // y el frente queda translúcido para no tapar la silueta.
               h('path', {
@@ -6467,7 +6943,7 @@ export default function mount(shell) {
               }, OBST[o.tipo].nombre) : null);
           }),
           // el jugador: contorno verde de su cuerpo, interior transparente
-          h('g', { transform: 'translate(0,' + desplazo + ')' },
+          h('g', { transform: 'translate(' + desplazoX.toFixed(0) + ',' + desplazo + ')' },
             E.contorno && E.contorno.length > 6
               // Silueta real: contorno de la máscara de segmentación.
               ? h('path', {
@@ -6587,6 +7063,7 @@ export default function mount(shell) {
     const streamRef = useRef(null);
     const provRef = useRef(null);
     const detRef = useRef(detectorAleteo());
+    const cuerpoRef = useRef(seguidorCuerpo());
     const vueloRef = useRef(null);
     const faseRef = useRef('intro');
     const tactilRef = useRef({ aleteo: false, planeoHasta: 0 });
@@ -6627,7 +7104,7 @@ export default function mount(shell) {
 
     const iniciar = useCallback(async (modo) => {
       setError(''); setFin(null);
-      detRef.current.reset();
+      detRef.current.reset(); cuerpoRef.current.reset();
       vueloRef.current = motorVuelo(cfg);
       setFrutas([]);
       if (modo === 'tactil') { setModoTactil(true); irA('volando'); return; }
@@ -6670,7 +7147,7 @@ export default function mount(shell) {
         if (!V) return;
         const t = nowMs();
         let entrada = { aleteo: false, fuerza: 1, planeo: false };
-        let cadencia = 0, aviso = '', alas = alasRef.current;
+        let cadencia = 0, aviso = '', alas = alasRef.current, piernasHud = 0;
         if (modoTactil) {
           entrada.aleteo = tactilRef.current.aleteo;
           entrada.planeo = tactilRef.current.planeoHasta > t;
@@ -6681,8 +7158,15 @@ export default function mount(shell) {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
+          const cuerpo = cuerpoRef.current.actualizar(L, dt, hw.espejo !== false, lec && lec.mundo);
           const r = detRef.current.actualizar(L, dt, lec && lec.mundo);
-          entrada = { aleteo: r.aleteo, fuerza: r.fuerza, planeo: r.planeo };
+          entrada = {
+            aleteo: r.aleteo, fuerza: r.fuerza, planeo: r.planeo,
+            // Juntar las piernas pica, abrirlas frena. Si la cámara no ve las
+            // piernas esto llega en 0 y el vuelo es exactamente el de antes.
+            piernas: cuerpo.cobertura === 'completo' ? cuerpo.piernasJuntas : 0,
+          };
+          piernasHud = entrada.piernas;
           cadencia = r.cadencia;
           alas = clamp(r.altura, -1, 1);
           if (!r.visible) aviso = 'No te veo: ponte frente al tótem';
@@ -6708,6 +7192,7 @@ export default function mount(shell) {
           setHud({
             y: V.y, alas: alas, planeo: V.planeando, puntos: V.puntos, comidas: V.comidas,
             energia: V.energia, progreso: V.progreso(), cadencia: cadencia, aviso: aviso,
+            piernas: piernasHud, picando: V.picando, frenando: V.frenando,
           });
         }
       });
@@ -6721,7 +7206,7 @@ export default function mount(shell) {
     // resuelve y acto seguido necesita un elemento donde montar el stream. Por
     // eso se arma aquí y se rinde también en la intro, oculto.
     const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
@@ -6787,7 +7272,8 @@ export default function mount(shell) {
         h(Chip, { tone: 'accent' }, hud.puntos + ' pts'),
         h(Chip, null, '🍎 ' + hud.comidas),
         h(Chip, null, '⚡'.repeat(Math.max(0, hud.energia)) || 'sin energía'),
-        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null),
+        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null,
+        hud.picando ? h(Chip, { tone: 'accent' }, '🪶 picada') : hud.frenando ? h(Chip, null, '🦵 frenando') : null),
     },
       h('div', { className: 'fp-vuelo-wrap' },
         h('svg', { className: 'fp-vuelo-svg', viewBox: '0 0 ' + W + ' ' + H },
@@ -6985,6 +7471,7 @@ export default function mount(shell) {
     const streamRef = useRef(null);
     const provRef = useRef(null);
     const alaRef = useRef(detectorAleteo());
+    const cuerpoRef = useRef(seguidorCuerpo());
     const incRef = useRef(detectorInclinacion());
     const vueloRef = useRef(null);
     const faseRef = useRef('intro');
@@ -7028,7 +7515,7 @@ export default function mount(shell) {
 
     const iniciar = useCallback(async (modo) => {
       setError(''); setFin(null);
-      alaRef.current.reset(); incRef.current.reset();
+      alaRef.current.reset(); incRef.current.reset(); cuerpoRef.current.reset();
       vueloRef.current = nuevoVuelo();
       setItems({ frutas: [], obstaculos: [] });
       if (modo === 'tactil') { setModoTactil(true); irA('volando'); return; }
@@ -7075,7 +7562,7 @@ export default function mount(shell) {
         if (!V) return;
         const t = nowMs();
         let entrada = { aleteo: false, fuerza: 1, planeo: false, giro: 0 };
-        let aviso = '', alas = alasRef.current;
+        let aviso = '', alas = alasRef.current, piernasHud = 0;
         if (modoTactil) {
           entrada.aleteo = tactilRef.current.aleteo;
           entrada.planeo = tactilRef.current.planeoHasta > t;
@@ -7086,9 +7573,14 @@ export default function mount(shell) {
           const prov = provRef.current;
           const lec = prov ? prov.leer() : null;
           const L = lec && lec.landmarks;
+          const cuerpo = cuerpoRef.current.actualizar(L, dt, espejo, lec && lec.mundo);
           const a = alaRef.current.actualizar(L, dt, lec && lec.mundo);
           const i = incRef.current.actualizar(L, dt, espejo, lec && lec.kinect);
-          entrada = { aleteo: a.aleteo, fuerza: a.fuerza, planeo: a.planeo, giro: i.giro };
+          entrada = {
+            aleteo: a.aleteo, fuerza: a.fuerza, planeo: a.planeo, giro: i.giro,
+            piernas: cuerpo.cobertura === 'completo' ? cuerpo.piernasJuntas : 0,
+          };
+          piernasHud = entrada.piernas;
           alas = clamp(a.altura, -1, 1);
           if (!a.visible) aviso = 'No te veo: ponte frente al tótem';
           if (tactilRef.current.aleteo) { entrada.aleteo = true; entrada.fuerza = 1; tactilRef.current.aleteo = false; }
@@ -7114,6 +7606,7 @@ export default function mount(shell) {
             y: V.y, x: V.x, alas: alas, planeo: V.planeando, giro: entrada.giro,
             puntos: V.puntos, comidas: V.comidas, esquivados: V.esquivados,
             energia: V.energia, progreso: V.progreso(), aviso: aviso,
+            piernas: piernasHud, picando: V.picando, frenando: V.frenando,
           });
         }
       });
@@ -7124,7 +7617,7 @@ export default function mount(shell) {
     const espejo = hw.espejo !== false;
 
     const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
-      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio },
+      h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
       hw.avisoCamara !== false && streamRef.current
         ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
@@ -7199,7 +7692,8 @@ export default function mount(shell) {
         h(Chip, { tone: 'accent' }, hud.puntos + ' pts'),
         h(Chip, null, '🍎 ' + hud.comidas),
         h(Chip, null, '⚡'.repeat(Math.max(0, hud.energia)) || 'sin energía'),
-        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null),
+        hud.planeo ? h(Chip, { tone: 'ok' }, '🪁 planeando') : null,
+        hud.picando ? h(Chip, { tone: 'accent' }, '🪶 picada') : hud.frenando ? h(Chip, null, '🦵 frenando') : null),
     },
       h('div', { className: 'fp-vuelo-wrap' },
         h('svg', { className: 'fp-vuelo3d-svg', viewBox: '0 0 ' + W + ' ' + H },
@@ -7368,6 +7862,9 @@ export default function mount(shell) {
     const medirRef = useRef({ parar: null, prov: null, stream: null });
     const videoRef = useRef(null);
     const stopRef = useRef(null);
+    // Autocalibración del montaje.
+    const [cal, setCal] = useState(null);   // {paso, aviso, progreso, posiciones, resultado}
+    const calRef = useRef({ parar: null, prov: null, stream: null, cal: null });
 
     useEffect(() => () => {
       if (stopRef.current) stopRef.current();
@@ -7378,7 +7875,103 @@ export default function mount(shell) {
       const K = kinRef.current;
       if (K.parar) K.parar();
       try { K.prov && K.prov.detener(); } catch (e) { /* noop */ }
+      const C = calRef.current;
+      if (C.parar) C.parar();
+      try { C.prov && C.prov.detener(); } catch (e) { /* noop */ }
+      if (C.stream) { try { C.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
     }, []);
+
+    /**
+     * Deduce a qué altura y con qué inclinación está la cámara mirando a una
+     * persona. Con Kinect sale del plano del piso en una toma; con una cámara
+     * corriente hay que pararse en dos sitios a distinta distancia, porque una
+     * sola pose deja una curva de montajes posibles en vez de uno.
+     */
+    const soltarCalibracion = () => {
+      const C = calRef.current;
+      if (C.parar) C.parar();
+      try { C.prov && C.prov.detener(); } catch (e) { /* noop */ }
+      if (C.stream) { try { C.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      C.parar = null; C.prov = null; C.stream = null; C.cal = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    };
+
+    const calibrar = async () => {
+      const C = calRef.current;
+      if (C.cal) { soltarCalibracion(); setCal(null); return; }
+      setCargando('calibrar');
+      try {
+        const g = camaraGeometria(model.espacio, 16 / 9);
+        C.cal = calibradorMontaje({ estatura: num(model.espacio.estaturaReferencia, 170), fovV: g.fovV });
+        C.prov = await arrancarPose(model.hardware, videoRef, C);
+      } catch (e) {
+        soltarCalibracion();
+        setCargando('');
+        setCal({ paso: 'error', aviso: mensajeCamara(e) });
+        return;
+      }
+      setCargando('');
+      setCal({ paso: 'tomando', aviso: '', progreso: 0, posiciones: 0, hayLectura: false });
+      let ultimo = 0, hayLectura = false;
+      C.parar = loop(() => {
+        const t = nowMs();
+        if (t - ultimo < 120) return;
+        ultimo = t;
+        const lec = C.prov.leer();
+        const motivo = C.cal.muestra(lec && lec.landmarks, lec && lec.kinect);
+        // Hasta que el motor de pose entrega su primera lectura no se sabe
+        // nada: decir "te veo bien" ahí seria mentir, y el operador se queda
+        // esperando una barra que no se mueve sin entender por que.
+        if (!hayLectura && lec) hayLectura = true;
+        // Con Kinect el plano del piso cierra la calibración de una: no tiene
+        // sentido pedirle a nadie que camine.
+        if (C.cal.listo() && C.cal.posiciones() === 0) {
+          const r = C.cal.resultado();
+          if (r) { setCal({ paso: 'listo', resultado: r }); C.parar(); C.parar = null; return; }
+        }
+        setCal({
+          paso: 'tomando', aviso: motivo || '', hayLectura,
+          progreso: C.cal.progreso(), posiciones: C.cal.posiciones(),
+        });
+      });
+    };
+
+    /** Cierra la toma actual: "ya estoy en esta posición". */
+    const fijarPosicion = () => {
+      const C = calRef.current;
+      if (!C.cal || !C.cal.fijarPosicion()) return;
+      const r = C.cal.resultado();
+      if (r) {
+        if (C.parar) { C.parar(); C.parar = null; }
+        setCal({ paso: 'listo', resultado: r });
+      } else {
+        setCal({ paso: 'tomando', aviso: '', hayLectura: true, progreso: 0, posiciones: C.cal.posiciones() });
+      }
+    };
+
+    /** Escribe el montaje deducido en el espacio de juego. */
+    const aplicarCalibracion = () => {
+      const r = cal && cal.resultado;
+      if (!r) return;
+      const cambio = { camaraAltura: r.camaraAltura, camaraInclinacion: Math.round(r.camaraInclinacion) };
+      // La distancia medida es la mejor marca de piso posible: es donde la
+      // persona se paró de verdad y donde la cámara la vio entera.
+      if (r.distancias && r.distancias.length) {
+        cambio.distanciaZona = Math.round(r.distancias.reduce((a, b) => a + b, 0) / r.distancias.length);
+        // La profundidad de la sala tiene que dar para esa marca y algo más.
+        cambio.profundidad = Math.max(num(model.espacio.profundidad, 250), cambio.distanciaZona + 40);
+      }
+      // Autorregular el TAMAÑO: el volumen de juego se ajusta a quien juega.
+      // Exigir 240 cm de franja para un curso de niños obliga a alejar la
+      // cámara sin necesidad y deja fuera montajes que servían perfectamente.
+      const est = num(model.espacio.estaturaReferencia, 170);
+      cambio.alto = Math.round(clamp(est * 1.35, 150, 260));
+      patch({ espacio: cambio });
+      notify('success', 'Montaje aplicado: cámara a ' + r.camaraAltura + ' cm, inclinada ' +
+        Math.round(r.camaraInclinacion) + '°, franja de ' + cambio.alto + ' cm.');
+      soltarCalibracion();
+      setCal(null);
+    };
 
     /**
      * Escucha el puente Kinect y muestra TODO lo que llega: sirve para saber,
@@ -7672,7 +8265,68 @@ export default function mount(shell) {
               h('li', null, 'Tipo de puntero: ' + puntero.tipo + (puntero.tipo === 'mouse' ? ' (compatible con lightgun IR en modo mouse absoluto)' : '')),
               h('li', null, 'Coordenadas: ' + puntero.x + ', ' + puntero.y)) : null),
           h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
-            h('h3', null, '7. Cuerpo y espacio de juego'),
+            h('h3', null, '7. Autocalibrar el montaje (cámara a cualquier altura)'),
+            h('p', { className: 'fp-note' },
+              'La app no necesita que midas con huincha. Se para alguien delante y ella deduce a qué ' +
+              'altura y con qué inclinación está la cámara, sea un teléfono en un trípode a 60 cm, una ' +
+              'tablet a 120 o el tótem a 175. Con Kinect sale de una, del plano del piso; con una cámara ' +
+              'corriente hay que pararse en dos sitios a distinta distancia.'),
+            h('div', { className: 'fp-form' },
+              h(Campo, {
+                label: 'Estatura de quien calibra (cm)', type: 'number', min: 90, max: 220,
+                value: model.espacio.estaturaReferencia,
+                help: 'Es la referencia que convierte píxeles en centímetros. Cuanto más exacta, mejor la medida.',
+                onChange: (v) => patch({ espacio: { estaturaReferencia: v } }),
+              })),
+            h(Boton, {
+              variant: cal && cal.paso === 'tomando' ? 'danger' : 'soft',
+              onClick: calibrar, disabled: cargando === 'calibrar',
+            }, cargando === 'calibrar' ? 'Abriendo…'
+              : cal && cal.paso === 'tomando' ? 'Cancelar calibración' : '📐 Calibrar el montaje'),
+            cal && cal.paso === 'error' ? h('p', { className: 'fp-error' }, '⚠ ' + cal.aviso) : null,
+            cal && cal.paso === 'tomando'
+              ? h('div', { className: 'fp-autocal' },
+                  h('p', { className: 'fp-lead' }, cal.posiciones === 0
+                    ? '1 de 2 · Párate en la marca del piso, de frente y completo en el cuadro.'
+                    : '2 de 2 · Ahora da dos o tres pasos ATRÁS y quédate quieto.'),
+                  h('div', { className: 'fp-progress' },
+                    h('i', { style: { width: Math.round(clamp(cal.progreso, 0, 1) * 100) + '%' } })),
+                  cal.aviso ? h('p', { className: 'fp-error' }, '⚠ ' + cal.aviso)
+                    : !cal.hayLectura
+                      ? h('p', { className: 'fp-note' }, 'Esperando la primera lectura del motor de pose…')
+                      : h('p', { className: 'fp-note' }, 'Te veo bien. Cuando la barra se llene, confirma la posición.'),
+                  h(Boton, {
+                    variant: 'primary', disabled: cal.progreso < 1, onClick: fijarPosicion,
+                  }, cal.posiciones === 0 ? 'Listo, estoy en la marca' : 'Listo, ya retrocedí'))
+              : null,
+            cal && cal.paso === 'listo' && cal.resultado
+              ? h('div', { className: 'fp-autocal' },
+                  h('div', { className: 'fp-medidas' },
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, cal.resultado.camaraAltura + ' cm'), h('span', null, 'altura de la cámara')),
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, Math.round(cal.resultado.camaraInclinacion) + '°'), h('span', null, 'inclinación hacia abajo')),
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, (cal.resultado.distancias || []).map((d) => d + ' cm').join(' · ') || '—'),
+                      h('span', null, 'dónde te paraste')),
+                    h('div', { className: 'fp-medida' + (cal.resultado.fuente === 'piso-kinect' || cal.resultado.confiable ? ' is-ok' : ' is-mal') },
+                      h('b', null, cal.resultado.fuente === 'piso-kinect' ? 'EXACTA' : cal.resultado.confiable ? 'BUENA' : 'DUDOSA'),
+                      h('span', null, cal.resultado.fuente === 'piso-kinect' ? 'medida por el Kinect' : 'estimada con la cámara'))),
+                  h('p', { className: 'fp-note' },
+                    'Al aplicar se ajustan también la marca del piso y el alto de la franja ' +
+                    '(' + Math.round(clamp(num(model.espacio.estaturaReferencia, 170) * 1.35, 150, 260)) + ' cm ' +
+                    'para alguien de ' + num(model.espacio.estaturaReferencia, 170) + ' cm, con los brazos en alto y un salto). ' +
+                    'Es lo que permite que la misma app sirva para un curso de niños y para adultos.'),
+                  cal.resultado.fuente !== 'piso-kinect' && !cal.resultado.confiable
+                    ? h('p', { className: 'fp-error' },
+                        '⚠ Las dos posiciones quedaron a ' + cal.resultado.separacion +
+                        ' cm de distancia entre sí: muy poco para separar la altura del ángulo. ' +
+                        'Repite alejándote más en la segunda.')
+                    : null,
+                  h(Boton, { variant: 'primary', onClick: aplicarCalibracion }, 'Aplicar a la zona de juego'))
+              : null),
+          h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
+            h('h3', null, '8. Cuerpo y espacio de juego'),
             h('p', { className: 'fp-note' },
               'Mide en centímetros con la geometría declarada en ⚙️ Editor → 📐 Espacio: ' +
               'la cámara está a ' + num(model.espacio.camaraAltura, 160) + ' cm, inclinada ' +

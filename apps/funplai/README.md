@@ -37,6 +37,25 @@ recorte que sigue a la persona se hace por software, así que se consigue el
 encuadre de una cámara con gimbal sin perder la referencia geométrica que
 permite medir en centímetros.
 
+## Cámara a cualquier altura, y teléfono como cámara
+
+La altura y la inclinación de la cámara se **deducen**, no se declaran: en
+🎥 Diagnóstico hay una autocalibración que recupera montajes de **60 a 200 cm**
+—exacta con el plano del piso del Kinect, estimada con dos posiciones si es una
+cámara corriente— y ajusta la marca del piso y el alto de la franja a la
+estatura de quien juega. Así la misma app sirve en un tótem de 180 cm, en una
+tablet a 120 y en un teléfono en trípode a 60 para que jueguen niños. El
+teléfono (Iriun o DroidCam) está en el catálogo de cámaras con su lente normal
+y su ultra ancho.
+
+## Cuerpo completo
+
+Los juegos de cuerpo leen el tren inferior cuando está a la vista: el paso
+adelante suma fuerza al tejo en la rayuela, Esquiva 3D trae muros laterales que
+se esquivan dando un paso, los vuelos del cóndor pican juntando las piernas y
+frenan abriéndolas, y el salto se mide con la cadera en vez de los hombros. Si
+la cámara no ve las piernas, cada juego sigue con la señal de siempre.
+
 ## Con Kinect for Xbox One (v2)
 
 Además de la webcam, la app puede leer el cuerpo con un **Kinect v2** a través
@@ -63,8 +82,11 @@ Kinect también está en el catálogo de cámaras de **📐 Espacio**, con el ca
 de su sensor de profundidad, así que el análisis del montaje lo evalúa como a
 cualquier otra.
 
-El Kinect **no aparece en la lista de cámaras del sistema** aunque esté
-funcionando: no es una webcam. Durante la partida un indicador dice si se juega
+El puente entrega además la **imagen** del sensor, así que el Kinect reemplaza
+a la webcam por completo sin perder el esqueleto. El Kinect **no aparece en la
+lista de cámaras del sistema** aunque esté funcionando: no es una webcam, y
+exponerlo como tal necesitaría un driver de cámara virtual que además tiraría a
+la basura el esqueleto, los metros y el plano del piso. Durante la partida un indicador dice si se juega
 con 🦴 Kinect o con 📷 Webcam, y si se pidió Kinect y el puente no responde el
 juego avisa y sigue con la cámara en vez de quedarse muerto. El Kinect v2 **no entrega esqueleto de
 dedos** —la mano son muñeca, punta y pulgar más el estado—, y su seguimiento de
@@ -89,5 +111,5 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai apps/funplai/funplai-1.9.0.kapp
+node tools/pack.mjs apps/funplai apps/funplai/funplai-1.10.0.kapp
 ```
