@@ -1,0 +1,42 @@
+{
+  "formato": "kimos-funplai-pack",
+  "version": 1,
+  "id": "corporativo",
+  "nombre": "Neutro corporativo",
+  "descripcion": "Base sobria para que una marca ponga sus colores, su logo y sus textos. Es el pack que se copia y se edita, no el que se usa tal cual.",
+  "tema": {
+    "accent": "#12C3C9",
+    "accent2": "#6C63FF",
+    "bg": "#111B2E",
+    "bg2": "#080E1A",
+    "surface": "#F4F7FA",
+    "ink": "#16202E",
+    "decor": "ninguno",
+    "emoji": "🏢",
+    "decorColores": [
+      "#12C3C9",
+      "#6C63FF"
+    ],
+    "decorEstrella": false,
+    "cielo": "#1E88C7",
+    "cieloBajo": "#B9E6F5",
+    "suelo": "#2F8E8A",
+    "cerros": "#3C5C88",
+    "sol": "#EAFBFF"
+  },
+  "branding": {
+    "appName": "Kimos FunPlai",
+    "tagline": "Actívate con nosotros",
+    "logo": "🏢",
+    "heroTitle": "Juega y participa",
+    "heroSubtitle": "Elige un juego y a jugar"
+  },
+  "juegos": {},
+  "blancos": {
+    "volantin": "Diana",
+    "empanada": "Objetivo",
+    "choripan": "Bonus",
+    "aji": "Penalización",
+    "schop": "Falta"
+  }
+}

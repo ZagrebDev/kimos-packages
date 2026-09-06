@@ -1,0 +1,42 @@
+{
+  "formato": "kimos-funplai-pack",
+  "version": 1,
+  "id": "fiestas-patrias",
+  "nombre": "Fiestas Patrias de Chile",
+  "descripcion": "El pack dieciochero: banderines, ramada y comida de fonda.",
+  "tema": {
+    "accent": "#E4322B",
+    "accent2": "#0B4FD8",
+    "bg": "#152A52",
+    "bg2": "#0A1730",
+    "surface": "#FFF6E2",
+    "ink": "#161E30",
+    "decor": "banderines",
+    "emoji": "🇨🇱",
+    "decorColores": [
+      "#D52B1E",
+      "#0039A6"
+    ],
+    "decorEstrella": true,
+    "cielo": "#2C9BE0",
+    "cieloBajo": "#CFF0FF",
+    "suelo": "#4FA83F",
+    "cerros": "#4C6FA8",
+    "sol": "#FFE9A8"
+  },
+  "branding": {
+    "appName": "Kimos FunPlai",
+    "tagline": "Juegos para el tótem",
+    "logo": "🎉",
+    "heroTitle": "¡Bienvenido a la fonda!",
+    "heroSubtitle": "Elige un juego y a jugar"
+  },
+  "juegos": {},
+  "blancos": {
+    "volantin": "Volantín",
+    "empanada": "Empanada",
+    "choripan": "Choripán",
+    "aji": "Ají rojo",
+    "schop": "Schop"
+  }
+}

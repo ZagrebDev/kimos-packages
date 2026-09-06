@@ -5,7 +5,7 @@
  * para una pantalla táctil vertical de tótem, con juegos que combinan:
  *   · Pantalla táctil pura        → "Coloca la cola al burro", "Lanza y acierta".
  *   · Cámara + detección de pose  → "Prueba de baile" (y lanzamiento por gesto).
- *   · Puntero absoluto / lightgun → "LaserGun" (pistola tipo Duck Hunt).
+ *   · Puntero absoluto / lightgun → "LaserGun" (tiro al blanco con puntero absoluto).
  *
  * Todo es editable desde la propia app (Editor): nombres, textos, colores,
  * temática, dificultad, coreografías, objetivos y puntajes. La configuración se
@@ -82,7 +82,7 @@ export default function mount(shell) {
   }
 
   // ── Color: la base del sombreado por facetas ──────────────────────────
-  // El look de los juegos 3D de Dreamcast no viene de degradados suaves sino
+  // El look de las consolas 3D de fines de los noventa no viene de degradados suaves sino
   // de caras planas con saltos duros de luz. Para eso hace falta poder subir
   // y bajar el brillo de un color manteniendo su tono, así que se pasa por HSL.
 
@@ -175,52 +175,278 @@ export default function mount(shell) {
   // Cada tema trae, además de sus colores de marca, la paleta de ESCENA que
   // usa el motor de arte: cielo, suelo y cerros. Es lo que hace que cada juego
   // se vea como un nivel del mismo juego y no como nueve pantallas distintas.
-  const THEMES = {
+  // ══════════════════════════════════════════════════════════════════════
+  // 2.b Packs temáticos
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // La app decía que la temática era un parámetro, pero mientras hubo un solo
+  // pack eso era teoría — y Fiestas Patrias es una semana al año.
+  //
+  // Un pack cambia CÓMO SE VE y CÓMO SE LLAMAN las cosas. No cambia el montaje
+  // (cámara, espacio, hardware), ni los datos (ranking, contactos, métricas),
+  // ni las reglas de un juego. Esa frontera es la que hace que aplicar un pack
+  // en pleno evento sea seguro: se puede cambiar la decoración a mitad de la
+  // jornada sin tocar una sola partida guardada.
+  //
+  // Lo que un pack NO puede hacer, dicho para que nadie lo descubra el día del
+  // evento: no redibuja el arte. Los blancos del LaserGun, los adornos y los
+  // avatares son SVG escritos en el bundle; el pack los renombra y los
+  // recolorea, no los reemplaza. Ver docs/PERSONALIZACION.md.
+
+  const PACK_FORMATO = 'kimos-funplai-pack';
+  const PACK_VERSION = 1;
+
+  const PACKS = {
     'fiestas-patrias': {
-      name: 'Fiestas Patrias de Chile',
-      accent: '#E4322B',      // rojo bandera, subido para el look arcade
-      accent2: '#0B4FD8',     // azul bandera
-      bg: '#152A52',
-      bg2: '#0A1730',
-      surface: '#FFF6E2',     // papel / mantel huaso
-      ink: '#161E30',
-      decor: 'banderines',
-      emoji: '🇨🇱',
-      // Mediodía de septiembre en la cancha: cielo limpio y pasto seco.
-      cielo: '#2C9BE0', cieloBajo: '#CFF0FF',
-      suelo: '#4FA83F', cerros: '#4C6FA8',
-      sol: '#FFE9A8',
-    },
-    'neutro': {
-      name: 'Neutro Kimos',
-      accent: '#12C3C9',
-      accent2: '#6C63FF',
-      bg: '#111B2E',
-      bg2: '#080E1A',
-      surface: '#F4F7FA',
-      ink: '#16202E',
-      decor: 'ninguno',
-      emoji: '🎮',
-      cielo: '#1E88C7', cieloBajo: '#B9E6F5',
-      suelo: '#2F8E8A', cerros: '#3C5C88',
-      sol: '#EAFBFF',
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: 'fiestas-patrias',
+      nombre: 'Fiestas Patrias de Chile',
+      descripcion: 'El pack dieciochero: banderines, ramada y comida de fonda.',
+      tema: {
+        accent: '#E4322B', accent2: '#0B4FD8', bg: '#152A52', bg2: '#0A1730',
+        surface: '#FFF6E2', ink: '#161E30', decor: 'banderines', emoji: '🇨🇱',
+        decorColores: ['#D52B1E', '#0039A6'], decorEstrella: true,
+        cielo: '#2C9BE0', cieloBajo: '#CFF0FF', suelo: '#4FA83F', cerros: '#4C6FA8', sol: '#FFE9A8',
+      },
+      branding: {
+        appName: 'Kimos FunPlai', tagline: 'Juegos para el tótem', logo: '🎉',
+        heroTitle: '¡Bienvenido a la fonda!', heroSubtitle: 'Elige un juego y a jugar',
+      },
+      juegos: {},
+      blancos: { volantin: 'Volantín', empanada: 'Empanada', choripan: 'Choripán', aji: 'Ají rojo', schop: 'Schop' },
     },
     'verano': {
-      name: 'Verano / playa',
-      accent: '#FF7A1A',
-      accent2: '#00B4D8',
-      bg: '#123A4C',
-      bg2: '#07202C',
-      surface: '#FFF6E8',
-      ink: '#123',
-      decor: 'ninguno',
-      emoji: '🏖️',
-      // Atardecer de Crazy Taxi: cielo naranja y arena caliente.
-      cielo: '#FF9E45', cieloBajo: '#FFE7C2',
-      suelo: '#E8C77A', cerros: '#C4643C',
-      sol: '#FFF3C4',
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: 'verano',
+      nombre: 'Verano / playa',
+      descripcion: 'Atardecer en la costa: arena caliente y cielo naranja.',
+      tema: {
+        accent: '#FF7A1A', accent2: '#00B4D8', bg: '#123A4C', bg2: '#07202C',
+        surface: '#FFF6E8', ink: '#123', decor: 'banderines', emoji: '🏖️',
+        decorColores: ['#FF7A1A', '#00B4D8', '#FFD166'], decorEstrella: false,
+        cielo: '#FF9E45', cieloBajo: '#FFE7C2', suelo: '#E8C77A', cerros: '#C4643C', sol: '#FFF3C4',
+      },
+      branding: {
+        appName: 'Kimos FunPlai', tagline: 'Juegos de verano', logo: '🏖️',
+        heroTitle: '¡A la playa!', heroSubtitle: 'Elige un juego y a jugar',
+      },
+      juegos: {
+        laser: { name: 'Tiro al blanco playero', blurb: 'Dispara a sandías, helados y quitasoles. Esquiva los erizos y las medusas.' },
+        rayuela: { name: 'Rayuela en la arena' },
+      },
+      blancos: { volantin: 'Quitasol', empanada: 'Sandía', choripan: 'Helado', aji: 'Erizo', schop: 'Medusa' },
+    },
+    'navidad': {
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: 'navidad',
+      nombre: 'Navidad',
+      descripcion: 'Guirnalda roja y verde, noche fría y luces.',
+      tema: {
+        accent: '#C62828', accent2: '#1B7F4B', bg: '#0E2338', bg2: '#061523',
+        surface: '#FFF8EE', ink: '#14202C', decor: 'banderines', emoji: '🎄',
+        decorColores: ['#C62828', '#1B7F4B', '#E8C86A'], decorEstrella: true,
+        cielo: '#123A63', cieloBajo: '#9FC5E8', suelo: '#E8EEF5', cerros: '#2E4A6B', sol: '#FFF1C9',
+      },
+      branding: {
+        appName: 'Kimos FunPlai', tagline: 'Juegos de Navidad', logo: '🎄',
+        heroTitle: '¡Feliz Navidad!', heroSubtitle: 'Elige un juego y a jugar',
+      },
+      juegos: {
+        laser: { name: 'Tiro al blanco navideño', blurb: 'Dispara a estrellas, panes de pascua y bastones de caramelo. Esquiva el carbón.' },
+        burro: { name: 'Ponle la nariz al reno', blurb: 'Arrastra la nariz con el dedo y suéltala en el centro de la mira.' },
+      },
+      blancos: { volantin: 'Estrella', empanada: 'Pan de pascua', choripan: 'Bastón de caramelo', aji: 'Carbón', schop: 'Calcetín roto' },
+    },
+    'corporativo': {
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: 'corporativo',
+      nombre: 'Neutro corporativo',
+      descripcion: 'Base sobria para que una marca ponga sus colores, su logo y sus textos. Es el pack que se copia y se edita, no el que se usa tal cual.',
+      tema: {
+        accent: '#12C3C9', accent2: '#6C63FF', bg: '#111B2E', bg2: '#080E1A',
+        surface: '#F4F7FA', ink: '#16202E', decor: 'ninguno', emoji: '🏢',
+        decorColores: ['#12C3C9', '#6C63FF'], decorEstrella: false,
+        cielo: '#1E88C7', cieloBajo: '#B9E6F5', suelo: '#2F8E8A', cerros: '#3C5C88', sol: '#EAFBFF',
+      },
+      branding: {
+        appName: 'Kimos FunPlai', tagline: 'Actívate con nosotros', logo: '🏢',
+        heroTitle: 'Juega y participa', heroSubtitle: 'Elige un juego y a jugar',
+      },
+      juegos: {},
+      blancos: { volantin: 'Diana', empanada: 'Objetivo', choripan: 'Bonus', aji: 'Penalización', schop: 'Falta' },
     },
   };
+
+  // Campos que un pack puede traer, y de qué tipo. Todo lo que no esté acá se
+  // IGNORA en vez de copiarse a ciegas: un pack es un archivo que llega de
+  // fuera, y copiar claves desconocidas dentro del modelo es cómo se cuela una
+  // configuración de hardware en lo que debería ser una decoración.
+  const PACK_COLORES = ['accent', 'accent2', 'bg', 'bg2', 'surface', 'ink', 'cielo', 'cieloBajo', 'suelo', 'cerros', 'sol'];
+  const PACK_TEMA_OTROS = ['decor', 'emoji', 'decorColores', 'decorEstrella'];
+  const PACK_BRANDING = ['appName', 'tagline', 'logo', 'heroTitle', 'heroSubtitle', 'pieDePagina'];
+  const PACK_JUEGO = ['name', 'icon', 'blurb'];
+  const PACK_BLANCOS = ['volantin', 'empanada', 'choripan', 'aji', 'schop'];
+  const esHex = (v) => typeof v === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
+
+  /**
+   * Comprueba un pack antes de aplicarlo. Devuelve `{ ok, errores, avisos, pack }`.
+   *
+   * Un pack mal formado tiene que fallar ACÁ, con un mensaje que diga qué campo
+   * y por qué, y no a mitad del evento con la portada en blanco. Por eso no se
+   * confía en nada: ni en el formato, ni en los tipos, ni en que los colores
+   * sean colores.
+   *
+   * La diferencia entre `errores` y `avisos` importa: un error impide aplicar
+   * el pack; un aviso dice que algo se ignoró y sigue. Un pack hecho para una
+   * versión con un juego que ya no existe debe poder usarse igual.
+   */
+  function validarPack(obj) {
+    const errores = [], avisos = [];
+    if (!isObj(obj)) return { ok: false, errores: ['El archivo no es un objeto JSON.'], avisos, pack: null };
+    if (s(obj.formato) !== PACK_FORMATO) {
+      errores.push('No parece un pack de FunPlai: falta «formato»: "' + PACK_FORMATO + '" (llegó «' + s(obj.formato) + '»).');
+    }
+    const v = num(obj.version, 0);
+    if (!v) errores.push('Falta «version» (debe ser un número).');
+    else if (v > PACK_VERSION) {
+      errores.push('El pack es de la versión ' + v + ' y esta app entiende hasta la ' + PACK_VERSION +
+        '. Actualiza la app en vez de editar el archivo.');
+    }
+    if (!s(obj.id)) errores.push('Falta «id» (un nombre corto sin espacios, como "navidad").');
+    else if (!/^[a-z0-9-]{2,40}$/.test(s(obj.id))) errores.push('El «id» solo admite minúsculas, números y guiones: «' + s(obj.id) + '».');
+    if (!s(obj.nombre)) errores.push('Falta «nombre» (el que se ve en el selector).');
+
+    const limpio = {
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: s(obj.id), nombre: s(obj.nombre), descripcion: s(obj.descripcion),
+      tema: {}, branding: {}, juegos: {}, blancos: {},
+    };
+
+    if (obj.tema != null && !isObj(obj.tema)) errores.push('«tema» tiene que ser un objeto.');
+    else if (isObj(obj.tema)) {
+      for (const k of PACK_COLORES) {
+        if (obj.tema[k] == null) continue;
+        if (!esHex(obj.tema[k])) errores.push('«tema.' + k + '» tiene que ser un color hexadecimal como "#1A2B3C" (llegó «' + s(obj.tema[k]) + '»).');
+        else limpio.tema[k] = s(obj.tema[k]).trim();
+      }
+      if (obj.tema.decor != null) {
+        if (['banderines', 'ninguno'].indexOf(s(obj.tema.decor)) < 0) {
+          errores.push('«tema.decor» solo admite "banderines" o "ninguno" (llegó «' + s(obj.tema.decor) + '»). El arte de los adornos está en el bundle: un pack los recolorea, no los redibuja.');
+        } else limpio.tema.decor = s(obj.tema.decor);
+      }
+      if (obj.tema.emoji != null) limpio.tema.emoji = s(obj.tema.emoji).slice(0, 8);
+      if (obj.tema.decorEstrella != null) limpio.tema.decorEstrella = obj.tema.decorEstrella !== false;
+      if (obj.tema.decorColores != null) {
+        if (!Array.isArray(obj.tema.decorColores)) errores.push('«tema.decorColores» tiene que ser una lista de colores.');
+        else {
+          const malos = obj.tema.decorColores.filter((c) => !esHex(c));
+          if (malos.length) errores.push('«tema.decorColores» tiene ' + malos.length + ' valor(es) que no son colores hexadecimales.');
+          else limpio.tema.decorColores = obj.tema.decorColores.slice(0, 8).map((c) => s(c).trim());
+        }
+      }
+      for (const k of Object.keys(obj.tema)) {
+        if (PACK_COLORES.indexOf(k) < 0 && PACK_TEMA_OTROS.indexOf(k) < 0) avisos.push('Se ignoró «tema.' + k + '»: no es un campo del formato.');
+      }
+    }
+
+    if (isObj(obj.branding)) {
+      for (const k of PACK_BRANDING) if (obj.branding[k] != null) limpio.branding[k] = s(obj.branding[k]).slice(0, 200);
+      for (const k of Object.keys(obj.branding)) {
+        if (PACK_BRANDING.indexOf(k) < 0) avisos.push('Se ignoró «branding.' + k + '»: un pack cambia textos y colores, no la configuración del equipo.');
+      }
+    } else if (obj.branding != null) errores.push('«branding» tiene que ser un objeto.');
+
+    if (isObj(obj.juegos)) {
+      for (const id of Object.keys(obj.juegos)) {
+        const j = obj.juegos[id];
+        if (!isObj(j)) { avisos.push('Se ignoró «juegos.' + id + '»: no es un objeto.'); continue; }
+        const dest = {};
+        for (const k of PACK_JUEGO) if (j[k] != null) dest[k] = s(j[k]).slice(0, 120);
+        for (const k of Object.keys(j)) {
+          if (PACK_JUEGO.indexOf(k) < 0) avisos.push('Se ignoró «juegos.' + id + '.' + k + '»: un pack renombra juegos, no cambia sus reglas.');
+        }
+        if (Object.keys(dest).length) limpio.juegos[id] = dest;
+      }
+    } else if (obj.juegos != null) errores.push('«juegos» tiene que ser un objeto.');
+
+    if (isObj(obj.blancos)) {
+      for (const k of PACK_BLANCOS) if (obj.blancos[k] != null) limpio.blancos[k] = s(obj.blancos[k]).slice(0, 40);
+      for (const k of Object.keys(obj.blancos)) {
+        if (PACK_BLANCOS.indexOf(k) < 0) avisos.push('Se ignoró «blancos.' + k + '»: los blancos del LaserGun son ' + PACK_BLANCOS.join(', ') + '.');
+      }
+    } else if (obj.blancos != null) errores.push('«blancos» tiene que ser un objeto.');
+
+    // Secciones de primer nivel que no son del formato. Se descartan igual,
+    // pero en silencio no: un pack que trae un bloque «hardware» o «scores» o
+    // viene mal hecho o viene con intención, y en los dos casos el operador
+    // tiene derecho a enterarse de que se ignoró.
+    const RAIZ_OK = ['formato', 'version', 'id', 'nombre', 'descripcion', 'tema', 'branding', 'juegos', 'blancos'];
+    for (const k of Object.keys(obj)) {
+      if (RAIZ_OK.indexOf(k) < 0) {
+        avisos.push('Se ignoró la sección «' + k + '»: un pack solo trae ' + RAIZ_OK.slice(5).join(', ') + '. ' +
+          'El montaje y los datos del tótem no se cambian con un archivo de temática.');
+      }
+    }
+
+    return { ok: !errores.length, errores, avisos, pack: errores.length ? null : limpio };
+  }
+
+  /**
+   * Aplica un pack al modelo. Solo toca apariencia y textos: NO toca el
+   * montaje (cámara, espacio, hardware) ni los datos (ranking, contactos,
+   * métricas, concurso). Por eso se puede cambiar la decoración a mitad de una
+   * jornada sin arriesgar una sola partida guardada.
+   */
+  function aplicarPack(entrada) {
+    const crudo = typeof entrada === 'string' ? PACKS[entrada] : entrada;
+    const r = validarPack(crudo);
+    if (!r.ok) return r;
+    const p = r.pack;
+    const parche = { branding: Object.assign({}, p.branding) };
+    // El tema se guarda entero en el modelo para que un pack importado —que no
+    // está en PACKS— también pinte. `themeOf` lo lee de acá.
+    if (Object.keys(p.tema).length) {
+      parche.branding.theme = p.id;
+      parche.branding.temaPack = Object.assign({ name: p.nombre }, p.tema);
+    }
+    if (Object.keys(p.blancos).length) parche.blancos = p.blancos;
+    let games = model.games;
+    if (Object.keys(p.juegos).length) {
+      games = (model.games || []).map((g) => (p.juegos[g.id] ? merge(g, p.juegos[g.id]) : g));
+    }
+    commit(merge(model, Object.assign(parche, games === model.games ? {} : { games })));
+    return r;
+  }
+
+  /** El aspecto actual, empaquetado: así una marca guarda el suyo y lo reusa. */
+  function packDelModelo(m, id, nombre) {
+    const t = themeOf(m);
+    const tema = {};
+    for (const k of PACK_COLORES) if (t[k]) tema[k] = t[k];
+    for (const k of PACK_TEMA_OTROS) if (t[k] != null) tema[k] = t[k];
+    const branding = {};
+    for (const k of PACK_BRANDING) if (s(m.branding[k])) branding[k] = m.branding[k];
+    const juegos = {};
+    for (const g of m.games || []) juegos[g.id] = { name: g.name, icon: g.icon, blurb: g.blurb };
+    return {
+      formato: PACK_FORMATO, version: PACK_VERSION,
+      id: s(id) || 'mi-pack', nombre: s(nombre) || s(m.branding.appName) || 'Mi pack',
+      descripcion: 'Exportado desde el tótem el ' + new Date().toLocaleDateString() + '.',
+      tema, branding, juegos,
+      blancos: Object.assign({}, m.blancos || {}),
+    };
+  }
+
+  /** Los temas visuales salen de los packs: una sola fuente, sin copias. */
+  const THEMES = Object.keys(PACKS).reduce((acc, k) => {
+    acc[k] = Object.assign({ name: PACKS[k].nombre }, PACKS[k].tema);
+    return acc;
+  }, {
+    // Se conserva el id histórico 'neutro' para no romper instancias ya
+    // guardadas que lo tengan elegido: apunta al pack corporativo.
+    'neutro': Object.assign({ name: 'Neutro Kimos' }, PACKS.corporativo.tema),
+  });
+
 
   const CHOREOS = {
     cueca: {
@@ -291,6 +517,13 @@ export default function mount(shell) {
         cuentaRegresiva: 5,
         exigirCalibracion: true,
         mostrarEsqueleto: true,
+        // Entrada alternativa (Fase 8): la misma coreografía por toque o
+        // teclado. Viene encendida porque apagarla deja el juego sin más
+        // entrada que la cámara, y eso es justo lo que no puede pasar.
+        modoRitmico: true,
+        ritmoLatenciaMs: 0,      // retardo del panel táctil, medido en el montaje
+        ritmoUnCarril: false,    // un solo botón: acceso por pulsador único
+        ritmoSonido: true,       // clic de compás sintetizado, sin archivos
       },
     },
     {
@@ -448,7 +681,7 @@ export default function mount(shell) {
       kinectCuerpo: 'cercano', // cercano | primero — con público detrás, importa
       kinectMinCm: 80,         // por debajo, el v2 no sigue el cuerpo
       kinectMaxCm: 400,        // por encima, el esqueleto se vuelve ruido
-      kinectSuavizado: 0.35,   // 0 = crudo del sensor, 1 = muy suave
+      kinectSuavizado: 0.35,   // OBSOLETO: ahora suaviza la tubería (filtro/One Euro)
       kinectUsarPiso: true,    // medir alturas contra el plano del piso
       kinectUsarLean: true,    // usar la inclinación que mide el sensor
       kinectUsarManos: true,   // exigir puño / mano abierta en los juegos
@@ -458,6 +691,46 @@ export default function mount(shell) {
       avisoCamara: true,
       trackerExterno: false,   // escucha window.postMessage({type:'funplai:impact'})
       segmentacion: false,     // separa persona/fondo (cuesta CPU)
+      // ── Robustez del pipeline de pose ────────────────────────────────
+      // La diferencia entre "webcam barata" y "sensor caro" casi nunca está
+      // en el modelo: está acá.
+      poseHz: 25,              // a cuántos cuadros por segundo se estima la pose
+      poseNumPoses: 1,         // 2–3 solo en equipos capaces y para duelos
+      recorteZona: true,       // recortar el cuadro a la zona antes del modelo
+      recorteMargen: 0.18,     // aire alrededor de la persona, en fracción
+      saltoMaximo: 0.28,       // cuánto puede saltar el centroide entre cuadros
+      escalaMaxima: 0.45,      // cuánto puede cambiar la escala entre cuadros
+      cuadrosPerdidos: 12,     // tras cuántos rechazos seguidos se pide reencuadre
+      filtro: 'oneeuro',       // oneeuro | ema | ninguno
+      // Medido, no copiado: el `beta` de los ejemplos del filtro está pensado
+      // para coordenadas en píxeles. Aquí los puntos van en 0..1, así que las
+      // velocidades son mil veces menores y un beta de 0,012 no abre nada. Con
+      // 7 el temblor en reposo apenas sube (±0,0011 frente a ±0,0008) y el
+      // retraso en un golpe cae de 0,19 a 0,024 de pantalla.
+      oneEuroMinCutoff: 1.0,   // Hz: más bajo = más suave en reposo
+      oneEuroBeta: 7,          // cuánto se abre el filtro al moverse rápido
+      emaAlfa: 0.35,           // solo si filtro = 'ema'
+      huesosRigidos: true,     // descartar cuadros que estiran un segmento
+      huesoTolerancia: 0.35,   // cuánto puede variar un largo antes de dudar
+      // ── Umbrales de luz ──────────────────────────────────────────────
+      // La poca luz es la ÚNICA limitación que no se arregla por software, así
+      // que hay que medirla. Estos tres números son la línea que separa "sirve"
+      // de "no sirve", y quedan configurables porque un local se conoce mejor
+      // en terreno que desde acá: lo que la app garantiza es la MEDICIÓN.
+      luzMinima: 80,           // luma media del sujeto (0–255) para dar la luz por buena
+      luzRuidoMax: 4.5,        // ruido temporal tolerable; más = la cámara está subiendo ganancia
+      contraluzMax: 60,        // cuánto puede ser el fondo más claro que el sujeto
+      // ── Sensor remoto: el teléfono hace de cámara ────────────────────
+      // No reemplaza a la webcam local, se suma. El caso simple —una cámara
+      // enchufada al equipo, incluidos los drivers de teléfono tipo Iriun—
+      // sigue siendo el camino por defecto y no cambia en nada.
+      sensorSala: '',          // código de emparejamiento; se genera solo la primera vez
+      sensorPuenteUrl: '',     // vacío = mismo host que la página, en sensorPuerto
+      sensorPuerto: 8788,
+      sensorUrlApp: '',        // vacío = esta misma página; se muestra en el QR
+      sensorHz: 24,            // a cuántos cuadros por segundo transmite el teléfono
+      sensorLatenciaMax: 180,  // ms de edad de muestra que todavía se juega
+      sensorRttMax: 100,       // ms de ida y vuelta razonables en una LAN
     },
     // Volumen de juego declarado, en centímetros. Es lo que permite pasar de
     // píxeles a medidas reales (distancia, altura, envergadura).
@@ -478,7 +751,73 @@ export default function mount(shell) {
     },
     games: DEFAULT_GAMES,
     choreos: CHOREOS,
-    scores: [],                // últimos resultados (ranking del tótem)
+    scores: [],                // resultados guardados (ranking del tótem)
+    // Un puntaje perdido en una feria con premio no es un problema de
+    // almacenamiento, es un problema de confianza. Por eso el tope de filas es
+    // una RED DE SEGURIDAD y no un límite de trabajo: la medición sobre la
+    // persistencia real da ~28.000 filas antes de que reviente la cuota, y una
+    // jornada intensa a 60 partidas por hora durante diez horas son 600.
+    ranking: {
+      tope: 5000,              // 0 = sin límite; guarda TODO hasta acá
+      mostrar: 60,             // cuántas se listan en pantalla (solo vista)
+      aviso: null,             // { at, motivo, filas } si algo se truncó o no se pudo guardar
+    },
+    // Cuánto ocupa el tótem cada persona. Con fila de 40 esperando, esto es lo
+    // que decide si se atienden 60 o 25 por hora: es una medida comercial, y
+    // por eso se guarda entre sesiones en vez de calcularse de memoria.
+    ciclos: {
+      juegos: {},              // { [idJuego]: { muestras: [{ ms, partidas, at }] } }
+      relevos: [],             // ms entre que uno se va y el siguiente empieza
+    },
+    // Nombres de los blancos del LaserGun que puso el pack activo. Los puntos
+    // y el arte no se tocan: un pack renombra, no cambia las reglas.
+    blancos: {},
+    // ── Métricas de activación (VERDE del semáforo) ──────────────────
+    // Todo lo de acá es AGREGADO y no distingue a nadie: son contadores de la
+    // jornada, no un registro de personas. Es lo que el auspiciador compra, y
+    // se puede juntar sin pedirle nada a nadie.
+    //
+    // Lo que NO está acá, y no va a estar: edad o género por la cámara,
+    // emociones, y reconocer a la misma persona entre partidas. Ver el semáforo
+    // completo en docs/PRIVACIDAD.md.
+    metricas: {
+      desde: '',               // cuándo se empezó a contar esta activación
+      juegos: {},              // { [id]: { aperturas, partidas, abandonos, repeticiones, suma, n, max } }
+      horas: {},               // { '14': 37 } — afluencia por hora del día
+      contactos: { ofrecidos: 0, aceptados: 0 },
+    },
+    // Datos de contacto: AMARILLO. Nada de esto existe sin que la persona lo
+    // pida casilla por casilla, después de jugar.
+    contacto: {
+      activo: false,
+      responsable: '',         // quién responde por estos datos (la marca, no KIMOS)
+      conservacion: '',        // cuánto tiempo se guardan, en texto claro
+      pedirCorreo: true,
+      pedirTelefono: false,
+      pedirEdad: false,
+      pedirFoto: false,        // consentimiento SEPARADO, por si se comparte imagen
+      urlPuntaje: '',          // plantilla del QR compartible; {puntaje} {juego}
+      registros: [],           // { id, at, nombre, correo, telefono, edad, acepto: {}, textos: {} }
+    },
+    // Cuando el juego reparte un premio deja de ser un juego. Apagado por
+    // defecto: una feria sin premio no necesita nada de esto, y encenderlo
+    // cambia lo que el jugador puede hacer, así que es decisión del operador.
+    concurso: {
+      activo: false,
+      nombre: '',              // aparece en las bases y en la exportación
+      premio: '',
+      intentosPorPersona: 0,   // 0 = sin tope
+      desde: '',               // ISO; vacío = sin ventana de inicio
+      hasta: '',
+      cerrado: false,          // una vez cerrado, el ranking no admite más filas
+      cerradoAt: '',
+      // Umbrales del vigilante. Se pueden aflojar para un montaje con poco
+      // espacio, pero quedan escritos y salen en las bases.
+      toleranciaDistancia: 45, // cm que puede moverse de donde se colocó
+      giroTolerancia: 0.8,     // fracción del ancho de hombros de referencia
+      marcarDesde: 0.1,        // >10% de cuadros fuera → partida marcada
+      invalidarDesde: 0.35,    // >35% → no compite por el premio
+    },
   };
 
   // ══════════════════════════════════════════════════════════════════════
@@ -491,12 +830,27 @@ export default function mount(shell) {
   const emit = () => { for (const l of listeners) l(model); };
 
   let saveTimer = null;
+  /**
+   * Un guardado que falla y nadie se entera es la peor forma de perder datos:
+   * el operador sigue trabajando y los puntajes desaparecen al recargar. Si el
+   * host rechaza el guardado —cuota llena, error de plataforma— se avisa y se
+   * deja constancia en el ranking para que se pueda exportar a mano.
+   */
+  function fallaAlGuardar(e) {
+    const motivo = s(e && e.message ? e.message : e) || 'el host rechazó el guardado';
+    notify('error', 'No se pudo guardar: ' + motivo + '. Exporta el ranking antes de cerrar.');
+    model = merge(model, { ranking: { aviso: { at: new Date().toISOString(), motivo: 'guardado', detalle: motivo } } });
+    emit();
+  }
+
   function scheduleSave() {
     if (!shell.app || !shell.app.instanceId) return;   // singleton: sin persistencia
     if (saveTimer) clrT(saveTimer);
     saveTimer = setT(() => {
       saveTimer = null;
-      try { Promise.resolve(shell.saveData({ funplai: model })).catch(() => {}); } catch (e) { /* noop */ }
+      try {
+        Promise.resolve(shell.saveData({ funplai: model })).catch(fallaAlGuardar);
+      } catch (e) { fallaAlGuardar(e); }
     }, 700);
   }
 
@@ -512,11 +866,429 @@ export default function mount(shell) {
     commit(merge(model, { games }));
   }
 
+  /** El ranking como CSV, que es lo que abre cualquiera sin explicaciones. */
+  /**
+   * El ranking a CSV, con la ficha de auditoría de cada partida.
+   *
+   * Las columnas nuevas van AL FINAL a propósito: una planilla que alguien ya
+   * tenía armada sobre las seis primeras sigue funcionando igual. Y van todas,
+   * no solo en modo concurso: el día que alguien reclame, el archivo exportado
+   * ya tiene que traer con qué responderle.
+   */
+  function rankingCSV(filas) {
+    const esc = (v) => '"' + s(v).replace(/"/g, '""') + '"';
+    const cab = 'fecha,jugador,juego,puntaje,detalle,id,estado,fuera_pct,motivo,sesion,version,motor';
+    return [cab].concat((filas || []).map((r) => {
+      const a = r.auditoria || {};
+      return [r.at, r.jugador, r.juego, r.puntaje, r.detalle, r.id,
+        a.estado || '', a.fueraPct == null ? '' : a.fueraPct, a.motivo || '',
+        a.sesion || '', a.version || '', a.motor || ''].map(esc).join(',');
+    })).join('\n');
+  }
+
+  /**
+   * Intenta bajar un archivo. En un `.kapp` el visor puede correr en un marco
+   * que bloquea las descargas, así que esto NO se da por hecho: devuelve si
+   * funcionó, y quien llama tiene que dejar el contenido también a la vista.
+   */
+  function descargar(nombre, texto, tipo) {
+    try {
+      const blob = new Blob([texto], { type: (tipo || 'text/csv') + ';charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setT(() => { try { URL.revokeObjectURL(url); } catch (e) { /* noop */ } }, 4000);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /**
+   * Filas apartadas por el tope, ACUMULADAS. Si cada desborde pisara al
+   * anterior, una jornada larga dejaría al operador con doscientos archivos de
+   * una fila cada uno y un aviso que solo recuerda el último: aquí se juntan
+   * todas y el CSV en pantalla crece.
+   */
+  let apartadas = [];
+  let respaldoRanking = null;
+  const tomarRespaldo = () => respaldoRanking;
+  const soltarRespaldo = () => { respaldoRanking = null; apartadas = []; };
+
   function addScore(entry) {
-    const row = merge({ id: uid('sc'), at: new Date().toISOString(), jugador: '', juego: '', puntaje: 0, detalle: '' }, entry || {});
-    const scores = [row].concat(model.scores || []).slice(0, 60);
-    commit(merge(model, { scores }));
+    // Sello de auditoría. Va en TODAS las partidas, haya concurso o no: el día
+    // que alguien reclame, el ranking ya tiene que traer con qué responderle,
+    // y no se puede sellar hacia atrás.
+    const sello = {
+      sesion: SESION_ID,
+      version: APP_VERSION,
+      motor: motorActivo ? motorActivo.tipo : 'ninguno',
+      concurso: !!(model.concurso && model.concurso.activo),
+    };
+    const v = vigilanteActivo ? vigilanteActivo.veredicto() : null;
+    if (v) {
+      sello.estado = v.estado;
+      sello.fueraPct = v.fueraPct;
+      sello.muestras = v.muestras;
+      sello.marcas = v.marcas;
+      if (v.motivo) sello.motivo = v.motivo;
+      // Se guarda DÓNDE se colocó, que es una posición en la sala, y NO su
+      // ancho de hombros, que es una medida de su cuerpo. La versión anterior
+      // guardaba las dos y era antropometría persistida junto a un nombre: el
+      // semáforo de la Fase 6 la admite calculada en memoria y descartada, no
+      // guardada. Para justificar el veredicto alcanza con la posición y el
+      // porcentaje de cuadros fuera, que ya están.
+      if (v.referencia) sello.referencia = { distancia: Math.round(v.referencia.distancia) };
+    }
+    const row = merge({
+      id: uid('sc'), at: new Date().toISOString(), jugador: '', juego: '', puntaje: 0, detalle: '',
+      auditoria: sello,
+    }, entry || {});
+    let scores = [row].concat(model.scores || []);
+    const tope = Math.max(0, Math.round(num(model.ranking && model.ranking.tope, 5000)));
+    let aviso = (model.ranking && model.ranking.aviso) || null;
+    if (tope > 0 && scores.length > tope) {
+      // Antes de soltar UNA sola fila se deja el respaldo: se intenta bajar el
+      // archivo y, funcione o no, el CSV queda a la vista en el ranking.
+      const primera = !apartadas.length;
+      apartadas = apartadas.concat(scores.slice(tope));
+      respaldoRanking = rankingCSV(apartadas);
+      // El archivo se baja UNA vez, al primer desborde: a partir de ahí el CSV
+      // acumulado queda en pantalla y se re-exporta cuando el operador quiera.
+      const bajo = primera
+        ? descargar('funplai-ranking-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv', respaldoRanking)
+        : (aviso && aviso.descargado) || false;
+      aviso = { at: new Date().toISOString(), motivo: 'tope', filas: apartadas.length, descargado: bajo };
+      if (primera) {
+        notify('warn', 'El ranking llegó al tope de ' + tope + ' partidas. Las que sobran se van apartando' +
+          (bajo ? ' (se descargó un archivo)' : '') + ': expórtalas desde 🏆 Ranking.');
+      }
+      scores = scores.slice(0, tope);
+    }
+    commit(merge(model, { scores, ranking: { aviso } }));
+    try { contarMetrica(row.juego, 'puntaje', row.puntaje); } catch (e) { /* noop */ }
     return row;
+  }
+
+  /** Vacía el ranking, dejando SIEMPRE una copia antes. */
+  function vaciarRanking(motivo) {
+    const filas = model.scores || [];
+    if (filas.length) {
+      respaldoRanking = rankingCSV(filas);
+      descargar('funplai-ranking-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv', respaldoRanking);
+    }
+    commit(merge(model, {
+      scores: [],
+      ranking: { aviso: filas.length ? { at: new Date().toISOString(), motivo: motivo || 'vaciado', filas: filas.length } : null },
+    }));
+    return filas.length;
+  }
+
+  // ── Tiempo de ciclo: cuánto ocupa el tótem cada persona ──────────────
+  //
+  // Lo que se mide es la OCUPACIÓN: desde que alguien entra al juego —donde
+  // empieza el posicionamiento— hasta que suelta la pantalla. Incluye
+  // colocarse, jugar, ver el puntaje y escribir el nombre, porque todo eso es
+  // tiempo en que el siguiente de la fila está esperando.
+  //
+  // Se descarta lo que no es una partida: un ciclo cerrado por el temporizador
+  // de inactividad es alguien que se fue a mitad, y uno de media hora es una
+  // pantalla que quedó abierta. Contarlos hundiría la mediana y el operador
+  // dimensionaría mal la jornada.
+  const CICLO_MAX_MS = 15 * 60 * 1000;
+  const CICLO_MIN_MS = 3000;
+  const CICLO_MUESTRAS = 40;      // por juego; alcanza de sobra para una mediana
+  const RELEVO_MAX_MS = 5 * 60 * 1000;
+
+  let cicloActual = null;         // { juego, t0, partidas }
+  let cicloFin = 0;               // cuándo terminó el anterior, para el relevo
+  let cicloMotivo = '';           // lo escribe el kiosco antes de irse por inactividad
+
+  /** El resultado apareció en pantalla: eso es una partida jugada. */
+  function contarPartida() {
+    if (!cicloActual) return;
+    cicloActual.partidas++;
+    try { contarMetrica(cicloActual.juego, 'partidas'); } catch (e) { /* noop */ }
+  }
+
+  /** Marca que la próxima salida NO la decidió la persona. */
+  function salidaPorInactividad() { cicloMotivo = 'inactividad'; }
+
+  function abrirCiclo(gameId) {
+    const t = nowMs();
+    let relevos = (model.ciclos && model.ciclos.relevos) || [];
+    if (cicloFin) {
+      const hueco = t - cicloFin;
+      // Un relevo de horas es la feria cerrada, no un cambio de jugador.
+      if (hueco > 0 && hueco <= RELEVO_MAX_MS) relevos = relevos.concat([Math.round(hueco)]).slice(-CICLO_MUESTRAS);
+    }
+    cicloActual = { juego: s(gameId), t0: t, partidas: 0 };
+    try { contarMetrica(gameId, 'aperturas'); } catch (e) { /* una métrica no puede tumbar un juego */ }
+    // Un vigilante por partida. Solo si hay premio de por medio: en una feria
+    // sin concurso, medir a la gente para nada sería trabajo y datos de más.
+    vigilanteActivo = model.concurso && model.concurso.activo
+      ? vigilanteDePartida(model.espacio, model.concurso)
+      : null;
+    if (relevos !== (model.ciclos && model.ciclos.relevos)) commit(merge(model, { ciclos: { relevos } }));
+  }
+
+  function cerrarCiclo() {
+    const c = cicloActual;
+    const motivo = cicloMotivo || 'salida';
+    cicloMotivo = '';
+    cicloActual = null;
+    if (!c) return null;
+    const t = nowMs();
+    cicloFin = t;
+    const ms = Math.round(t - c.t0);
+    try {
+      // Abandono: se paró delante, abrió el juego y se fue sin terminar una
+      // partida. Es la métrica que dice si un juego es demasiado largo o
+      // demasiado difícil para una feria, y no necesita saber quién era.
+      if (!c.partidas) contarMetrica(c.juego, 'abandonos');
+      else if (c.partidas > 1) contarMetrica(c.juego, 'repeticiones', c.partidas - 1);
+    } catch (e) { /* noop */ }
+    if (motivo === 'inactividad' || ms < CICLO_MIN_MS || ms > CICLO_MAX_MS) return null;
+    const juegos = Object.assign({}, (model.ciclos && model.ciclos.juegos) || {});
+    const prev = (juegos[c.juego] && juegos[c.juego].muestras) || [];
+    juegos[c.juego] = { muestras: prev.concat([{ ms, partidas: c.partidas, at: new Date().toISOString() }]).slice(-CICLO_MUESTRAS) };
+    commit(merge(model, { ciclos: { juegos } }));
+    return { juego: c.juego, ms, partidas: c.partidas };
+  }
+
+  const mediana = (arr) => {
+    const v = (arr || []).filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+    if (!v.length) return null;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : Math.round((v[m - 1] + v[m]) / 2);
+  };
+
+  /**
+   * Lo que el operador necesita saber: cuánta gente atiende por hora.
+   *
+   * Se suma el relevo porque el tótem no está libre en el instante en que uno
+   * se va: alguien tiene que acercarse y colocarse. Sin ese sumando el número
+   * sale optimista justo el día que hay fila.
+   */
+  function resumenDeCiclos(m) {
+    const c = (m && m.ciclos) || { juegos: {}, relevos: [] };
+    const relevo = mediana(c.relevos) || 0;
+    const juegos = Object.keys(c.juegos || {}).map((id) => {
+      const ms = ((c.juegos[id] || {}).muestras || []);
+      const med = mediana(ms.map((x) => x.ms));
+      const partidas = ms.reduce((a, x) => a + num(x.partidas, 0), 0);
+      return {
+        id, n: ms.length, mediana: med,
+        partidasPorPersona: ms.length ? round1(partidas / ms.length) : 0,
+        personasPorHora: med ? Math.floor(3600000 / (med + relevo)) : null,
+      };
+    }).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+    const todas = Object.keys(c.juegos || {}).reduce((a, id) => a.concat(((c.juegos[id] || {}).muestras || []).map((x) => x.ms)), []);
+    const global = mediana(todas);
+    return {
+      relevo, juegos, muestras: todas.length, mediana: global,
+      personasPorHora: global ? Math.floor(3600000 / (global + relevo)) : null,
+    };
+  }
+
+  // ── Métricas de activación: contadores agregados, sin nadie dentro ────
+  //
+  // La distinción que sostiene todo esto: se cuenta CUÁNTAS veces pasó algo, no
+  // A QUIÉN le pasó. Un contador de "37 partidas de boxeo a las 14 h" no
+  // distingue personas ni se puede revertir para sacarlas. Por eso no necesita
+  // consentimiento de nadie y por eso el auspiciador lo puede recibir entero.
+  //
+  // Y es, además, lo que de verdad vale: qué juego eligió la gente, cuál
+  // abandonó y cuál repitió es PREFERENCIA REVELADA. Vale más que cualquier
+  // inferencia sobre "intereses" sacada de una cara.
+  function contarMetrica(juegoId, campo, valor) {
+    const m = model.metricas || {};
+    const juegos = Object.assign({}, m.juegos || {});
+    const id = s(juegoId) || '(sin juego)';
+    const j = Object.assign({ aperturas: 0, partidas: 0, abandonos: 0, repeticiones: 0, suma: 0, n: 0, max: 0 }, juegos[id]);
+    if (campo === 'puntaje') {
+      j.suma = round1(j.suma + num(valor, 0));
+      j.n += 1;
+      j.max = Math.max(j.max, num(valor, 0));
+    } else {
+      j[campo] = num(j[campo], 0) + (valor == null ? 1 : num(valor, 1));
+    }
+    juegos[id] = j;
+    const parche = { juegos };
+    if (!s(m.desde)) parche.desde = new Date().toISOString();
+    // Afluencia por hora del día: sirve para decirle al cliente a qué hora
+    // conviene tener a alguien en el stand. No lleva fecha ni persona.
+    if (campo === 'aperturas') {
+      const horas = Object.assign({}, m.horas || {});
+      const hh = String(new Date().getHours());
+      horas[hh] = num(horas[hh], 0) + 1;
+      parche.horas = horas;
+    }
+    commit(merge(model, { metricas: parche }));
+  }
+
+  /**
+   * Lo que se le entrega al auspiciador. Todo sale de los contadores y del
+   * tiempo de ciclo de la Fase 3; no hay una sola fila por persona detrás.
+   */
+  function resumenMetricas(m) {
+    const met = (m && m.metricas) || {};
+    const juegos = met.juegos || {};
+    const ciclos = resumenDeCiclos(m);
+    const filas = Object.keys(juegos).map((id) => {
+      const j = juegos[id];
+      const nombre = ((m.games || []).find((g) => g.id === id) || {}).name || id;
+      return {
+        id, nombre,
+        aperturas: num(j.aperturas, 0),
+        partidas: num(j.partidas, 0),
+        abandonos: num(j.abandonos, 0),
+        repeticiones: num(j.repeticiones, 0),
+        promedio: j.n ? round1(j.suma / j.n) : null,
+        max: j.n ? round1(j.max) : null,
+        // Tasa de abandono: de cada diez que se pararon delante, cuántos se
+        // fueron sin terminar. Es la métrica que dice si un juego es demasiado
+        // difícil o demasiado largo para una feria.
+        abandono: j.aperturas ? Math.round((num(j.abandonos, 0) / j.aperturas) * 100) : null,
+      };
+    }).sort((a, b) => b.aperturas - a.aperturas);
+    const suma = (k) => filas.reduce((a, f) => a + f[k], 0);
+    const ofrecidos = num(met.contactos && met.contactos.ofrecidos, 0);
+    const aceptados = num(met.contactos && met.contactos.aceptados, 0);
+    return {
+      desde: met.desde || '',
+      filas,
+      aperturas: suma('aperturas'),
+      partidas: suma('partidas'),
+      abandonos: suma('abandonos'),
+      // "Personas atendidas" es el número de ocupaciones del tótem, NO de
+      // personas identificadas: la app no reconoce a nadie entre partidas y no
+      // va a hacerlo. Si alguien juega dos veces cuenta dos veces, y decirlo
+      // así es más honesto que llamarle "jugadores únicos".
+      atendidas: ciclos.muestras,
+      exposicionMs: Object.keys(juegos).length ? ciclos.muestras * num(ciclos.mediana, 0) : 0,
+      personasPorHora: ciclos.personasPorHora,
+      horas: met.horas || {},
+      contactos: { ofrecidos, aceptados, tasa: ofrecidos ? Math.round((aceptados / ofrecidos) * 100) : null },
+    };
+  }
+
+  /** El resumen a CSV, para adjuntarlo al informe del evento. */
+  function metricasCSV(m) {
+    const r = resumenMetricas(m);
+    const esc = (v) => '"' + s(v).replace(/"/g, '""') + '"';
+    const lineas = ['juego,aperturas,partidas,abandonos,repeticiones,tasa_abandono_pct,puntaje_promedio,puntaje_max'];
+    for (const f of r.filas) {
+      lineas.push([f.nombre, f.aperturas, f.partidas, f.abandonos, f.repeticiones,
+        f.abandono == null ? '' : f.abandono, f.promedio == null ? '' : f.promedio,
+        f.max == null ? '' : f.max].map(esc).join(','));
+    }
+    lineas.push('');
+    lineas.push('hora,partidas');
+    for (const hh of Object.keys(r.horas).sort((a, b) => Number(a) - Number(b))) {
+      lineas.push([hh + ':00', r.horas[hh]].map(esc).join(','));
+    }
+    lineas.push('');
+    lineas.push('indicador,valor');
+    for (const [k, v] of [
+      ['personas atendidas (ocupaciones del totem, NO personas identificadas)', r.atendidas],
+      ['partidas jugadas', r.partidas],
+      ['personas por hora', r.personasPorHora == null ? '' : r.personasPorHora],
+      ['contactos ofrecidos', r.contactos.ofrecidos],
+      ['contactos aceptados', r.contactos.aceptados],
+      ['tasa de conversion a contacto (%)', r.contactos.tasa == null ? '' : r.contactos.tasa],
+    ]) lineas.push([k, v].map(esc).join(','));
+    return lineas.join('\n');
+  }
+
+  // ── Contacto: AMARILLO del semáforo ──────────────────────────────────
+  //
+  // Un dato de contacto no se "recoge": la persona lo entrega, sabiendo para
+  // qué. De ahí salen tres reglas que no se negocian:
+  //
+  //   · Se pide DESPUÉS de jugar. Antes sería un peaje, y quien viene a jugar
+  //     no está en condiciones de negociar nada con una fila detrás.
+  //   · Cada casilla dice SU finalidad, y ninguna viene marcada. Una casilla
+  //     premarcada no es consentimiento, es un descuido aprovechado.
+  //   · Se guarda el TEXTO que la persona aceptó, no un `true`. Si mañana
+  //     cambian las finalidades, hay que poder demostrar a qué dijo que sí.
+  //
+  // La foto va aparte del resto a propósito: compartir una imagen es otra cosa
+  // que dar un correo, y meterlas en la misma casilla sería colar una en la
+  // otra.
+  const FINALIDADES = {
+    contacto: 'Que la marca me contacte con novedades y promociones.',
+    premio: 'Avisarme si gano un premio de este concurso.',
+    foto: 'Usar mi foto o vídeo del evento en las redes de la marca.',
+  };
+
+  /**
+   * Guarda un registro de contacto. Devuelve la fila, o null si no hay nada
+   * que guardar: sin una sola casilla marcada NO se guarda ni el nombre.
+   */
+  function guardarContacto(datos) {
+    const d = datos || {};
+    const acepto = d.acepto || {};
+    const claves = Object.keys(acepto).filter((k) => acepto[k]);
+    if (!claves.length) return null;
+    const fila = {
+      id: uid('ct'),
+      at: new Date().toISOString(),
+      sesion: SESION_ID,
+      nombre: s(d.nombre).slice(0, 80),
+      correo: s(d.correo).slice(0, 120),
+      telefono: s(d.telefono).slice(0, 40),
+      edad: s(d.edad).slice(0, 10),
+      acepto: claves.reduce((a, k) => { a[k] = true; return a; }, {}),
+      // El texto exacto de lo que aceptó, congelado en el momento.
+      textos: claves.reduce((a, k) => { a[k] = FINALIDADES[k] || k; return a; }, {}),
+      responsable: s(model.contacto && model.contacto.responsable),
+      conservacion: s(model.contacto && model.contacto.conservacion),
+    };
+    const registros = ((model.contacto && model.contacto.registros) || []).concat([fila]);
+    commit(merge(model, { contacto: { registros } }));
+    contarContacto('aceptados');
+    return fila;
+  }
+
+  function contarContacto(campo) {
+    const c = Object.assign({ ofrecidos: 0, aceptados: 0 }, (model.metricas || {}).contactos || {});
+    c[campo] = num(c[campo], 0) + 1;
+    commit(merge(model, { metricas: { contactos: c } }));
+  }
+
+  /** Los contactos a CSV: es lo que se le entrega a la marca al terminar. */
+  function contactosCSV(filas) {
+    const esc = (v) => '"' + s(v).replace(/"/g, '""') + '"';
+    const cab = 'fecha,nombre,correo,telefono,edad_declarada,acepto_contacto,acepto_premio,acepto_foto,texto_aceptado,responsable,conservacion,sesion';
+    return [cab].concat((filas || []).map((r) => [
+      r.at, r.nombre, r.correo, r.telefono, r.edad,
+      r.acepto && r.acepto.contacto ? 'si' : 'no',
+      r.acepto && r.acepto.premio ? 'si' : 'no',
+      r.acepto && r.acepto.foto ? 'si' : 'no',
+      Object.keys(r.textos || {}).map((k) => r.textos[k]).join(' | '),
+      r.responsable || '', r.conservacion || '', r.sesion || '',
+    ].map(esc).join(','))).join('\n');
+  }
+
+  /**
+   * Qué dice el QR que se lleva el jugador.
+   *
+   * Si la marca dio una dirección, se usa su plantilla. Si no, el QR lleva un
+   * texto legible con el puntaje: sigue sirviendo para una foto, y es mejor que
+   * un QR que no abre nada. Lo que NO se hace es inventar un servidor.
+   */
+  function textoQrPuntaje(m, juego, puntaje) {
+    const plantilla = s(m.contacto && m.contacto.urlPuntaje);
+    if (plantilla) {
+      return plantilla
+        .replace(/\{puntaje\}/g, String(puntaje))
+        .replace(/\{juego\}/g, encodeURIComponent(s(juego)))
+        .replace(/\{app\}/g, encodeURIComponent(s(m.branding && m.branding.appName)));
+    }
+    return s(m.branding && m.branding.appName || 'Kimos FunPlai') + ' — ' + s(juego) +
+      ': ' + puntaje + '/10 · ' + new Date().toLocaleDateString();
   }
 
   function hydrate(raw) {
@@ -592,7 +1364,14 @@ export default function mount(shell) {
   let route = { screen: 'home', gameId: '' };
   const routeListeners = new Set();
   function go(screen, gameId) {
+    // Único punto por donde pasa toda la navegación, así que es el único sitio
+    // donde el reloj de ocupación se puede llevar sin sembrar contadores en los
+    // once juegos y sin que ninguno se olvide de pararlo.
+    const antes = route;
+    const cambiaDeJuego = screen !== 'juego' || (gameId || '') !== antes.gameId;
+    if (antes.screen === 'juego' && cambiaDeJuego) { try { cerrarCiclo(); } catch (e) { /* noop */ } }
     route = { screen, gameId: gameId || '' };
+    if (screen === 'juego' && cambiaDeJuego) { try { abrirCiclo(route.gameId); } catch (e) { /* noop */ } }
     for (const l of routeListeners) l(route);
   }
 
@@ -601,7 +1380,10 @@ export default function mount(shell) {
   // ══════════════════════════════════════════════════════════════════════
 
   function themeOf(m) {
-    const base = THEMES[m.branding.theme] || THEMES['fiestas-patrias'];
+    // Un pack IMPORTADO no está en THEMES —llegó de un archivo—, así que su
+    // tema viaja dentro del modelo. Si está, manda: si no, se busca por id.
+    const base = (m.branding && isObj(m.branding.temaPack) && m.branding.temaPack)
+      || THEMES[m.branding.theme] || THEMES['fiestas-patrias'];
     return Object.assign({}, base, {
       accent: m.branding.accent || base.accent,
       accent2: m.branding.accent2 || base.accent2,
@@ -690,11 +1472,11 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // 4.b Motor de arte "arcade 3D" (estética Dreamcast)
+  // 4.b Motor de arte "arcade 3D" (estética de consola 3D de los noventa)
   // ══════════════════════════════════════════════════════════════════════
   //
   // Todos los juegos comparten el mismo lenguaje visual, inspirado en los
-  // juegos 3D de Dreamcast (Rival Schools, Crazy Taxi). Cuatro reglas:
+  // consolas 3D de fines de los noventa. Cuatro reglas:
   //
   //   1. CIELO Y HORIZONTE. El fondo nunca es un color plano: es un degradado
   //      de cielo con un sol bajo y un suelo en perspectiva que huye hacia un
@@ -954,8 +1736,15 @@ export default function mount(shell) {
   }
 
   /** Guirnalda de banderines chilenos colgando en arco. */
+  /**
+   * Guirnalda de banderines. Los colores y la estrella vienen del pack: tenía
+   * la bandera chilena escrita a mano dentro, así que "la temática es un
+   * parámetro" era mentira justo en el adorno más visible de la portada.
+   */
   function Banderines(props) {
     const n = num(props.n, 14), w = num(props.w, 1000), sag = num(props.sag, 46);
+    const cols = Array.isArray(props.colores) && props.colores.length ? props.colores : ['#D52B1E', '#0039A6'];
+    const estrella = props.estrella !== false;
     const y = (x) => Math.sin((x / w) * Math.PI) * sag;
     const flags = [];
     for (let i = 0; i < n; i++) {
@@ -965,8 +1754,8 @@ export default function mount(shell) {
       flags.push(h('g', { key: i, transform: 'translate(' + x.toFixed(1) + ',' + yy.toFixed(1) + ')' },
         h('path', { d: 'M' + (-bw / 2) + ' 0 L' + (bw / 2) + ' 0 L0 ' + bh + ' Z', fill: '#fff' }),
         h('path', { d: 'M' + (-bw / 2) + ' 0 L' + (bw / 2) + ' 0 L0 ' + bh + ' Z', fill: 'none', stroke: 'rgba(0,0,0,.15)', strokeWidth: 1 }),
-        h('path', { d: 'M' + (-bw / 2) + ' 0 L' + (bw / 2) + ' 0 L' + (bw * 0.30) + ' ' + (bh * 0.42) + ' L' + (-bw * 0.30) + ' ' + (bh * 0.42) + ' Z', fill: i % 2 ? '#D52B1E' : '#0039A6' }),
-        h('path', { d: estrellaAbs(0, bh * 0.20, bw * 0.16, bw * 0.065), fill: '#fff' }),
+        h('path', { d: 'M' + (-bw / 2) + ' 0 L' + (bw / 2) + ' 0 L' + (bw * 0.30) + ' ' + (bh * 0.42) + ' L' + (-bw * 0.30) + ' ' + (bh * 0.42) + ' Z', fill: cols[i % cols.length] }),
+        estrella ? h('path', { d: estrellaAbs(0, bh * 0.20, bw * 0.16, bw * 0.065), fill: '#fff' }) : null,
         h('path', { d: 'M' + (-bw * 0.30) + ' ' + (bh * 0.42) + ' L' + (bw * 0.30) + ' ' + (bh * 0.42) + ' L0 ' + bh + ' Z', fill: i % 2 ? '#0039A6' : '#D52B1E' })));
     }
     let cuerda = 'M0 6';
@@ -979,8 +1768,21 @@ export default function mount(shell) {
   function estrellaAbs(cx, cy, R, r) { return estrella(cx, cy, R, r); }
 
   /** Escarapela tricolor (la del afiche). */
+  /**
+   * Escarapela de la portada y del resultado. Los colores salen del pack: era
+   * la otra pieza con la bandera chilena escrita a mano, y es la más grande de
+   * la portada — un pack de Navidad con una escarapela tricolor en el centro
+   * delataba que la temática seguía sin ser un parámetro del todo.
+   *
+   * El dibujo sí es fijo: un pack recolorea, no redibuja. Ver PERSONALIZACION.md.
+   */
   function Escarapela(props) {
     const w = num(props.w, 120);
+    const t = themeOf(model);
+    const cols = Array.isArray(t.decorColores) && t.decorColores.length >= 2
+      ? t.decorColores
+      : [t.accent || '#D52B1E', t.accent2 || '#0039A6'];
+    const aro = cols[1], radio = cols[0];
     const rayos = [];
     for (let i = 0; i < 24; i++) {
       const a = (i / 24) * Math.PI * 2;
@@ -988,13 +1790,13 @@ export default function mount(shell) {
         key: i,
         d: 'M50 50 L' + (50 + Math.cos(a) * 48).toFixed(2) + ' ' + (50 + Math.sin(a) * 48).toFixed(2) +
            ' L' + (50 + Math.cos(a + 0.13) * 48).toFixed(2) + ' ' + (50 + Math.sin(a + 0.13) * 48).toFixed(2) + ' Z',
-        fill: i % 2 ? '#D52B1E' : '#f2f2f2',
+        fill: i % 2 ? radio : '#f2f2f2',
       }));
     }
     return h('svg', { viewBox: '0 0 100 100', width: w, height: w, style: props.style, className: props.className },
-      h('circle', { cx: 50, cy: 50, r: 48, fill: '#0039A6' }), rayos,
+      h('circle', { cx: 50, cy: 50, r: 48, fill: aro }), rayos,
       h('circle', { cx: 50, cy: 50, r: 26, fill: '#fff' }),
-      h('circle', { cx: 50, cy: 50, r: 20, fill: '#0039A6' }),
+      h('circle', { cx: 50, cy: 50, r: 20, fill: aro }),
       h('path', { d: estrella(50, 50, 15, 6), fill: '#fff' }));
   }
 
@@ -1065,7 +1867,11 @@ export default function mount(shell) {
             h('stop', { offset: '52%', stopColor: t.bg2, stopOpacity: 0.74 }),
             h('stop', { offset: '100%', stopColor: t.bg2, stopOpacity: 0.9 }))),
         h('rect', { x: 0, y: 0, width: W, height: H, fill: 'url(#fp-home-velo)' })),
-      props.decor === false ? null : h('div', { className: 'fp-garland-wrap' }, h(Banderines, { n: 16, w: 1000, sag: 40 })));
+      props.decor === false ? null : h('div', { className: 'fp-garland-wrap' },
+        h(Banderines, {
+          n: 16, w: 1000, sag: 40,
+          colores: t && t.decorColores, estrella: t && t.decorEstrella !== false,
+        })));
   }
 
   // ── Burro (arte del juego 1) ──────────────────────────────────────────
@@ -1158,11 +1964,78 @@ export default function mount(shell) {
    * redibujan varias veces por segundo mientras se juega, que es justo cuando
    * el dato importa. Fuera de una partida no hay motor y no se muestra nada.
    */
+  /**
+   * El cartel de cámara activa, en un solo sitio.
+   *
+   * Estaba escrito a mano en cuatro pantallas, con dos textos distintos: uno
+   * decía "no se graba ni se envía video" y otro solo "Cámara activa". Un
+   * cartel de privacidad que dice cosas distintas según el juego no es un
+   * cartel, es un descuido. Ahora es un componente, y el texto cambia solo
+   * cuando la cámara está en el teléfono, porque ahí la afirmación es más
+   * fuerte y conviene decirlo.
+   */
+  function AvisoCamara() {
+    if (model.hardware.avisoCamara === false) return null;
+    const remoto = motorActivo && motorActivo.tipo === 'sensor';
+    return h('div', { className: 'fp-cam-notice' + (remoto ? ' is-remoto' : '') },
+      h('b', null, '● Cámara activa'),
+      h('span', null, remoto
+        ? 'La imagen no sale del teléfono: se calculan ahí los puntos del cuerpo y solo viajan esos números.'
+        : 'No se graba, no se guarda y no se transmite vídeo.'));
+  }
+
   let motorActivo = null;
+  /**
+   * El enlace del sensor remoto que está en uso, si lo hay.
+   *
+   * Con el teléfono de cámara, la partida depende de un equipo que no está en
+   * la mano del operador: se puede bloquear la pantalla, quedarse sin batería o
+   * salirse del wifi. Cuando eso pasa el juego se queda quieto, y sin un aviso
+   * en la pantalla grande nadie entiende por qué. Por eso el marco de TODOS los
+   * juegos lo mira: es una variable de módulo por la misma razón que
+   * `motorActivo` —no hay un componente común que la posea— y se lee en cada
+   * render, que es cuando importa.
+   */
+  let enlaceActivo = null;
+  /**
+   * El vigilante de la partida en curso, si el modo concurso está encendido.
+   *
+   * Vive acá, junto a `motorActivo`, y lo alimentan los PROVEEDORES de pose en
+   * su propio bucle. Es la única forma de vigilar los once juegos sin tocar los
+   * once: cada juego tiene su bucle y su estado, pero todos leen del mismo
+   * proveedor. Sembrar la comprobación en cada juego sería garantizar que
+   * alguno se quede sin ella el día que se agregue el doce.
+   */
+  let vigilanteActivo = null;
+  // Lo último que el vigilante tuvo que reprochar, para poder decírselo al
+  // jugador MIENTRAS pasa. Descubrir al final que la partida no valía sería una
+  // trampa del sistema, no del jugador.
+  let avisoVigilante = null;
+  const vigilarCuadro = (L, aspecto) => {
+    if (!vigilanteActivo || !L) return;
+    if (!vigilanteActivo.calibrado()) { vigilanteActivo.calibrar(L, aspecto); return; }
+    const r = vigilanteActivo.revisar(L, aspecto);
+    avisoVigilante = r.ok ? null : { texto: r.motivo, at: nowMs() };
+  };
 
   function Marco(props) {
     const mot = motorActivo;
+    // Se avisa solo cuando de verdad no está llegando nada: un parpadeo de
+    // wifi que el enlace recupera solo no tiene por qué asustar a nadie.
+    const sal = enlaceActivo ? enlaceActivo.salud() : null;
+    const caido = sal && (!sal.pareja || sal.estado === 'caido' || (sal.silencio != null && sal.silencio > 1500));
+    // El aviso del concurso se apaga solo: si el jugador corrige, desaparece.
+    const reproche = avisoVigilante && nowMs() - avisoVigilante.at < 900 ? avisoVigilante.texto : null;
     return h('div', { className: 'fp-game' },
+      reproche ? h('div', { className: 'fp-vigilante' },
+        h('b', null, '⚖️ ' + reproche),
+        h('span', null, 'Estás jugando un concurso: si te sales de la marca, la partida queda señalada.')) : null,
+      caido ? h('div', { className: 'fp-sensor-caido' },
+        h('b', null, '📱 Se perdió el teléfono'),
+        h('span', null, !sal.pareja
+          ? 'Se desconectó de la sala ' + salaLegible(sal.sala) + '. Revisa que la pantalla del teléfono siga encendida y con la app abierta.'
+          : sal.estado === 'caido' ? 'Se cortó la conexión con el puente. Reintentando solo…'
+            : 'Lleva ' + Math.round(sal.silencio / 1000) + ' s sin mandar nada. Suele ser la pantalla del teléfono apagándose.')) : null,
       h('header', { className: 'fp-game-head' },
         h(Boton, { variant: 'ghost', onClick: props.onExit }, '← Salir'),
         h('div', { className: 'fp-game-title' },
@@ -1196,6 +2069,19 @@ export default function mount(shell) {
     const [nombre, setNombre] = useState('');
     const [guardado, setGuardado] = useState(false);
     const p10 = clamp(num(props.puntaje10, 0), 0, 10);
+    // La pantalla de resultado es el único sitio por el que pasan TODAS las
+    // partidas de TODOS los juegos, incluidas las de "jugar otra vez", que no
+    // cambian de pantalla y por eso no las vería el contador de ocupación.
+    useEffect(() => { contarPartida(); }, []);
+    // El veredicto se calcula una vez, al llegar acá: la partida ya terminó y
+    // seguir midiendo mientras alguien escribe su nombre no diría nada.
+    const [veredicto] = useState(() => (vigilanteActivo ? vigilanteActivo.veredicto() : null));
+    const esCon = !!(model.concurso && model.concurso.activo);
+    const est = estadoConcurso(model);
+    const intentos = clamp(Math.round(num(model.concurso.intentosPorPersona, 0)), 0, 99);
+    const usados = esCon && intentos ? intentosDe(model, nombre, props.juego) : 0;
+    const sinIntentos = esCon && intentos > 0 && usados >= intentos && claveJugador(nombre);
+    const puedeGuardar = !guardado && est.abierto && !sinIntentos;
     return h('div', { className: 'fp-result' },
       h(Escarapela, { w: 96 }),
       h('h2', null, props.titulo || '¡Fin del juego!'),
@@ -1203,22 +2089,107 @@ export default function mount(shell) {
       h('div', { className: 'fp-result-stars' }, estrellas(p10)),
       h('p', { className: 'fp-result-msg' }, props.mensaje || frasePuntaje(p10)),
       props.detalle ? h('div', { className: 'fp-result-detail' }, props.detalle) : null,
+      // Si la partida quedó señalada, se dice ACÁ y no en letra chica del
+      // ranking: quien acaba de jugar tiene derecho a enterarse en el momento
+      // y a pedir repetirla.
+      veredicto && veredicto.estado !== 'limpia' && veredicto.estado !== 'sin-datos'
+        ? h('div', { className: 'fp-veredicto is-' + veredicto.estado },
+            h('b', null, veredicto.estado === 'invalida' ? '⚖️ Partida fuera de las reglas' : '⚖️ Partida señalada'),
+            h('span', null, veredicto.motivo),
+            h('span', null, veredicto.estado === 'invalida'
+              ? 'Se guarda en el ranking, pero no compite por el premio. Puedes repetirla respetando la marca del piso.'
+              : 'Compite igual: queda anotado para poder responder si alguien reclama.'))
+        : null,
       model.branding.mostrarRanking ? h('div', { className: 'fp-result-save' },
         h('input', {
           className: 'fp-input', placeholder: 'Tu nombre (opcional)', value: nombre,
           maxLength: 24, onChange: (e) => setNombre(e.target.value), disabled: guardado,
         }),
         h(Boton, {
-          variant: 'soft', disabled: guardado,
+          variant: 'soft', disabled: !puedeGuardar,
           onClick: () => {
             addScore({ jugador: nombre.trim() || 'Anónimo', juego: props.juego || '', puntaje: round1(p10), detalle: s(props.detalleTexto) });
             setGuardado(true);
             notify('success', 'Puntaje guardado en el ranking.');
           },
-        }, guardado ? '✓ Guardado' : 'Guardar en el ranking')) : null,
+        }, guardado ? '✓ Guardado' : 'Guardar en el ranking'),
+        !est.abierto ? h('p', { className: 'fp-error' }, '⚖️ ' + est.motivo + ' El puntaje no se puede guardar.') : null,
+        sinIntentos ? h('p', { className: 'fp-error' },
+          '⚖️ ' + nombre.trim() + ' ya usó sus ' + intentos + ' intento(s) en este concurso.') : null) : null,
+      // ── Contacto: se ofrece DESPUÉS de jugar, y nunca antes ───────────
+      h(FormularioContacto, { juego: props.juego, puntaje: round1(p10) }),
       h('div', { className: 'fp-result-actions' },
         h(Boton, { variant: 'primary', onClick: props.onReplay }, 'Jugar otra vez'),
         h(Boton, { onClick: props.onExit }, 'Volver al menú')));
+  }
+
+  /**
+   * El opt-in, con su QR de puntaje al lado.
+   *
+   * Se dibuja plegado: quien solo vino a jugar ve un botón y se va. Desplegarlo
+   * es un acto de la persona, y ese acto es el primer consentimiento —el de
+   * escuchar la oferta— antes de cualquier casilla.
+   */
+  function FormularioContacto(props) {
+    const c = model.contacto || {};
+    const [abierto, setAbierto] = useState(false);
+    const [enviado, setEnviado] = useState(false);
+    const [d, setD] = useState({ nombre: '', correo: '', telefono: '', edad: '' });
+    const [acepto, setAcepto] = useState({});   // vacío: NADA viene marcado
+    const marcar = (k) => setAcepto((x) => Object.assign({}, x, { [k]: !x[k] }));
+    const algo = Object.keys(acepto).some((k) => acepto[k]);
+    if (!c.activo) return null;
+    if (enviado) {
+      return h('div', { className: 'fp-contacto is-listo' },
+        h('b', null, '✔ Gracias, quedó registrado'),
+        h('span', null, 'Puedes pedir que se borre en cualquier momento a ' + (s(c.responsable) || 'el organizador') + '.'));
+    }
+    if (!abierto) {
+      return h('div', { className: 'fp-contacto' },
+        h(Boton, {
+          variant: 'ghost',
+          onClick: () => { setAbierto(true); try { contarContacto('ofrecidos'); } catch (e) { /* noop */ } },
+        }, '✉️ Quiero que me contacten'),
+        h('span', null, 'Opcional. Se puede jugar y ganar sin dejar ningún dato.'));
+    }
+    const casilla = (k, etiqueta) => h('label', { className: 'fp-check' },
+      h('input', { type: 'checkbox', checked: !!acepto[k], onChange: () => marcar(k) }),
+      h('span', null, h('b', null, etiqueta), h('small', null, FINALIDADES[k])));
+    return h('div', { className: 'fp-contacto is-abierto' },
+      h('b', null, '✉️ Tus datos, solo si tú quieres'),
+      h('p', { className: 'fp-note' },
+        'Responsable de estos datos: ' + (s(c.responsable) || '(el organizador del evento)') + '. ' +
+        (s(c.conservacion) ? 'Se conservan ' + s(c.conservacion) + '. ' : '') +
+        'Puedes pedir que se borren cuando quieras. Nada de esto es necesario para jugar ni para ganar.'),
+      h('div', { className: 'fp-form' },
+        h(Campo, { label: 'Nombre', value: d.nombre, onChange: (v) => setD(Object.assign({}, d, { nombre: v })) }),
+        c.pedirCorreo !== false ? h(Campo, { label: 'Correo', value: d.correo, onChange: (v) => setD(Object.assign({}, d, { correo: v })) }) : null,
+        c.pedirTelefono ? h(Campo, { label: 'Teléfono', value: d.telefono, onChange: (v) => setD(Object.assign({}, d, { telefono: v })) }) : null,
+        c.pedirEdad ? h(Campo, {
+          label: 'Edad', type: 'number', min: 0, max: 120, value: d.edad,
+          help: 'La escribes tú. La app NO estima la edad de nadie por la cámara, ni lo va a hacer.',
+          onChange: (v) => setD(Object.assign({}, d, { edad: v })),
+        }) : null),
+      h('div', { className: 'fp-checks' },
+        casilla('contacto', 'Quiero que me contacten'),
+        model.concurso && model.concurso.activo ? casilla('premio', 'Avísenme si gano') : null,
+        c.pedirFoto ? casilla('foto', 'Pueden usar mi foto o vídeo') : null),
+      h('p', { className: 'fp-note' },
+        'Ninguna casilla viene marcada, y cada una vale por separado: puedes aceptar una y rechazar el resto.'),
+      h('div', { className: 'fp-actions' },
+        h(Boton, {
+          variant: 'soft', disabled: !algo,
+          onClick: () => {
+            const fila = guardarContacto({ nombre: d.nombre, correo: d.correo, telefono: d.telefono, edad: d.edad, acepto });
+            if (fila) { setEnviado(true); notify('success', 'Datos guardados. Gracias.'); }
+          },
+        }, algo ? 'Guardar' : 'Marca al menos una casilla'),
+        h(Boton, { variant: 'ghost', onClick: () => setAbierto(false) }, 'Mejor no')),
+      // El QR del puntaje va acá y no depende de dejar ningún dato: es para
+      // llevarse el resultado, no para pagar con un correo.
+      h('div', { className: 'fp-qr-puntaje' },
+        h(QR, { texto: textoQrPuntaje(model, props.juego, props.puntaje), tam: 130, alt: 'QR con tu puntaje' }),
+        h('span', null, 'Llévate tu puntaje. No hace falta dejar ningún dato para escanearlo.')));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -1760,17 +2731,24 @@ export default function mount(shell) {
    * y reconecta solo: en una feria, el puente puede reiniciarse y el juego no
    * tiene por qué morirse con él.
    */
-  function proveedorKinect(hw) {
+  function proveedorKinect(hw, espacio) {
     const url = s(hw && hw.kinectUrl) || 'ws://127.0.0.1:8787';
     // Propiedades del sensor, tal como las dejó el operador.
     const cuerpoModo = s(hw && hw.kinectCuerpo) || 'cercano';
     const minCm = clamp(num(hw && hw.kinectMinCm, 80), 40, 450);
     const maxCm = Math.max(minCm + 20, clamp(num(hw && hw.kinectMaxCm, 400), 60, 500));
-    const suave = clamp(num(hw && hw.kinectSuavizado, 0.35), 0, 0.95);
+    // Se conserva por compatibilidad con montajes ya configurados, pero la
+    // tubería es la que filtra ahora: encadenar dos suavizados agrega retraso.
+    const suave = 0;
     const usarPiso = (hw && hw.kinectUsarPiso) !== false;
     const usarLean = (hw && hw.kinectUsarLean) !== false;
     const usarManos = (hw && hw.kinectUsarManos) !== false;
 
+    // Misma tubería que la webcam, sin recorte: el rango en metros del sensor
+    // aísla al sujeto mejor que cualquier recorte de imagen. Y el suavizado
+    // propio del Kinect se apaga si la tubería ya filtra, para no encadenar
+    // dos filtros y comerse la respuesta.
+    const tuberia = tuberiaPose(Object.assign({}, hw, { recorteZona: false }), espacio);
     let ws = null, ultima = null, vivo = false, reintento = null, cerrado = false;
     let ultimoCuadro = 0, cuadros = 0, estado = 'conectando', fueraDeRango = 0;
     // Imagen de color del sensor. Es lo que permite que el Kinect REEMPLACE a
@@ -1858,12 +2836,22 @@ export default function mount(shell) {
         if (!elegido) { ultima = null; return; }
         elegido.piso = usarPiso ? (m.piso || null) : null;
         elegido.cuerposEnEscena = lista.length;
+        // El sensor ya filtró por rango y eligió cuerpo, pero la garantía de
+        // "sujeto bloqueado durante la ronda" tiene que ser la MISMA se juegue
+        // con webcam o con Kinect: pasa por la misma tubería. Aquí no se
+        // recorta el cuadro —el rango en metros hace ese trabajo mejor— pero
+        // sí se rechazan los saltos y se suaviza igual.
         const L = kinectALandmarks(elegido);
+        const paso = tuberia.procesar(L, nowMs() / 1000);
+        if (!paso.landmarks) { ultima = null; return; }
+        vigilarCuadro(paso.landmarks, 16 / 9);
         ultima = {
-          landmarks: suavizar(L),
+          landmarks: paso.landmarks,
           mundo: kinectAMundo(elegido),
           angulos: null, sintetico: false, contorno: null,
           kinect: kinectExtras(elegido, { manos: usarManos, lean: usarLean }),
+          aceptado: paso.aceptado, motivo: paso.motivo, perdido: paso.perdido,
+          confianza: paso.confianza,
         };
       };
       ws.onerror = () => {
@@ -1902,6 +2890,7 @@ export default function mount(shell) {
           // Cuánta gente vio el sensor pero quedó fuera del rango de juego:
           // es la explicación de "estoy delante y no me toma".
           fueraDeRango,
+          tuberia: tuberia.salud(),
           imagenes,
           imagenViva: !!(ultimaImagen && nowMs() - ultimaImagen < 1500),
           propiedades: { cuerpoModo, minCm, maxCm, suave, usarPiso, usarLean, usarManos },
@@ -1938,9 +2927,23 @@ export default function mount(shell) {
 
   function crearProveedor(hw) {
     const motor = s(hw && hw.motorPose) || 'auto';
-    if (motor === 'kinect') return proveedorKinect(hw);
+    if (motor === 'kinect') return proveedorKinect(hw, model.espacio);
+    if (motor === 'sensor') return proveedorSensorRemoto(hw, model.espacio, salaDelTotem());
     if (motor === 'demo') return proveedorDemo();
-    return proveedorMediaPipe(hw);
+    return proveedorMediaPipe(hw, model.espacio);
+  }
+
+  /**
+   * Código de sala de este tótem. Se genera una vez y se guarda: si cambiara en
+   * cada arranque, el teléfono tendría que volver a escanear el QR cada vez que
+   * alguien reinicia la pantalla, que es justo el día del evento.
+   */
+  function salaDelTotem() {
+    const puesta = salaNormal(model.hardware.sensorSala);
+    if (puesta.length >= 4) return puesta;
+    const nueva = codigoDeSala(6);
+    commit(merge(model, { hardware: { sensorSala: nueva } }));
+    return nueva;
   }
 
   /**
@@ -1955,7 +2958,7 @@ export default function mount(shell) {
     const motor = s(hw && hw.motorPose) || 'auto';
 
     if (motor === 'kinect' || (motor === 'auto' && puenteAusente !== s(hw && hw.kinectUrl))) {
-      const k = proveedorKinect(hw);
+      const k = proveedorKinect(hw, model.espacio);
       try {
         await k.iniciar();
         puenteAusente = null;
@@ -1977,9 +2980,24 @@ export default function mount(shell) {
         }
       }
     }
+    // El sensor remoto no abre ninguna cámara acá: la cámara está en el
+    // teléfono. Va antes de pedir permiso para no dejar una webcam encendida
+    // de gusto en el equipo de la pantalla.
+    if (motor === 'sensor') {
+      const sala = salaDelTotem();
+      const p = proveedorSensorRemoto(hw, model.espacio, sala);
+      await p.iniciar();
+      enlaceActivo = p.enlace;
+      motorActivo = {
+        tipo: 'sensor', etiqueta: '📱 Teléfono',
+        detalle: 'Pose calculada en el teléfono, sala ' + salaLegible(sala) + '. La imagen no sale de ahí.',
+      };
+      return p;
+    }
+
     if (motor === 'ninguno') throw new Error('El motor de pose está desactivado en ⚙️ Editor → Hardware.');
 
-    const prov = motor === 'demo' ? proveedorDemo() : proveedorMediaPipe(hw);
+    const prov = motor === 'demo' ? proveedorDemo() : proveedorMediaPipe(hw, model.espacio);
     if (prov.tipo === 'demo') {
       await prov.iniciar();
       motorActivo = { tipo: 'demo', etiqueta: '🎭 Simulador', detalle: 'Cuerpo sintético: no hay nadie siendo leído' };
@@ -2003,7 +3021,7 @@ export default function mount(shell) {
   }
 
   /** Se llama al soltar el motor: fuera de una partida no hay nada que mostrar. */
-  function olvidarMotor() { motorActivo = null; }
+  function olvidarMotor() { motorActivo = null; enlaceActivo = null; }
 
   /**
    * Último cuadro de imagen del proveedor, si lo entrega. Solo el Kinect lo
@@ -2015,11 +3033,93 @@ export default function mount(shell) {
     return p && typeof p.imagen === 'function' ? p.imagen() : null;
   }
 
-  function proveedorMediaPipe(hw) {
-    let landmarker = null, video = null, ultimoTs = -1, ultima = null;
+  function proveedorMediaPipe(hw, espacio) {
+    let landmarker = null, video = null, ultima = null;
+    let timer = null, corriendo = false, tsPrev = -1;
+    let cuadros = 0, t0 = 0, hzReal = 0, msUltimo = 0;
+    const tuberia = tuberiaPose(hw, espacio);
+    // Lienzo de recorte: se crea una vez y se reusa. Recortar antes del modelo
+    // es lo que deja fuera a quien pasa por detrás, y de paso ALIVIA la CPU
+    // —hay menos píxeles que mirar—, así que ayuda al Celeron en vez de
+    // castigarlo.
+    let lienzo = null, ctx = null, ultimoRecorte = null;
+
+    const objetivoMs = () => 1000 / clamp(num(hw && hw.poseHz, 25), 5, 60);
+
+    /** Prepara el recorte y devuelve la fuente que se le pasa al modelo. */
+    const fuente = () => {
+      const r = tuberia.recorte();
+      ultimoRecorte = null;
+      if (!r || typeof document === 'undefined') return video;
+      const vw = video.videoWidth || 0, vh = video.videoHeight || 0;
+      if (vw < 32 || vh < 32) return video;
+      const sx = Math.round(r.x0 * vw), sy = Math.round(r.y0 * vh);
+      const sw = Math.max(32, Math.round((r.x1 - r.x0) * vw));
+      const sh = Math.max(32, Math.round((r.y1 - r.y0) * vh));
+      try {
+        if (!lienzo) { lienzo = document.createElement('canvas'); ctx = lienzo.getContext('2d', { willReadFrequently: false }); }
+        if (!ctx) return video;
+        if (lienzo.width !== sw || lienzo.height !== sh) { lienzo.width = sw; lienzo.height = sh; }
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+        ultimoRecorte = { sx, sy, sw, sh, vw, vh };
+        return lienzo;
+      } catch (e) { return video; }
+    };
+
+    /**
+     * Los puntos vuelven en coordenadas del RECORTE. Hay que devolverlos al
+     * cuadro completo o toda la geometría en centímetros —que se calculó para
+     * el cuadro entero— quedaría mintiendo.
+     */
+    const aCuadroCompleto = (L) => {
+      const r = ultimoRecorte;
+      if (!L || !r) return L;
+      return L.map((p) => (p ? {
+        x: (r.sx + p.x * r.sw) / r.vw,
+        y: (r.sy + p.y * r.sh) / r.vh,
+        z: p.z, visibility: p.visibility,
+      } : p));
+    };
+
+    const unPaso = () => {
+      if (!landmarker || !video || video.readyState < 2) return;
+      // El aspecto real solo se conoce con vídeo en marcha: hasta acá el
+      // recorte trabajaba con el 16:9 supuesto, y en una cámara 4:3 eso deja la
+      // franja de juego mal calculada.
+      if (video.videoWidth && video.videoHeight) tuberia.setAspecto(video.videoWidth / video.videoHeight);
+      const inicio = nowMs();
+      let res = null;
+      try { res = landmarker.detectForVideo(fuente(), inicio); } catch (e) { return; }
+      msUltimo = nowMs() - inicio;
+      cuadros++;
+      if (!t0) t0 = inicio;
+      if (inicio - t0 >= 1000) { hzReal = Math.round((cuadros * 1000) / (inicio - t0)); cuadros = 0; t0 = inicio; }
+      const crudo = aCuadroCompleto(res && res.landmarks && res.landmarks[0]);
+      const mask = res && res.segmentationMasks && res.segmentationMasks[0];
+      if (mask) {
+        try { contornoDeMascara(mask); } finally {
+          try { mask.close && mask.close(); } catch (e) { /* noop */ }
+        }
+      }
+      const paso = tuberia.procesar(crudo, inicio / 1000);
+      if (!paso.landmarks) { ultima = null; return; }
+      // Vigilancia del concurso: se hace acá, en el proveedor, para que valga
+      // en los once juegos sin tocar ninguno.
+      vigilarCuadro(paso.landmarks, video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9);
+      ultima = {
+        landmarks: paso.landmarks, angulos: null, sintetico: false,
+        // Coordenadas del mundo en metros relativas a la cadera (MediaPipe).
+        mundo: (res && res.worldLandmarks && res.worldLandmarks[0]) || null,
+        contorno: mask ? ultimoContorno : null,
+        aceptado: paso.aceptado, motivo: paso.motivo, perdido: paso.perdido,
+        confianza: paso.confianza,
+      };
+    };
+
     return {
       tipo: 'mediapipe',
       nombre: 'MediaPipe Pose Landmarker',
+      tuberia,
       /** El host puede mover el <video> entre pantallas: se reengancha aquí. */
       setVideo(videoEl) { if (videoEl) video = videoEl; },
       async iniciar(videoEl) {
@@ -2031,42 +3131,38 @@ export default function mount(shell) {
         landmarker = await PoseLandmarker.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: s(hw.poseModelUrl), delegate: 'GPU' },
           runningMode: 'VIDEO',
-          numPoses: 1,
+          // Sigue en 1 por defecto: subirlo cuesta CPU y con el recorte no hace
+          // falta para aislar al sujeto. Se sube a mano en equipos capaces.
+          numPoses: clamp(Math.round(num(hw.poseNumPoses, 1)), 1, 4),
           // Separa a la persona del fondo. Cuesta CPU: se activa a voluntad.
           outputSegmentationMasks: hw.segmentacion === true,
         });
+        // ── Bucle PROPIO, fuera del requestAnimationFrame del juego ──────
+        // Antes `detectForVideo` corría dentro del rAF: un cuadro lento de
+        // pose trababa el render. Ahora la pose va a su ritmo (20–30 Hz) y el
+        // juego dibuja a 60 leyendo la última lectura.
+        corriendo = true;
+        const tick = () => {
+          if (!corriendo) return;
+          unPaso();
+          timer = setT(tick, Math.max(4, objetivoMs() - msUltimo));
+        };
+        tick();
         return true;
       },
       detener() {
+        corriendo = false;
+        if (timer) { clrT(timer); timer = null; }
         try { landmarker && landmarker.close && landmarker.close(); } catch (e) { /* noop */ }
         landmarker = null;
       },
-      leer() {
-        if (!landmarker || !video || video.readyState < 2) return ultima;
-        const ts = nowMs();
-        if (ts - ultimoTs < 24) return ultima;   // ~40 Hz máx.
-        ultimoTs = ts;
-        let res = null;
-        try { res = landmarker.detectForVideo(video, ts); } catch (e) { return ultima; }
-        const L = res && res.landmarks && res.landmarks[0];
-        // Máscara de segmentación (persona vs. fondo), si se pidió.
-        const mask = res && res.segmentationMasks && res.segmentationMasks[0];
-        if (mask) {
-          try { contornoDeMascara(mask); } finally {
-            try { mask.close && mask.close(); } catch (e) { /* noop */ }
-          }
-        }
-        if (!L) { ultima = null; return null; }
-        ultima = {
-          landmarks: L, angulos: null, sintetico: false,
-          // Coordenadas del mundo en metros relativas a la cadera (MediaPipe).
-          mundo: (res.worldLandmarks && res.worldLandmarks[0]) || null,
-          contorno: mask ? ultimoContorno : null,
-        };
-        return ultima;
-      },
+      /** Rendimiento real de la pose en ESTE equipo, para el Diagnóstico. */
+      salud: () => Object.assign({ hz: hzReal, ms: Math.round(msUltimo), recorte: !!ultimoRecorte }, tuberia.salud()),
+      /** Barato a propósito: solo devuelve la caché, sin trabajo por cuadro. */
+      leer() { return ultima; },
     };
   }
+
 
   /**
    * Traduce el fallo de `getUserMedia` a algo accionable.
@@ -2157,6 +3253,1892 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // 8.d Robustez del pipeline de pose
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // La diferencia entre "webcam barata" y "sensor caro" casi nunca está en el
+  // modelo de pose: está en lo que se hace con lo que el modelo devuelve. Esta
+  // sección es esa capa, compartida por TODOS los proveedores y por todos los
+  // juegos, para que nadie tenga que resolverlo por su cuenta.
+  //
+  // El orden importa y es este:
+  //   1. Recortar el cuadro a la zona de juego  → el de atrás no entra
+  //   2. Rechazar saltos imposibles             → no se cambia de persona
+  //   3. Descartar huesos que se estiran        → no hay landmarks disparados
+  //   4. Suavizar con One Euro                  → sin temblor ni retraso
+  //   5. Declarar la confianza por grupo        → el juego sabe qué no ve
+
+  /**
+   * Filtro One Euro para un valor escalar.
+   *
+   * Un suavizado exponencial obliga a elegir: o tiembla en reposo o llega
+   * tarde en movimiento rápido, porque su constante es fija. One Euro hace la
+   * constante función de la VELOCIDAD: quieto filtra fuerte, y en cuanto el
+   * valor se mueve se abre y deja pasar el movimiento sin retraso.
+   *
+   * `minCutoff` en Hz manda en el reposo (más bajo = más suave) y `beta` dice
+   * cuánto se abre con la velocidad.
+   */
+  function unEuro(minCutoff, beta, dCutoff) {
+    const mc = Math.max(0.01, num(minCutoff, 1.0));
+    const b = Math.max(0, num(beta, 7));
+    const dc = Math.max(0.01, num(dCutoff, 1));
+    let x = null, dx = 0, tPrev = 0;
+    const alfa = (corte, dt) => {
+      const tau = 1 / (2 * Math.PI * corte);
+      return 1 / (1 + tau / Math.max(1e-4, dt));
+    };
+    return {
+      reset() { x = null; dx = 0; tPrev = 0; },
+      /** `t` en segundos. Devuelve el valor filtrado. */
+      filtrar(v, t) {
+        if (!Number.isFinite(v)) return x == null ? v : x;
+        if (x == null) { x = v; tPrev = t; return v; }
+        const dt = Math.max(1e-4, t - tPrev);
+        tPrev = t;
+        const dxCrudo = (v - x) / dt;
+        dx = dx + alfa(dc, dt) * (dxCrudo - dx);
+        const corte = mc + b * Math.abs(dx);
+        x = x + alfa(corte, dt) * (v - x);
+        return x;
+      },
+    };
+  }
+
+  /**
+   * Suavizado de los 33 puntos. `filtro` elige la estrategia: One Euro por
+   * defecto, exponencial como alternativa por si el resultado no convence en
+   * algún montaje, y ninguno para ver el dato crudo al depurar.
+   */
+  function suavizadorPose(hw) {
+    const modo = s(hw && hw.filtro) || 'oneeuro';
+    const mc = num(hw && hw.oneEuroMinCutoff, 1.0);
+    const beta = num(hw && hw.oneEuroBeta, 7);
+    const alfa = clamp(num(hw && hw.emaAlfa, 0.35), 0, 0.95);
+    let fx = [], fy = [], prev = null;
+    return {
+      modo,
+      reset() { fx = []; fy = []; prev = null; },
+      aplicar(L, t) {
+        if (!L || modo === 'ninguno') { prev = L; return L; }
+        if (modo === 'ema') {
+          if (!prev) { prev = L; return L; }
+          const out = L.map((p, i) => {
+            const q = prev[i];
+            if (!p || !q) return p;
+            return { x: q.x + (p.x - q.x) * (1 - alfa), y: q.y + (p.y - q.y) * (1 - alfa), z: p.z, visibility: p.visibility };
+          });
+          prev = out;
+          return out;
+        }
+        const out = L.map((p, i) => {
+          if (!p) return p;
+          if (!fx[i]) { fx[i] = unEuro(mc, beta); fy[i] = unEuro(mc, beta); }
+          return { x: fx[i].filtrar(p.x, t), y: fy[i].filtrar(p.y, t), z: p.z, visibility: p.visibility };
+        });
+        prev = out;
+        return out;
+      },
+    };
+  }
+
+  // Grupos de landmarks, para poder decir QUÉ no se está viendo en vez de un
+  // "no te veo" genérico que no ayuda a nadie a colocarse mejor.
+  const GRUPOS_POSE = {
+    cara: [0, 2, 5, 7, 8],
+    brazos: [11, 12, 13, 14, 15, 16],
+    torso: [11, 12, 23, 24],
+    piernas: [25, 26, 27, 28],
+    pies: [29, 30, 31, 32],
+  };
+
+  /**
+   * Confianza media por grupo, y si cada uno pasa el umbral. Generaliza a todo
+   * el cuerpo lo que `seguidorCuerpo` ya hacía solo con el tren inferior: si un
+   * grupo no se ve, se DECLARA y el juego usa su señal alternativa, en vez de
+   * trabajar con números inventados.
+   */
+  function confianzaPorGrupo(L, umbral) {
+    const u = num(umbral, 0.4);
+    const out = { umbral: u, grupos: {}, faltan: [] };
+    if (!L) {
+      for (const g of Object.keys(GRUPOS_POSE)) out.grupos[g] = { media: 0, ok: false };
+      out.faltan = Object.keys(GRUPOS_POSE);
+      return out;
+    }
+    for (const g of Object.keys(GRUPOS_POSE)) {
+      const idx = GRUPOS_POSE[g];
+      let suma = 0, n = 0;
+      for (const i of idx) {
+        const p = L[i];
+        if (!p) continue;
+        suma += p.visibility == null ? 1 : p.visibility;
+        n++;
+      }
+      const media = n ? suma / n : 0;
+      const ok = n > 0 && media >= u;
+      out.grupos[g] = { media: round1(media * 100) / 100, ok };
+      if (!ok) out.faltan.push(g);
+    }
+    return out;
+  }
+
+  // Segmentos cuyo largo NO cambia de un cuadro a otro en una misma persona.
+  const HUESOS_RIGIDOS = [
+    [11, 13], [13, 15], [12, 14], [14, 16],   // brazos
+    [11, 12], [23, 24], [11, 23], [12, 24],   // torso
+    [23, 25], [25, 27], [24, 26], [26, 28],   // piernas
+  ];
+
+  /**
+   * Los largos de segmento de una persona son constantes. Se miden mientras
+   * está quieta y desde ahí sirven de control: un cuadro donde un antebrazo
+   * mide el doble no es un brazo que creció, es el modelo confundiéndose, y
+   * casi todos los saltos de landmark se ven así.
+   *
+   * Se compara normalizado por la escala corporal, para que acercarse o
+   * alejarse de la cámara no dispare falsos positivos.
+   */
+  function controlDeHuesos(opts) {
+    const o = opts || {};
+    const tol = clamp(num(o.tolerancia, 0.35), 0.05, 2);
+    const muestrasMin = Math.max(4, num(o.muestras, 10));
+    let largos = null, acum = [], n = 0;
+    const largo = (L, a, b, esc) => {
+      const p = L[a], q = L[b];
+      if (!p || !q || !esc) return null;
+      const vis = (x) => x.visibility == null || x.visibility > 0.4;
+      if (!vis(p) || !vis(q)) return null;
+      return Math.hypot(p.x - q.x, p.y - q.y) / esc;
+    };
+    return {
+      reset() { largos = null; acum = []; n = 0; },
+      calibrado() { return !!largos; },
+      /** Aprende los largos con la persona en la pose de calibración. */
+      aprender(L) {
+        const esc = escalaCorporal(L, 'superior');
+        if (!L || !esc) return false;
+        const fila = HUESOS_RIGIDOS.map(([a, b]) => largo(L, a, b, esc));
+        acum.push(fila);
+        n++;
+        if (n < muestrasMin) return false;
+        // Mediana por hueso: aguanta un cuadro malo dentro de la calibración.
+        largos = HUESOS_RIGIDOS.map((_, k) => {
+          const vals = acum.map((f) => f[k]).filter((v) => v != null).sort((x, y) => x - y);
+          return vals.length ? vals[Math.floor(vals.length / 2)] : null;
+        });
+        return true;
+      },
+      /**
+       * `{ ok, peor, hueso }`. `ok:false` significa "este cuadro no es de fiar".
+       * Sin calibración previa nunca rechaza: no se inventa un veredicto.
+       */
+      revisar(L) {
+        if (!largos || !L) return { ok: true, peor: 0, hueso: null };
+        const esc = escalaCorporal(L, 'superior');
+        if (!esc) return { ok: true, peor: 0, hueso: null };
+        let peor = 0, cual = null;
+        for (let k = 0; k < HUESOS_RIGIDOS.length; k++) {
+          const esperado = largos[k];
+          if (esperado == null || esperado < 0.05) continue;
+          const actual = largo(L, HUESOS_RIGIDOS[k][0], HUESOS_RIGIDOS[k][1], esc);
+          if (actual == null) continue;
+          const desvio = Math.abs(actual - esperado) / esperado;
+          if (desvio > peor) { peor = desvio; cual = HUESOS_RIGIDOS[k]; }
+        }
+        return { ok: peor <= tol, peor: round1(peor * 100) / 100, hueso: cual };
+      },
+    };
+  }
+
+  /**
+   * Ventana temporal de una señal, para reconocer gestos por su FORMA.
+   *
+   * Un umbral sobre un solo cuadro confunde un golpe con un pico de ruido: el
+   * modelo tiembla, la señal salta y el juego registra un golpe que nadie dio.
+   * Un gesto de verdad tiene forma en el tiempo —sube durante 100–200 ms y
+   * después baja—, y eso el ruido no lo imita.
+   *
+   * Guarda unos 300 ms de historia y sabe responder tres cosas: cuánto valió
+   * el pico, en cuánto tiempo subió, y si la subida fue sostenida o un pico
+   * suelto.
+   */
+  function ventanaGesto(ms) {
+    const largo = Math.max(80, num(ms, 300));
+    let h = [];
+    return {
+      reset() { h = []; },
+      largoMs: largo,
+      muestras: () => h.length,
+      empujar(v, t) {
+        if (!Number.isFinite(v)) return;
+        h.push({ v, t });
+        const corte = t - largo;
+        while (h.length && h[0].t < corte) h.shift();
+      },
+      /**
+       * `{ pico, tPico, inicio, subida, sostenido, duracionMs }` de la
+       * excursión que termina en el pico de la ventana. `subida` es la
+       * velocidad media de subida, no la de un cuadro.
+       */
+      forma() {
+        if (h.length < 3) return null;
+        let iPico = 0;
+        for (let i = 1; i < h.length; i++) if (h[i].v > h[iPico].v) iPico = i;
+        const pico = h[iPico];
+        // Desde dónde arrancó la subida: el mínimo ANTES del pico.
+        let iMin = 0;
+        for (let i = 0; i <= iPico; i++) if (h[i].v < h[iMin].v) iMin = i;
+        const base = h[iMin];
+        const dt = Math.max(1, pico.t - base.t) / 1000;
+        const amplitud = pico.v - base.v;
+        // Cómo se repartió la subida. Contar cuadros "no decrecientes" no
+        // sirve: una línea plana seguida de un pico los cumple todos y es
+        // justo el ruido que hay que descartar. Lo que distingue un gesto es
+        // que ningún cuadro suelto se lleva casi toda la amplitud.
+        let mayorPaso = 0;
+        for (let i = iMin + 1; i <= iPico; i++) mayorPaso = Math.max(mayorPaso, h[i].v - h[i - 1].v);
+        const pasos = Math.max(1, iPico - iMin);
+        return {
+          pico: pico.v, tPico: pico.t, base: base.v, amplitud,
+          subida: amplitud / dt,
+          duracionMs: pico.t - base.t,
+          sostenido: pasos >= 2 && amplitud > 0 && mayorPaso <= amplitud * 0.7,
+          mayorPaso,
+          cayendo: iPico < h.length - 2 && h[h.length - 1].v < pico.v * 0.75,
+        };
+      },
+      /** Cuánto tiempo seguido la señal estuvo por encima (o debajo) del umbral. */
+      msSobre(umbral, signo) {
+        if (!h.length) return 0;
+        const sg = signo === -1 ? -1 : 1;
+        let desde = null;
+        for (let i = h.length - 1; i >= 0; i--) {
+          if (sg * h[i].v >= sg * umbral) desde = h[i].t; else break;
+        }
+        return desde == null ? 0 : h[h.length - 1].t - desde;
+      },
+    };
+  }
+
+  /**
+   * Traduce la confianza por grupo a algo que una persona pueda obedecer.
+   * "No te veo" no le dice a nadie qué hacer; "no veo tus piernas" sí.
+   */
+  function avisoDeEncuadre(conf, lo) {
+    if (!conf) return 'No te veo: ponte frente al tótem';
+    const faltan = conf.faltan || [];
+    if (!faltan.length) return '';
+    // Se avisa del grupo que el juego NECESITA, si se declaró cuál.
+    const pide = lo && faltan.indexOf(lo) >= 0 ? lo : faltan[0];
+    const frases = {
+      cara: 'No veo tu cara: mira al tótem',
+      brazos: 'No veo tus brazos: sepáralos del cuerpo',
+      torso: 'No te veo entero: ponte frente al tótem',
+      piernas: 'No veo tus piernas: aléjate un paso',
+      pies: 'No veo tus pies: aléjate del tótem',
+    };
+    return frases[pide] || 'No te veo: ponte frente al tótem';
+  }
+
+  /** Caja que encierra los puntos visibles, en coordenadas de imagen 0..1. */
+  function cajaDePose(L, minVis) {
+    if (!L) return null;
+    const u = num(minVis, 0.4);
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0, n = 0;
+    for (const p of L) {
+      if (!p || (p.visibility != null && p.visibility < u)) continue;
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+      n++;
+    }
+    if (n < 4 || x1 <= x0 || y1 <= y0) return null;
+    return { x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  }
+
+  /**
+   * Región de la imagen que ocupa el VOLUMEN DE JUEGO declarado, según la
+   * geometría de la cámara. Es el recorte de partida: quien esté fuera de la
+   * zona ni siquiera entra al cuadro que ve el modelo.
+   */
+  function regionDeZona(espacio, aspecto) {
+    const al = alcanceVertical(espacio, aspecto);
+    const g = al.g;
+    const zona = clamp(num(espacio && espacio.distanciaZona, 220), 40, 600);
+    const alto = clamp(num(espacio && espacio.alto, 240), 80, 300);
+    const ancho = clamp(num(espacio && espacio.ancho, 220), 60, 500);
+    // Alto y ancho que abarca la cámara a esa distancia, en cm.
+    const abarcaAlto = 2 * zona * g.tanV;
+    const abarcaAncho = 2 * zona * g.tanH;
+    if (abarcaAlto <= 1 || abarcaAncho <= 1) return null;
+    // El centro óptico apunta a esta altura sobre el piso, a esa distancia.
+    const centroCm = al.hc - zona * Math.tan(rad(al.incl));
+    // Alturas 0 y `alto` llevadas a la imagen (y crece hacia abajo).
+    const yDe = (cm) => 0.5 - (cm - centroCm) / abarcaAlto;
+    // Sin recortar a 0..1: es lo que permite decir si la zona SE SALE del
+    // cuadro. Recortando primero, una franja que se pierde por arriba y una que
+    // entra justa se ven idénticas, y son dos montajes muy distintos.
+    const cy0 = yDe(alto), cy1 = yDe(0);
+    const y0 = clamp(cy0, 0, 1);
+    const y1 = clamp(cy1, 0, 1);
+    const mitadCruda = ancho / abarcaAncho / 2;
+    const mitad = clamp(mitadCruda, 0.05, 0.5);
+    const largo = Math.max(1e-6, cy1 - cy0);
+    return {
+      x0: 0.5 - mitad, x1: 0.5 + mitad, y0, y1, valida: y1 - y0 > 0.12,
+      crudo: { y0: cy0, y1: cy1, mitad: mitadCruda },
+      // Fracción de la zona declarada que de verdad entra en el cuadro.
+      cubre: {
+        alto: clamp((Math.min(cy1, 1) - Math.max(cy0, 0)) / largo, 0, 1),
+        ancho: clamp(Math.min(mitadCruda, 0.5) / Math.max(1e-6, mitadCruda), 0, 1),
+        pierdeArriba: Math.max(0, -cy0) / largo,
+        pierdeAbajo: Math.max(0, cy1 - 1) / largo,
+      },
+    };
+  }
+
+  /**
+   * Sigue a UN sujeto durante la ronda y no lo suelta.
+   *
+   * No elige entre varios esqueletos —con `numPoses: 1` el modelo entrega uno
+   * solo y lo elige él—: lo que hace es NEGARSE a aceptar un cuadro donde el
+   * cuerpo saltó de sitio o cambió de tamaño de golpe, que es exactamente lo
+   * que ocurre cuando el modelo se pasa a la persona que cruza por detrás.
+   *
+   * Si la discontinuidad persiste, se declara `perdido` y el juego pide
+   * reencuadre en vez de seguir jugando con otra persona.
+   */
+  function seguidorSujeto(hw, espacio) {
+    const saltoMax = clamp(num(hw && hw.saltoMaximo, 0.28), 0.05, 1);
+    const escalaMax = clamp(num(hw && hw.escalaMaxima, 0.45), 0.05, 3);
+    const limitePerdidos = Math.max(3, num(hw && hw.cuadrosPerdidos, 12));
+    const margen = clamp(num(hw && hw.recorteMargen, 0.18), 0, 0.6);
+    const usarRecorte = (hw && hw.recorteZona) !== false;
+    // El aspecto NO es un detalle: el campo vertical sale del horizontal
+    // dividido por él, así que con una cámara 4:3 la zona ocupa una franja
+    // distinta de la que ocupa en 16:9. Se parte de 16:9 porque es lo habitual
+    // y porque al construir el seguidor todavía no hay vídeo, pero el proveedor
+    // avisa del aspecto real en cuanto lo sabe.
+    let aspecto = 16 / 9;
+    let zona = usarRecorte ? regionDeZona(espacio, aspecto) : null;
+    let ancla = null, perdidos = 0, bloqueado = false;
+    return {
+      reset() { ancla = null; perdidos = 0; bloqueado = false; },
+      bloqueado: () => bloqueado,
+      aspecto: () => aspecto,
+      zona: () => zona,
+      /** Aspecto real del vídeo; recalcula la zona si cambió de verdad. */
+      setAspecto(a) {
+        const v = num(a, 0);
+        if (!(v > 0.2 && v < 6) || Math.abs(v - aspecto) < 0.01) return false;
+        aspecto = v;
+        zona = usarRecorte ? regionDeZona(espacio, aspecto) : null;
+        return true;
+      },
+      /**
+       * Recorte a aplicar sobre el cuadro ANTES del modelo, en 0..1.
+       * Al empezar es la zona de juego declarada; una vez enganchado el
+       * sujeto, se ciñe a él con margen. Devuelve null = cuadro entero.
+       */
+      recorte() {
+        if (!usarRecorte) return null;
+        const base = zona && zona.valida ? zona : null;
+        if (!ancla) return base;
+        const m = margen;
+        const c = {
+          x0: ancla.x0 - ancla.w * m, x1: ancla.x1 + ancla.w * m,
+          y0: ancla.y0 - ancla.h * m, y1: ancla.y1 + ancla.h * m,
+        };
+        // Intersección con la zona: el de atrás queda fuera por las dos vías.
+        if (base) {
+          c.x0 = Math.max(c.x0, base.x0); c.x1 = Math.min(c.x1, base.x1);
+          c.y0 = Math.max(c.y0, base.y0); c.y1 = Math.min(c.y1, base.y1);
+        }
+        c.x0 = clamp(c.x0, 0, 1); c.y0 = clamp(c.y0, 0, 1);
+        c.x1 = clamp(c.x1, 0, 1); c.y1 = clamp(c.y1, 0, 1);
+        if (c.x1 - c.x0 < 0.12 || c.y1 - c.y0 < 0.12) return base;
+        return c;
+      },
+      /**
+       * `{ aceptado, motivo, perdido, salto, cambioEscala }`.
+       * Rechazar un cuadro no es perderlo: el juego sigue con el último bueno.
+       */
+      revisar(L) {
+        const caja = cajaDePose(L);
+        if (!caja) {
+          perdidos++;
+          return { aceptado: false, motivo: 'sin cuerpo', perdido: perdidos >= limitePerdidos, salto: 0, cambioEscala: 0 };
+        }
+        if (!ancla) {
+          ancla = caja; perdidos = 0; bloqueado = true;
+          return { aceptado: true, motivo: 'enganchado', perdido: false, salto: 0, cambioEscala: 0 };
+        }
+        const salto = Math.hypot(caja.cx - ancla.cx, caja.cy - ancla.cy);
+        const escalaAntes = Math.max(0.01, ancla.h);
+        const cambio = Math.abs(caja.h - escalaAntes) / escalaAntes;
+        if (salto > saltoMax || cambio > escalaMax) {
+          perdidos++;
+          // Si el rechazo se sostiene, es que la persona de verdad se movió o
+          // se fue: se declara perdido y que el juego pida reencuadre.
+          if (perdidos >= limitePerdidos) { ancla = caja; perdidos = 0; return { aceptado: true, motivo: 'reenganchado', perdido: true, salto, cambioEscala: cambio }; }
+          return { aceptado: false, motivo: salto > saltoMax ? 'salto' : 'cambio de tamaño', perdido: false, salto, cambioEscala: cambio };
+        }
+        // Seguimiento suave: el ancla acompaña, no se teletransporta.
+        const k = 0.35;
+        ancla = {
+          x0: ancla.x0 + (caja.x0 - ancla.x0) * k, x1: ancla.x1 + (caja.x1 - ancla.x1) * k,
+          y0: ancla.y0 + (caja.y0 - ancla.y0) * k, y1: ancla.y1 + (caja.y1 - ancla.y1) * k,
+          cx: ancla.cx + (caja.cx - ancla.cx) * k, cy: ancla.cy + (caja.cy - ancla.cy) * k,
+          w: ancla.w + (caja.w - ancla.w) * k, h: ancla.h + (caja.h - ancla.h) * k,
+        };
+        perdidos = 0;
+        return { aceptado: true, motivo: 'seguido', perdido: false, salto, cambioEscala: cambio };
+      },
+    };
+  }
+
+  /**
+   * La tubería completa, en el orden de arriba. La usan los DOS proveedores,
+   * para que la garantía de "sujeto bloqueado durante la ronda" sea la misma
+   * se juegue con webcam o con Kinect.
+   */
+  function tuberiaPose(hw, espacio) {
+    const sujeto = seguidorSujeto(hw, espacio);
+    const suave = suavizadorPose(hw);
+    const huesos = controlDeHuesos({ tolerancia: num(hw && hw.huesoTolerancia, 0.35) });
+    const conHuesos = (hw && hw.huesosRigidos) !== false;
+    let ultimoBueno = null, rechazados = 0, aceptados = 0;
+    return {
+      sujeto, huesos,
+      reset() { sujeto.reset(); suave.reset(); huesos.reset(); ultimoBueno = null; rechazados = 0; aceptados = 0; },
+      recorte: () => sujeto.recorte(),
+      setAspecto: (a) => sujeto.setAspecto(a),
+      zona: () => sujeto.zona(),
+      /** Se llama durante la pantalla de posicionamiento. */
+      calibrar(L) { return conHuesos ? huesos.aprender(L) : true; },
+      salud: () => ({
+        aceptados, rechazados, bloqueado: sujeto.bloqueado(), huesosCalibrados: huesos.calibrado(),
+        aspecto: sujeto.aspecto(), zona: sujeto.zona(),
+      }),
+      /**
+       * `{ landmarks, aceptado, motivo, perdido, confianza }`.
+       * Si el cuadro se rechaza se devuelve el último bueno: un juego no se
+       * congela por un cuadro malo, pero tampoco obedece a uno inventado.
+       */
+      procesar(L, t) {
+        const veredicto = sujeto.revisar(L);
+        let motivo = veredicto.motivo;
+        let aceptado = veredicto.aceptado;
+        if (aceptado && conHuesos) {
+          const h2 = huesos.revisar(L);
+          if (!h2.ok) { aceptado = false; motivo = 'hueso estirado'; }
+        }
+        if (!aceptado) {
+          rechazados++;
+          return { landmarks: ultimoBueno, aceptado: false, motivo, perdido: veredicto.perdido, confianza: confianzaPorGrupo(ultimoBueno) };
+        }
+        aceptados++;
+        const filtrado = suave.aplicar(L, t);
+        ultimoBueno = filtrado;
+        return { landmarks: filtrado, aceptado: true, motivo, perdido: veredicto.perdido, confianza: confianzaPorGrupo(filtrado) };
+      },
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.e Luz de la escena (lo único que no se arregla por software)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Todo lo demás de la Fase 2 —filtrar, recortar, descartar cuadros malos— es
+  // software peleando con una señal ruidosa. La poca luz no es eso: si el
+  // sensor no recibe fotones, no hay nada que filtrar. Por eso la luz no se
+  // supone ni se recomienda de palabra: se MIDE en el equipo real.
+  //
+  // Y no basta con el brillo medio. Toda webcam moderna tiene exposición y
+  // ganancia automáticas: en penumbra sube la ganancia hasta que la imagen sale
+  // con brillo "normal", solo que llena de ruido. Un medidor que solo mirara el
+  // nivel daría luz verde a una sala mal iluminada. Por eso se miden dos cosas
+  // y se cruzan:
+  //
+  //   nivel  → luma media del SUJETO, no del cuadro (el ventanal no juega)
+  //   ruido  → cuánto cambia cada píxel entre cuadros con la escena quieta;
+  //            es la firma de la ganancia alta, o sea de la falta de luz
+  //
+  // Y una tercera, que es la que arruina ferias: el CONTRALUZ. Con un ventanal
+  // detrás, la cámara expone para el fondo y la persona queda en silueta. No se
+  // arregla con más luz ni con mejor modelo: hay que girar el montaje.
+
+  /** Luma Rec.709 sobre sRGB (0–255): se corresponde con el brillo percibido. */
+  const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+  /**
+   * Lee píxeles del vídeo a baja resolución y devuelve nivel, recorte de
+   * histograma, ruido temporal y la comparación sujeto/fondo.
+   *
+   * Trabaja sobre una rejilla chica (160×90 = 14.400 píxeles): es suficiente
+   * para promedios y ruido, y cuesta una fracción de milisegundo, así que se
+   * puede medir junto a la pose sin robarle cuadros.
+   */
+  function medidorDeLuz(opts) {
+    const o = opts || {};
+    const ancho = Math.max(16, Math.round(num(o.ancho, 160)));
+    let lienzo = null, ctx = null, alto = 0, previa = null;
+    const ruidos = [];
+
+    const preparar = (fuente) => {
+      const fw = fuente.videoWidth || fuente.width || 0;
+      const fh = fuente.videoHeight || fuente.height || 0;
+      if (fw < 8 || fh < 8) return false;
+      const nuevoAlto = Math.max(9, Math.round((ancho * fh) / fw));
+      if (!lienzo) {
+        lienzo = document.createElement('canvas');
+        // Se lee cada cuadro: sin esta bandera el navegador mantiene la textura
+        // en la GPU y cada getImageData obliga a un viaje de vuelta carísimo.
+        ctx = lienzo.getContext('2d', { willReadFrequently: true });
+      }
+      if (!ctx) return false;
+      if (lienzo.width !== ancho || lienzo.height !== nuevoAlto) {
+        lienzo.width = ancho; lienzo.height = nuevoAlto;
+        previa = null;                      // cambió la rejilla: el ruido no compara
+      }
+      alto = nuevoAlto;
+      return true;
+    };
+
+    return {
+      reset() { previa = null; ruidos.length = 0; },
+      /**
+       * Una lectura. `caja` es la caja del sujeto en 0..1 (de `cajaDePose`) o
+       * la zona de juego cuando todavía no hay nadie; sin ella no se puede
+       * separar sujeto de fondo y esos campos vuelven en null.
+       */
+      medir(fuente, caja) {
+        if (!fuente || typeof document === 'undefined') return null;
+        let px = null;
+        try {
+          if (!preparar(fuente)) return null;
+          ctx.drawImage(fuente, 0, 0, ancho, alto);
+          px = ctx.getImageData(0, 0, ancho, alto).data;
+        } catch (e) { return null; }        // lienzo contaminado o vídeo sin cuadro
+        const n = ancho * alto;
+        const gris = new Float32Array(n);
+        let suma = 0, oscuros = 0, quemados = 0;
+        let sumaS = 0, nS = 0, sumaF = 0, nF = 0;
+        const dentro = caja
+          ? (x, y) => x >= caja.x0 && x <= caja.x1 && y >= caja.y0 && y <= caja.y1
+          : null;
+        for (let i = 0; i < n; i++) {
+          const j = i * 4;
+          const L = luma(px[j], px[j + 1], px[j + 2]);
+          gris[i] = L;
+          suma += L;
+          if (L < 16) oscuros++;
+          else if (L > 245) quemados++;
+          if (dentro) {
+            const u = (i % ancho) / ancho, v = Math.floor(i / ancho) / alto;
+            if (dentro(u, v)) { sumaS += L; nS++; } else { sumaF += L; nF++; }
+          }
+        }
+        // Ruido temporal: cuánto se mueve cada píxel de un cuadro al siguiente.
+        // Con la escena quieta es ganancia del sensor; si la persona se mueve
+        // también sube, por eso el resumen se queda con los cuadros tranquilos.
+        let ruido = null;
+        if (previa && previa.length === n) {
+          let d = 0;
+          for (let i = 0; i < n; i++) d += Math.abs(gris[i] - previa[i]);
+          ruido = d / n;
+          ruidos.push(ruido);
+        }
+        previa = gris;
+        return {
+          media: round1(suma / n),
+          oscuros: round1((oscuros / n) * 100),
+          quemados: round1((quemados / n) * 100),
+          ruido: ruido == null ? null : round1(ruido * 100) / 100,
+          sujeto: nS ? round1(sumaS / nS) : null,
+          fondo: nF ? round1(sumaF / nF) : null,
+          contraluz: nS && nF ? round1(sumaF / nF - sumaS / nS) : null,
+          conCaja: !!dentro,
+        };
+      },
+      /**
+       * Ruido representativo de la sesión: el percentil 25 de las lecturas.
+       *
+       * No la media: si alguien saluda a la cámara, esos cuadros disparan el
+       * ruido por movimiento y no por falta de luz. Los cuadros tranquilos son
+       * los que hablan del sensor, y son los de abajo del reparto.
+       */
+      ruidoBase() {
+        if (!ruidos.length) return null;
+        const v = ruidos.slice().sort((a, b) => a - b);
+        return round1(v[Math.floor(v.length * 0.25)] * 100) / 100;
+      },
+      muestras: () => ruidos.length,
+    };
+  }
+
+  /**
+   * De números a decisión. Devuelve `{ nivel, titulo, acciones[] }` donde
+   * `nivel` es 'ok' | 'aviso' | 'mal', para que el operador no tenga que
+   * interpretar un luma de 63 el día del evento.
+   */
+  function veredictoDeLuz(luz, hw) {
+    const minima = num(hw && hw.luzMinima, 80);
+    const ruidoMax = num(hw && hw.luzRuidoMax, 4.5);
+    const contraMax = num(hw && hw.contraluzMax, 60);
+    if (!luz) return { nivel: 'mal', titulo: 'No se pudo leer la imagen', acciones: ['Revisa que la cámara esté entregando vídeo.'] };
+    const acciones = [];
+    let nivel = 'ok';
+    const peor = (n) => { if (n === 'mal' || (n === 'aviso' && nivel === 'ok')) nivel = n; };
+    // El nivel se juzga sobre el sujeto; sin nadie delante, sobre lo que haya, y
+    // se DICE, porque medir la zona vacía no es medir a quien va a jugar.
+    const deCuerpo = luz.deCuerpo !== false && luz.sujeto != null;
+    const nivelLuz = luz.sujeto != null ? luz.sujeto : luz.media;
+    const donde = deCuerpo ? 'sobre el sujeto' : 'sobre la zona de juego, sin nadie delante';
+    if (nivelLuz < minima * 0.7) {
+      peor('mal');
+      acciones.push('Muy oscuro (' + Math.round(nivelLuz) + ' de ' + Math.round(minima) + ' mínimo): agrega un panel LED difuso junto a la cámara, a la altura de la cara.');
+    } else if (nivelLuz < minima) {
+      peor('aviso');
+      acciones.push('Luz justa (' + Math.round(nivelLuz) + ' de ' + Math.round(minima) + '): funciona, pero la detección será menos estable. Un LED de relleno lo resuelve.');
+    }
+    if (luz.ruido != null && luz.ruido > ruidoMax * 1.6) {
+      peor('mal');
+      acciones.push('Mucho ruido de imagen (' + luz.ruido.toFixed(1) + '): la cámara está compensando la falta de luz con ganancia. Más luz, no otra cámara.');
+    } else if (luz.ruido != null && luz.ruido > ruidoMax) {
+      peor('aviso');
+      acciones.push('Ruido de imagen alto (' + luz.ruido.toFixed(1) + '): la cámara está subiendo ganancia. Con más luz baja solo.');
+    }
+    if (luz.contraluz != null && luz.contraluz > contraMax) {
+      peor('mal');
+      acciones.push('Contraluz fuerte: el fondo está ' + Math.round(luz.contraluz) + ' puntos más claro que la persona. ' +
+        'GIRA EL MONTAJE para dejar el ventanal a la espalda de la cámara, o cierra la cortina. Con más luz frontal no alcanza.');
+    } else if (luz.contraluz != null && luz.contraluz > contraMax * 0.45) {
+      peor('aviso');
+      acciones.push('Contraluz leve: el fondo está ' + Math.round(luz.contraluz) + ' puntos más claro. Si la detección falla, gira el montaje.');
+    }
+    if (luz.quemados > 12) {
+      peor(luz.contraluz != null && luz.contraluz > contraMax * 0.45 ? 'mal' : 'aviso');
+      acciones.push(round1(luz.quemados) + '% del cuadro está quemado (blanco puro): casi siempre es una ventana o una lámpara dentro del encuadre.');
+    }
+    if (luz.oscuros > 45) {
+      peor('aviso');
+      acciones.push(round1(luz.oscuros) + '% del cuadro es negro puro: hay zonas donde el modelo no puede ver nada.');
+    }
+    const titulo = nivel === 'ok' ? 'La luz sirve' : nivel === 'aviso' ? 'La luz da, con reparos' : 'La luz NO da';
+    return { nivel, titulo, acciones, nivelLuz: round1(nivelLuz), donde, deCuerpo, sinSujeto: luz.sujeto == null };
+  }
+
+  /**
+   * Junta las lecturas de luz de toda la prueba en una sola.
+   *
+   * Se prefieren los cuadros en los que HABÍA alguien: son los únicos donde
+   * "sujeto" y "fondo" significan algo, y son los que describen la condición
+   * real de juego. Mediana y no media, porque un cuadro con alguien cruzando
+   * por delante de la ventana no puede decidir el veredicto.
+   */
+  function resumirLuz(muestras, ruidoBase) {
+    const todas = (muestras || []).filter(Boolean);
+    if (!todas.length) return null;
+    // Una lectura vale como "del sujeto" solo si había un CUERPO detectado. Sin
+    // nadie delante la caja es la zona de juego vacía, y llamar a eso "luz
+    // sobre la persona" sería exactamente la clase de dato cómodo que este
+    // diagnóstico existe para no dar.
+    const con = todas.filter((x) => x.cuerpo && x.sujeto != null);
+    const base = con.length >= 3 ? con : todas;
+    const med = (k) => mediana(base.map((x) => x[k]).filter((v) => v != null));
+    return {
+      media: med('media'), oscuros: med('oscuros') || 0, quemados: med('quemados') || 0,
+      sujeto: med('sujeto'), fondo: med('fondo'), contraluz: med('contraluz'),
+      ruido: ruidoBase == null ? null : ruidoBase,
+      muestras: base.length, conSujeto: con.length, deCuerpo: con.length >= 3,
+    };
+  }
+
+  // Cuánto dura la prueba de campo. Veinte segundos son suficientes para que el
+  // ritmo de pose se estabilice y para juntar un centenar de lecturas de luz, y
+  // son pocos como para que un operador con fila esperando la corra igual.
+  const CAMPO_MS = 20000;
+
+  const PEOR = { ok: 0, aviso: 1, mal: 2 };
+  const sumarNivel = (a, b) => (PEOR[b] > PEOR[a] ? b : a);
+
+  /**
+   * El veredicto completo del montaje, a partir de lo medido en 20 segundos.
+   *
+   * Junta las cuatro cosas que de verdad deciden si el tótem sirve hoy: a qué
+   * ritmo corre la pose EN ESTE equipo, si hay luz, si el modelo ve las partes
+   * del cuerpo que cada juego necesita, y si la zona de juego declarada cabe en
+   * el cuadro. Devuelve un semáforo y, sobre todo, qué hacer con él.
+   */
+  function veredictoDeCampo(res, hw) {
+    const puntos = [];
+    let nivel = 'ok';
+    const punto = (n, texto) => { puntos.push({ nivel: n, texto }); nivel = sumarNivel(nivel, n); };
+    const objetivo = clamp(num(hw && hw.poseHz, 25), 5, 60);
+
+    // ── Ritmo real de la pose ──────────────────────────────────────────
+    // No el del fabricante ni el configurado: el que da este equipo. Por
+    // debajo de ~12 Hz un salto entero cabe entre dos cuadros y el juego no lo
+    // ve; la ventana de gesto necesita tres o cuatro muestras para reconocer
+    // una subida sostenida y distinguirla de un tirón del modelo.
+    if (!res.cuadros) punto('mal', 'La pose no llegó a correr: no hay medición de ritmo.');
+    else if (res.hz < 12) punto('mal', 'Pose a ' + res.hz + ' fps: por debajo de 12 se pierden saltos y golpes enteros. Baja la resolución de la cámara o usa un equipo con más CPU.');
+    else if (res.hz < 18) punto('aviso', 'Pose a ' + res.hz + ' fps (' + res.ms + ' ms por cuadro): jugable, pero los gestos rápidos van a costar. Objetivo configurado: ' + objetivo + '.');
+    else punto('ok', 'Pose a ' + res.hz + ' fps reales, ' + res.ms + ' ms por cuadro. Objetivo configurado: ' + objetivo + '.');
+
+    // ── Estabilidad del seguimiento ────────────────────────────────────
+    const total = num(res.aceptados, 0) + num(res.rechazados, 0);
+    const tasa = total ? res.rechazados / total : 0;
+    if (total >= 20 && tasa > 0.5) punto('mal', Math.round(tasa * 100) + '% de los cuadros se descartaron por salto o hueso estirado: el modelo está saltando de persona o el encuadre no da.');
+    else if (total >= 20 && tasa > 0.25) punto('aviso', Math.round(tasa * 100) + '% de cuadros descartados: revisa que no pase gente por detrás de quien juega.');
+
+    // ── Qué partes del cuerpo se ven ───────────────────────────────────
+    const g = res.grupos || {};
+    const vale = (k) => g[k] != null && g[k] >= 0.4;
+    const pct = (k) => (g[k] == null ? '—' : Math.round(g[k] * 100) + '%');
+    if (!res.conPersona) punto('mal', 'No se detectó a nadie en los 20 segundos: la prueba mide la sala, no el montaje. Repítela con alguien parado en la marca.');
+    else if (!vale('torso')) punto('mal', 'No se ve el torso con confianza (' + pct('torso') + '): sin él no funciona ningún juego de cámara.');
+    else {
+      const medio = vale('torso') && vale('brazos');
+      const completo = medio && vale('piernas') && vale('pies');
+      if (completo) punto('ok', 'Se ve el cuerpo entero (torso ' + pct('torso') + ', brazos ' + pct('brazos') + ', piernas ' + pct('piernas') + ', pies ' + pct('pies') + '): sirven los once juegos.');
+      else if (medio) punto('aviso', 'Se ve medio cuerpo (torso ' + pct('torso') + ', brazos ' + pct('brazos') + ') pero no ' +
+        (!vale('piernas') ? 'las piernas (' + pct('piernas') + ')' : 'los pies (' + pct('pies') + ')') +
+        ': Prueba de baile y el modo cámara de Mete gol quedan fuera. Aleja la cámara o baja la marca del piso. Los demás juegos, y todas las entradas alternativas, siguen sirviendo.');
+      else punto('aviso', 'No se ven los brazos con confianza (' + pct('brazos') + '): pídele a quien juega que los separe del cuerpo.');
+    }
+
+    // ── ¿La zona declarada cabe en el cuadro? ──────────────────────────
+    const z = res.zona;
+    if (z && z.cubre) {
+      const falta = 1 - z.cubre.alto;
+      const detalle = (z.cubre.pierdeArriba > z.cubre.pierdeAbajo)
+        ? 'se pierde por ARRIBA (' + Math.round(z.cubre.pierdeArriba * 100) + '%): inclina menos la cámara o súbela'
+        : 'se pierde por ABAJO (' + Math.round(z.cubre.pierdeAbajo * 100) + '%): inclina más la cámara o bájala';
+      if (falta > 0.25) punto('mal', 'La franja de juego declarada NO cabe en el cuadro: solo entra el ' + Math.round(z.cubre.alto * 100) + '% de su alto y ' + detalle + '.');
+      else if (falta > 0.08) punto('aviso', 'La franja de juego entra al ' + Math.round(z.cubre.alto * 100) + '%: ' + detalle + '.');
+      else punto('ok', 'La zona de juego declarada cabe entera en el cuadro (' + Math.round(z.cubre.alto * 100) + '% del alto).');
+      if (z.cubre.ancho < 0.95) punto('aviso', 'El ancho declarado tampoco cabe: entra el ' + Math.round(z.cubre.ancho * 100) + '%. Aleja la cámara o reduce el ancho en 📐 Espacio.');
+    }
+    if (res.recorte === false && (hw && hw.recorteZona) !== false) {
+      punto('aviso', 'El recorte a la zona no llegó a activarse: se está mirando el cuadro entero, así que quien pase por detrás puede robar la detección.');
+    }
+
+    // ── Luz ────────────────────────────────────────────────────────────
+    const vl = veredictoDeLuz(res.luz, hw);
+    nivel = sumarNivel(nivel, vl.nivel);
+    for (const a of vl.acciones) puntos.push({ nivel: vl.nivel, texto: a });
+    if (vl.nivel === 'ok') {
+      puntos.push({
+        nivel: vl.deCuerpo ? 'ok' : 'aviso',
+        texto: 'Luz suficiente (' + Math.round(vl.nivelLuz) + ' ' + vl.donde +
+          (res.luz && res.luz.ruido != null ? ', ruido ' + res.luz.ruido.toFixed(1) : '') + ').' +
+          (vl.deCuerpo ? '' : ' Repite la prueba con alguien en la marca: la ropa oscura de una persona mide muy distinto que el piso.'),
+      });
+      if (!vl.deCuerpo) nivel = sumarNivel(nivel, 'aviso');
+    }
+
+    const titulo = nivel === 'ok' ? 'El tótem está listo'
+      : nivel === 'aviso' ? 'Se puede jugar, con ajustes'
+        : 'Hay que arreglar el montaje antes de abrir';
+    return { nivel, titulo, puntos, luz: vl };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.f Código QR (sin dependencias)
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Para emparejar el teléfono hay que mostrarle una URL en pantalla, y nadie
+  // escribe a mano `https://192.168.4.1:8443/#s=K7M2` en la feria. Hace falta un
+  // QR, y la regla del repositorio es que no se agregan dependencias: la app
+  // corre servidores y puentes sin ninguna, y eso es un activo que no se gasta
+  // por un código de barras.
+  //
+  // Así que está escrito acá: modo byte, nivel de corrección M, versiones 1 a
+  // 20 (hasta 666 bytes, de sobra para cualquier URL). Es norma ISO/IEC 18004,
+  // no invención: Reed-Solomon sobre GF(256), patrones de alineación, cadenas
+  // de formato y versión con BCH, y elección de máscara por penalización.
+  //
+  // Verificado comparando la matriz, módulo por módulo, contra la
+  // implementación independiente `qrcode` de Python. Un QR que "se ve bien" y
+  // no decodifica es peor que no tener QR: el operador se queda tocando la
+  // pantalla del teléfono mientras la fila espera.
+
+  // Codewords totales (datos + corrección) por versión.
+  const QR_TOTAL = [26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466,
+    532, 581, 655, 733, 815, 901, 991, 1085];
+  // Nivel M: [ecPorBloque, bloquesG1, datosG1, bloquesG2, datosG2].
+  const QR_BLOQUES_M = [
+    [10, 1, 16, 0, 0], [16, 1, 28, 0, 0], [26, 1, 44, 0, 0], [18, 2, 32, 0, 0],
+    [24, 2, 43, 0, 0], [16, 4, 27, 0, 0], [18, 4, 31, 0, 0], [22, 2, 38, 2, 39],
+    [22, 3, 36, 2, 37], [26, 4, 43, 1, 44], [30, 1, 50, 4, 51], [22, 6, 36, 2, 37],
+    [22, 8, 37, 1, 38], [24, 4, 40, 5, 41], [24, 5, 41, 5, 42], [28, 7, 45, 3, 46],
+    [28, 10, 46, 1, 47], [26, 9, 43, 4, 44], [26, 3, 44, 11, 45], [26, 3, 41, 13, 42],
+  ];
+  // Centros de los patrones de alineación, por versión (la 1 no tiene).
+  const QR_ALINEACION = [
+    [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42],
+    [6, 26, 46], [6, 28, 50], [6, 30, 54], [6, 32, 58], [6, 34, 62], [6, 26, 46, 66],
+    [6, 26, 48, 70], [6, 26, 50, 74], [6, 30, 54, 78], [6, 30, 56, 82],
+    [6, 30, 58, 86], [6, 34, 62, 90],
+  ];
+
+  /** Tablas de logaritmos de GF(256) con el polinomio 0x11D de la norma. */
+  const GF = (function () {
+    const exp = new Uint8Array(512), log = new Uint8Array(256);
+    let x = 1;
+    for (let i = 0; i < 255; i++) {
+      exp[i] = x;
+      log[x] = i;
+      x <<= 1;
+      if (x & 0x100) x ^= 0x11D;
+    }
+    for (let i = 255; i < 512; i++) exp[i] = exp[i - 255];
+    return { exp, log };
+  }());
+  const gfMul = (a, b) => (a === 0 || b === 0 ? 0 : GF.exp[GF.log[a] + GF.log[b]]);
+
+  /** Polinomio generador de grado `n`: producto de (x − α^i). */
+  function qrGenerador(n) {
+    let g = [1];
+    for (let i = 0; i < n; i++) {
+      const sig = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) {
+        sig[j] ^= g[j];
+        sig[j + 1] ^= gfMul(g[j], GF.exp[i]);
+      }
+      g = sig;
+    }
+    return g;
+  }
+
+  /** Codewords de corrección de un bloque de datos. */
+  function qrCorreccion(datos, n) {
+    const gen = qrGenerador(n);
+    const resto = new Array(n).fill(0);
+    for (const d of datos) {
+      const factor = d ^ resto[0];
+      resto.shift();
+      resto.push(0);
+      if (factor !== 0) for (let i = 0; i < n; i++) resto[i] ^= gfMul(gen[i + 1], factor);
+    }
+    return resto;
+  }
+
+  /**
+   * Resto de la división BCH: 10 bits para la cadena de formato (generador
+   * 0x537) y 12 para la de versión (0x1F25).
+   *
+   * Se reduce MIENTRAS quede algún bit por encima del grado del generador,
+   * incluido el bit del propio grado. Cortar un paso antes deja un resto que
+   * parece correcto, produce un símbolo que se ve perfecto y que ningún lector
+   * abre.
+   */
+  function qrBCH(datos, gen, bits) {
+    let d = datos << bits;
+    const grado = 31 - Math.clz32(gen);
+    for (let alto = 31 - Math.clz32(d); alto >= grado; alto = 31 - Math.clz32(d)) {
+      d ^= gen << (alto - grado);
+    }
+    return d;
+  }
+
+  /**
+   * Matriz de un QR, como array de arrays de 0/1. `texto` va en modo byte
+   * (UTF-8) con nivel de corrección M, que aguanta un 15% de daño: suficiente
+   * para una pantalla con reflejos y un teléfono a medio metro.
+   */
+  function qrMatriz(texto) {
+    // ── 1. El texto a bytes ─────────────────────────────────────────────
+    const datos = typeof TextEncoder !== 'undefined'
+      ? Array.from(new TextEncoder().encode(s(texto)))
+      : Array.from(unescape(encodeURIComponent(s(texto))), (c) => c.charCodeAt(0));
+
+    // ── 2. La versión más chica donde quepa ─────────────────────────────
+    let version = 0;
+    for (let v = 1; v <= 20; v++) {
+      const [ec, b1, d1, b2, d2] = QR_BLOQUES_M[v - 1];
+      const capacidad = b1 * d1 + b2 * d2;
+      // 4 bits de modo + 8 o 16 de longitud, según la versión.
+      const bitsCabecera = 4 + (v < 10 ? 8 : 16);
+      if (datos.length + Math.ceil(bitsCabecera / 8) <= capacidad) { version = v; break; }
+      if (v === 20 && ec) version = 0;
+    }
+    if (!version) throw new Error('El texto no cabe en un QR de versión 20 (' + datos.length + ' bytes).');
+
+    const [ecN, b1, d1, b2, d2] = QR_BLOQUES_M[version - 1];
+    const capacidad = b1 * d1 + b2 * d2;
+
+    // ── 3. El flujo de bits ─────────────────────────────────────────────
+    const bits = [];
+    const empujar = (valor, n) => { for (let i = n - 1; i >= 0; i--) bits.push((valor >> i) & 1); };
+    empujar(4, 4);                                   // modo byte
+    empujar(datos.length, version < 10 ? 8 : 16);
+    for (const b of datos) empujar(b, 8);
+    // Terminador de hasta 4 ceros, y relleno hasta cerrar el byte.
+    for (let i = 0; i < 4 && bits.length < capacidad * 8; i++) bits.push(0);
+    while (bits.length % 8) bits.push(0);
+    const cw = [];
+    for (let i = 0; i < bits.length; i += 8) {
+      let b = 0;
+      for (let k = 0; k < 8; k++) b = (b << 1) | bits[i + k];
+      cw.push(b);
+    }
+    // Relleno alternado que manda la norma, hasta llenar la capacidad.
+    const RELLENO = [0xEC, 0x11];
+    for (let i = 0; cw.length < capacidad; i++) cw.push(RELLENO[i % 2]);
+
+    // ── 4. Bloques, corrección e intercalado ────────────────────────────
+    const bloques = [];
+    let o = 0;
+    for (let i = 0; i < b1; i++) { bloques.push(cw.slice(o, o + d1)); o += d1; }
+    for (let i = 0; i < b2; i++) { bloques.push(cw.slice(o, o + d2)); o += d2; }
+    const ecs = bloques.map((b) => qrCorreccion(b, ecN));
+    const finales = [];
+    const maxDatos = Math.max(d1, d2);
+    // Intercalado: primero un codeword de cada bloque, luego el siguiente. Es
+    // lo que hace que una mancha en el papel dañe un poco de cada bloque en vez
+    // de destruir uno entero.
+    for (let i = 0; i < maxDatos; i++) for (const b of bloques) if (i < b.length) finales.push(b[i]);
+    for (let i = 0; i < ecN; i++) for (const e of ecs) finales.push(e[i]);
+
+    // ── 5. La matriz: patrones fijos primero ────────────────────────────
+    const n = version * 4 + 17;
+    const m = [];
+    const reservado = [];
+    for (let i = 0; i < n; i++) { m.push(new Array(n).fill(0)); reservado.push(new Array(n).fill(false)); }
+    const poner = (f, c, v) => { if (f >= 0 && f < n && c >= 0 && c < n) { m[f][c] = v; reservado[f][c] = true; } };
+
+    const buscador = (f0, c0) => {
+      for (let f = -1; f <= 7; f++) {
+        for (let c = -1; c <= 7; c++) {
+          const dentro = f >= 0 && f <= 6 && c >= 0 && c <= 6;
+          const anillo = dentro && (f === 0 || f === 6 || c === 0 || c === 6);
+          const centro = dentro && f >= 2 && f <= 4 && c >= 2 && c <= 4;
+          poner(f0 + f, c0 + c, anillo || centro ? 1 : 0);
+        }
+      }
+    };
+    buscador(0, 0); buscador(0, n - 7); buscador(n - 7, 0);
+
+    for (const cf of QR_ALINEACION[version - 1]) {
+      for (const cc of QR_ALINEACION[version - 1]) {
+        // No van encima de los tres buscadores de las esquinas.
+        if ((cf <= 8 && cc <= 8) || (cf <= 8 && cc >= n - 9) || (cf >= n - 9 && cc <= 8)) continue;
+        for (let f = -2; f <= 2; f++) {
+          for (let c = -2; c <= 2; c++) {
+            const borde = Math.max(Math.abs(f), Math.abs(c));
+            poner(cf + f, cc + c, borde === 1 ? 0 : 1);
+          }
+        }
+      }
+    }
+    // Temporizadores: la fila y la columna 6, alternando.
+    for (let i = 8; i < n - 8; i++) { poner(6, i, i % 2 ? 0 : 1); poner(i, 6, i % 2 ? 0 : 1); }
+    poner(n - 8, 8, 1);                              // módulo oscuro, siempre
+
+    // Zonas reservadas para la información de formato y de versión.
+    for (let i = 0; i < 9; i++) { if (!reservado[8][i]) poner(8, i, 0); if (!reservado[i][8]) poner(i, 8, 0); }
+    for (let i = 0; i < 8; i++) { poner(8, n - 1 - i, 0); poner(n - 1 - i, 8, 0); }
+    if (version >= 7) {
+      for (let i = 0; i < 6; i++) for (let k = 0; k < 3; k++) { poner(i, n - 11 + k, 0); poner(n - 11 + k, i, 0); }
+    }
+
+    // ── 6. Los datos, en zigzag desde abajo a la derecha ────────────────
+    let bit = 0, arriba = true;
+    const flujo = [];
+    for (const b of finales) for (let i = 7; i >= 0; i--) flujo.push((b >> i) & 1);
+    for (let c = n - 1; c > 0; c -= 2) {
+      if (c === 6) c--;                              // la columna 6 es temporizador
+      for (let paso = 0; paso < n; paso++) {
+        const f = arriba ? n - 1 - paso : paso;
+        for (const dc of [0, 1]) {
+          const col = c - dc;
+          if (reservado[f][col]) continue;
+          m[f][col] = bit < flujo.length ? flujo[bit] : 0;
+          bit++;
+        }
+      }
+      arriba = !arriba;
+    }
+
+    // ── 7. Máscara: se prueban las ocho y gana la menos fea ─────────────
+    const MASCARAS = [
+      (f, c) => (f + c) % 2 === 0,
+      (f) => f % 2 === 0,
+      (f, c) => c % 3 === 0,
+      (f, c) => (f + c) % 3 === 0,
+      (f, c) => (Math.floor(f / 2) + Math.floor(c / 3)) % 2 === 0,
+      (f, c) => ((f * c) % 2) + ((f * c) % 3) === 0,
+      (f, c) => (((f * c) % 2) + ((f * c) % 3)) % 2 === 0,
+      (f, c) => (((f + c) % 2) + ((f * c) % 3)) % 2 === 0,
+    ];
+    let mejor = null, mejorPena = Infinity;
+    for (let k = 0; k < 8; k++) {
+      const prueba = m.map((fila) => fila.slice());
+      for (let f = 0; f < n; f++) {
+        for (let c = 0; c < n; c++) if (!reservado[f][c] && MASCARAS[k](f, c)) prueba[f][c] ^= 1;
+      }
+      qrPonerFormato(prueba, n, k);
+      if (version >= 7) qrPonerVersion(prueba, n, version);
+      const pena = qrPenalizacion(prueba, n);
+      if (pena < mejorPena) { mejorPena = pena; mejor = prueba; }
+    }
+    return mejor;
+  }
+
+  /** Cadena de formato: nivel M (00) + máscara, con BCH y máscara 0x5412. */
+  function qrPonerFormato(m, n, mascara) {
+    const datos = (0 << 3) | mascara;                // 00 = nivel M
+    const valor = ((datos << 10) | qrBCH(datos, 0x537, 10)) ^ 0x5412;
+    // El bit 14 va primero. Colocarlos al revés produce un símbolo que se ve
+    // perfecto y que ningún lector abre: la cadena de formato es lo primero que
+    // se lee, y es la que dice qué máscara hay que quitar.
+    const bitDe = (i) => (valor >> (14 - i)) & 1;
+    // Primera copia, alrededor del buscador de arriba a la izquierda.
+    for (let i = 0; i <= 5; i++) m[8][i] = bitDe(i);
+    m[8][7] = bitDe(6); m[8][8] = bitDe(7); m[7][8] = bitDe(8);
+    for (let i = 9; i <= 14; i++) m[14 - i][8] = bitDe(i);
+    // Segunda copia: 7 módulos bajando por la columna 8 (bits 0–6) y 8 cruzando
+    // por la fila 8 (bits 7–14). El reparto NO es 8+7: el módulo (n−8, 8) es el
+    // oscuro obligatorio y no pertenece al formato. Escribir ahí el bit 7 lo
+    // pierde, y con él la copia de respaldo que un lector usa cuando la primera
+    // está tapada por un reflejo.
+    for (let i = 0; i <= 6; i++) m[n - 1 - i][8] = bitDe(i);
+    for (let i = 7; i <= 14; i++) m[8][n - 15 + i] = bitDe(i);
+    m[n - 8][8] = 1;                                 // oscuro, siempre
+  }
+
+  /** Cadena de versión (solo 7 en adelante), en las dos esquinas. */
+  function qrPonerVersion(m, n, version) {
+    const valor = (version << 12) | qrBCH(version, 0x1F25, 12);
+    for (let i = 0; i < 18; i++) {
+      const b = (valor >> i) & 1;
+      m[Math.floor(i / 3)][n - 11 + (i % 3)] = b;
+      m[n - 11 + (i % 3)][Math.floor(i / 3)] = b;
+    }
+  }
+
+  /** Las cuatro penalizaciones de la norma: gana la máscara con menos. */
+  function qrPenalizacion(m, n) {
+    let p = 0;
+    // N1: rachas de cinco o más del mismo color.
+    for (let f = 0; f < n; f++) {
+      for (const eje of [0, 1]) {
+        let racha = 1;
+        for (let i = 1; i < n; i++) {
+          const a = eje ? m[i - 1][f] : m[f][i - 1];
+          const b = eje ? m[i][f] : m[f][i];
+          if (a === b) racha++;
+          else { if (racha >= 5) p += 3 + (racha - 5); racha = 1; }
+        }
+        if (racha >= 5) p += 3 + (racha - 5);
+      }
+    }
+    // N2: bloques de 2×2 del mismo color.
+    for (let f = 0; f < n - 1; f++) {
+      for (let c = 0; c < n - 1; c++) {
+        const v = m[f][c];
+        if (v === m[f][c + 1] && v === m[f + 1][c] && v === m[f + 1][c + 1]) p += 3;
+      }
+    }
+    // N3: el patrón 1:1:3:1:1 que imita a un buscador.
+    const PAT = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+    const PAT2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+    for (let f = 0; f < n; f++) {
+      for (let c = 0; c + 11 <= n; c++) {
+        let okA = true, okB = true, okC = true, okD = true;
+        for (let i = 0; i < 11; i++) {
+          if (m[f][c + i] !== PAT[i]) okA = false;
+          if (m[f][c + i] !== PAT2[i]) okB = false;
+          if (m[c + i][f] !== PAT[i]) okC = false;
+          if (m[c + i][f] !== PAT2[i]) okD = false;
+        }
+        if (okA) p += 40; if (okB) p += 40; if (okC) p += 40; if (okD) p += 40;
+      }
+    }
+    // N4: cuánto se aleja del 50% de módulos oscuros.
+    let oscuros = 0;
+    for (let f = 0; f < n; f++) for (let c = 0; c < n; c++) oscuros += m[f][c];
+    const porcentaje = (oscuros * 100) / (n * n);
+    p += Math.floor(Math.abs(porcentaje - 50) / 5) * 10;
+    return p;
+  }
+
+  /**
+   * El QR como un solo `<path>` de SVG: un rectángulo por módulo oscuro.
+   * Se dibuja con React, no con innerHTML, y sin imágenes externas, así que
+   * funciona en un tótem sin internet y dentro del sandbox del AppShell.
+   */
+  function QR(props) {
+    const texto = s(props.texto);
+    let m = null;
+    try { m = texto ? qrMatriz(texto) : null; } catch (e) { m = null; }
+    if (!m) return null;
+    const n = m.length;
+    const borde = 4;                                 // zona tranquila que pide la norma
+    const total = n + borde * 2;
+    let d = '';
+    for (let f = 0; f < n; f++) {
+      for (let c = 0; c < n; c++) if (m[f][c]) d += 'M' + (c + borde) + ' ' + (f + borde) + 'h1v1h-1z';
+    }
+    return h('svg', {
+      className: 'fp-qr', viewBox: '0 0 ' + total + ' ' + total,
+      width: props.tam || 220, height: props.tam || 220,
+      role: 'img', 'aria-label': props.alt || 'Código QR para emparejar el teléfono',
+      shapeRendering: 'crispEdges',
+    },
+      h('rect', { x: 0, y: 0, width: total, height: total, fill: '#fff' }),
+      h('path', { d, fill: '#000' }));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.g Modo sensor remoto: el teléfono es la cámara
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // El caso real: notebook con proyector y el teléfono de alguien haciendo de
+  // cámara. Hoy eso se resuelve con drivers de escritorio tipo Iriun, que
+  // obligan a instalar software en un equipo que muchas veces no es del
+  // cliente, el día del evento. La alternativa es separar los dos papeles:
+  //
+  //   PANTALLA  muestra los juegos y un QR con el código de sala
+  //   SENSOR    el teléfono, que abre la app en su navegador, calcula la pose
+  //             LOCALMENTE y transmite solo los 33 puntos
+  //
+  // La imagen nunca sale del teléfono. No es una promesa de buena conducta: es
+  // que por el enlace no cabe una imagen, porque lo único que se serializa son
+  // landmarks. A 30 Hz son unos 30 kB/s, tres órdenes de magnitud menos que
+  // vídeo, y por eso anda en el wifi de una feria.
+
+  // Alfabeto sin caracteres que se confunden leyendo desde lejos: nada de 0/O
+  // ni de 1/I/L. Alguien va a tener que dictarlo por teléfono alguna vez.
+  const ALFABETO_SALA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+  function codigoDeSala(largo) {
+    const n = Math.max(4, Math.round(num(largo, 6)));
+    let out = '';
+    // crypto si está; si no, Math.random. Esto no protege un secreto: evita
+    // que dos tótems en la misma feria elijan el mismo código.
+    const al = new Uint8Array(n);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(al);
+    else for (let i = 0; i < n; i++) al[i] = Math.floor(Math.random() * 256);
+    for (let i = 0; i < n; i++) out += ALFABETO_SALA[al[i] % ALFABETO_SALA.length];
+    return out;
+  }
+
+  /** `ABC123` → `ABC-123`, que es como se lee y se dicta sin equivocarse. */
+  const salaLegible = (c) => {
+    const t = s(c).toUpperCase();
+    return t.length > 4 ? t.slice(0, Math.ceil(t.length / 2)) + '-' + t.slice(Math.ceil(t.length / 2)) : t;
+  };
+  const salaNormal = (c) => s(c).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  /**
+   * Landmarks a un array plano de enteros, y de vuelta.
+   *
+   * En JSON, 33 puntos con sus cuatro campos en doble precisión son unos 3 kB
+   * por cuadro; a 30 Hz eso es 90 kB/s de texto que hay que serializar y
+   * parsear treinta veces por segundo en un teléfono. Cuantizado a enteros son
+   * ~700 bytes. La resolución que se pierde es real pero irrelevante: 1/10.000
+   * del ancho del cuadro es la quinta parte de un píxel en 1080p, mucho menos
+   * que el temblor que el filtro de la Fase 2 ya está quitando.
+   */
+  function comprimirLandmarks(L) {
+    if (!L) return null;
+    const out = new Array(L.length * 4);
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      const o = i * 4;
+      if (!p) { out[o] = -32768; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = 0; continue; }
+      out[o] = Math.round(clamp(num(p.x, 0), -3, 3) * 10000);
+      out[o + 1] = Math.round(clamp(num(p.y, 0), -3, 3) * 10000);
+      out[o + 2] = Math.round(clamp(num(p.z, 0), -3, 3) * 1000);
+      out[o + 3] = Math.round(clamp(p.visibility == null ? 1 : num(p.visibility, 0), 0, 1) * 1000);
+    }
+    return out;
+  }
+
+  function descomprimirLandmarks(a) {
+    if (!Array.isArray(a) || a.length < 4) return null;
+    const n = Math.floor(a.length / 4);
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      if (a[o] === -32768) { out[i] = null; continue; }
+      out[i] = {
+        x: num(a[o], 0) / 10000, y: num(a[o + 1], 0) / 10000,
+        z: num(a[o + 2], 0) / 1000, visibility: num(a[o + 3], 0) / 1000,
+      };
+    }
+    return out;
+  }
+
+  /**
+   * Deriva de reloj entre los dos equipos, al estilo NTP.
+   *
+   * El teléfono y la pantalla tienen relojes distintos y que además avanzan a
+   * ritmos ligeramente distintos. Si se comparan las marcas de tiempo tal cual,
+   * la "antigüedad" de una muestra puede salir negativa o de varios segundos, y
+   * con eso no se puede decidir nada.
+   *
+   * Con cuatro tiempos —t0 salida, t1 llegada al otro, t2 salida del otro, t3
+   * vuelta— salen el viaje de ida y vuelta y el desfase entre relojes. Se
+   * queda con la muestra de MENOR rtt y no con el promedio: un intercambio que
+   * tardó de más lo hizo por una cola en el camino, y esa cola es asimétrica,
+   * así que ensucia el desfase. El intercambio más rápido es el más limpio.
+   */
+  function relojEnlace(maxMuestras) {
+    const tope = Math.max(3, Math.round(num(maxMuestras, 12)));
+    let muestras = [];
+    return {
+      reset() { muestras = []; },
+      anotar(t0, t1, t2, t3) {
+        const rtt = (t3 - t0) - (t2 - t1);
+        if (!(rtt >= 0) || !Number.isFinite(rtt)) return null;
+        const desfase = ((t1 - t0) + (t2 - t3)) / 2;
+        muestras.push({ rtt, desfase });
+        if (muestras.length > tope) muestras.shift();
+        return { rtt, desfase };
+      },
+      listo: () => muestras.length > 0,
+      n: () => muestras.length,
+      /** Desfase del intercambio más limpio: reloj remoto − reloj local. */
+      desfase() {
+        if (!muestras.length) return 0;
+        return muestras.reduce((a, b) => (b.rtt < a.rtt ? b : a)).desfase;
+      },
+      /** Latencia del enlace: la mediana aguanta un pico suelto de wifi. */
+      rtt() { return muestras.length ? mediana(muestras.map((m) => m.rtt)) : null; },
+      rttMinimo() { return muestras.length ? Math.min.apply(null, muestras.map((m) => m.rtt)) : null; },
+      /** Una marca de tiempo del remoto, traída al reloj de acá. */
+      aLocal(ts) { return num(ts, 0) - this.desfase(); },
+    };
+  }
+
+  /**
+   * El protocolo, sin transporte.
+   *
+   * Separado a propósito de WebRTC y de WebSocket: así la lógica que de verdad
+   * puede fallar —sincronía de reloj, latencia, muestras viejas, caídas— se
+   * prueba en el banco con un transporte de mentira, en vez de depender de dos
+   * dispositivos y una red para saber si está bien.
+   */
+  function protocoloSensor(opts) {
+    const o = opts || {};
+    const rol = o.rol === 'sensor' ? 'sensor' : 'pantalla';
+    const enviar = typeof o.enviar === 'function' ? o.enviar : () => {};
+    const ahora = typeof o.ahora === 'function' ? o.ahora : nowMs;
+    const reloj = relojEnlace(o.muestrasReloj);
+    let ultima = null;              // { L, mundo, tsLocal, w, h }
+    let recibidos = 0, descartados = 0, enviados = 0;
+    let idPing = 0, pingAbierto = null;
+    let estadoRemoto = null, ultimoContacto = 0;
+
+    return {
+      rol, reloj,
+      /** Un mensaje que llegó por el transporte. Devuelve qué era. */
+      recibir(msg) {
+        if (!isObj(msg)) return null;
+        const t = ahora();
+        ultimoContacto = t;
+        if (msg.t === 'ping') {
+          // Se responde con el reloj de acá en los dos instantes: al recibir y
+          // al contestar. Los dos, porque entre uno y otro puede pasar tiempo.
+          enviar({ t: 'pong', id: msg.id, t0: msg.t0, t1: t, t2: ahora() });
+          return 'ping';
+        }
+        if (msg.t === 'pong') {
+          if (pingAbierto && msg.id === pingAbierto.id) {
+            reloj.anotar(pingAbierto.t0, num(msg.t1, 0), num(msg.t2, 0), t);
+            pingAbierto = null;
+          }
+          return 'pong';
+        }
+        if (msg.t === 'pose') {
+          recibidos++;
+          const L = descomprimirLandmarks(msg.L);
+          if (!L) { descartados++; return 'pose'; }
+          ultima = {
+            L, mundo: msg.M ? descomprimirLandmarks(msg.M) : null,
+            tsLocal: reloj.listo() ? reloj.aLocal(msg.ts) : t,
+            w: num(msg.w, 0), h: num(msg.h, 0),
+          };
+          return 'pose';
+        }
+        if (msg.t === 'estado') { estadoRemoto = msg.datos || null; return 'estado'; }
+        if (msg.t === 'hola') { return 'hola'; }
+        return null;
+      },
+      /** Lanza un intercambio de reloj. Se llama cada pocos segundos. */
+      sincronizar() {
+        if (pingAbierto && ahora() - pingAbierto.t0 < 2000) return false;
+        idPing++;
+        pingAbierto = { id: idPing, t0: ahora() };
+        enviar({ t: 'ping', id: idPing, t0: pingAbierto.t0 });
+        return true;
+      },
+      /** Lado sensor: manda un cuadro de pose con su marca de tiempo. */
+      mandarPose(L, mundo, w, h) {
+        const c = comprimirLandmarks(L);
+        if (!c) return false;
+        enviados++;
+        enviar({ t: 'pose', ts: ahora(), L: c, M: mundo ? comprimirLandmarks(mundo) : null, w, h });
+        return true;
+      },
+      mandarEstado(datos) { enviar({ t: 'estado', datos: datos || {} }); },
+      saludar(sala) { enviar({ t: 'hola', rol, sala: salaNormal(sala), version: 1 }); },
+      /**
+       * Última pose, o null si está vieja. Devolver una pose de hace un segundo
+       * es peor que no devolver nada: el juego seguiría reaccionando a un gesto
+       * que ya pasó, y el jugador no entendería por qué.
+       */
+      leer(maxEdad) {
+        if (!ultima) return null;
+        const edad = ahora() - ultima.tsLocal;
+        if (edad > Math.max(120, num(maxEdad, 600))) return null;
+        return ultima;
+      },
+      /** Antigüedad del cuadro más nuevo: la latencia que se siente jugando. */
+      edad() { return ultima ? Math.max(0, Math.round(ahora() - ultima.tsLocal)) : null; },
+      silencio() { return ultimoContacto ? Math.round(ahora() - ultimoContacto) : null; },
+      salud() {
+        return {
+          rol, recibidos, descartados, enviados,
+          rtt: reloj.rtt(), rttMinimo: reloj.rttMinimo(),
+          desfase: reloj.listo() ? Math.round(reloj.desfase()) : null,
+          muestrasReloj: reloj.n(), edad: this.edad(), silencio: this.silencio(),
+          remoto: estadoRemoto,
+        };
+      },
+    };
+  }
+
+  /**
+   * Veredicto de la latencia del enlace, para el Diagnóstico.
+   *
+   * Lo que decide si se puede jugar no es el ping del wifi: es la EDAD del
+   * cuadro que la pantalla tiene en la mano, que incluye la cámara del
+   * teléfono, el modelo de pose corriendo ahí, la serialización y la red. Por
+   * eso se juzga esa, y el rtt se muestra al lado para saber a quién culpar:
+   * edad alta con rtt bajo es un teléfono lento, no una red mala.
+   */
+  function veredictoDeEnlace(salud, hw) {
+    const maxEdad = num(hw && hw.sensorLatenciaMax, 180);
+    const maxRtt = num(hw && hw.sensorRttMax, 100);
+    if (!salud || salud.edad == null) {
+      return { nivel: 'mal', titulo: 'Sin datos del sensor', acciones: ['No está llegando ninguna pose del teléfono.'] };
+    }
+    const acciones = [];
+    let nivel = 'ok';
+    const peor = (n) => { if (n === 'mal' || (n === 'aviso' && nivel === 'ok')) nivel = n; };
+    if (salud.edad > maxEdad) {
+      peor('mal');
+      acciones.push('Los gestos llegan ' + salud.edad + ' ms tarde (máximo jugable: ' + maxEdad + '). ' +
+        (salud.rtt != null && salud.rtt < maxRtt / 2
+          ? 'La red va bien (' + salud.rtt + ' ms de ida y vuelta): el que no da es el teléfono. Baja los Hz de pose o usa un teléfono más nuevo.'
+          : 'Acerca el teléfono al router, o pon el router del kit más cerca.'));
+    } else if (salud.edad > maxEdad * 0.55) {
+      peor('aviso');
+      acciones.push('Los gestos llegan ' + salud.edad + ' ms tarde: jugable, pero un golpe rápido se va a sentir con retraso.');
+    }
+    if (salud.rtt != null && salud.rtt > maxRtt) {
+      peor(nivel === 'mal' ? 'mal' : 'aviso');
+      acciones.push('El enlace tarda ' + salud.rtt + ' ms de ida y vuelta (máximo: ' + maxRtt + '). ' +
+        'Si estás en el wifi del recinto, cámbiate al router del kit: es la causa número uno.');
+    }
+    if (salud.muestrasReloj < 2) {
+      peor('aviso');
+      acciones.push('Todavía no hay suficientes intercambios para medir el desfase de reloj: espera unos segundos.');
+    }
+    const titulo = nivel === 'ok' ? 'El enlace con el teléfono va bien'
+      : nivel === 'aviso' ? 'El enlace anda, con retraso notable' : 'El enlace no da para jugar';
+    return { nivel, titulo, acciones, edad: salud.edad, rtt: salud.rtt };
+  }
+
+  /** URL del puente de salas: la configurada, o el mismo host de esta página. */
+  function urlDelPuente(hw) {
+    const puesta = s(hw && hw.sensorPuenteUrl);
+    if (puesta) return puesta;
+    if (typeof location === 'undefined' || !location.hostname) return 'ws://127.0.0.1:8788';
+    // wss si la página va por https: un navegador bloquea el ws:// en claro
+    // desde una página segura, y esa mezcla es la causa más común de que el
+    // teléfono "no conecte" sin ningún mensaje de error.
+    const seguro = location.protocol === 'https:';
+    return (seguro ? 'wss://' : 'ws://') + location.hostname + ':' + Math.round(num(hw && hw.sensorPuerto, 8788));
+  }
+
+  /** URL que se pinta en el QR para que el teléfono abra la app como sensor. */
+  function urlDelSensor(hw, sala) {
+    const base = s(hw && hw.sensorUrlApp)
+      || (typeof location !== 'undefined' ? location.origin + location.pathname : '');
+    if (!base) return '';
+    return base + '#funplai-sensor=' + salaNormal(sala);
+  }
+
+  /** Lee el código de sala de la URL: así el teléfono arranca ya emparejado. */
+  function salaDeLaUrl() {
+    if (typeof location === 'undefined') return '';
+    const m = /[#&?]funplai-sensor=([A-Za-z0-9-]+)/.exec(s(location.hash) + '&' + s(location.search));
+    return m ? salaNormal(m[1]) : '';
+  }
+
+  /**
+   * El transporte, con sus dos caminos.
+   *
+   * Primero se abre un WebSocket contra el puente local, que empareja las dos
+   * puntas por código de sala. Ese WebSocket sirve para dos cosas: llevar la
+   * señalización de WebRTC y, si WebRTC no llega a establecerse, transportar
+   * las poses él mismo. Que el respaldo sea el mismo canal que ya está abierto
+   * es lo que hace que "no funcionó WebRTC" no sea un fallo visible para nadie.
+   *
+   * Nada de esto sale a internet: no se configura ningún STUN ni TURN, porque
+   * los dos equipos están en la misma red y les alcanzan los candidatos de
+   * host. Un servidor en internet sería, además, exactamente lo que el kit de
+   * una feria no puede permitirse.
+   */
+  function enlaceSensor(opts) {
+    const o = opts || {};
+    const rol = o.rol === 'sensor' ? 'sensor' : 'pantalla';
+    const hw = o.hw || {};
+    const sala = salaNormal(o.sala);
+    const url = s(o.urlPuente) || urlDelPuente(hw);
+    let ws = null, pc = null, canal = null;
+    let cerrado = false, reintento = null, esperaMs = 800;
+    let estado = 'inactivo';          // inactivo|conectando|esperando|ws|rtc|caido
+    let pareja = false, aviso = '';
+    let latidos = null, sincroniza = null;
+
+    const proto = protocoloSensor({
+      rol,
+      enviar: (m) => {
+        // Por el canal rápido si está abierto; si no, por el puente.
+        const texto = JSON.stringify(m);
+        if (canal && canal.readyState === 'open') { try { canal.send(texto); return; } catch (e) { /* cae al ws */ } }
+        if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ t: 'relay', datos: m })); } catch (e) { /* noop */ } }
+      },
+    });
+
+    const cambiar = (e, motivo) => { estado = e; if (motivo != null) aviso = motivo; if (o.alCambiar) { try { o.alCambiar(e, aviso); } catch (err) { /* noop */ } } };
+
+    // ── WebRTC ──────────────────────────────────────────────────────────
+    const señal = (m) => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(m)); } catch (e) { /* noop */ } } };
+
+    const montarCanal = (c) => {
+      canal = c;
+      canal.onopen = () => cambiar('rtc', '');
+      canal.onclose = () => { canal = null; if (estado === 'rtc') cambiar(ws && ws.readyState === 1 ? 'ws' : 'caido', ''); };
+      canal.onmessage = (ev) => { try { proto.recibir(JSON.parse(ev.data)); } catch (e) { /* noop */ } };
+    };
+
+    const abrirRTC = async (comoOferente) => {
+      if (typeof RTCPeerConnection === 'undefined') return;
+      try {
+        pc = new RTCPeerConnection({ iceServers: [] });
+        pc.onicecandidate = (ev) => { if (ev.candidate) señal({ t: 'ice', candidato: ev.candidate.toJSON ? ev.candidate.toJSON() : ev.candidate }); };
+        pc.ondatachannel = (ev) => montarCanal(ev.channel);
+        if (comoOferente) {
+          // `ordered:false` y sin reenvíos: en un flujo de poses, un cuadro que
+          // llega tarde no sirve para nada y esperar por él retrasa a los que
+          // vienen detrás. Es el mismo criterio que usa el puente Kinect al
+          // saltarse un cuadro de imagen cuando el socket está saturado.
+          montarCanal(pc.createDataChannel('pose', { ordered: false, maxRetransmits: 0 }));
+          const oferta = await pc.createOffer();
+          await pc.setLocalDescription(oferta);
+          señal({ t: 'sdp', sdp: pc.localDescription.sdp, tipo: pc.localDescription.type });
+        }
+      } catch (e) { pc = null; }
+    };
+
+    const recibirSeñal = async (m) => {
+      try {
+        if (m.t === 'sdp') {
+          if (!pc) await abrirRTC(false);
+          if (!pc) return;
+          await pc.setRemoteDescription({ type: m.tipo, sdp: m.sdp });
+          if (m.tipo === 'offer') {
+            const r = await pc.createAnswer();
+            await pc.setLocalDescription(r);
+            señal({ t: 'sdp', sdp: pc.localDescription.sdp, tipo: pc.localDescription.type });
+          }
+        } else if (m.t === 'ice' && pc) {
+          await pc.addIceCandidate(m.candidato).catch(() => {});
+        }
+      } catch (e) { /* una señalización rota deja el enlace en el respaldo */ }
+    };
+
+    const soltarRTC = () => {
+      try { canal && canal.close(); } catch (e) { /* noop */ }
+      try { pc && pc.close(); } catch (e) { /* noop */ }
+      canal = null; pc = null;
+    };
+
+    // ── Puente ──────────────────────────────────────────────────────────
+    const conectar = () => {
+      if (cerrado || typeof WebSocket === 'undefined') return;
+      cambiar('conectando', '');
+      try { ws = new WebSocket(url + '?sala=' + encodeURIComponent(sala) + '&rol=' + rol); } catch (e) { programarReintento(); return; }
+      ws.onopen = () => {
+        esperaMs = 800;
+        cambiar(pareja ? 'ws' : 'esperando', '');
+        proto.saludar(sala);
+        proto.sincronizar();
+      };
+      ws.onmessage = (ev) => {
+        let m = null;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (!isObj(m)) return;
+        if (m.t === 'pareja') {
+          pareja = !!m.presente;
+          if (!pareja) { soltarRTC(); cambiar('esperando', 'El teléfono se desconectó de la sala.'); return; }
+          cambiar(canal && canal.readyState === 'open' ? 'rtc' : 'ws', '');
+          proto.reloj.reset();
+          // Solo una punta ofrece, o las dos se pisan. Ofrece la pantalla.
+          if (rol === 'pantalla') { soltarRTC(); abrirRTC(true); }
+          return;
+        }
+        if (m.t === 'sdp' || m.t === 'ice') { recibirSeñal(m); return; }
+        if (m.t === 'relay' && m.datos) { proto.recibir(m.datos); return; }
+        if (m.t === 'error') { cambiar('caido', s(m.mensaje) || 'El puente rechazó la conexión.'); return; }
+      };
+      ws.onerror = () => { /* el close que viene detrás es el que decide */ };
+      ws.onclose = () => {
+        ws = null;
+        soltarRTC();
+        pareja = false;
+        if (cerrado) { cambiar('inactivo', ''); return; }
+        cambiar('caido', 'Se cortó la conexión con el puente. Reintentando…');
+        programarReintento();
+      };
+    };
+
+    /**
+     * Reintento con espera creciente hasta 8 s. Sin el tope creciente, un
+     * puente caído recibe cien conexiones por segundo; sin el tope máximo, una
+     * caída de un minuto dejaría al operador esperando diez.
+     */
+    const programarReintento = () => {
+      if (cerrado || reintento) return;
+      reintento = setT(() => { reintento = null; conectar(); }, esperaMs);
+      esperaMs = Math.min(8000, Math.round(esperaMs * 1.8));
+    };
+
+    return {
+      rol, sala, url, proto,
+      iniciar() {
+        cerrado = false;
+        conectar();
+        // Sincronía de reloj cada 3 s: barata (dos mensajes) y suficiente para
+        // seguir una deriva de cristal, que es de partes por millón.
+        sincroniza = setInterval(() => { if (estado === 'ws' || estado === 'rtc') proto.sincronizar(); }, 3000);
+        timers.add(sincroniza);
+        return true;
+      },
+      detener() {
+        cerrado = true;
+        if (reintento) { clrT(reintento); reintento = null; }
+        if (sincroniza) { clearInterval(sincroniza); timers.delete(sincroniza); sincroniza = null; }
+        if (latidos) { clearInterval(latidos); timers.delete(latidos); latidos = null; }
+        soltarRTC();
+        try { ws && ws.close(); } catch (e) { /* noop */ }
+        ws = null;
+        cambiar('inactivo', '');
+      },
+      estado: () => estado,
+      aviso: () => aviso,
+      pareja: () => pareja,
+      /** 'rtc' cuando va directo entre pares, 'ws' cuando va por el puente. */
+      via: () => (canal && canal.readyState === 'open' ? 'rtc' : (ws && ws.readyState === 1 ? 'ws' : null)),
+      salud() {
+        return Object.assign({ estado, via: this.via(), pareja, url, sala, aviso }, proto.salud());
+      },
+      leer: (maxEdad) => proto.leer(maxEdad),
+      mandarPose: (L, mundo, w, h) => proto.mandarPose(L, mundo, w, h),
+      mandarEstado: (d) => proto.mandarEstado(d),
+    };
+  }
+
+  /**
+   * Proveedor de pose que lee del enlace en vez de una cámara local.
+   *
+   * A diferencia del Kinect, acá NO se vuelve a pasar por la tubería de la
+   * Fase 2: el teléfono ya la corrió entera —recorte, filtro One Euro, control
+   * de huesos— sobre los píxeles, que es el único sitio donde el recorte tiene
+   * sentido. Encadenar un segundo filtro sumaría retraso justo en el modo que
+   * ya paga el de la red. Lo que sí se calcula acá es la confianza por grupo,
+   * que no tiene estado y sirve para los avisos de encuadre.
+   */
+  function proveedorSensorRemoto(hw, espacio, sala) {
+    const enlace = enlaceSensor({ rol: 'pantalla', hw, sala });
+    const maxEdad = Math.max(200, num(hw && hw.sensorLatenciaMax, 180) * 3);
+    return {
+      tipo: 'sensor',
+      nombre: 'Teléfono como sensor (modo remoto)',
+      enlace,
+      setVideo() { /* la cámara está en el teléfono */ },
+      async iniciar() { enlace.iniciar(); return true; },
+      detener() { enlace.detener(); },
+      salud() {
+        const sal = enlace.salud();
+        return Object.assign({}, sal, {
+          hz: sal.remoto && sal.remoto.hz ? sal.remoto.hz : 0,
+          ms: sal.remoto && sal.remoto.ms ? sal.remoto.ms : 0,
+          recorte: !!(sal.remoto && sal.remoto.recorte),
+          veredicto: veredictoDeEnlace(sal, hw),
+        });
+      },
+      leer() {
+        const lec = enlace.leer(maxEdad);
+        if (!lec || !lec.L) return null;
+        vigilarCuadro(lec.L, lec.w && lec.h ? lec.w / lec.h : 16 / 9);
+        return {
+          landmarks: lec.L, mundo: lec.mundo || null, angulos: null,
+          sintetico: false, contorno: null,
+          aceptado: true, motivo: 'remoto', perdido: false,
+          confianza: confianzaPorGrupo(lec.L),
+          remoto: true,
+        };
+      },
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 8.h Modo concurso: cuando el juego reparte un premio
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // El uso principal de esta app es reemplazar la ruleta de sorteos en ferias,
+  // eventos corporativos y matrimonios. En cuanto hay un premio de por medio,
+  // el juego deja de ser un juego: es un CONCURSO, y alguien va a reclamar.
+  //
+  // Lo que sigue existe para poder responderle a esa persona con datos y no con
+  // una opinión: qué se midió, cuándo, con qué versión, y si la partida se jugó
+  // dentro de las reglas.
+  //
+  // ── Lo que se puede inflar, medido antes de defenderlo ────────────────
+  //
+  // El plan suponía que acercarse a la cámara infla el puntaje porque agranda
+  // el ancho de hombros de referencia. Medido con un cuerpo proyectado por la
+  // geometría real, resulta que NO: un gesto lateral y el ancho de hombros
+  // crecen los dos como 1/distancia, así que el cociente que miden los
+  // detectores sale invariante (1,400 a 220 cm, a 150 y a 110).
+  //
+  // Lo que sí infla, y mucho, es GIRARSE. El ancho de hombros proyectado cae
+  // con el coseno del giro, y todo lo que se normaliza contra él y no es
+  // lateral —un salto, un aleteo, agacharse— se infla en la misma proporción:
+  //
+  //     giro    referencia    inflación de lo vertical
+  //      25°       ×0,91              ×1,10
+  //      40°       ×0,77              ×1,30
+  //      55°       ×0,58              ×1,73
+  //      70°       ×0,34              ×2,90
+  //
+  // Comprobado de punta a punta: el MISMO salto de 12 cm da desvío 0,411 de
+  // frente y 0,712 girado 55°. Y girarse no obliga a moverse del sitio, así que
+  // es la trampa más fácil de hacer y la más difícil de ver desde fuera.
+  //
+  // Las dos dejan huellas distintas y las dos son medibles con lo que ya hay:
+  // acercarse cambia la DISTANCIA (233 → 116 cm), girarse cambia el ANCHO DE
+  // HOMBROS en cm (42 → 24) dejando la distancia igual. Por eso el vigilante
+  // mira las dos cosas por separado y sabe decir cuál pasó.
+
+  /**
+   * Versión de la app: se sella en cada partida, se muestra en pantalla y va
+   * en el snapshot del agente.
+   *
+   * Va acá y no leída del manifest porque el bundle no lo carga. Una prueba
+   * comprueba que las dos coincidan: si alguien sube una y no la otra, el
+   * banco lo caza antes de que un ranking quede sellado con una versión que
+   * no es la que se jugó.
+   *
+   * El NOMBRE de la constante importa: `tools/check-versions.mjs` del repo de
+   * la plataforma busca literalmente `APP_VERSION` para comparar el bundle
+   * contra el manifest de la app, el catálogo raíz y el README. Con un nombre
+   * propio el chequeo pasaba, pero pasaba sin mirar nada.
+   */
+  const APP_VERSION = '1.18.0';
+
+  /**
+   * Identificador de esta sesión de la app: desde que se abrió hasta que se
+   * cierra. Sirve para agrupar las partidas de una misma jornada y para
+   * distinguir dos tótems que exportan al mismo sitio.
+   */
+  const SESION_ID = uid('ses');
+
+  /**
+   * Vigila que la partida se juegue dentro de las reglas, DURANTE la partida.
+   *
+   * Hasta ahora la geometría solo se miraba al calibrar, y calibrar bien y
+   * jugar mal es exactamente lo que haría alguien que quiere ganar. Se toma
+   * una referencia del jugador cuando se coloca, y desde ahí se compara cada
+   * cuadro contra esa referencia suya —no contra una persona promedio—, que es
+   * lo que permite distinguir "se giró" de "es de hombros angostos".
+   */
+  function vigilanteDePartida(espacio, reglas) {
+    const r = reglas || {};
+    const tolDistancia = Math.max(10, num(r.toleranciaDistancia, 45));
+    const minHombros = clamp(num(r.giroTolerancia, 0.8), 0.3, 1);
+    const avisoPct = clamp(num(r.marcarDesde, 0.1), 0, 1);
+    const invalidaPct = clamp(num(r.invalidarDesde, 0.35), 0, 1);
+    let ref = null, muestras = 0, fuera = 0, calibrando = [];
+    const marcas = {};
+
+    const anota = (motivo) => { marcas[motivo] = (marcas[motivo] || 0) + 1; };
+
+    return {
+      /** Durante el posicionamiento: se aprende cómo se ve ESTA persona. */
+      calibrar(L, aspecto) {
+        const m = medirCuerpo(L, espacio, aspecto, null);
+        if (!m || !m.ok || !m.segmentos || !m.segmentos.anchoHombros) return false;
+        calibrando.push({ distancia: m.distancia, hombros: m.segmentos.anchoHombros });
+        if (calibrando.length < 5) return false;
+        // Mediana de las muestras: un cuadro malo durante la calibración no
+        // puede fijar una referencia que después invalide la partida entera.
+        const med = (k) => mediana(calibrando.map((x) => x[k]));
+        ref = { distancia: med('distancia'), hombros: med('hombros') };
+        return true;
+      },
+      calibrado: () => !!ref,
+      referencia: () => (ref ? Object.assign({}, ref) : null),
+      reset() { ref = null; muestras = 0; fuera = 0; calibrando = []; for (const k of Object.keys(marcas)) delete marcas[k]; },
+      /**
+       * Un cuadro de juego. Devuelve `{ ok, motivo }` para poder avisarle al
+       * jugador MIENTRAS pasa: descubrirlo al final sería una trampa del
+       * sistema, no del jugador.
+       */
+      revisar(L, aspecto) {
+        if (!ref) return { ok: true, motivo: null };
+        muestras++;
+        const m = medirCuerpo(L, espacio, aspecto, null);
+        if (!m || !m.ok) { fuera++; anota('sin-cuerpo'); return { ok: false, motivo: 'No te veo: ponte frente al tótem' }; }
+        // 1. ¿Se movió de la marca? Se compara contra donde se colocó ÉL.
+        const dif = m.distancia - ref.distancia;
+        if (Math.abs(dif) > tolDistancia) {
+          fuera++;
+          anota(dif < 0 ? 'se-acerco' : 'se-alejo');
+          return { ok: false, motivo: dif < 0 ? 'Te acercaste: vuelve a la marca del piso' : 'Te alejaste: vuelve a la marca del piso' };
+        }
+        // 2. ¿Se giró? Unos hombros que encogen sin que cambie la distancia no
+        //    son unos hombros más angostos: es alguien de perfil.
+        const rel = m.segmentos.anchoHombros / Math.max(1, ref.hombros);
+        if (rel < minHombros) {
+          fuera++;
+          anota('de-perfil');
+          return { ok: false, motivo: 'Ponte de frente a la cámara, no de perfil' };
+        }
+        return { ok: true, motivo: null };
+      },
+      /**
+       * El veredicto de la partida. `limpia` se juega y se premia; `marcada`
+       * cuenta pero queda señalada; `invalida` no compite por el premio.
+       *
+       * Que haya un nivel intermedio importa: alguien que se salió tres
+       * segundos porque le hablaron no hizo trampa, y anular su partida sería
+       * tan injusto como premiar al que jugó de perfil todo el rato.
+       */
+      veredicto() {
+        if (!ref || muestras < 15) {
+          return { estado: 'sin-datos', fueraPct: 0, muestras, marcas: {}, motivo: 'No se pudo vigilar la partida (sin referencia o demasiado corta).' };
+        }
+        const pct = fuera / muestras;
+        const estado = pct > invalidaPct ? 'invalida' : pct > avisoPct ? 'marcada' : 'limpia';
+        const principal = Object.keys(marcas).sort((a, b) => marcas[b] - marcas[a])[0] || null;
+        const FRASES = {
+          'se-acerco': 'se acercó a la cámara',
+          'se-alejo': 'se alejó de la marca',
+          'de-perfil': 'jugó de perfil',
+          'sin-cuerpo': 'salió del cuadro',
+        };
+        return {
+          estado,
+          fueraPct: round1(pct * 100) / 100,
+          muestras,
+          marcas: Object.assign({}, marcas),
+          referencia: Object.assign({}, ref),
+          motivo: estado === 'limpia' ? null
+            : Math.round(pct * 100) + '% de la partida fuera de las reglas' +
+              (principal ? ': ' + (FRASES[principal] || principal) : ''),
+        };
+      },
+    };
+  }
+
+  /**
+   * Orden del ranking, determinista y documentado.
+   *
+   * Un empate resuelto por el orden de llegada de un array es un empate
+   * resuelto por casualidad: depende de en qué orden se guardaron las filas y
+   * cambia si alguien reordena. Acá los criterios son explícitos, van en orden
+   * y el último desempata SIEMPRE, así que la lista ordenada dos veces da lo
+   * mismo y se le puede enseñar a quien reclame.
+   *
+   *   1. Puntaje más alto.
+   *   2. Partida más limpia (menos porcentaje de cuadros fuera de las reglas).
+   *      Entre dos que sacaron lo mismo, gana quien lo hizo respetando la marca.
+   *   3. Quien lo consiguió ANTES. Premia a quien lo logró primero, que es lo
+   *      que la gente espera de un concurso.
+   *   4. El identificador de la partida, alfabéticamente. No significa nada,
+   *      y por eso mismo sirve: es estable y no depende de cómo se guardó.
+   */
+  function compararParaRanking(a, b) {
+    const pa = num(a && a.puntaje, 0), pb = num(b && b.puntaje, 0);
+    if (pa !== pb) return pb - pa;
+    const fa = num(a && a.auditoria && a.auditoria.fueraPct, 0);
+    const fb = num(b && b.auditoria && b.auditoria.fueraPct, 0);
+    if (fa !== fb) return fa - fb;
+    const ta = s(a && a.at), tb = s(b && b.at);
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return s(a && a.id) < s(b && b.id) ? -1 : 1;
+  }
+
+  /** Las cuatro reglas, en texto, para mostrárselas a quien reclama. */
+  const REGLAS_DESEMPATE = [
+    'Puntaje más alto.',
+    'Si empatan, la partida más limpia (menos tiempo fuera de la marca o de perfil).',
+    'Si siguen empatadas, quien lo consiguió antes.',
+    'Si aun así empatan, el identificador de la partida en orden alfabético: no significa nada, pero es estable y no depende de cómo se guardaron las filas.',
+  ];
+
+  /** Ordena una copia; nunca el array del modelo. */
+  const ordenarRanking = (filas) => (filas || []).slice().sort(compararParaRanking);
+
+  /** ¿Sigue abierto el concurso? Devuelve `{ abierto, motivo }`. */
+  function estadoConcurso(m, ahora) {
+    const c = (m && m.concurso) || {};
+    if (!c.activo) return { abierto: true, motivo: null, modo: 'libre' };
+    if (c.cerrado) return { abierto: false, motivo: 'El concurso está cerrado.', modo: 'concurso' };
+    const t = ahora || new Date();
+    const desde = c.desde ? new Date(c.desde) : null;
+    const hasta = c.hasta ? new Date(c.hasta) : null;
+    if (desde && !Number.isNaN(desde.getTime()) && t < desde) {
+      return { abierto: false, motivo: 'El concurso todavía no empieza (abre el ' + desde.toLocaleString() + ').', modo: 'concurso' };
+    }
+    if (hasta && !Number.isNaN(hasta.getTime()) && t > hasta) {
+      return { abierto: false, motivo: 'El concurso terminó el ' + hasta.toLocaleString() + '.', modo: 'concurso' };
+    }
+    return { abierto: true, motivo: null, modo: 'concurso' };
+  }
+
+  /**
+   * Cuántos intentos lleva una persona en este concurso.
+   *
+   * Se cuenta por nombre normalizado, y eso tiene un límite que hay que decir
+   * en voz alta: dos personas que escriben el mismo nombre cuentan como una, y
+   * quien quiera más intentos solo tiene que escribir otro. No se puede
+   * resolver sin identificar a las personas, y esta app no identifica a nadie
+   * (ver PRIVACIDAD.md). Es un tope de buena fe, y así está documentado en las
+   * bases: el control real es el operador mirando la fila.
+   */
+  const claveJugador = (nombre) => s(nombre).trim().toLowerCase().replace(/\s+/g, ' ');
+
+  function intentosDe(m, nombre, juegoId) {
+    const clave = claveJugador(nombre);
+    if (!clave || clave === 'anónimo' || clave === 'anonimo') return 0;
+    return (m.scores || []).filter((x) => claveJugador(x.jugador) === clave
+      && (!juegoId || x.juego === juegoId)
+      && (!m.concurso || !m.concurso.desde || s(x.at) >= s(m.concurso.desde))).length;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // 8.b Espacio de juego y parametrización corporal en centímetros
   // ══════════════════════════════════════════════════════════════════════
   //
@@ -2190,7 +5172,7 @@ export default function mount(shell) {
    * ¿La cámara cubre el volumen declarado? Devuelve las distancias mínimas a
    * las que entra el alto y el ancho pedidos, y qué hacer si no entra.
    */
-  function coberturaEspacio(espacio, aspecto) {
+  function coberturaLente(espacio, aspecto) {
     const g = camaraGeometria(espacio, aspecto);
     const alto = num(espacio && espacio.alto, ESPACIO_SUGERIDO.alto);
     const ancho = num(espacio && espacio.ancho, ESPACIO_SUGERIDO.ancho);
@@ -2279,7 +5261,7 @@ export default function mount(shell) {
       const a = mundo[IDX.munecaI], b = mundo[IDX.munecaD];
       envergaduraMundo = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) * 100;
     }
-    const cob = coberturaEspacio(espacio, aspecto);
+    const cob = coberturaLente(espacio, aspecto);
     const dentro = distancia >= cob.zona * 0.55 && distancia <= (espacio && num(espacio.profundidad, 250)) + 30;
     return {
       ok: true, distancia, altura, envergadura, envergaduraMundo, segmentos,
@@ -2589,7 +5571,7 @@ export default function mount(shell) {
       nota: 'El ultra ancho del teléfono cubre el cuerpo entero desde mucho más cerca: es la opción para espacios chicos. Distorsiona en los bordes, así que conviene dejar a la persona centrada.',
     },
     {
-      id: 'ptz-ia', nombre: 'PTZ de escritorio con gimbal e IA (tipo OBSBOT Tiny 2)', fovH: 86, res: '4K', fps: 30,
+      id: 'ptz-ia', nombre: 'PTZ de escritorio con seguimiento por gimbal', fovH: 86, res: '4K', fps: 30,
       seguimiento: 'mecanico', profundidad: false, montaje: 'gimbal de 2 ejes sobre la pantalla',
       nota: 'Sigue a la persona moviendo el lente. Encuadra muy bien para mostrar en pantalla, pero al girar cambia la geometría y la app no puede medir estatura ni distancia mientras se mueve.',
     },
@@ -2606,14 +5588,26 @@ export default function mount(shell) {
       nota: 'El único del catálogo que entrega ESQUELETO en metros: 25 articulaciones, estado de las manos, inclinación del torso y plano del piso. No aparece en la lista de cámaras del sistema porque no es una webcam: llega por el puente local. Ve de 0,5 a 4,5 m.',
     },
     {
-      id: 'profundidad', nombre: 'Cámara de profundidad OAK-D Lite', fovH: 69, res: '1080p + estéreo', fps: 30,
-      seguimiento: 'ninguno', profundidad: true, montaje: 'soporte propio, altura libre',
-      nota: 'Mide distancia de verdad, sin depender del piso ni de ver los tobillos. Su campo es angosto: hay que darle distancia o bajarla.',
+      // La única del catálogo, además del Kinect, que trae esqueleto propio:
+      // replica los modos de profundidad del Azure Kinect y corre su Body
+      // Tracking SDK por el wrapper K4A de Orbbec. Es su reemplazo vigente.
+      id: 'femto-bolt', nombre: 'Orbbec Femto Bolt (profundidad + esqueleto)', fovH: 75, fovV: 65,
+      aspecto: 1024 / 1024, res: '1080p color + 1024×1024 profundidad', fps: 30,
+      seguimiento: 'ninguno', profundidad: true, esqueleto: true,
+      rango: { min: 25, max: 550 }, montaje: 'soporte propio, altura libre',
+      nota: 'Profundidad Y articulaciones, sin depender de la luz de la sala. No está integrada todavía: haría falta un puente propio, como el del Kinect. Es la pieza vigente si se necesita esqueleto por hardware.',
     },
     {
-      id: 'profundidad-ancha', nombre: 'Cámara de profundidad Orbbec Gemini 335 (90°)', fovH: 90, res: '1080p + estéreo', fps: 30,
+      // OJO: mide profundidad, NO entrega articulaciones. El esqueleto sigue
+      // saliendo de MediaPipe sobre su imagen. Ver docs/CAMARA-EXTERNA.md §4.
+      id: 'profundidad', nombre: 'Cámara de profundidad OAK-D Lite (sin esqueleto)', fovH: 69, res: '1080p + estéreo', fps: 30,
       seguimiento: 'ninguno', profundidad: true, montaje: 'soporte propio, altura libre',
-      nota: 'Profundidad real y campo ancho: la mejor experiencia posible hoy, y la más cara.',
+      nota: 'Mide distancia de verdad, sin depender del piso ni de ver los tobillos, pero NO entrega articulaciones: el cuerpo se sigue sacando con MediaPipe sobre su imagen. Su campo es angosto: hay que darle distancia o bajarla.',
+    },
+    {
+      id: 'profundidad-ancha', nombre: 'Orbbec Gemini 335 (profundidad, sin esqueleto)', fovH: 90, res: '1080p + estéreo', fps: 30,
+      seguimiento: 'ninguno', profundidad: true, montaje: 'soporte propio, altura libre',
+      nota: 'El mejor mapa de profundidad por el precio, y campo ancho. Pero NO trae seguimiento de cuerpo: las articulaciones se siguen sacando con MediaPipe sobre su imagen RGB. Si lo que se busca es esqueleto por hardware, la pieza es la Femto Bolt.',
     },
     {
       id: 'personalizada', nombre: 'Otra cámara (campo definido a mano)', fovH: 90, res: '—', fps: 30,
@@ -2625,7 +5619,8 @@ export default function mount(shell) {
   const camaraPorId = (id) => CAMARAS.find((c) => c.id === id) || CAMARAS[CAMARAS.length - 1];
 
   /**
-   * ¿Sirve esta cámara con el montaje declarado? Recalcula cobertura y alcance
+   * ¿Sirve esta cámara con el montaje declarado? Recalcula la cobertura del
+   * lente y el alcance
    * vertical con el campo de visión del modelo elegido, sin tocar el resto.
    */
   function evaluarCamara(cam, espacio, aspecto) {
@@ -2635,7 +5630,7 @@ export default function mount(shell) {
     // y el campo vertical sale del horizontal DIVIDIDO por el aspecto: usar el
     // del monitor daría un vertical mucho menor que el real.
     const asp = num(c.aspecto, num(aspecto, 16 / 9));
-    const cob = coberturaEspacio(e, asp);
+    const cob = coberturaLente(e, asp);
     const mont = sugerirMontaje(e, asp);
     const al = alcanceVertical(e, asp);
     const zona = cob.zona;
@@ -2664,7 +5659,7 @@ export default function mount(shell) {
     if (c.fovH >= 110) razones.push('El lente ultra ancho distorsiona los bordes: conviene calibrarlo antes de confiar en la estatura.');
     return {
       camara: c, fovH: cob.geometria.fovH, fovV: cob.geometria.fovV,
-      cobertura: cob, montaje: mont, pisoZona, techoZona,
+      coberturaLente: cob, montaje: mont, pisoZona, techoZona,
       zonaMedio, pisoMedio, techoMedio,
       sirveMedioCuerpo: medioCuerpo, sirveCuerpoEntero: cuerpoEntero,
       inclinacionNecesaria: mont.inclinacion,
@@ -2766,10 +5761,10 @@ export default function mount(shell) {
     { i: IDX.tobilloI, n: 'Tobillo izq.' }, { i: IDX.tobilloD, n: 'Tobillo der.' },
   ];
 
-  /** Diagrama a escala del volumen de juego, con su veredicto de cobertura. */
+  /** Diagrama a escala del volumen de juego, con el veredicto del lente. */
   function DiagramaEspacio(props) {
     const e = props.espacio || {};
-    const c = coberturaEspacio(e, props.aspecto);
+    const c = coberturaLente(e, props.aspecto);
     const alto = c.alto, prof = c.profundidad, zona = c.zona;
     const esc = 460 / Math.max(alto, prof);            // px por cm
     const px = (cm) => cm * esc;
@@ -2821,7 +5816,7 @@ export default function mount(shell) {
 
   /** El diagrama más su veredicto en texto (que necesita fluir en varias líneas). */
   function BloqueEspacio(props) {
-    const c = coberturaEspacio(props.espacio, props.aspecto);
+    const c = coberturaLente(props.espacio, props.aspecto);
     const mont = sugerirMontaje(props.espacio, props.aspecto);
     return h('div', { className: 'fp-espacio-bloque' },
       h(DiagramaEspacio, props),
@@ -2966,6 +5961,208 @@ export default function mount(shell) {
     return { total: suma / n, brazos: grupo('brazos'), piernas: grupo('piernas'), porArticulacion };
   }
 
+  // ── 9.b Modo rítmico táctil ──────────────────────────────────────────
+  //
+  // Prueba de baile era el único juego con cámara sin entrada alternativa de
+  // verdad: el botón «probar sin cámara» arranca un maniquí que baila solo, y
+  // el puntaje no es de nadie. Acá se juega la MISMA coreografía sin cámara,
+  // por toque o teclado, y el puntaje sí es del jugador.
+  //
+  // No se inventa una coreografía nueva: los pulsos salen de `steps[].beats`
+  // y del `bpm` que ya existen, y el CARRIL de cada nota sale de la pose del
+  // paso —el lado que levanta el avatar—, así que cualquier coreografía que
+  // el operador escriba en el editor se vuelve jugable por toque sin escribir
+  // un solo dato más.
+  //
+  // Lo que NO es: no es la misma prueba que con cámara. Acá se mide llegar a
+  // tiempo, no la postura. El ranking lo dice en el detalle de la fila.
+
+  /** Ventanas de juicio, en ms alrededor del pulso, a 96 bpm. */
+  const RITMO_JUICIOS = [
+    { id: 'perfecto', ms: 80, calidad: 1, texto: '¡Perfecto!' },
+    { id: 'bien', ms: 150, calidad: 0.75, texto: '¡Bien!' },
+    { id: 'casi', ms: 240, calidad: 0.4, texto: 'Casi' },
+  ];
+  const RITMO_VENTANA = 240;
+
+  /**
+   * Las ventanas se encogen si la coreografía va rápida: con pulsos de 375 ms
+   * (160 bpm) una ventana de ±240 ms alcanzaría a la nota siguiente y un solo
+   * toque podría contar dos veces. El tope es 42% del pulso.
+   */
+  function ventanasDeRitmo(beatMs) {
+    const max = Math.min(RITMO_VENTANA, Math.max(60, num(beatMs, 625) * 0.42));
+    const k = max / RITMO_VENTANA;
+    return RITMO_JUICIOS.map((j) => ({ id: j.id, ms: j.ms * k, calidad: j.calidad, texto: j.texto }));
+  }
+
+  /**
+   * Carril de un paso: el lado que el avatar levanta. Si los dos hombros van
+   * casi igual (vuelta, palmas arriba) la nota es ancha y vale cualquiera de
+   * los dos botones.
+   */
+  function carrilDePaso(pose) {
+    const i = num(pose && pose.hombroI, 0), d = num(pose && pose.hombroD, 0);
+    if (Math.abs(i - d) < 25) return 'ambos';
+    return i > d ? 'izq' : 'der';
+  }
+
+  /** Cuánto se espera antes del primer pulso: la cuenta regresiva son las notas cayendo. */
+  const entradaDeRitmo = (beatMs) => Math.max(2600, num(beatMs, 625) * 4);
+
+  /**
+   * Convierte la coreografía en una lista de notas con su instante absoluto.
+   * Una nota por pulso; el paso manda el carril y el nombre.
+   */
+  function notasDeCoreografia(choreo, vueltas, opts) {
+    const steps = (choreo && choreo.steps) || [];
+    const beatMs = 60000 / Math.max(40, num(choreo && choreo.bpm, 96));
+    const entrada = entradaDeRitmo(beatMs);
+    if (!steps.length) return { notas: [], beatMs, entrada, finMs: entrada, ventanas: ventanasDeRitmo(beatMs) };
+    const unCarril = !!(opts && opts.unCarril);
+    const vlt = clamp(Math.round(num(vueltas, 2)), 1, 12);
+    const notas = [];
+    let t = entrada;
+    for (let v = 0; v < vlt; v++) {
+      for (let i = 0; i < steps.length; i++) {
+        const beats = clamp(Math.round(num(steps[i].beats, 2)), 1, 16);
+        const carril = unCarril ? 'ambos' : carrilDePaso(steps[i].pose);
+        for (let b = 0; b < beats; b++) {
+          notas.push({
+            id: 'n' + notas.length, t: t + b * beatMs, carril: carril,
+            paso: i, vuelta: v, nombre: s(steps[i].name), fuerte: b === 0,
+          });
+        }
+        t += beats * beatMs;
+      }
+    }
+    return { notas, beatMs, entrada, finMs: t, ventanas: ventanasDeRitmo(beatMs) };
+  }
+
+  /**
+   * El juez. Recibe golpes con su instante y va cerrando las notas que pasan.
+   *
+   * `latenciaMs` descuenta el retardo del panel táctil del tótem: es un ajuste
+   * del montaje, no del jugador, y por eso vive en la configuración del juego
+   * y no se adivina solo. El resumen devuelve el sesgo medido para que el
+   * operador sepa qué número poner.
+   */
+  function juezRitmico(pista, opts) {
+    const o = opts || {};
+    const latencia = clamp(num(o.latenciaMs, 0), -300, 300);
+    const ventanas = pista.ventanas || ventanasDeRitmo(pista.beatMs);
+    const vmax = ventanas[ventanas.length - 1].ms;
+    const notas = (pista.notas || []).map((n) => Object.assign({}, n, { estado: 'espera', desfase: null, calidad: 0, juicio: '' }));
+    let cursor = 0, alAire = 0;
+
+    const juicioDe = (d) => {
+      for (const v of ventanas) if (d <= v.ms) return v;
+      return null;
+    };
+
+    return {
+      notas: () => notas,
+      finMs: pista.finMs,
+      vmax: vmax,
+      /** Cierra como perdidas las notas cuya ventana ya venció. */
+      avanzar(tMs) {
+        const cerradas = [];
+        while (cursor < notas.length) {
+          const n = notas[cursor];
+          if (n.estado !== 'espera') { cursor++; continue; }
+          if (tMs - n.t > vmax) { n.estado = 'perdida'; cerradas.push(n); cursor++; continue; }
+          break;
+        }
+        return cerradas;
+      },
+      /**
+       * Un toque. `carril` es 'izq' o 'der'. Devuelve el juicio para el HUD.
+       * Tocar el lado equivocado NO acierta: la nota sigue viva hasta que
+       * vence, igual que si no se hubiera tocado. Se distingue solo para poder
+       * decírselo al jugador.
+       */
+      golpear(carril, tMs) {
+        const t = num(tMs, 0) - latencia;
+        let mejor = null, mejorD = Infinity, otroLado = false;
+        for (let i = cursor; i < notas.length; i++) {
+          const n = notas[i];
+          if (n.t - t > vmax) break;
+          if (n.estado !== 'espera') continue;
+          const d = Math.abs(n.t - t);
+          if (d > vmax) continue;
+          if (!(n.carril === 'ambos' || n.carril === carril)) { otroLado = true; continue; }
+          if (d < mejorD) { mejor = n; mejorD = d; }
+        }
+        if (!mejor) {
+          alAire++;
+          return otroLado
+            ? { juicio: 'ladomalo', texto: '¡El otro lado!', nota: null }
+            : { juicio: 'aire', texto: 'Fuera de tiempo', nota: null };
+        }
+        const v = juicioDe(mejorD);
+        mejor.estado = 'acertada';
+        mejor.juicio = v.id;
+        mejor.calidad = v.calidad;
+        mejor.desfase = Math.round(t - mejor.t);   // + = tarde, − = temprano
+        return { juicio: v.id, texto: v.texto, nota: mejor, desfase: mejor.desfase };
+      },
+      /**
+       * Puntaje con la MISMA forma que el de cámara: dos componentes y el
+       * mismo peso configurable. «pasos» ocupa el lugar de la postura (¿hizo
+       * el movimiento que tocaba?) y «ritmo» el suyo (¿llegó a tiempo?).
+       */
+      resumen() {
+        const total = notas.length;
+        const buenas = notas.filter((n) => n.estado === 'acertada');
+        const porJuicio = { perfecto: 0, bien: 0, casi: 0 };
+        for (const n of buenas) if (porJuicio[n.juicio] != null) porJuicio[n.juicio]++;
+        return {
+          total,
+          aciertos: buenas.length,
+          perdidas: total - buenas.length,
+          alAire,
+          porJuicio,
+          pasos: total ? buenas.length / total : 0,
+          ritmo: buenas.length ? buenas.reduce((a, n) => a + n.calidad, 0) / buenas.length : 0,
+          // Sesgo del jugador contra el pulso. Si sale grande y del mismo
+          // signo en varias partidas, el que llega tarde es el panel táctil.
+          sesgo: buenas.length >= 6 ? mediana(buenas.map((n) => n.desfase)) : null,
+          latencia,
+        };
+      },
+    };
+  }
+
+  /**
+   * Clic de compás. Sin archivos ni dependencias: un oscilador corto por nota.
+   * Si el navegador no da audio, el juego se ve igual y se juega igual.
+   */
+  function compasSonoro() {
+    let ctx = null;
+    try {
+      const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+      if (AC) ctx = new AC();
+    } catch (e) { ctx = null; }
+    return {
+      activo: () => !!ctx,
+      clic(fuerte) {
+        if (!ctx) return;
+        try {
+          if (ctx.state === 'suspended') ctx.resume();
+          const t = ctx.currentTime;
+          const osc = ctx.createOscillator(), gan = ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.value = fuerte ? 1320 : 880;
+          gan.gain.setValueAtTime(fuerte ? 0.13 : 0.07, t);
+          gan.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+          osc.connect(gan); gan.connect(ctx.destination);
+          osc.start(t); osc.stop(t + 0.07);
+        } catch (e) { /* un clic no puede tumbar una partida */ }
+      },
+      cerrar() { try { ctx && ctx.close(); } catch (e) { /* noop */ } ctx = null; },
+    };
+  }
+
   /** Avatar dieciochero que ejecuta la coreografía (SVG paramétrico). */
   function Avatar(props) {
     const a = props.pose || {};
@@ -3105,6 +6302,250 @@ export default function mount(shell) {
   // 10. Juego 2 — "Prueba de baile" (cámara + pose)
   // ══════════════════════════════════════════════════════════════════════
 
+  // Escala de la pista: 0.16 px por milisegundo. En una pista de 400 px con la
+  // línea a 58 px del borde inferior son ~2,1 s de anticipación, que es lo que
+  // alcanza a leer alguien que llega al tótem y juega de una. La entrada
+  // (`entradaDeRitmo`) es mayor que eso para que la primera nota se vea nacer.
+  const RITMO_PX_MS = 0.16;
+
+  /**
+   * La pista rítmica: el modo sin cámara de Prueba de baile.
+   *
+   * Vive aparte del componente de cámara a propósito. Son dos máquinas de
+   * estados distintas, y meterlas en la misma pondría en riesgo la entrada que
+   * ya funciona cada vez que se toque la otra.
+   *
+   * Las notas NO se re-renderizan cada cuadro: se colocan una sola vez en una
+   * tira, y lo que se mueve por cuadro es un `translateY` sobre esa tira. React
+   * solo vuelve a pintar cuando una nota cambia de estado, y el juicio se hace
+   * con la hora del evento de toque, no con la del render: la precisión no
+   * depende de a cuántos cuadros vaya la pantalla.
+   */
+  function BaileRitmico(props) {
+    const cfg = props.cfg || {};
+    const choreo = props.choreo;
+    const unCarril = cfg.ritmoUnCarril === true;
+
+    const pista = useMemo(
+      () => notasDeCoreografia(choreo, cfg.vueltas, { unCarril }),
+      [choreo, cfg.vueltas, unCarril]);
+
+    const juezRef = useRef(null);
+    const tiraRef = useRef(null);
+    const t0Ref = useRef(0);
+    const sonRef = useRef(null);
+    const comboRef = useRef({ actual: 0, mejor: 0 });
+    const proxClicRef = useRef(0);
+
+    const [fase, setFase] = useState('jugando');
+    // Solo se necesita el disparador: las notas se leen del juez, no del estado.
+    const [, repintar] = useState(0);
+    const [hud, setHud] = useState({ paso: '', tip: '', progreso: 0, cuenta: 0, aciertos: 0, combo: 0, pose: null });
+    const [juicio, setJuicio] = useState({ texto: '', tipo: '', at: 0 });
+    const [final, setFinal] = useState(null);
+
+    const arrancar = useCallback(() => {
+      juezRef.current = juezRitmico(pista, { latenciaMs: cfg.ritmoLatenciaMs });
+      comboRef.current = { actual: 0, mejor: 0 };
+      proxClicRef.current = 0;
+      t0Ref.current = nowMs();
+      setFinal(null);
+      setJuicio({ texto: '', tipo: '', at: 0 });
+      repintar((v) => v + 1);
+      setFase('jugando');
+    }, [pista, cfg.ritmoLatenciaMs]);
+
+    useEffect(() => { arrancar(); }, [arrancar]);
+
+    // El audio se abre una vez, ya con el gesto del jugador hecho (llegar acá
+    // fue apretar un botón), y se cierra al salir del juego.
+    useEffect(() => {
+      if (cfg.ritmoSonido === false) return undefined;
+      sonRef.current = compasSonoro();
+      return () => { const c = sonRef.current; sonRef.current = null; if (c) c.cerrar(); };
+    }, [cfg.ritmoSonido]);
+
+    /** Un toque. La hora es la del evento: es lo único que se juzga. */
+    const golpear = useCallback((carril) => {
+      const j = juezRef.current;
+      if (!j || fase !== 'jugando') return;
+      const t = nowMs() - t0Ref.current;
+      const r = j.golpear(unCarril ? 'izq' : carril, t);
+      const C = comboRef.current;
+      if (r.nota) {
+        C.actual++;
+        if (C.actual > C.mejor) C.mejor = C.actual;
+        if (r.juicio === 'perfecto' && navigator.vibrate) { try { navigator.vibrate(18); } catch (e) { /* noop */ } }
+      } else {
+        C.actual = 0;
+      }
+      setJuicio({ texto: r.texto, tipo: r.juicio, at: nowMs() });
+      repintar((v) => v + 1);
+    }, [fase, unCarril]);
+
+    useEffect(() => {
+      if (fase !== 'jugando') return undefined;
+      const onTecla = (e) => {
+        if (e.repeat) return;
+        const k = e.key;
+        if (k === 'ArrowLeft' || k === 'a' || k === 'A' || k === 'f' || k === 'F') { e.preventDefault(); golpear('izq'); }
+        else if (k === 'ArrowRight' || k === 'l' || k === 'L' || k === 'j' || k === 'J') { e.preventDefault(); golpear('der'); }
+        else if (unCarril && (k === ' ' || k === 'Enter')) { e.preventDefault(); golpear('izq'); }
+      };
+      window.addEventListener('keydown', onTecla);
+      return () => window.removeEventListener('keydown', onTecla);
+    }, [fase, golpear, unCarril]);
+
+    // Bucle: mueve la tira, suena el compás, cierra las notas que pasan.
+    useEffect(() => {
+      if (fase !== 'jugando') return undefined;
+      let ultimoHud = 0;
+      return loop(() => {
+        const j = juezRef.current;
+        if (!j) return;
+        const t = nowMs() - t0Ref.current;
+
+        // La nota está a `(n.t − t) · px` POR ENCIMA de la línea: se coloca en
+        // −n.t·px y la tira baja con el reloj. Así caen hacia la línea, que es
+        // como se lee una pista de ritmo en cualquier parte.
+        if (tiraRef.current) tiraRef.current.style.transform = 'translateY(' + (t * RITMO_PX_MS).toFixed(1) + 'px)';
+
+        const cerradas = j.avanzar(t);
+        if (cerradas.length) { comboRef.current.actual = 0; repintar((v) => v + 1); }
+
+        // Clic de compás: adelantado al pulso lo justo para que suene EN el
+        // pulso y no después de él.
+        const son = sonRef.current;
+        if (son) {
+          const notas = j.notas();
+          while (proxClicRef.current < notas.length && notas[proxClicRef.current].t - 12 <= t) {
+            son.clic(notas[proxClicRef.current].fuerte);
+            proxClicRef.current++;
+          }
+        }
+
+        if (nowMs() - ultimoHud > 90) {
+          ultimoHud = nowMs();
+          const obj = poseObjetivo(choreo, Math.max(0, t - pista.entrada));
+          const r = j.resumen();
+          setHud({
+            paso: obj ? obj.paso.name : choreo.name,
+            tip: obj ? obj.paso.tip : (choreo.musicHint || ''),
+            progreso: clamp(t / Math.max(1, pista.finMs), 0, 1),
+            cuenta: t < pista.entrada ? Math.ceil((pista.entrada - t) / 1000) : 0,
+            aciertos: r.aciertos, combo: comboRef.current.actual,
+            pose: obj ? obj.pose : null,
+          });
+        }
+
+        if (t >= pista.finMs + j.vmax + 200) {
+          const r = j.resumen();
+          const pR = clamp(num(cfg.pesoRitmo, 0.3), 0, 0.8);
+          setFinal(Object.assign({}, r, {
+            p10: clamp((r.pasos * (1 - pR) + r.ritmo * pR) * 10, 0, 10),
+            combo: comboRef.current.mejor,
+          }));
+          setFase('fin');
+        }
+      });
+    }, [fase, pista, choreo, cfg.pesoRitmo]);
+
+    // ── Resultado ─────────────────────────────────────────────────────
+    if (fase === 'fin' && final) {
+      const pct = (v) => Math.round(v * 100) + '%';
+      const tips = [];
+      if (final.pasos > 0.9) tips.push('¡No se te escapó casi ninguna!');
+      else if (final.pasos < 0.5) tips.push('Toca el lado que levanta el avatar: la nota ancha vale con cualquiera.');
+      if (final.ritmo > 0.85) tips.push('Y llegaste clavado al compás.');
+      else if (final.aciertos) tips.push('Apunta al momento en que la nota cruza la línea.');
+      if (final.combo >= 8) tips.push('Mejor racha: ' + final.combo + ' seguidas.');
+      return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
+        h(Resultado, {
+          puntaje10: final.p10,
+          juego: props.game.name,
+          titulo: '¡Se bailó con las manos!',
+          mensaje: tips.join(' '),
+          detalle: h('div', { className: 'fp-chips' },
+            h(Chip, null, 'Notas ' + final.aciertos + '/' + final.total),
+            h(Chip, null, 'Pasos ' + pct(final.pasos)),
+            h(Chip, { tone: 'accent' }, 'Ritmo ' + pct(final.ritmo)),
+            h(Chip, null, 'Racha ' + final.combo)),
+          // Lo que queda escrito en el ranking dice CUÁL prueba fue. No es la
+          // misma que con cámara y el CSV no puede insinuar que sí.
+          detalleTexto: 'Modo rítmico táctil · ' + choreo.name + ' · ' + final.aciertos + '/' + final.total +
+            ' notas · ritmo ' + pct(final.ritmo),
+          onExit: props.onExit,
+          onReplay: arrancar,
+        }),
+        // El sesgo se muestra al operador, no al jugador: si todo el mundo
+        // llega tarde lo mismo, el que llega tarde es el panel.
+        final.sesgo != null && Math.abs(final.sesgo) >= 45
+          ? h('p', { className: 'fp-hint' },
+              'Ajuste del montaje: los toques llegaron ' + Math.abs(final.sesgo) + ' ms ' +
+              (final.sesgo > 0 ? 'tarde' : 'temprano') + ' de media. Si se repite con varios jugadores, ' +
+              'es el retardo del panel: ponlo en «Ajuste de latencia» en el editor.')
+          : null);
+    }
+
+    // ── Pista ─────────────────────────────────────────────────────────
+    const escB = escenaDe(themeOf(model));
+    const objetivo = hud.pose || (choreo.steps[0] && choreo.steps[0].pose);
+    const notas = juezRef.current ? juezRef.current.notas() : [];
+    const carriles = unCarril ? ['izq'] : ['izq', 'der'];
+    const etiqueta = { izq: unCarril ? '👏 TOCA' : '👈 IZQUIERDA', der: 'DERECHA 👉' };
+
+    const notaEl = (n) => h('i', {
+      key: n.id,
+      className: 'fp-nota is-' + n.carril + (n.estado === 'espera' ? '' : ' is-' + n.estado) + (n.fuerte ? ' is-fuerte' : ''),
+      style: { top: (-n.t * RITMO_PX_MS).toFixed(1) + 'px' },
+    });
+
+    return h(Marco, {
+      icon: props.game.icon, title: props.game.name, onExit: props.onExit,
+      meta: h('div', { className: 'fp-meta-row' },
+        h(Chip, null, '👆 Sin cámara'),
+        hud.combo > 2 ? h(Chip, { tone: 'accent' }, 'Racha ' + hud.combo) : null),
+    },
+      h('div', { className: 'fp-dance is-ritmo' },
+        h('div', { className: 'fp-dance-avatar' },
+          h('svg', { viewBox: '0 0 340 420', className: 'fp-avatar-svg' },
+            h(LienzoDC, { gid: 'fp-ritmo-vb', w: 340, h: 420 },
+              h(CieloDC, { w: 340, h: 420, horizonte: 250, gid: 'fp-ritmo', alto: escB.cielo, bajo: escB.cieloBajo, sol: false }),
+              h('path', { d: 'M170 0 L300 250 L40 250 Z', fill: '#FFF3C4', opacity: 0.14 }),
+              h(SueloDC, { w: 340, h: 420, horizonte: 250, color: '#8A5C2A', fugaX: 170, filas: 6, lineas: 9, bruma: 'rgba(255,230,190,.35)' }),
+              h(SombraDC, { cx: 170, cy: 322, rx: 92, ry: 20 }),
+              h(Avatar, { transform: 'translate(170,178) scale(0.86)', pose: objetivo }))),
+          h('div', { className: 'fp-dance-step' },
+            h('b', null, hud.paso || choreo.name),
+            h('span', null, hud.tip || choreo.musicHint || '')),
+          h('div', { className: 'fp-progress' }, h('i', { style: { width: (hud.progreso * 100).toFixed(1) + '%' } }))),
+
+        h('div', { className: 'fp-ritmo' },
+          h('div', { className: 'fp-pista' + (unCarril ? ' is-uno' : '') },
+            carriles.map((c) => h('div', {
+              key: c, className: 'fp-pista-carril is-' + c,
+              onPointerDown: (e) => { e.preventDefault(); golpear(c); },
+            })),
+            h('div', { className: 'fp-pista-linea' }),
+            // Sin `key` a propósito: este nodo tiene que sobrevivir a todos los
+            // repintados, porque su `transform` lo escribe el bucle a mano y
+            // remontarlo lo dejaría un cuadro en el sitio equivocado.
+            h('div', { className: 'fp-pista-tira', ref: tiraRef }, notas.map(notaEl)),
+            hud.cuenta > 0 ? h('div', { className: 'fp-count' }, hud.cuenta) : null,
+            juicio.texto && nowMs() - juicio.at < 700
+              ? h('div', { className: 'fp-ritmo-juicio is-' + juicio.tipo }, juicio.texto) : null),
+          h('div', { className: 'fp-ritmo-botones' + (unCarril ? ' is-uno' : '') },
+            carriles.map((c) => h('button', {
+              key: c, type: 'button', className: 'fp-ritmo-btn is-' + c,
+              onPointerDown: (e) => { e.preventDefault(); golpear(c); },
+            }, etiqueta[c]))),
+          h('p', { className: 'fp-hint' },
+            unCarril
+              ? 'Toca el botón —o la barra espaciadora— cuando la nota cruce la línea.'
+              : 'Toca el lado que levanta el avatar cuando la nota cruce la línea. ' +
+                'Las notas anchas valen con cualquiera de los dos. También sirven las flechas ← → del teclado.'))));
+  }
+
   function JuegoBaile(props) {
     const cfg = props.game.config || {};
     const hw = model.hardware;
@@ -3121,6 +6562,9 @@ export default function mount(shell) {
     const ritmoRef = useRef({ beats: 0, ok: 0, hist: [], prevAng: null, prevIdx: -1 });
 
     const [fase, setFase] = useState('intro');
+    // El modo rítmico es otra pantalla entera, con su propio bucle: acá solo
+    // se elige, para no mezclar dos máquinas de estados en una.
+    const [ritmico, setRitmico] = useState(false);
     const [motor, setMotor] = useState(null);      // etiqueta del proveedor activo
     const [error, setError] = useState('');
     const [hud, setHud] = useState({ score: 0, paso: '', tip: '', encuadre: '', progreso: 0, cuenta: 0 });
@@ -3303,9 +6747,18 @@ export default function mount(shell) {
           ? h(Esqueleto, { landmarks: vista.landmarks, espejo: espejo }) : null),
       fase === 'calibrando' ? h(Silueta, { ok: hud.ok }) : null,
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+        ? h(AvisoCamara, null) : null);
+
+    // Modo rítmico: pantalla aparte, sin cámara y sin nada que soltar.
+    if (ritmico) {
+      return h(BaileRitmico, {
+        game: props.game, cfg: cfg, choreo: choreo,
+        onExit: () => { setRitmico(false); props.onExit(); },
+      });
+    }
 
     if (fase === 'intro') {
+      const conRitmo = cfg.modoRitmico !== false;
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
         h('div', { className: 'fp-intro' },
           h('div', { className: 'fp-intro-art' },
@@ -3319,7 +6772,13 @@ export default function mount(shell) {
           error ? h('div', { className: 'fp-error' }, '⚠ ' + error) : null,
           h('div', { className: 'fp-actions' },
             h(Boton, { variant: 'primary', onClick: () => iniciar('camara') }, '📷 Activar cámara y jugar'),
-            h(Boton, { onClick: () => iniciar('demo') }, '🕹️ Probar sin cámara')),
+            conRitmo ? h(Boton, { onClick: () => { setError(''); setRitmico(true); } }, '👏 Jugar por toque (modo rítmico)') : null,
+            h(Boton, { variant: 'ghost', onClick: () => iniciar('demo') }, '🕹️ Ver el maniquí')),
+          // El botón del maniquí no es una forma de jugar y la app no lo puede
+          // insinuar: el que quiera jugar sin cámara tiene el modo rítmico.
+          conRitmo ? h('p', { className: 'fp-hint' },
+            '👏 El modo rítmico se juega sin cámara: la misma coreografía, marcando el compás con el dedo ' +
+            'o con las flechas del teclado. El maniquí, en cambio, baila solo: sirve para mirar los pasos, no para competir.') : null,
           h('p', { className: 'fp-privacy' },
             '🔒 El análisis ocurre en este equipo. No se graba, no se guarda y no se envía video ni rostros: solo ángulos del cuerpo durante la partida.')),
         videoBox);
@@ -3388,7 +6847,7 @@ export default function mount(shell) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // 12. Juego 4 — "LaserGun" (pistola tipo Duck Hunt)
+  // 12. Juego 4 — "LaserGun" (tiro al blanco con puntero absoluto)
   // ══════════════════════════════════════════════════════════════════════
   //
   // Entrada: cualquier dispositivo que se comporte como puntero absoluto
@@ -3398,6 +6857,8 @@ export default function mount(shell) {
 
   const LASER_VB = { w: 1000, h: 1400 };
   // Suman: empanadas, choripanes y volantines. Restan: ajíes rojos y schops.
+  // Puntos y tamaño son REGLA del juego y no los toca ningún pack; el nombre
+  // sí, porque en Navidad un volantín es una estrella y el juego es el mismo.
   const BLANCOS = {
     volantin: { puntos: 10, r: 46, nombre: 'Volantín' },
     empanada: { puntos: 20, r: 40, nombre: 'Empanada' },
@@ -3405,6 +6866,8 @@ export default function mount(shell) {
     aji: { puntos: -1, r: 34, nombre: 'Ají rojo' },      // -1 = usa la penalización configurada
     schop: { puntos: -1, r: 38, nombre: 'Schop' },
   };
+  /** Cómo se llama un blanco con el pack puesto. */
+  const nombreBlanco = (clave) => s((model.blancos || {})[clave]) || (BLANCOS[clave] || {}).nombre || clave;
   const BLANCOS_BUENOS = ['empanada', 'choripan', 'volantin'];
   const BLANCOS_MALOS = ['aji', 'schop'];
 
@@ -3634,7 +7097,7 @@ export default function mount(shell) {
       if (base < 0) {
         setCombo(0);
         setPuntos((v) => v - Math.abs(num(cfg.penalizacion, 5)));
-        notify('warn', BLANCOS[mejor.kind].nombre + ': −' + Math.abs(num(cfg.penalizacion, 5)) + ' puntos');
+        notify('warn', nombreBlanco(mejor.kind) + ': −' + Math.abs(num(cfg.penalizacion, 5)) + ' puntos');
       } else {
         const c = combo + 1;
         setCombo(c);
@@ -3712,7 +7175,7 @@ export default function mount(shell) {
         if (t - ultimoHud > 45) {
           ultimoHud = t;
           setManoHud(r.visible ? r : null);
-          setAvisoMano(r.visible ? r.gesto : 'No te veo: ponte frente al tótem');
+          setAvisoMano(r.visible ? r.gesto : (avisoDeEncuadre(lec && lec.confianza, 'brazos') || 'No te veo: ponte frente al tótem'));
         }
       });
     }, [conMano, fase, hw.espejo]);
@@ -3975,7 +7438,7 @@ export default function mount(shell) {
           // Un tejo se lanza con el cuerpo, no con el brazo: el paso adelante
           // acompaña el swing y suma hasta un 25 % de fuerza. Si la cámara no
           // ve las piernas, `paso` llega en 0 y el tiro vale lo de siempre.
-          const paso = clamp(num(cuerpo && cuerpo.cobertura === 'completo' ? cuerpo.pasoAdelante : 0, 0), 0, 1);
+          const paso = clamp(num(cuerpo && cuerpo.visibilidadCuerpo === 'completo' ? cuerpo.pasoAdelante : 0, 0), 0, 1);
           const r = {
             fuerza: pico.rapidez * (1 + paso * 0.25),
             lateral: pico.vx, brazo: pico.brazo,
@@ -4000,9 +7463,16 @@ export default function mount(shell) {
    */
   function detectorBoxeo() {
     const est = { izquierdo: { fuera: false, pico: 0 }, derecho: { fuera: false, pico: 0 } };
-    let prev = null;
+    // Un golpe se reconoce por su FORMA en 250 ms, no por la velocidad entre
+    // dos cuadros: esa velocidad es ruido del modelo la mitad de las veces.
+    const vent = { izquierdo: ventanaGesto(250), derecho: ventanaGesto(250) };
+    let prev = null, reloj = 0;
     return {
-      reset() { est.izquierdo = { fuera: false, pico: 0 }; est.derecho = { fuera: false, pico: 0 }; prev = null; },
+      reset() {
+        est.izquierdo = { fuera: false, pico: 0 }; est.derecho = { fuera: false, pico: 0 };
+        vent.izquierdo.reset(); vent.derecho.reset();
+        prev = null; reloj = 0;
+      },
       /**
        * Devuelve { golpe, guardia, inclinacion, listo }.
        * `golpe` es null o { brazo, altura: 'alta'|'media', fuerza }.
@@ -4015,9 +7485,12 @@ export default function mount(shell) {
        *   · la esquiva usa el `lean` que mide el sensor, en vez de deducirla
        *     de cuánto se corrió el torso en la imagen.
        */
-      actualizar(L, espejo, dt, k) {
+      actualizar(L, espejo, dt, k, mundo) {
         const vacio = { golpe: null, guardia: false, inclinacion: 0, listo: false };
         if (!L) return vacio;
+        // Reloj propio, por la misma razón que en el detector de salto.
+        reloj += Math.max(0, num(dt, 1 / 60)) * 1000;
+        const tAhora = reloj;
         const hI = L[IDX.hombroI], hD = L[IDX.hombroD];
         const escala = escalaCorporal(L, 'superior');
         if (!hI || !hD || !escala) return vacio;
@@ -4026,17 +7499,33 @@ export default function mount(shell) {
         const nariz = L[IDX.nariz];
 
         const brazos = [
-          { brazo: 'izquierdo', hombro: hI, muneca: L[IDX.munecaI], codo: L[IDX.codoI] },
-          { brazo: 'derecho', hombro: hD, muneca: L[IDX.munecaD], codo: L[IDX.codoD] },
+          { brazo: 'izquierdo', hombro: hI, muneca: L[IDX.munecaI], codo: L[IDX.codoI], wm: mundo && mundo[IDX.munecaI], wh: mundo && mundo[IDX.hombroI] },
+          { brazo: 'derecho', hombro: hD, muneca: L[IDX.munecaD], codo: L[IDX.codoD], wm: mundo && mundo[IDX.munecaD], wh: mundo && mundo[IDX.hombroD] },
         ];
         let golpe = null, manosArriba = 0, manosVistas = 0;
         for (const b of brazos) {
           if (!b.muneca) continue;
           manosVistas++;
           // Extensión del brazo, en anchos de hombro.
-          const ext = Math.hypot(b.muneca.x - b.hombro.x, b.muneca.y - b.hombro.y) / escala;
+          let ext = Math.hypot(b.muneca.x - b.hombro.x, b.muneca.y - b.hombro.y) / escala;
+          // Un directo va HACIA la cámara: en la imagen la muñeca casi no se
+          // mueve, y medir solo el desplazamiento del extremo lo perdería. Con
+          // coordenadas de mundo la extensión se mide en 3D, que es lo que un
+          // directo de verdad hace crecer.
+          if (b.wm && b.wh) {
+            const ext3d = Math.hypot(b.wm.x - b.wh.x, b.wm.y - b.wh.y, b.wm.z - b.wh.z);
+            const anchoM = mundo[IDX.hombroI] && mundo[IDX.hombroD]
+              ? Math.hypot(mundo[IDX.hombroI].x - mundo[IDX.hombroD].x,
+                  mundo[IDX.hombroI].y - mundo[IDX.hombroD].y,
+                  mundo[IDX.hombroI].z - mundo[IDX.hombroD].z)
+              : 0;
+            if (anchoM > 0.05) ext = ext3d / anchoM;
+          }
           const e = est[b.brazo];
-          const vel = prev && prev[b.brazo] != null ? (ext - prev[b.brazo]) / Math.max(0.016, dt) : 0;
+          // La velocidad sale de la VENTANA, no del cuadro anterior.
+          vent[b.brazo].empujar(ext, tAhora);
+          const f = vent[b.brazo].forma();
+          const vel = f ? f.subida : 0;
           if (nariz && Math.abs(b.muneca.y - nariz.y) < escala * 0.85
               && Math.abs(b.muneca.x - centroX) < escala * 0.9) manosArriba++;
           // Con Kinect, el puño tiene que estar CERRADO: estirar el brazo con
@@ -4044,7 +7533,10 @@ export default function mount(shell) {
           const mano = k ? (b.brazo === 'izquierdo' ? k.manoI : k.manoD) : null;
           const confianza = k ? (b.brazo === 'izquierdo' ? k.confianzaManoI : k.confianzaManoD) : 0;
           const puno = !mano || mano === 'desconocida' || confianza < 0.5 ? true : mano === 'cerrada';
-          if (!e.fuera && ext > 1.15 && vel > 1.6 && puno) {
+          // Y el gesto tiene que tener forma: haber subido de manera sostenida
+          // durante al menos ~90 ms. Un pico de un cuadro ya no cuenta.
+          const conForma = !!f && f.sostenido && f.duracionMs >= 90 && f.amplitud > 0.25;
+          if (!e.fuera && ext > 1.15 && vel > 1.6 && conForma && puno) {
             // Golpe: el brazo se extendió rápido (y con el puño cerrado).
             e.fuera = true;
             e.pico = vel;
@@ -4219,6 +7711,10 @@ export default function mount(shell) {
         const t = nowMs();
         if (faseRef.current === 'posicion') {
           // Encuadre de MEDIO CUERPO: basta cabeza, hombros y brazos.
+          // La pantalla de posicionamiento es el momento de medir los largos
+          // de hueso: la persona está quieta y de frente, que es justo cuando
+          // esa medida vale. Después sirven para descartar cuadros absurdos.
+          if (prov && prov.tuberia) prov.tuberia.calibrar(L);
           const enc = encuadreDePose(L, 'superior');
           calibRef.current = enc.ok ? calibRef.current + dt : Math.max(0, calibRef.current - dt * 0.6);
           if (t - ultimoHud > 100) {
@@ -4246,7 +7742,7 @@ export default function mount(shell) {
       });
     }, [fase, modoTactil, hw.espejo, lanzarTejo, irA]);
 
-    // ── Lanzamiento táctil estilo Golf Clash ──────────────────────────
+    // ── Lanzamiento táctil: arrastre y barra de precisión ──────────────────────────
     //
     // Dos tiempos, como en el juego de golf de EA:
     //   1. APUNTAR: se arrastra hacia atrás desde el tejo, como una honda. El
@@ -4325,7 +7821,7 @@ export default function mount(shell) {
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+        ? h(AvisoCamara, null) : null);
 
     // ── Intro: reglas oficiales ───────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -4575,7 +8071,7 @@ export default function mount(shell) {
             ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
             autoPlay: true, playsInline: true, muted: true,
           }),
-          hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
+          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
         h('p', { className: 'fp-hint' },
           modoTactil
             ? (barra ? 'Toca cuando el marcador pase por el centro: mientras más al centro, más preciso el tejo.'
@@ -4827,6 +8323,10 @@ export default function mount(shell) {
         const L = lec && lec.landmarks;
 
         if (faseRef.current === 'posicion') {
+          // La pantalla de posicionamiento es el momento de medir los largos
+          // de hueso: la persona está quieta y de frente, que es justo cuando
+          // esa medida vale. Después sirven para descartar cuadros absurdos.
+          if (prov && prov.tuberia) prov.tuberia.calibrar(L);
           const enc = encuadreDePose(L, 'superior');
           calibRef.current = enc.ok ? calibRef.current + dt : Math.max(0, calibRef.current - dt * 0.6);
           if (t - ultimoHud > 100) {
@@ -4845,7 +8345,7 @@ export default function mount(shell) {
 
         // ── Lectura del jugador ──────────────────────────────────────
         if (!modoTactil) {
-          const lect = detRef.current.actualizar(L, hw.espejo !== false, dt, lec && lec.kinect);
+          const lect = detRef.current.actualizar(L, hw.espejo !== false, dt, lec && lec.kinect, lec && lec.mundo);
           R.guardia = lect.guardia;
           R.incl = lect.inclinacion;
           if (lect.golpe) golpearJugador(lect.golpe);
@@ -4909,7 +8409,7 @@ export default function mount(shell) {
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+        ? h(AvisoCamara, null) : null);
 
     // ── Intro: elegir contrincante ────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -5042,7 +8542,7 @@ export default function mount(shell) {
             ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
             autoPlay: true, playsInline: true, muted: true,
           }),
-          hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
+          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
         modoTactil ? h('div', { className: 'fp-box-botones' },
           h(Boton, { variant: 'primary', onClick: () => golpearJugador({ brazo: 'izquierdo', altura: 'media', fuerza: 0.8 }) }, '🥊 Izquierda'),
           h(Boton, {
@@ -5344,7 +8844,7 @@ export default function mount(shell) {
   // adelante, si flexionó las rodillas, si juntó las piernas.
   //
   // Lo importante es que DEGRADA. Si la cámara no ve los pies —que es el caso
-  // del tótem a 175 cm— no se rompe nada: declara `cobertura: 'superior'`, deja
+  // del tótem a 175 cm— no se rompe nada: declara `visibilidadCuerpo: 'superior'`, deja
   // en null lo que no puede medir, y cada juego decide si usa esa señal o
   // sigue con la de siempre. Prometer piernas donde no se ven sería peor que
   // no tenerlas.
@@ -5359,7 +8859,7 @@ export default function mount(shell) {
     const tCalib = num(o.calibracion, 1.0);
     let base = null, calib = 0, suave = null;
     const vacio = {
-      visible: false, cobertura: 'nada', escala: null, calibrando: true,
+      visible: false, visibilidadCuerpo: 'nada', escala: null, calibrando: true,
       pasoLateral: 0, pasoAdelante: 0, flexionRodillas: 0, piernasJuntas: 0,
       apoyo: 'ninguno', pies: null, fuenteProfundidad: null,
     };
@@ -5385,7 +8885,7 @@ export default function mount(shell) {
           return null;
         };
         const pI = pie(31, IDX.tobilloI), pD = pie(32, IDX.tobilloD);
-        const cobertura = pI && pD ? 'completo' : (pI || pD) ? 'parcial' : 'superior';
+        const visibilidadCuerpo = pI && pD ? 'completo' : (pI || pD) ? 'parcial' : 'superior';
 
         const caderaX = (cI.x + cD.x) / 2;
         const caderaY = (cI.y + cD.y) / 2;
@@ -5401,7 +8901,7 @@ export default function mount(shell) {
         if (base == null) {
           calib += dt;
           if (calib >= tCalib) base = { caderaX: suave.caderaX, caderaY: suave.caderaY, sep: suave.sep };
-          return Object.assign({}, vacio, { visible: true, cobertura, escala, calibrando: base == null });
+          return Object.assign({}, vacio, { visible: true, visibilidadCuerpo, escala, calibrando: base == null });
         }
 
         // ── Paso lateral ───────────────────────────────────────────────
@@ -5449,7 +8949,7 @@ export default function mount(shell) {
 
         const apoyo = pI && pD ? 'ambos' : pI ? 'izquierdo' : pD ? 'derecho' : 'ninguno';
         return {
-          visible: true, cobertura, escala, calibrando: false,
+          visible: true, visibilidadCuerpo, escala, calibrando: false,
           pasoLateral: clamp(lateral / 0.9, -1, 1),
           pasoAdelante: adelante,
           flexionRodillas: flexion,
@@ -5579,9 +9079,19 @@ export default function mount(shell) {
    */
   function detectorSaltoAgacharse() {
     let base = null, suave = null, calib = 0, modo = 'hombros';
+    // Un salto dura. Exigir que el desvío se sostenga ~110 ms descarta el
+    // cuadro suelto en que el modelo dio un tirón.
+    //
+    // El reloj es PROPIO, acumulado desde `dt`, no el de pared: un detector
+    // que recibe el paso de tiempo tiene que comportarse igual lo alimente el
+    // navegador a 30 Hz o un banco de pruebas de golpe.
+    // Dos ventanas: una para el salto y otra para la agachada, porque cada
+    // una busca su propia excursión y `forma()` mira máximos.
+    const ventArriba = ventanaGesto(300), ventAbajo = ventanaGesto(300);
+    let reloj = 0, activo = null;
     const reiniciar = (m) => { modo = m; base = null; suave = null; calib = 0; };
     return {
-      reset() { base = null; suave = null; calib = 0; modo = 'hombros'; },
+      reset() { base = null; suave = null; calib = 0; modo = 'hombros'; ventArriba.reset(); ventAbajo.reset(); reloj = 0; activo = null; },
       listo() { return base != null; },
       /** Qué referencia se está usando, para poder mostrarlo. */
       fuente() { return modo; },
@@ -5598,8 +9108,9 @@ export default function mount(shell) {
         // reales y el salto se mide contra el suelo, no contra una referencia
         // que la persona fija estando quieta. Es más honesto y no se desvía
         // si el jugador se acerca o se aleja durante la partida.
+        reloj += Math.max(0, num(dt, 1 / 30)) * 1000;
         const cm = k && Number.isFinite(k.estatura) && k.estatura > 60 ? k.estatura : null;
-        const conPiernas = !!(cuerpo && cuerpo.visible && cuerpo.cobertura === 'completo' && cuerpo.escala);
+        const conPiernas = !!(cuerpo && cuerpo.visible && cuerpo.visibilidadCuerpo === 'completo' && cuerpo.escala);
         const quiere = cm != null ? 'piso' : conPiernas ? 'cadera' : 'hombros';
         // Cambiar de referencia invalida la anterior: se vuelve a calibrar.
         if (quiere !== modo) reiniciar(quiere);
@@ -5632,9 +9143,27 @@ export default function mount(shell) {
         // Deriva lenta para que la referencia siga a la persona si se reacomoda.
         base += (suave - base) * clamp(dt * 0.12, 0, 1);
         const desvio = (base - suave) / escala;      // + = subió (saltó)
+        ventArriba.empujar(desvio, reloj);
+        ventAbajo.empujar(-desvio, reloj);
         let accion = null;
-        if (desvio > 0.33) accion = 'saltar';
-        else if (desvio < -0.30) accion = 'agachar';
+        // El umbral manda, pero además la excursión tiene que tener FORMA: un
+        // ascenso sostenido durante varios cuadros. Se pide forma y no
+        // permanencia sobre el umbral a propósito: exigir que el desvío se
+        // quede arriba 110 ms descartaría igual el ruido, pero le sumaría esos
+        // 110 ms de retraso al salto, y en Esquiva eso se paga en obstáculos
+        // que no se alcanzan a esquivar.
+        const conForma = (v) => !!v && v.sostenido && v.duracionMs >= 55 && v.amplitud > 0.15;
+        // `accion` es un ESTADO que el juego consulta en cada cuadro, no un
+        // evento: mientras la persona está en el aire tiene que seguir diciendo
+        // "saltar", o el obstáculo la golpea a media parábola. Por eso la forma
+        // solo decide el ARRANQUE, y después se sostiene con histéresis hasta
+        // que el cuerpo vuelve cerca de su reposo.
+        if (!activo) {
+          if (desvio > 0.33 && conForma(ventArriba.forma())) activo = 'saltar';
+          else if (desvio < -0.30 && conForma(ventAbajo.forma())) activo = 'agachar';
+        } else if (activo === 'saltar' && desvio < 0.18) activo = null;
+        else if (activo === 'agachar' && desvio > -0.16) activo = null;
+        accion = activo;
         return { accion, desvio, calibrando: false, fuente: modo };
       },
     };
@@ -6197,6 +9726,7 @@ export default function mount(shell) {
         const L = lec && lec.landmarks;
 
         if (faseRef.current === 'posicion') {
+          if (prov && prov.tuberia) prov.tuberia.calibrar(L);
           const enc = encuadreDePose(L, 'completo');
           calibRef.current = enc.ok ? calibRef.current + dt : Math.max(0, calibRef.current - dt * 0.6);
           if (t - ultimoHud > 100) {
@@ -6263,7 +9793,7 @@ export default function mount(shell) {
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+        ? h(AvisoCamara, null) : null);
 
     if (fase === 'intro' || fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -6403,7 +9933,7 @@ export default function mount(shell) {
             h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' }, ultimo.motivo)) : null)),
         !modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
-          hw.avisoCamara !== false ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null,
+          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
         h('p', { className: 'fp-hint' },
           modoTactil
             ? 'Desliza desde el balón hacia donde quieras colocarlo: más rápido, más potencia.'
@@ -6416,7 +9946,7 @@ export default function mount(shell) {
   //
   // Los dos comparten motor: una pista de obstáculos que se acercan y un
   // avatar que solo puede SALTAR o AGACHARSE. Cambia el punto de vista:
-  //   · 2D  — vista lateral tipo Mario Bros / Metal Slug: el avatar avanza a
+  //   · 2D  — carrera lateral con salto y agachada: el avatar avanza a
   //           la derecha y los obstáculos entran por el costado.
   //   · 3D  — vista en profundidad: los obstáculos vienen de frente y el
   //           avatar es el CONTORNO VERDE del cuerpo del participante, con el
@@ -6641,7 +10171,7 @@ export default function mount(shell) {
         const P = pistaRef.current;
         if (!P) return;
         const t = nowMs();
-        let accion = null, calibrando = false, lateral = 0, fuente = '', cobertura = '';
+        let accion = null, calibrando = false, lateral = 0, fuente = '', visibilidadCuerpo = '';
         if (modoTactil) {
           if (accionRef.current.hasta > t) accion = accionRef.current.accion;
         } else {
@@ -6653,7 +10183,7 @@ export default function mount(shell) {
           accion = r.accion;
           calibrando = r.calibrando || cuerpo.calibrando;
           fuente = r.fuente;
-          cobertura = cuerpo.cobertura;
+          visibilidadCuerpo = cuerpo.visibilidadCuerpo;
           // Saltar y agacharse mandan sobre el paso: si alguien salta mientras
           // se corre, lo que quiso hacer fue saltar.
           if (!accion && conLateral && cuerpo.visible && !cuerpo.calibrando) {
@@ -6679,7 +10209,7 @@ export default function mount(shell) {
           setObstaculos(P.obstaculos.slice());
           setHud({
             vidas: P.vidas, puntos: P.puntaje(), accion: accion,
-            lateral: lateral, fuente: fuente, cobertura: cobertura,
+            lateral: lateral, fuente: fuente, visibilidadCuerpo: visibilidadCuerpo,
             aviso: calibrando ? 'Quédate quieto un segundo para calibrar…' : '',
             calibrando: calibrando, t: P.t,
             invulnerable: P.invulnerable > 0,
@@ -6706,7 +10236,7 @@ export default function mount(shell) {
     const videoBox = h('div', { className: 'fp-cam' + (E.fase === 'intro' || E.fase === 'fin' ? ' is-hidden' : '') },
       h(CamaraVista, { attach: E.attachVideo, espejo: espejo, landmarks: E.landmarks, espacio: model.espacio, imagenKinect: imagenDe(E.provRef) }),
       E.hw.avisoCamara !== false && E.streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa · no se graba ni se envía video') : null);
+        ? h(AvisoCamara, null) : null);
 
     if (E.fase === 'intro' || E.fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -6786,7 +10316,7 @@ export default function mount(shell) {
           accion === 'saltar' ? '⬆️ salto'
             : accion === 'agachar' ? '⬇️ agachado'
               : accion === 'izquierda' ? '⬅️ a la izquierda' : '➡️ a la derecha') : null,
-        E.hud.cobertura === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
+        E.hud.visibilidadCuerpo === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
@@ -6836,7 +10366,7 @@ export default function mount(shell) {
             : null),
         !E.modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: E.attachVideo, className: 'fp-video is-mirror', autoPlay: true, playsInline: true, muted: true }),
-          h('div', { className: 'fp-cam-notice' }, '● Cámara activa')) : null,
+          h(AvisoCamara, null)) : null,
         botonesEsquiva(E),
         h('p', { className: 'fp-hint' },
           E.modoTactil
@@ -6878,7 +10408,7 @@ export default function mount(shell) {
           accion === 'saltar' ? '⬆️ salto'
             : accion === 'agachar' ? '⬇️ agachado'
               : accion === 'izquierda' ? '⬅️ a la izquierda' : '➡️ a la derecha') : null,
-        E.hud.cobertura === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
+        E.hud.visibilidadCuerpo === 'completo' ? h(Chip, null, '🦵 cuerpo entero') : null),
     },
       h('div', { className: 'fp-esq-wrap' },
         h('svg', { className: 'fp-esq3d-svg', viewBox: '0 0 1000 1000', preserveAspectRatio: 'xMidYMid slice' },
@@ -6967,10 +10497,16 @@ export default function mount(shell) {
             : null)),
         !E.modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: E.attachVideo, className: 'fp-video is-mirror', autoPlay: true, playsInline: true, muted: true }),
-          h('div', { className: 'fp-cam-notice' }, '● Cámara activa')) : null,
+          h(AvisoCamara, null)) : null,
         botonesEsquiva(E),
         h('p', { className: 'fp-hint' },
-          'Tu cuerpo es el contorno verde: los obstáculos vienen de frente, salta los rojos y agáchate en los amarillos.')));
+          // La instrucción NO puede apoyarse en el color aunque el juego no lo
+          // haga: quien no distingue rojo de amarillo lee esta línea igual.
+          // Lo que separa a los obstáculos es dónde están, y cada uno trae su
+          // rótulo («Salta», «Agáchate») cuando se acerca.
+          'Tu cuerpo es el contorno verde y los obstáculos vienen de frente: ' +
+          'los que están a ras de suelo se saltan, los que cuelgan de arriba se pasan agachándose ' +
+          'y los de los costados se esquivan con un paso al lado. Cada uno se rotula al acercarse.')));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -7164,12 +10700,12 @@ export default function mount(shell) {
             aleteo: r.aleteo, fuerza: r.fuerza, planeo: r.planeo,
             // Juntar las piernas pica, abrirlas frena. Si la cámara no ve las
             // piernas esto llega en 0 y el vuelo es exactamente el de antes.
-            piernas: cuerpo.cobertura === 'completo' ? cuerpo.piernasJuntas : 0,
+            piernas: cuerpo.visibilidadCuerpo === 'completo' ? cuerpo.piernasJuntas : 0,
           };
           piernasHud = entrada.piernas;
           cadencia = r.cadencia;
           alas = clamp(r.altura, -1, 1);
-          if (!r.visible) aviso = 'No te veo: ponte frente al tótem';
+          if (!r.visible) aviso = avisoDeEncuadre(lec && lec.confianza, 'brazos') || 'No te veo: ponte frente al tótem';
           // El respaldo táctil sigue activo aunque haya cámara.
           if (tactilRef.current.aleteo) { entrada.aleteo = true; entrada.fuerza = 1; tactilRef.current.aleteo = false; }
           if (tactilRef.current.planeoHasta > t) entrada.planeo = true;
@@ -7209,7 +10745,7 @@ export default function mount(shell) {
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
+        ? h(AvisoCamara, null) : null) : null;
 
     // ── Intro ─────────────────────────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -7578,11 +11114,11 @@ export default function mount(shell) {
           const i = incRef.current.actualizar(L, dt, espejo, lec && lec.kinect);
           entrada = {
             aleteo: a.aleteo, fuerza: a.fuerza, planeo: a.planeo, giro: i.giro,
-            piernas: cuerpo.cobertura === 'completo' ? cuerpo.piernasJuntas : 0,
+            piernas: cuerpo.visibilidadCuerpo === 'completo' ? cuerpo.piernasJuntas : 0,
           };
           piernasHud = entrada.piernas;
           alas = clamp(a.altura, -1, 1);
-          if (!a.visible) aviso = 'No te veo: ponte frente al tótem';
+          if (!a.visible) aviso = avisoDeEncuadre(lec && lec.confianza, 'brazos') || 'No te veo: ponte frente al tótem';
           if (tactilRef.current.aleteo) { entrada.aleteo = true; entrada.fuerza = 1; tactilRef.current.aleteo = false; }
           if (tactilRef.current.planeoHasta > t) entrada.planeo = true;
           if (tactilRef.current.giro) entrada.giro = tactilRef.current.giro;
@@ -7620,7 +11156,7 @@ export default function mount(shell) {
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
       hw.avisoCamara !== false && streamRef.current
-        ? h('div', { className: 'fp-cam-notice' }, '● Cámara activa') : null) : null;
+        ? h(AvisoCamara, null) : null) : null;
 
     if (fase === 'intro' || fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -7776,13 +11312,32 @@ export default function mount(shell) {
             h('h1', null, m.branding.appName || 'Kimos FunPlai'),
             h('p', null, m.branding.tagline || ''))),
         h('div', { className: 'fp-home-tools' },
+          // Qué build está corriendo, a la vista. Sin esto no hay forma de
+          // saber, probando en el tótem, si el host tomó la actualización o
+          // se quedó con la copia cacheada. Es convención de la plataforma
+          // (APP-SPEC §7.a), no un adorno.
+          h('span', { className: 'fp-ver', title: 'Kimos FunPlai v' + APP_VERSION }, 'v' + APP_VERSION),
           m.branding.mostrarRanking ? h(Boton, { variant: 'ghost', onClick: () => go('ranking') }, '🏆 Ranking') : null,
+          h(Boton, { variant: 'ghost', onClick: () => go('metricas') }, '📊 Métricas'),
           h(Boton, { variant: 'ghost', onClick: () => go('diagnostico') }, '🎥 Diagnóstico'),
           h(Boton, { variant: 'ghost', onClick: () => go('editor') }, '⚙️ Editor'))),
       h('div', { className: 'fp-hero' },
         h(Escarapela, { w: 110, className: 'fp-hero-rosette' }),
         h('h2', null, m.branding.heroTitle || ''),
         h('p', null, m.branding.heroSubtitle || '')),
+      // Si hay premio de por medio, quien se acerca al tótem tiene derecho a
+      // saberlo ANTES de jugar, y a saber que gana quien lo hace mejor y no
+      // quien tiene suerte. Es lo que distingue esto de una ruleta.
+      m.concurso && m.concurso.activo ? (function () {
+        const est = estadoConcurso(m);
+        const c = m.concurso;
+        return h('div', { className: 'fp-concurso-banda' + (est.abierto ? '' : ' is-cerrado') },
+          h('b', null, '⚖️ ' + (c.nombre ? c.nombre : 'Concurso de destreza') +
+            (c.premio ? ' — ' + c.premio : '')),
+          h('span', null, est.abierto
+            ? 'Gana quien lo hace mejor, no quien tiene suerte. Juega desde la marca del piso y de frente a la cámara: la partida se vigila.'
+            : est.motivo + ' Se puede jugar, pero los puntajes ya no entran al ranking.'));
+      }()) : null,
       h('div', { className: 'fp-cards' },
         juegos.map((g) => h('button', {
           key: g.id, type: 'button', className: 'fp-card', onClick: () => go('juego', g.id),
@@ -7819,29 +11374,251 @@ export default function mount(shell) {
 
   function Ranking(props) {
     const [filtro, setFiltro] = useState('');
-    const rows = (props.model.scores || [])
-      .filter((r) => !filtro || r.juego === filtro)
-      .slice().sort((a, b) => num(b.puntaje, 0) - num(a.puntaje, 0));
-    const juegos = Array.from(new Set((props.model.scores || []).map((r) => r.juego).filter(Boolean)));
+    const [verTodo, setVerTodo] = useState(false);
+    const [respaldo, setRespaldo] = useState(null);
+    const guardadas = props.model.scores || [];
+    const [ficha, setFicha] = useState(null);
+    // Orden determinista y documentado: ver REGLAS_DESEMPATE. Un empate
+    // resuelto por el orden de llegada de un array es un empate resuelto por
+    // casualidad, y en un concurso con premio eso no se puede defender.
+    const rows = ordenarRanking(guardadas.filter((r) => !filtro || r.juego === filtro));
+    const juegos = Array.from(new Set(guardadas.map((r) => r.juego).filter(Boolean)));
+    // El tope de la lista es de VISTA: los datos están todos, se muestran los
+    // mejores para que la pantalla del tótem no tarde en dibujar mil filas.
+    const tope = Math.max(10, Math.round(num(props.model.ranking && props.model.ranking.mostrar, 60)));
+    const visibles = verTodo ? rows : rows.slice(0, tope);
+    const aviso = props.model.ranking && props.model.ranking.aviso;
+    const pendiente = respaldo || tomarRespaldo();
+
+    const exportar = () => {
+      const csv = rankingCSV(rows);
+      const bajo = descargar('funplai-ranking-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv', csv);
+      setRespaldo(csv);
+      notify(bajo ? 'success' : 'info', bajo
+        ? 'Ranking exportado (' + rows.length + ' partidas).'
+        : 'Este visor no deja descargar archivos: copia el CSV de abajo.');
+    };
+
     return h('div', { className: 'fp-panel' },
       h('header', { className: 'fp-panel-head' },
         h(Boton, { variant: 'ghost', onClick: () => go('home') }, '← Volver'),
         h('h2', null, '🏆 Ranking del tótem'),
-        h(Boton, {
-          variant: 'ghost',
-          onClick: () => { if (confirm('¿Borrar todos los puntajes guardados?')) commit(merge(model, { scores: [] })); },
-        }, 'Vaciar')),
+        h('div', { className: 'fp-chips' },
+          h(Boton, { className: 'fp-btn--mini', variant: 'soft', onClick: exportar, disabled: !rows.length }, '⬇️ Exportar CSV'),
+          h(Boton, {
+            className: 'fp-btn--mini', variant: 'ghost', disabled: !guardadas.length,
+            onClick: () => {
+              if (!confirm('¿Borrar los ' + guardadas.length + ' puntajes guardados?\n\nSe descarga una copia antes.')) return;
+              const n = vaciarRanking('vaciado');
+              setRespaldo(tomarRespaldo());
+              notify('info', 'Ranking vaciado. Se guardó una copia de ' + n + ' partidas.');
+            },
+          }, 'Vaciar'))),
       h('div', { className: 'fp-panel-body' },
+        // Nada se pierde en silencio: si se truncó o si el host rechazó un
+        // guardado, queda dicho acá hasta que alguien lo acuse recibo.
+        aviso ? h('div', { className: 'fp-error' },
+          aviso.motivo === 'guardado'
+            ? '⚠ El equipo no pudo guardar (' + s(aviso.detalle) + '). Exporta el CSV antes de cerrar la app.'
+            : aviso.motivo === 'tope'
+              ? '⚠ Se llegó al tope del ranking y se apartaron ' + aviso.filas + ' partidas' +
+                (aviso.descargado ? ' (el archivo se descargó)' : ' (cópialas del cuadro de abajo)') + '.'
+              : '⚠ Se vaciaron ' + aviso.filas + ' partidas el ' + new Date(aviso.at).toLocaleString() + '. Se descargó una copia.',
+          h('button', {
+            className: 'fp-linkbtn',
+            onClick: () => { patch({ ranking: { aviso: null } }); soltarRespaldo(); setRespaldo(null); },
+          }, 'entendido')) : null,
         h('div', { className: 'fp-chips' },
           h('button', { className: 'fp-chip' + (filtro ? '' : ' is-on'), onClick: () => setFiltro('') }, 'Todos'),
           juegos.map((j) => h('button', { key: j, className: 'fp-chip' + (filtro === j ? ' is-on' : ''), onClick: () => setFiltro(j) }, j))),
-        rows.length ? h('table', { className: 'fp-table' },
-          h('thead', null, h('tr', null,
-            h('th', null, '#'), h('th', null, 'Jugador'), h('th', null, 'Juego'), h('th', null, 'Puntaje'), h('th', null, 'Fecha'))),
-          h('tbody', null, rows.slice(0, 40).map((r, i) => h('tr', { key: r.id },
-            h('td', null, i + 1), h('td', null, r.jugador || 'Anónimo'), h('td', null, r.juego),
-            h('td', null, h('b', null, r.puntaje)),
-            h('td', null, new Date(r.at).toLocaleString()))))) : h('p', { className: 'fp-empty' }, 'Todavía no hay puntajes guardados.')));
+        rows.length ? h('div', null,
+          h('p', { className: 'fp-note' },
+            'Guardadas ' + guardadas.length + ' partidas' +
+            (rows.length !== guardadas.length ? ' · ' + rows.length + ' en este filtro' : '') +
+            ' · mostrando ' + visibles.length +
+            (rows.length > visibles.length ? ' de ' + rows.length : '')),
+          h('table', { className: 'fp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, '#'), h('th', null, 'Jugador'), h('th', null, 'Juego'), h('th', null, 'Puntaje'),
+              h('th', null, 'Fecha'), h('th', null, 'Partida'))),
+            h('tbody', null, visibles.map((r, i) => {
+              const a = r.auditoria || {};
+              const marca = a.estado === 'invalida' ? '⛔' : a.estado === 'marcada' ? '⚠️' : a.estado === 'limpia' ? '✔' : '';
+              return h('tr', { key: r.id, className: a.estado === 'invalida' ? 'is-invalida' : '' },
+                h('td', null, i + 1), h('td', null, r.jugador || 'Anónimo'), h('td', null, r.juego),
+                h('td', null, h('b', null, r.puntaje)),
+                h('td', null, new Date(r.at).toLocaleString()),
+                h('td', null, h('button', {
+                  className: 'fp-linkbtn', onClick: () => setFicha(r),
+                }, marca + ' ver ficha')));
+            }))),
+          rows.length > tope ? h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'ghost', onClick: () => setVerTodo(!verTodo) },
+              verTodo ? 'Mostrar solo las ' + tope + ' mejores' : 'Ver las ' + rows.length + ' partidas')) : null)
+          : h('p', { className: 'fp-empty' }, 'Todavía no hay puntajes guardados.'),
+        // El respaldo se muestra copiable: en un visor que bloquea descargas,
+        // esta es la única forma de que el operador se lleve los datos.
+        // La ficha de una partida: lo que se le pone delante a quien reclama.
+        // No es un adorno de transparencia, es la respuesta a "¿por qué él y no yo?".
+        ficha ? (function () {
+          const a = ficha.auditoria || {};
+          const dato = (k, v) => h('li', null, h('b', null, k + ': '), v);
+          return h('div', { className: 'fp-ficha' },
+            h('div', { className: 'fp-ficha-head' },
+              h('h4', null, '⚖️ Ficha de la partida'),
+              h(Boton, { className: 'fp-btn--mini', variant: 'ghost', onClick: () => setFicha(null) }, 'Cerrar')),
+            h('ul', null,
+              dato('Jugador', ficha.jugador || 'Anónimo'),
+              dato('Juego', ficha.juego),
+              dato('Puntaje', String(ficha.puntaje)),
+              dato('Fecha y hora', new Date(ficha.at).toLocaleString()),
+              dato('Identificador', ficha.id),
+              dato('Sesión del tótem', a.sesion || '—'),
+              dato('Versión de la app', a.version || '—'),
+              dato('Motor de pose', a.motor || '—'),
+              dato('Modo concurso', a.concurso ? 'sí' : 'no'),
+              a.estado ? dato('Estado de la partida',
+                a.estado === 'limpia' ? '✔ limpia'
+                  : a.estado === 'marcada' ? '⚠️ señalada — ' + s(a.motivo)
+                    : a.estado === 'invalida' ? '⛔ fuera de las reglas — ' + s(a.motivo)
+                      : 'sin datos de vigilancia') : null,
+              a.fueraPct != null ? dato('Tiempo fuera de las reglas', Math.round(a.fueraPct * 100) + '% de ' + (a.muestras || 0) + ' cuadros') : null,
+              a.referencia ? dato('Se colocó a', a.referencia.distancia + ' cm, hombros ' + a.referencia.hombros + ' cm') : null),
+            h('h4', { className: 'fp-h4' }, 'Cómo se resuelven los empates'),
+            h('ol', { className: 'fp-pasos' }, REGLAS_DESEMPATE.map((t, i) => h('li', { key: i }, t))));
+        }()) : null,
+        pendiente ? h('div', null,
+          h('h4', { className: 'fp-h4' }, 'Respaldo para copiar'),
+          h(Campo, { label: 'CSV del ranking', type: 'textarea', rows: 10, value: pendiente, onChange: () => {} })) : null));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 14.b Métricas de activación: lo que compra el auspiciador
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // El auspiciador no compra diversión: compra contactos y métricas. Y lo que
+  // hace vendible esta pantalla es justamente lo que NO tiene dentro — ningún
+  // dato de nadie. Todo son contadores agregados, así que se le puede entregar
+  // entero al cliente sin pedirle permiso a un solo participante.
+
+  function Metricas(props) {
+    const m = props.model;
+    const r = resumenMetricas(m);
+    const contactos = (m.contacto && m.contacto.registros) || [];
+    const [verContactos, setVerContactos] = useState(false);
+    const seg = (ms) => (ms < 90000 ? Math.round(ms / 1000) + ' s' : Math.round(ms / 60000) + ' min');
+    const horas = Object.keys(r.horas).sort((a, b) => Number(a) - Number(b));
+    const picoHora = horas.reduce((a, hh) => (r.horas[hh] > (r.horas[a] || 0) ? hh : a), horas[0]);
+
+    return h('div', { className: 'fp-panel' },
+      h('header', { className: 'fp-panel-head' },
+        h(Boton, { variant: 'ghost', onClick: () => go('home') }, '← Volver'),
+        h('h2', null, '📊 Métricas de la activación'),
+        h('div', { className: 'fp-chips' },
+          h(Boton, {
+            className: 'fp-btn--mini', variant: 'soft', disabled: !r.aperturas,
+            onClick: () => {
+              descargar('funplai-metricas-' + new Date().toISOString().slice(0, 10) + '.csv', metricasCSV(m));
+              notify('success', 'Métricas exportadas.');
+            },
+          }, '⬇️ Exportar métricas'))),
+      h('div', { className: 'fp-panel-body' },
+        h('p', { className: 'fp-lead' },
+          'Todo lo de esta pantalla es agregado: cuenta cuántas veces pasó algo, no a quién le pasó. ' +
+          'Se puede entregar entero al auspiciador sin pedirle permiso a nadie, porque no hay nadie dentro.'),
+        !r.aperturas
+          ? h('p', { className: 'fp-empty' }, 'Todavía no hay actividad. Los contadores se llenan solos jugando.')
+          : h('div', null,
+              h('div', { className: 'fp-medidas' },
+                h('div', { className: 'fp-medida is-ok' }, h('b', null, r.atendidas), h('span', null, 'personas atendidas')),
+                h('div', { className: 'fp-medida' }, h('b', null, r.partidas), h('span', null, 'partidas jugadas')),
+                h('div', { className: 'fp-medida' }, h('b', null, seg(r.exposicionMs)), h('span', null, 'tiempo de exposición')),
+                h('div', { className: 'fp-medida' }, h('b', null, r.personasPorHora == null ? '—' : r.personasPorHora), h('span', null, 'personas por hora')),
+                h('div', { className: 'fp-medida' + (r.contactos.tasa != null ? ' is-ok' : '') },
+                  h('b', null, r.contactos.tasa == null ? '—' : r.contactos.tasa + '%'),
+                  h('span', null, 'conversión a contacto')),
+                h('div', { className: 'fp-medida' }, h('b', null, picoHora ? picoHora + ':00' : '—'), h('span', null, 'hora de más afluencia'))),
+              // Este matiz no es una nota al pie: es la diferencia entre una
+              // métrica honesta y una que promete lo que no puede cumplir.
+              h('p', { className: 'fp-note' },
+                '«Personas atendidas» cuenta las veces que alguien ocupó el tótem, NO personas distintas. ' +
+                'La app no reconoce a nadie entre partidas y no va a hacerlo: si la misma persona juega dos ' +
+                'veces, cuenta dos. Llamarle «jugadores únicos» sería vender una medición que no existe.'),
+              h('h3', { className: 'fp-h3' }, 'Preferencia revelada, juego por juego'),
+              h('p', { className: 'fp-note' },
+                'Qué eligió la gente, qué abandonó y qué repitió. Es lo que de verdad dice sus intereses, ' +
+                'y no hace falta inferir nada de ninguna cara para saberlo.'),
+              h('table', { className: 'fp-table' },
+                h('thead', null, h('tr', null,
+                  h('th', null, 'Juego'), h('th', null, 'Se acercaron'), h('th', null, 'Partidas'),
+                  h('th', null, 'Repitieron'), h('th', null, 'Abandono'), h('th', null, 'Puntaje medio'))),
+                h('tbody', null, r.filas.map((f) => h('tr', { key: f.id },
+                  h('td', null, f.nombre),
+                  h('td', null, f.aperturas),
+                  h('td', null, f.partidas),
+                  h('td', null, f.repeticiones),
+                  h('td', null, f.abandono == null ? '—' : f.abandono + '%'),
+                  h('td', null, f.promedio == null ? '—' : f.promedio))))),
+              horas.length ? h('div', null,
+                h('h3', { className: 'fp-h3' }, 'Afluencia por hora'),
+                h('table', { className: 'fp-table' },
+                  h('thead', null, h('tr', null, h('th', null, 'Hora'), h('th', null, 'Se acercaron'))),
+                  h('tbody', null, horas.map((hh) => h('tr', { key: hh },
+                    h('td', null, hh + ':00'), h('td', null, r.horas[hh])))))) : null),
+
+        h('h3', { className: 'fp-h3' }, 'Contactos entregados voluntariamente'),
+        h('p', { className: 'fp-note' },
+          contactos.length
+            ? contactos.length + ' persona(s) pidieron que las contactaran, sobre ' + r.contactos.ofrecidos +
+              ' a quienes se les ofreció. Cada registro guarda el TEXTO exacto que aceptó, no un «sí» suelto.'
+            : 'Nadie ha dejado datos todavía. El formulario se ofrece después de jugar y no viene con ninguna casilla marcada.'),
+        contactos.length ? h('div', null,
+          h('div', { className: 'fp-actions' },
+            h(Boton, { variant: 'ghost', onClick: () => setVerContactos(!verContactos) },
+              verContactos ? 'Ocultar' : 'Ver los ' + contactos.length + ' contactos'),
+            h(Boton, {
+              variant: 'soft',
+              onClick: () => {
+                descargar('funplai-contactos-' + new Date().toISOString().slice(0, 10) + '.csv', contactosCSV(contactos));
+                notify('success', 'Contactos exportados. Entrégaselos al responsable y bórralos del tótem.');
+              },
+            }, '⬇️ Exportar contactos'),
+            h(Boton, {
+              variant: 'danger',
+              onClick: () => {
+                if (!confirm('¿Borrar los ' + contactos.length + ' contactos del tótem?\n\nExpórtalos antes si todavía no se los entregaste al responsable.')) return;
+                patch({ contacto: { registros: [] } });
+                notify('info', 'Contactos borrados del equipo.');
+              },
+            }, 'Borrar del tótem')),
+          verContactos ? h('table', { className: 'fp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Fecha'), h('th', null, 'Nombre'), h('th', null, 'Correo'), h('th', null, 'Aceptó'))),
+            h('tbody', null, contactos.slice().reverse().map((x) => h('tr', { key: x.id },
+              h('td', null, new Date(x.at).toLocaleString()),
+              h('td', null, x.nombre || '—'),
+              h('td', null, x.correo || '—'),
+              h('td', null, Object.keys(x.acepto || {}).join(', ')))))) : null) : null,
+
+        h('h3', { className: 'fp-h3' }, 'Qué se mide y qué no'),
+        h('div', { className: 'fp-semaforo' },
+          h('div', { className: 'is-verde' },
+            h('b', null, '🟢 Se mide siempre, sin pedirle nada a nadie'),
+            'Cuánta gente se acercó, qué juego eligió, cuál abandonó, cuál repitió, cuánto duró cada ' +
+            'partida, a qué hora, y los puntajes. Todo agregado: son contadores, no un registro de personas.'),
+          h('div', { className: 'is-amarillo' },
+            h('b', null, '🟡 Solo si la persona lo pide, casilla por casilla'),
+            'Nombre, correo, teléfono, edad declarada por ella misma, y el permiso para usar su foto —que ' +
+            'va aparte, porque una imagen no es un correo—. Se ofrece DESPUÉS de jugar, nada viene marcado, ' +
+            'y se puede jugar y ganar sin dejar nada.'),
+          h('div', { className: 'is-rojo' },
+            h('b', null, '🔴 No se hace, y no es una limitación técnica'),
+            'Estimar edad o género por la cara, inferir emociones o conductas por la cámara, y reconocer a ' +
+            'la misma persona entre partidas. No está implementado, no está a medias, y no se va a agregar. ' +
+            'Con el modo sensor, además, la imagen ni siquiera sale del teléfono.')),
+        h('p', { className: 'fp-note' },
+          'Finalidades, plazos de conservación y quién responde por cada dato: ',
+          h('code', null, 'docs/PRIVACIDAD.md'), '.')));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -7865,6 +11642,13 @@ export default function mount(shell) {
     // Autocalibración del montaje.
     const [cal, setCal] = useState(null);   // {paso, aviso, progreso, posiciones, resultado}
     const calRef = useRef({ parar: null, prov: null, stream: null, cal: null });
+    // Prueba de campo: el veredicto de 20 segundos.
+    const [campo, setCampo] = useState(null);
+    const campoRef = useRef({ parar: null, prov: null, stream: null, luz: null });
+    // Emparejamiento del teléfono como sensor.
+    const [sensor, setSensor] = useState(null);
+    const [oyendoSensor, setOyendoSensor] = useState(false);
+    const sensorRef = useRef({ enlace: null, parar: null });
 
     useEffect(() => () => {
       if (stopRef.current) stopRef.current();
@@ -7879,7 +11663,137 @@ export default function mount(shell) {
       if (C.parar) C.parar();
       try { C.prov && C.prov.detener(); } catch (e) { /* noop */ }
       if (C.stream) { try { C.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      const F = campoRef.current;
+      if (F.parar) F.parar();
+      try { F.prov && F.prov.detener(); } catch (e) { /* noop */ }
+      if (F.stream) { try { F.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      const S = sensorRef.current;
+      if (S.parar) S.parar();
+      try { S.enlace && S.enlace.detener(); } catch (e) { /* noop */ }
     }, []);
+
+    /**
+     * Escucha el enlace con el teléfono y muestra TODO lo que llega. Es el
+     * equivalente de la tarjeta del puente Kinect: sirve para saber, en el
+     * equipo del cliente, si el problema es el teléfono, la red o la app.
+     */
+    const escucharSensor = () => {
+      const S = sensorRef.current;
+      if (oyendoSensor) {
+        if (S.parar) S.parar();
+        try { S.enlace && S.enlace.detener(); } catch (e) { /* noop */ }
+        S.parar = null; S.enlace = null;
+        setOyendoSensor(false);
+        return;
+      }
+      const sala = salaDelTotem();
+      S.enlace = enlaceSensor({ rol: 'pantalla', hw: model.hardware, sala });
+      S.enlace.iniciar();
+      setOyendoSensor(true);
+      let ultimo = 0;
+      S.parar = loop(() => {
+        const t = nowMs();
+        if (t - ultimo < 400) return;
+        ultimo = t;
+        const sal = S.enlace.salud();
+        setSensor({ salud: sal, veredicto: veredictoDeEnlace(sal, model.hardware) });
+      });
+    };
+
+    /** Otro código: sirve si dos tótems de la misma feria chocan. */
+    const nuevaSala = () => {
+      if (oyendoSensor) escucharSensor();
+      patch({ hardware: { sensorSala: codigoDeSala(6) } });
+      setSensor(null);
+      notify('info', 'Código de sala nuevo. Hay que volver a escanear el QR desde el teléfono.');
+    };
+
+    // ── Prueba de campo ────────────────────────────────────────────────
+    //
+    // Un solo botón que responde la pregunta del día del evento: ¿sirve este
+    // montaje, ahora, en esta sala? Corre el MISMO proveedor de pose que los
+    // juegos —con su recorte y su tubería— para que lo medido sea lo que va a
+    // pasar jugando, y no un banco de pruebas amable.
+    const soltarCampo = () => {
+      const F = campoRef.current;
+      if (F.parar) F.parar();
+      try { F.prov && F.prov.detener(); } catch (e) { /* noop */ }
+      if (F.stream) { try { F.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      F.parar = null; F.prov = null; F.stream = null; F.luz = null;
+      if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
+    };
+
+    const correrCampo = async () => {
+      const F = campoRef.current;
+      if (F.prov) { soltarCampo(); setCampo(null); return; }
+      setCargando('campo'); setCampo(null);
+      let v = null;
+      try {
+        F.stream = await abrirCamara(model.hardware);
+        v = videoRef.current;
+        v.srcObject = F.stream;
+        await v.play().catch(() => {});
+        const prov = proveedorMediaPipe(model.hardware, model.espacio);
+        await prov.iniciar(v);
+        F.prov = prov;
+        F.luz = medidorDeLuz();
+      } catch (e) {
+        soltarCampo();
+        setCargando('');
+        setCampo({ fase: 'error', aviso: mensajeCamara(e) });
+        return;
+      }
+      setCargando('');
+      const t0 = nowMs();
+      const acum = { hz: [], ms: [], luz: [], grupos: {}, cuadros: 0, conPersona: 0, recorte: false };
+      setCampo({ fase: 'midiendo', progreso: 0, conPersona: false });
+      let ultimo = 0;
+      F.parar = loop(() => {
+        const t = nowMs();
+        const progreso = clamp((t - t0) / CAMPO_MS, 0, 1);
+        if (t - ultimo >= 180) {
+          ultimo = t;
+          const lec = F.prov.leer();
+          const sal = F.prov.salud();
+          const L = lec && lec.landmarks;
+          // Con alguien delante se mide sobre su caja; mientras no llega nadie,
+          // sobre la zona de juego, que es donde va a estar.
+          const caja = cajaDePose(L) || (sal.zona && sal.zona.valida ? sal.zona : null);
+          const lz = F.luz.medir(v, caja);
+          // Se anota si la caja venía de un CUERPO o de la zona vacía: no es lo
+          // mismo medir la luz sobre una persona que sobre el piso donde estará.
+          if (lz) { lz.cuerpo = !!L; acum.luz.push(lz); }
+          if (sal.hz) acum.hz.push(sal.hz);
+          if (sal.ms) acum.ms.push(sal.ms);
+          if (sal.recorte) acum.recorte = true;
+          acum.cuadros++;
+          if (L) {
+            acum.conPersona++;
+            const gr = (lec.confianza && lec.confianza.grupos) || {};
+            for (const k of Object.keys(gr)) (acum.grupos[k] = acum.grupos[k] || []).push(gr[k].media);
+          }
+          setCampo({ fase: 'midiendo', progreso, conPersona: acum.conPersona > 2, luz: lz });
+        }
+        if (progreso < 1) return;
+        // ── Cierre: de las muestras al veredicto ────────────────────────
+        F.parar(); F.parar = null;
+        const sal = F.prov.salud();
+        const grupos = {};
+        for (const k of Object.keys(acum.grupos)) {
+          const arr = acum.grupos[k];
+          grupos[k] = round1((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100;
+        }
+        const res = {
+          hz: mediana(acum.hz) || 0, ms: mediana(acum.ms) || 0,
+          aceptados: num(sal.aceptados, 0), rechazados: num(sal.rechazados, 0),
+          recorte: acum.recorte, cuadros: acum.cuadros, grupos,
+          conPersona: acum.conPersona > 2, aspecto: sal.aspecto,
+          zona: sal.zona, luz: resumirLuz(acum.luz, F.luz.ruidoBase()),
+        };
+        soltarCampo();
+        setCampo({ fase: 'listo', res, veredicto: veredictoDeCampo(res, model.hardware), at: new Date() });
+      });
+    };
 
     /**
      * Deduce a qué altura y con qué inclinación está la cámara mirando a una
@@ -7987,7 +11901,7 @@ export default function mount(shell) {
         return;
       }
       setCargando('kinect'); setKin(null);
-      const prov = proveedorKinect(model.hardware);
+      const prov = proveedorKinect(model.hardware, model.espacio);
       try {
         await prov.iniciar();
       } catch (e) {
@@ -8046,7 +11960,7 @@ export default function mount(shell) {
         const v = videoRef.current;
         v.srcObject = stream;
         await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(model.hardware);
+        const prov = proveedorMediaPipe(model.hardware, model.espacio);
         await prov.iniciar(v);
         M.prov = prov;
         setMidiendo(true);
@@ -8137,7 +12051,7 @@ export default function mount(shell) {
         const v = videoRef.current;
         v.srcObject = stream;
         await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(model.hardware);
+        const prov = proveedorMediaPipe(model.hardware, model.espacio);
         await prov.iniciar(v);
         // Espera a la primera detección con cuerpo.
         let intentos = 0, ok = false;
@@ -8170,6 +12084,68 @@ export default function mount(shell) {
       h('div', { className: 'fp-panel-body' },
         h('p', { className: 'fp-lead' },
           'Esta pantalla responde, con el hardware real de este tótem, qué juegos pueden funcionar hoy y qué conviene agregar.'),
+        // ── Prueba de campo ───────────────────────────────────────────
+        // Va arriba de todo y a propósito: el día del evento nadie va a leer
+        // ocho tarjetas. Un botón, veinte segundos, un semáforo y qué hacer.
+        h('div', { className: 'fp-campo' + (campo && campo.fase === 'listo' ? ' is-' + campo.veredicto.nivel : '') },
+          h('h3', null, '▶ Prueba de campo — veredicto en 20 segundos'),
+          h('p', { className: 'fp-note' },
+            'Párate en la marca del piso, de frente y con el cuerpo entero en el cuadro, y no te muevas ' +
+            'demasiado. Se mide con el mismo motor y el mismo recorte que usan los juegos: lo que salga ' +
+            'acá es lo que va a pasar jugando.'),
+          h(Boton, {
+            variant: campo && campo.fase === 'midiendo' ? 'danger' : 'primary',
+            onClick: correrCampo, disabled: cargando === 'campo',
+          }, cargando === 'campo' ? 'Abriendo cámara y motor…'
+            : campo && campo.fase === 'midiendo' ? 'Cancelar' : '▶ Correr la prueba de campo'),
+          campo && campo.fase === 'error' ? h('p', { className: 'fp-error' }, '⚠ ' + campo.aviso) : null,
+          campo && campo.fase === 'midiendo'
+            ? h('div', { className: 'fp-autocal' },
+                h('div', { className: 'fp-progress' }, h('i', { style: { width: Math.round(campo.progreso * 100) + '%' } })),
+                h('p', { className: 'fp-note' }, campo.conPersona
+                  ? 'Te veo. Quédate ahí ' + Math.max(1, Math.ceil((1 - campo.progreso) * (CAMPO_MS / 1000))) + ' s más…'
+                  : 'Todavía no veo a nadie: ponte en la marca del piso, de frente al tótem.'))
+            : null,
+          campo && campo.fase === 'listo'
+            ? h('div', { className: 'fp-campo-res' },
+                h('div', { className: 'fp-campo-semaforo is-' + campo.veredicto.nivel },
+                  h('b', null, campo.veredicto.nivel === 'ok' ? '✅' : campo.veredicto.nivel === 'aviso' ? '⚠️' : '❌'),
+                  h('span', null, campo.veredicto.titulo)),
+                h('div', { className: 'fp-medidas' },
+                  h('div', { className: 'fp-medida' + (campo.res.hz >= 18 ? ' is-ok' : ' is-mal') },
+                    h('b', null, campo.res.hz + ' fps'), h('span', null, 'pose real (' + campo.res.ms + ' ms)')),
+                  h('div', { className: 'fp-medida' + (campo.veredicto.luz.nivel === 'ok' && campo.veredicto.luz.deCuerpo ? ' is-ok' : ' is-mal') },
+                    h('b', null, campo.res.luz ? Math.round(campo.veredicto.luz.nivelLuz) : '—'),
+                    h('span', null, campo.veredicto.luz.deCuerpo
+                      ? 'luz sobre el sujeto (0–255)'
+                      : 'luz sobre la zona VACÍA (0–255)')),
+                  h('div', { className: 'fp-medida' + (campo.res.luz && campo.res.luz.contraluz != null && campo.res.luz.contraluz > num(model.hardware.contraluzMax, 60) ? ' is-mal' : ' is-ok') },
+                    h('b', null, campo.res.luz && campo.res.luz.contraluz != null ? (campo.res.luz.contraluz > 0 ? '+' : '') + Math.round(campo.res.luz.contraluz) : '—'),
+                    h('span', null, 'fondo menos sujeto (contraluz)')),
+                  h('div', { className: 'fp-medida' + (campo.res.luz && campo.res.luz.ruido != null && campo.res.luz.ruido <= num(model.hardware.luzRuidoMax, 4.5) ? ' is-ok' : ' is-mal') },
+                    h('b', null, campo.res.luz && campo.res.luz.ruido != null ? campo.res.luz.ruido.toFixed(1) : '—'),
+                    h('span', null, 'ruido de imagen (ganancia)')),
+                  h('div', { className: 'fp-medida' + (campo.res.zona && campo.res.zona.cubre && campo.res.zona.cubre.alto > 0.92 ? ' is-ok' : ' is-mal') },
+                    h('b', null, campo.res.zona && campo.res.zona.cubre ? Math.round(campo.res.zona.cubre.alto * 100) + '%' : '—'),
+                    h('span', null, 'de la zona cabe en el cuadro')),
+                  h('div', { className: 'fp-medida' + (campo.res.aceptados + campo.res.rechazados > 0 && campo.res.rechazados / (campo.res.aceptados + campo.res.rechazados) <= 0.25 ? ' is-ok' : ' is-mal') },
+                    h('b', null, campo.res.aceptados + campo.res.rechazados
+                      ? Math.round((campo.res.rechazados / (campo.res.aceptados + campo.res.rechazados)) * 100) + '%'
+                      : '—'),
+                    h('span', null, 'cuadros descartados'))),
+                h('ul', { className: 'fp-campo-lista' }, campo.veredicto.puntos.map((p, i) => h('li', {
+                  key: i, className: 'is-' + p.nivel,
+                }, (p.nivel === 'ok' ? '✅ ' : p.nivel === 'aviso' ? '⚠️ ' : '❌ ') + p.texto))),
+                h('div', { className: 'fp-chips' },
+                  Object.keys(campo.res.grupos).map((k) => h(Chip, { key: k },
+                    k + ': ' + Math.round(campo.res.grupos[k] * 100) + '%'))),
+                h('p', { className: 'fp-note' },
+                  'Medido a las ' + campo.at.toLocaleTimeString() + ' sobre ' + campo.res.cuadros + ' lecturas' +
+                  (campo.res.aspecto ? ', cámara ' + round1(campo.res.aspecto) + ':1' : '') + '. ' +
+                  'Los umbrales de luz (' + num(model.hardware.luzMinima, 80) + ' de nivel, ' +
+                  num(model.hardware.luzRuidoMax, 4.5) + ' de ruido, ' + num(model.hardware.contraluzMax, 60) +
+                  ' de contraluz) se ajustan en ⚙️ Editor → 🔌 Hardware: la medición es del equipo, el listón lo pones tú.'))
+            : null),
         h('div', { className: 'fp-diag-grid' },
           h('div', { className: 'fp-diag-card' },
             h('h3', null, '1. Contexto de ejecución'),
@@ -8362,7 +12338,115 @@ export default function mount(shell) {
                   h(CamaraVista, { attach: videoRef, espejo: true, landmarks: cuerpo.landmarks, espacio: model.espacio },
                     h(Esqueleto, { landmarks: cuerpo.landmarks, espejo: true })))
               : null,
-            h(TablaCamaras, { espacio: model.espacio, aspecto: (cuerpo && cuerpo.aspecto) || 16 / 9 }))),
+            h(TablaCamaras, { espacio: model.espacio, aspecto: (cuerpo && cuerpo.aspecto) || 16 / 9 })),
+          h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
+            h('h3', null, '9. Teléfono como sensor (modo remoto)'),
+            h('p', { className: 'fp-note' },
+              'Para el montaje sin cámara: notebook con proyector, o un tótem cuya cámara no sirve. ' +
+              'El teléfono abre la app por wifi, calcula la pose ahí mismo y transmite solo los 33 ' +
+              'puntos del cuerpo. La imagen no sale del teléfono. No hay que instalar nada en este equipo.'),
+            (function () {
+              const sala = salaNormal(model.hardware.sensorSala) || '(sin generar)';
+              const url = urlDelSensor(model.hardware, sala);
+              const activo = s(model.hardware.motorPose) === 'sensor';
+              return h('div', null,
+                h('div', { className: 'fp-sensor-par' },
+                  h('div', { className: 'fp-sensor-qr' },
+                    url && sala.length >= 4 ? h(QR, { texto: url, tam: 200, alt: 'QR para abrir el modo sensor en el teléfono' }) : null),
+                  h('div', { className: 'fp-sensor-datos-par' },
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, salaLegible(sala)), h('span', null, 'código de sala')),
+                    h('p', { className: 'fp-note' },
+                      'Escanea el QR con la cámara del teléfono, o escribe la dirección a mano:'),
+                    h('code', null, url || '(no se pudo deducir la dirección de esta página)'),
+                    h('div', { className: 'fp-actions' },
+                      h(Boton, { variant: oyendoSensor ? 'danger' : 'soft', onClick: escucharSensor },
+                        oyendoSensor ? 'Dejar de escuchar' : '📱 Esperar al teléfono'),
+                      h(Boton, { variant: 'ghost', onClick: nuevaSala }, 'Otro código')),
+                    !activo
+                      ? h('p', { className: 'fp-note' },
+                          '⚠️ El motor de pose no está puesto en «Teléfono como sensor», así que los juegos ' +
+                          'van a seguir usando la cámara de este equipo. Se cambia en ⚙️ Editor → 🔌 Hardware.')
+                      : null)),
+                sensor ? h('div', null,
+                  h('div', { className: 'fp-campo-semaforo is-' + sensor.veredicto.nivel },
+                    h('b', null, sensor.veredicto.nivel === 'ok' ? '✅' : sensor.veredicto.nivel === 'aviso' ? '⚠️' : '❌'),
+                    h('span', null, sensor.salud.pareja ? sensor.veredicto.titulo
+                      : sensor.salud.estado === 'esperando' ? 'Esperando al teléfono…'
+                        : sensor.salud.estado === 'caido' ? 'Sin puente de salas' : 'Conectando…')),
+                  h('div', { className: 'fp-medidas' },
+                    h('div', { className: 'fp-medida' + (sensor.salud.edad != null && sensor.salud.edad <= num(model.hardware.sensorLatenciaMax, 180) ? ' is-ok' : ' is-mal') },
+                      h('b', null, sensor.salud.edad == null ? '—' : sensor.salud.edad + ' ms'),
+                      h('span', null, 'retraso del gesto (lo que se siente)')),
+                    h('div', { className: 'fp-medida' + (sensor.salud.rtt != null && sensor.salud.rtt <= num(model.hardware.sensorRttMax, 100) ? ' is-ok' : ' is-mal') },
+                      h('b', null, sensor.salud.rtt == null ? '—' : sensor.salud.rtt + ' ms'),
+                      h('span', null, 'ida y vuelta del enlace')),
+                    h('div', { className: 'fp-medida' + (sensor.salud.via === 'rtc' ? ' is-ok' : '') },
+                      h('b', null, sensor.salud.via === 'rtc' ? 'DIRECTO' : sensor.salud.via === 'ws' ? 'POR PUENTE' : '—'),
+                      h('span', null, 'camino del enlace')),
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, sensor.salud.remoto && sensor.salud.remoto.hz ? sensor.salud.remoto.hz + ' fps' : '—'),
+                      h('span', null, 'pose en el teléfono')),
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, sensor.salud.recibidos), h('span', null, 'cuadros recibidos')),
+                    h('div', { className: 'fp-medida' },
+                      h('b', null, sensor.salud.desfase == null ? '—' : Math.round(sensor.salud.desfase / 100) / 10 + ' s'),
+                      h('span', null, 'desfase de reloj corregido'))),
+                  sensor.veredicto.acciones.length
+                    ? h('ul', { className: 'fp-campo-lista' }, sensor.veredicto.acciones.map((a, i) =>
+                        h('li', { key: i, className: 'is-' + sensor.veredicto.nivel }, (sensor.veredicto.nivel === 'mal' ? '❌ ' : '⚠️ ') + a)))
+                    : null,
+                  h('p', { className: 'fp-note' },
+                    'Puente de salas: ', h('code', null, sensor.salud.url), '. ' +
+                    'Se arranca con ', h('code', null, 'node puente-sensor/puente.mjs'), '. ' +
+                    'Si el teléfono abre la app pero no enciende la cámara, falta el certificado: ' +
+                    'está explicado en ', h('code', null, 'puente-sensor/README.md'), '.'))
+                  : h('p', { className: 'fp-note' },
+                      'Toca «Esperar al teléfono» y después escanea el QR. El puente de salas tiene que ' +
+                      'estar corriendo en este equipo.'));
+            }())),
+          h('div', { className: 'fp-diag-card fp-diag-card--ancha' },
+            h('h3', null, '10. Tiempo de ciclo y cuánta gente se atiende por hora'),
+            h('p', { className: 'fp-note' },
+              'Se mide sola, jugando: desde que alguien entra a un juego —donde empieza el posicionamiento— ' +
+              'hasta que suelta la pantalla. Incluye colocarse, jugar, ver el puntaje y escribir el nombre, ' +
+              'porque todo eso es tiempo en que el siguiente de la fila está esperando. No se cuentan las ' +
+              'salidas por inactividad ni las pantallas que quedaron abiertas.'),
+            (function () {
+              const rc = resumenDeCiclos(model);
+              if (!rc.muestras) {
+                return h('p', { className: 'fp-empty' },
+                  'Todavía no hay partidas medidas. Juega unas cuantas y este número aparece solo.');
+              }
+              const seg = (ms) => (ms == null ? '—' : (ms / 1000 < 90 ? Math.round(ms / 1000) + ' s' : (ms / 60000).toFixed(1) + ' min'));
+              return h('div', null,
+                h('div', { className: 'fp-medidas' },
+                  h('div', { className: 'fp-medida' }, h('b', null, seg(rc.mediana)), h('span', null, 'ocupación mediana')),
+                  h('div', { className: 'fp-medida' }, h('b', null, seg(rc.relevo)), h('span', null, 'relevo entre personas')),
+                  h('div', { className: 'fp-medida is-ok' }, h('b', null, rc.personasPorHora == null ? '—' : rc.personasPorHora),
+                    h('span', null, 'personas por hora')),
+                  h('div', { className: 'fp-medida' }, h('b', null, rc.muestras), h('span', null, 'partidas medidas'))),
+                rc.muestras < 5
+                  ? h('p', { className: 'fp-note' }, '⚠️ Con ' + rc.muestras + ' medición(es) el número es orientativo. Desde cinco empieza a valer para dimensionar una jornada.')
+                  : null,
+                h('table', { className: 'fp-table' },
+                  h('thead', null, h('tr', null,
+                    h('th', null, 'Juego'), h('th', null, 'Medidas'), h('th', null, 'Ocupación mediana'),
+                    h('th', null, 'Partidas por persona'), h('th', null, 'Personas/hora'))),
+                  h('tbody', null, rc.juegos.map((j) => {
+                    const g = model.games.find((x) => x.id === j.id);
+                    return h('tr', { key: j.id },
+                      h('td', null, (g && g.name) || j.id),
+                      h('td', null, j.n),
+                      h('td', null, seg(j.mediana)),
+                      h('td', null, j.partidasPorPersona),
+                      h('td', null, j.personasPorHora == null ? '—' : j.personasPorHora));
+                  }))),
+                h('p', { className: 'fp-note' },
+                  'Las «personas por hora» ya descuentan el relevo: el tótem no queda libre en el instante ' +
+                  'en que uno se va. Con fila larga conviene abrir con los juegos de la parte de arriba de ' +
+                  'esta tabla, que son los que más gente atienden.'));
+            }()))),
         h('h3', { className: 'fp-h3' }, 'Veredicto por juego'),
         h('table', { className: 'fp-table' },
           h('thead', null, h('tr', null, h('th', null, 'Función'), h('th', null, '¿Sirve la cámara común del tótem?'), h('th', null, 'Recomendación'))),
@@ -8401,6 +12485,13 @@ export default function mount(shell) {
       { key: 'cuentaRegresiva', label: 'Cuenta regresiva (s)', type: 'number', min: 0, max: 10 },
       { key: 'exigirCalibracion', label: 'Exigir calibración de la zona', type: 'boolean' },
       { key: 'mostrarEsqueleto', label: 'Mostrar esqueleto sobre el video', type: 'boolean' },
+      { key: 'modoRitmico', label: 'Ofrecer el modo rítmico (sin cámara)', type: 'boolean',
+        help: 'Es la entrada alternativa del juego: apagarlo lo deja jugable solo con cámara.' },
+      { key: 'ritmoLatenciaMs', label: 'Ajuste de latencia del panel (ms)', type: 'range', min: -200, max: 250, step: 5,
+        help: 'Solo para el modo rítmico. Si al terminar dice que los toques llegan tarde, pon acá esos milisegundos.' },
+      { key: 'ritmoUnCarril', label: 'Modo rítmico con un solo botón', type: 'boolean',
+        help: 'Para jugar con un pulsador único o una sola mano: todas las notas valen con el mismo botón.' },
+      { key: 'ritmoSonido', label: 'Clic de compás en el modo rítmico', type: 'boolean' },
     ],
     laser: [
       { key: 'duracion', label: 'Duración (s)', type: 'number', min: 15, max: 300 },
@@ -8476,6 +12567,69 @@ export default function mount(shell) {
   };
   CAMPOS_JUEGO.esquiva3d = CAMPOS_JUEGO.esquiva2d;
 
+  /**
+   * Packs temáticos: aplicar, exportar e importar.
+   *
+   * La importación valida ANTES de tocar nada y muestra qué campo está mal.
+   * Un pack roto tiene que fallar acá, con un mensaje, y no a mitad del evento
+   * con la portada en blanco.
+   */
+  function BloquePacks(props) {
+    const m = props.model;
+    const [texto, setTexto] = useState('');
+    const [informe, setInforme] = useState(null);
+    const aplicar = (id) => {
+      const r = aplicarPack(id);
+      if (r.ok) notify('success', 'Pack «' + PACKS[id].nombre + '» aplicado. No se tocó el montaje ni el ranking.');
+      setInforme(r);
+    };
+    return h('div', { className: 'fp-form-ancho' },
+      h('h4', { className: 'fp-h4' }, '🎨 Packs temáticos'),
+      h('p', { className: 'fp-note' },
+        'Un pack cambia cómo se ve y cómo se llaman las cosas. NO toca el montaje (cámara, espacio, ' +
+        'hardware) ni los datos (ranking, contactos, métricas), así que se puede cambiar la decoración ' +
+        'a mitad de la jornada sin arriesgar una partida guardada.'),
+      h('div', { className: 'fp-chips' }, Object.keys(PACKS).map((k) => h('button', {
+        key: k, className: 'fp-chip' + (m.branding.theme === k ? ' is-on' : ''), onClick: () => aplicar(k),
+      }, (PACKS[k].tema.emoji || '🎨') + ' ' + PACKS[k].nombre))),
+      h('p', { className: 'fp-note' }, PACKS[m.branding.theme] ? PACKS[m.branding.theme].descripcion : ''),
+      h('div', { className: 'fp-actions' },
+        h(Boton, {
+          variant: 'soft',
+          onClick: () => {
+            const json = JSON.stringify(packDelModelo(m, 'mi-pack', m.branding.appName), null, 2);
+            setTexto(json);
+            descargar('funplai-pack-' + new Date().toISOString().slice(0, 10) + '.json', json, 'application/json');
+            notify('info', 'Pack exportado. Está también en el cuadro de abajo para copiarlo.');
+          },
+        }, '⬇️ Exportar el aspecto actual'),
+        h(Boton, {
+          variant: 'ghost', disabled: !texto.trim(),
+          onClick: () => {
+            let obj = null;
+            try { obj = JSON.parse(texto); } catch (e) {
+              setInforme({ ok: false, errores: ['El texto no es JSON válido: ' + e.message], avisos: [] });
+              return;
+            }
+            const r = aplicarPack(obj);
+            setInforme(r);
+            if (r.ok) notify('success', 'Pack «' + r.pack.nombre + '» importado y aplicado.');
+            else notify('error', 'El pack no se aplicó: tiene ' + r.errores.length + ' problema(s).');
+          },
+        }, '⬆️ Importar el pack de abajo')),
+      h(Campo, {
+        label: 'Pack en JSON (pega uno acá para importarlo)', type: 'textarea', rows: 8,
+        value: texto, onChange: setTexto,
+        help: 'Formato documentado en docs/PERSONALIZACION.md. Los packs que vienen con la app están en assets/packs/.',
+      }),
+      informe && !informe.ok ? h('div', { className: 'fp-error' },
+        h('b', null, 'El pack no se aplicó:'),
+        h('ul', null, informe.errores.map((e, i) => h('li', { key: i }, e)))) : null,
+      informe && informe.avisos && informe.avisos.length ? h('div', { className: 'fp-note' },
+        h('b', null, 'Se ignoraron algunos campos (el pack se aplicó igual):'),
+        h('ul', null, informe.avisos.map((a, i) => h('li', { key: i }, a)))) : null);
+  }
+
   function Editor(props) {
     const m = props.model;
     const [tab, setTab] = useState('marca');
@@ -8491,7 +12645,7 @@ export default function mount(shell) {
      */
     const probarPuente = async () => {
       setKinPrueba({ probando: true });
-      const prov = proveedorKinect(m.hardware);
+      const prov = proveedorKinect(m.hardware, m.espacio);
       try {
         await prov.iniciar();
       } catch (e) {
@@ -8515,7 +12669,7 @@ export default function mount(shell) {
       });
     };
 
-    const tabs = [['marca', '🎨 Marca'], ['juegos', '🎮 Juegos'], ['espacio', '📐 Espacio'], ['hardware', '🔌 Hardware'], ['datos', '💾 Datos']];
+    const tabs = [['marca', '🎨 Marca'], ['juegos', '🎮 Juegos'], ['espacio', '📐 Espacio'], ['hardware', '🔌 Hardware'], ['concurso', '⚖️ Concurso'], ['datos', '💾 Datos']];
 
     const campoJuego = (f) => {
       const opciones = f.options === 'choreos'
@@ -8546,15 +12700,32 @@ export default function mount(shell) {
           h(Campo, {
             label: 'Temática', type: 'select', value: m.branding.theme,
             options: Object.keys(THEMES).map((k) => ({ value: k, label: THEMES[k].name })),
-            onChange: (v) => patch({ branding: { theme: v } }),
+            help: 'Cambia solo los colores. Para cambiar además los textos y los nombres de los juegos, aplica un pack completo más abajo.',
+            onChange: (v) => patch({ branding: { theme: v, temaPack: null } }),
           }),
-          h(Campo, { label: 'Color de acento', type: 'color', value: m.branding.accent || THEMES[m.branding.theme].accent, onChange: (v) => patch({ branding: { accent: v } }) }),
-          h(Campo, { label: 'Color secundario', type: 'color', value: m.branding.accent2 || THEMES[m.branding.theme].accent2, onChange: (v) => patch({ branding: { accent2: v } }) }),
+          // `themeOf` y no `THEMES[id]`: con un pack importado el id NO está en
+          // THEMES —llegó de un archivo— y buscarlo ahí dejaba el Editor en
+          // blanco justo después de aplicar el pack de una marca.
+          h(Campo, { label: 'Color de acento', type: 'color', value: m.branding.accent || themeOf(m).accent, onChange: (v) => patch({ branding: { accent: v } }) }),
+          h(Campo, { label: 'Color secundario', type: 'color', value: m.branding.accent2 || themeOf(m).accent2, onChange: (v) => patch({ branding: { accent2: v } }) }),
           h(Campo, { label: 'Título de portada', value: m.branding.heroTitle, onChange: (v) => patch({ branding: { heroTitle: v } }) }),
           h(Campo, { label: 'Subtítulo de portada', value: m.branding.heroSubtitle, onChange: (v) => patch({ branding: { heroSubtitle: v } }) }),
           h(Campo, { label: 'Pie de página', value: m.branding.pieDePagina, onChange: (v) => patch({ branding: { pieDePagina: v } }) }),
           h(Campo, { label: 'Volver al inicio tras inactividad (s, 0 = nunca)', type: 'number', min: 0, max: 900, value: m.branding.idleSeconds, onChange: (v) => patch({ branding: { idleSeconds: v } }) }),
-          h(Campo, { label: 'Mostrar ranking', type: 'boolean', value: m.branding.mostrarRanking, onChange: (v) => patch({ branding: { mostrarRanking: v } }) })) : null,
+          h(Campo, { label: 'Mostrar ranking', type: 'boolean', value: m.branding.mostrarRanking, onChange: (v) => patch({ branding: { mostrarRanking: v } }) }),
+          h(Campo, {
+            label: 'Tope de partidas guardadas', type: 'number', min: 0, max: 20000,
+            value: m.ranking.tope,
+            help: 'Red de seguridad, no límite de trabajo: 0 = sin tope. Medido sobre la persistencia real, revienta cerca de las 28.000 filas; una jornada de diez horas a 60 partidas/hora son 600. Si se llega al tope se exporta y se avisa, nunca se borra en silencio.',
+            onChange: (v) => patch({ ranking: { tope: v } }),
+          }),
+          h(Campo, {
+            label: 'Partidas visibles en la tabla', type: 'number', min: 10, max: 500,
+            value: m.ranking.mostrar,
+            help: 'Solo afecta a lo que se dibuja: los datos están todos y hay un botón para verlos.',
+            onChange: (v) => patch({ ranking: { mostrar: v } }),
+          }),
+          h(BloquePacks, { model: m })) : null,
 
         tab === 'juegos' ? h('div', null,
           h('div', { className: 'fp-chips' }, m.games.map((g) => h('button', {
@@ -8579,9 +12750,11 @@ export default function mount(shell) {
               { value: 'auto', label: 'Automático (Kinect si hay puente, si no la webcam)' },
               { value: 'kinect', label: 'Kinect for Xbox One (puente local)' },
               { value: 'mediapipe', label: 'Webcam + MediaPipe' },
+              { value: 'sensor', label: 'Teléfono como sensor (modo remoto)' },
               { value: 'demo', label: 'Simulador (sin cámara)' },
               { value: 'ninguno', label: 'Desactivado' },
             ],
+            help: '«Webcam» incluye un teléfono conectado con Iriun o DroidCam, que el sistema ve como una cámara más. «Teléfono como sensor» es otra cosa: el teléfono abre la app por wifi y calcula la pose él mismo, sin instalar nada en este equipo. Se empareja en 🎥 Diagnóstico.',
             onChange: (v) => patch({ hardware: { motorPose: v } }),
           }),
           h(Campo, {
@@ -8617,12 +12790,6 @@ export default function mount(shell) {
             onChange: (v) => patch({ hardware: { kinectCuerpo: v } }),
           }),
           h(Campo, {
-            label: 'Suavizado del esqueleto', type: 'number', min: 0, max: 0.9, step: 0.05,
-            value: m.hardware.kinectSuavizado,
-            help: '0 = crudo del sensor. El esqueleto tiembla unos milímetros aunque la persona esté quieta; 0,35 lo calma sin que la mano se quede atrás.',
-            onChange: (v) => patch({ hardware: { kinectSuavizado: v } }),
-          }),
-          h(Campo, {
             label: 'Distancia mínima de juego (cm)', type: 'number', min: 40, max: 450,
             value: m.hardware.kinectMinCm,
             help: 'Más cerca de ~80 cm el Kinect v2 no sigue el cuerpo.',
@@ -8649,6 +12816,85 @@ export default function mount(shell) {
             help: 'Puño en el boxeo, soltar el tejo en la rayuela, disparar en el LaserGun. Desactívalo si el montaje está lejos y el sensor no distingue puño de mano abierta.',
             onChange: (v) => patch({ hardware: { kinectUsarManos: v } }),
           }),
+          // ── Robustez del pipeline ───────────────────────────────────
+          h('h4', { className: 'fp-h4 fp-form-ancho' }, '🎯 Robustez de la pose'),
+          h('p', { className: 'fp-note fp-form-ancho' },
+            'Estos ajustes valen para los DOS motores. La diferencia entre una webcam barata y un sensor caro ' +
+            'casi nunca está en el modelo de pose: está acá.'),
+          h(Campo, {
+            label: 'Cuadros de pose por segundo', type: 'number', min: 5, max: 60,
+            value: m.hardware.poseHz,
+            help: 'La pose corre en su propio bucle y el juego dibuja a 60 leyendo la última lectura. 20–30 se ve mejor que forzar 60 y que se trabe.',
+            onChange: (v) => patch({ hardware: { poseHz: v } }),
+          }),
+          h(Campo, {
+            label: 'Recortar el cuadro a la zona de juego', type: 'boolean', value: m.hardware.recorteZona,
+            help: 'Quien pase por detrás queda fuera del cuadro que ve el modelo. Además hay menos píxeles que mirar, así que corre más rápido.',
+            onChange: (v) => patch({ hardware: { recorteZona: v } }),
+          }),
+          h(Campo, {
+            label: 'Salto máximo entre cuadros', type: 'number', min: 0.05, max: 1, step: 0.01,
+            value: m.hardware.saltoMaximo,
+            help: 'En fracción de pantalla. Si el cuerpo salta más que esto de un cuadro a otro, no es que se movió: es que el modelo se pasó a otra persona. Ese cuadro se descarta.',
+            onChange: (v) => patch({ hardware: { saltoMaximo: v } }),
+          }),
+          h(Campo, {
+            label: 'Filtro de suavizado', type: 'select', value: m.hardware.filtro,
+            options: [
+              { value: 'oneeuro', label: 'One Euro (recomendado)' },
+              { value: 'ema', label: 'Exponencial simple' },
+              { value: 'ninguno', label: 'Ninguno (dato crudo)' },
+            ],
+            help: 'El exponencial obliga a elegir entre temblor en reposo y retraso en movimiento rápido. One Euro resuelve las dos.',
+            onChange: (v) => patch({ hardware: { filtro: v } }),
+          }),
+          h(Campo, {
+            label: 'One Euro · mincutoff (Hz)', type: 'number', min: 0.1, max: 10, step: 0.1,
+            value: m.hardware.oneEuroMinCutoff,
+            help: 'Manda en el reposo: más bajo, más quieto se ve el esqueleto.',
+            onChange: (v) => patch({ hardware: { oneEuroMinCutoff: v } }),
+          }),
+          h(Campo, {
+            label: 'One Euro · beta', type: 'number', min: 0, max: 25, step: 0.5,
+            value: m.hardware.oneEuroBeta,
+            help: 'Cuánto se abre el filtro al moverse rápido: más alto, menos retraso en un golpe o un salto. Ojo con los valores de los ejemplos del filtro: están pensados para píxeles, y aquí los puntos van en 0..1.',
+            onChange: (v) => patch({ hardware: { oneEuroBeta: v } }),
+          }),
+          h(Campo, {
+            label: 'Descartar cuadros con huesos estirados', type: 'boolean', value: m.hardware.huesosRigidos,
+            help: 'Los largos de segmento de una persona no cambian. Se miden al calibrar y el cuadro que los viole se descarta: ahí se va la mayoría de los saltos de landmark.',
+            onChange: (v) => patch({ hardware: { huesosRigidos: v } }),
+          }),
+          h(Campo, {
+            label: 'Personas a seguir a la vez', type: 'number', min: 1, max: 4,
+            value: m.hardware.poseNumPoses,
+            help: 'Déjalo en 1. Subirlo cuesta CPU y con el recorte no hace falta para aislar al jugador; 2 sirve para un duelo presencial en un equipo capaz.',
+            onChange: (v) => patch({ hardware: { poseNumPoses: v } }),
+          }),
+          h('h4', { className: 'fp-h4 fp-form-ancho' }, '💡 Umbrales de luz'),
+          h('p', { className: 'fp-note fp-form-ancho' },
+            'La app MIDE la luz de la sala en 🎥 Diagnóstico → Prueba de campo. Estos tres números son ' +
+            'el listón contra el que se compara lo medido. Vienen puestos para una sala de feria normal; ' +
+            'quien conoce el local puede moverlos, y quedan escritos para que el veredicto no dependa de ' +
+            'una opinión.'),
+          h(Campo, {
+            label: 'Luz mínima sobre el sujeto (0–255)', type: 'number', min: 20, max: 200,
+            value: m.hardware.luzMinima,
+            help: 'Luma media de la persona, no del cuadro: el ventanal del fondo no juega. Por debajo de 0,7 de este valor la prueba de campo da rojo.',
+            onChange: (v) => patch({ hardware: { luzMinima: v } }),
+          }),
+          h(Campo, {
+            label: 'Ruido de imagen máximo', type: 'number', min: 0.5, max: 30, step: 0.5,
+            value: m.hardware.luzRuidoMax,
+            help: 'Cuánto cambia cada píxel entre cuadros con la escena quieta. Es la firma de la ganancia alta: la cámara compensando la falta de luz. Sube con menos luz, no con peor cámara.',
+            onChange: (v) => patch({ hardware: { luzRuidoMax: v } }),
+          }),
+          h(Campo, {
+            label: 'Contraluz máximo (fondo − sujeto)', type: 'number', min: 10, max: 200,
+            value: m.hardware.contraluzMax,
+            help: 'Si el fondo es más claro que la persona por más de esto, hay un ventanal detrás y la cámara expone para él. No se arregla con más luz: hay que girar el montaje.',
+            onChange: (v) => patch({ hardware: { contraluzMax: v } }),
+          }),
           h('h4', { className: 'fp-h4 fp-form-ancho' }, '📷 Webcam (MediaPipe)'),
           h(Campo, { label: 'URL del módulo de pose', value: m.hardware.poseModuleUrl, help: 'Puede apuntar a un asset local del tótem para funcionar sin internet.', onChange: (v) => patch({ hardware: { poseModuleUrl: v } }) }),
           h(Campo, { label: 'URL del runtime WASM', value: m.hardware.poseWasmUrl, onChange: (v) => patch({ hardware: { poseWasmUrl: v } }) }),
@@ -8656,6 +12902,132 @@ export default function mount(shell) {
           h(Campo, { label: 'Mostrar aviso de cámara activa', type: 'boolean', value: m.hardware.avisoCamara, onChange: (v) => patch({ hardware: { avisoCamara: v } }) }),
           h(Campo, { label: 'Aceptar impactos de tracker externo', type: 'boolean', value: m.hardware.trackerExterno, help: 'window.postMessage({type:"funplai:impact", x, y}) con x,y entre 0 y 1.', onChange: (v) => patch({ hardware: { trackerExterno: v } }) }),
           h(Campo, { label: 'Separar persona del fondo (segmentación)', type: 'boolean', value: m.hardware.segmentacion, help: 'Da el contorno real del cuerpo (lo usa Esquiva 3D). Cuesta CPU: en un Celeron, actívalo solo si el diagnóstico lo aguanta.', onChange: (v) => patch({ hardware: { segmentacion: v } }) })) : null,
+
+        tab === 'concurso' ? h('div', null,
+          h('p', { className: 'fp-lead' },
+            'En cuanto un juego reparte un premio deja de ser un juego: es un concurso, y tarde o ' +
+            'temprano alguien reclama. Esto no cambia cómo se juega — cambia qué se puede demostrar ' +
+            'después. Los juegos siguen siendo de DESTREZA y no de azar: gana quien lo hace mejor, ' +
+            'no quien tiene suerte. Ver ', h('code', null, 'docs/BASES-CONCURSO.md'), '.'),
+          (function () {
+            const c = m.concurso || {};
+            const est = estadoConcurso(m);
+            return h('div', null,
+              h('div', { className: 'fp-form' },
+                h(Campo, {
+                  label: 'Activar modo concurso', type: 'boolean', value: c.activo,
+                  help: 'Enciende la vigilancia de la partida, el tope de intentos y la ventana de vigencia. Apagado, la app se comporta como siempre.',
+                  onChange: (v) => patch({ concurso: { activo: v } }),
+                }),
+                h(Campo, { label: 'Nombre del concurso', value: c.nombre, help: 'Aparece en las bases y en la exportación.', onChange: (v) => patch({ concurso: { nombre: v } }) }),
+                h(Campo, { label: 'Premio', value: c.premio, help: 'Qué se lleva quien gana. Va en las bases.', onChange: (v) => patch({ concurso: { premio: v } }) }),
+                h(Campo, {
+                  label: 'Intentos por persona', type: 'number', min: 0, max: 99, value: c.intentosPorPersona,
+                  help: '0 = sin tope. Se cuenta por el nombre escrito, así que es un tope de buena fe: quien quiera más solo tiene que escribir otro nombre. El control real es el operador mirando la fila, y así está dicho en las bases.',
+                  onChange: (v) => patch({ concurso: { intentosPorPersona: v } }),
+                }),
+                h(Campo, { label: 'Abre (fecha y hora)', type: 'datetime-local', value: c.desde, help: 'Vacío = sin hora de apertura.', onChange: (v) => patch({ concurso: { desde: v } }) }),
+                h(Campo, { label: 'Cierra (fecha y hora)', type: 'datetime-local', value: c.hasta, help: 'Fuera de la ventana no se pueden guardar puntajes.', onChange: (v) => patch({ concurso: { hasta: v } }) })),
+              h('h4', { className: 'fp-h4' }, 'Qué se considera jugar dentro de las reglas'),
+              h('p', { className: 'fp-note' },
+                'Medido con la geometría real de la cámara: acercarse NO infla un gesto lateral, porque el ' +
+                'gesto y el ancho de hombros crecen igual con la distancia. Lo que sí infla es GIRARSE: la ' +
+                'referencia cae con el coseno del giro, así que de perfil a 55° un salto se lee un 73% más ' +
+                'grande. Por eso se vigilan las dos cosas por separado.'),
+              h('div', { className: 'fp-form' },
+                h(Campo, {
+                  label: 'Puede moverse (cm)', type: 'number', min: 10, max: 150, value: c.toleranciaDistancia,
+                  help: 'Cuánto se puede alejar o acercar de donde se colocó al empezar, antes de que el cuadro cuente como fuera.',
+                  onChange: (v) => patch({ concurso: { toleranciaDistancia: v } }),
+                }),
+                h(Campo, {
+                  label: 'Hombros mínimos (fracción)', type: 'number', min: 0.3, max: 1, step: 0.05, value: c.giroTolerancia,
+                  help: 'Fracción del ancho de hombros con el que se colocó. Por debajo, está de perfil. 0,8 permite girarse unos 35°.',
+                  onChange: (v) => patch({ concurso: { giroTolerancia: v } }),
+                }),
+                h(Campo, {
+                  label: 'Señalar desde (fracción de la partida)', type: 'number', min: 0, max: 1, step: 0.05, value: c.marcarDesde,
+                  help: 'Con más de esto fuera de las reglas, la partida queda señalada pero compite.',
+                  onChange: (v) => patch({ concurso: { marcarDesde: v } }),
+                }),
+                h(Campo, {
+                  label: 'Invalidar desde (fracción de la partida)', type: 'number', min: 0, max: 1, step: 0.05, value: c.invalidarDesde,
+                  help: 'Con más de esto, la partida se guarda pero no compite por el premio. Que haya un nivel intermedio importa: quien se salió tres segundos porque le hablaron no hizo trampa.',
+                  onChange: (v) => patch({ concurso: { invalidarDesde: v } }),
+                })),
+              h('h4', { className: 'fp-h4' }, 'Datos de contacto (amarillo del semáforo)'),
+              h('p', { className: 'fp-note' },
+                'El formulario se ofrece DESPUÉS de jugar, plegado, y con ninguna casilla marcada. Se puede ' +
+                'jugar y ganar sin dejar nada. Lo que se guarda incluye el texto exacto que la persona ' +
+                'aceptó, no un «sí» suelto: si mañana cambian las finalidades, hay que poder demostrar a ' +
+                'qué dijo que sí.'),
+              h('div', { className: 'fp-form' },
+                h(Campo, {
+                  label: 'Ofrecer dejar datos de contacto', type: 'boolean', value: (m.contacto || {}).activo,
+                  onChange: (v) => patch({ contacto: { activo: v } }),
+                }),
+                h(Campo, {
+                  label: 'Responsable de los datos', value: (m.contacto || {}).responsable,
+                  help: 'La marca u organizador, NO Kimos. Sale en pantalla y en la exportación. En un evento, Kimos suele ser encargado del tratamiento y la marca responsable: eso va en contrato (ver PRIVACIDAD.md).',
+                  onChange: (v) => patch({ contacto: { responsable: v } }),
+                }),
+                h(Campo, {
+                  label: 'Cuánto se conservan', value: (m.contacto || {}).conservacion,
+                  help: 'En texto claro, como se lo va a leer la persona: «30 días», «hasta el sorteo del 15 de octubre».',
+                  onChange: (v) => patch({ contacto: { conservacion: v } }),
+                }),
+                h(Campo, { label: 'Pedir correo', type: 'boolean', value: (m.contacto || {}).pedirCorreo, onChange: (v) => patch({ contacto: { pedirCorreo: v } }) }),
+                h(Campo, { label: 'Pedir teléfono', type: 'boolean', value: (m.contacto || {}).pedirTelefono, onChange: (v) => patch({ contacto: { pedirTelefono: v } }) }),
+                h(Campo, {
+                  label: 'Pedir edad', type: 'boolean', value: (m.contacto || {}).pedirEdad,
+                  help: 'La escribe la persona. La app NO estima la edad por la cámara: eso es rojo del semáforo y no se va a implementar.',
+                  onChange: (v) => patch({ contacto: { pedirEdad: v } }),
+                }),
+                h(Campo, {
+                  label: 'Pedir permiso para foto o vídeo', type: 'boolean', value: (m.contacto || {}).pedirFoto,
+                  help: 'Casilla SEPARADA del resto: compartir una imagen es otra cosa que dar un correo, y juntarlas sería colar una en la otra.',
+                  onChange: (v) => patch({ contacto: { pedirFoto: v } }),
+                }),
+                h(Campo, {
+                  label: 'Dirección del QR de puntaje', value: (m.contacto || {}).urlPuntaje,
+                  help: 'Plantilla de la marca, con {puntaje} y {juego}. Si se deja vacía, el QR lleva un texto legible con el puntaje: sigue sirviendo para una foto y no se inventa un servidor que no existe.',
+                  onChange: (v) => patch({ contacto: { urlPuntaje: v } }),
+                })),
+              h('h4', { className: 'fp-h4' }, 'Cierre del concurso'),
+              h('p', { className: 'fp-note' },
+                est.abierto
+                  ? 'El concurso está ABIERTO. Al cerrarlo, el ranking deja de admitir partidas nuevas y queda la constancia de cuándo se cerró. Es lo que se firma con el cliente al entregar los resultados.'
+                  : '⚖️ Cerrado' + (c.cerradoAt ? ' el ' + new Date(c.cerradoAt).toLocaleString() : '') +
+                    '. El ranking ya no admite partidas nuevas.'),
+              h('div', { className: 'fp-actions' },
+                c.cerrado
+                  ? h(Boton, {
+                      variant: 'ghost',
+                      onClick: () => {
+                        if (!confirm('¿Reabrir el concurso?\n\nQueda constancia de que se cerró el ' +
+                          (c.cerradoAt ? new Date(c.cerradoAt).toLocaleString() : '(sin fecha)') +
+                          ' y de que se reabrió ahora. Si ya entregaste resultados al cliente, reabrir cambia el ranking que firmó.')) return;
+                        patch({ concurso: { cerrado: false, reabiertoAt: new Date().toISOString() } });
+                        notify('warn', 'Concurso reabierto. Queda constancia en la configuración.');
+                      },
+                    }, 'Reabrir el concurso')
+                  : h(Boton, {
+                      variant: 'danger', disabled: !c.activo,
+                      onClick: () => {
+                        if (!confirm('¿Cerrar el concurso?\n\nNo se van a poder guardar más partidas. Se puede reabrir, y también queda constancia de eso.')) return;
+                        patch({ concurso: { cerrado: true, cerradoAt: new Date().toISOString() } });
+                        notify('success', 'Concurso cerrado. El ranking queda como está.');
+                      },
+                    }, '🔒 Cerrar el concurso'),
+                h(Boton, {
+                  variant: 'soft', disabled: !(m.scores || []).length,
+                  onClick: () => {
+                    const csv = rankingCSV(ordenarRanking(m.scores || []));
+                    descargar('funplai-concurso-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv', csv);
+                    notify('info', 'Acta exportada: ' + (m.scores || []).length + ' partidas, con su ficha de auditoría.');
+                  },
+                }, '⬇️ Exportar acta')));
+          }())) : null,
 
         tab === 'espacio' ? h('div', null,
           h('p', { className: 'fp-lead' },
@@ -8739,9 +13111,173 @@ export default function mount(shell) {
             }, 'Importar del cuadro'),
             h(Boton, {
               variant: 'danger',
-              onClick: () => { if (confirm('¿Restaurar la configuración de fábrica? Se conserva el ranking.')) { commit(merge(clone(DEFAULT_MODEL), { scores: m.scores })); notify('info', 'Configuración restaurada.'); } },
+              // Se conserva el ranking Y su configuración: restaurar la marca
+              // no puede llevarse por delante un aviso de puntajes pendientes.
+              onClick: () => { if (confirm('¿Restaurar la configuración de fábrica? Se conserva el ranking.')) { commit(merge(clone(DEFAULT_MODEL), { scores: m.scores, ranking: m.ranking })); notify('info', 'Configuración restaurada.'); } },
             }, 'Restaurar de fábrica')),
           h(Campo, { label: 'Configuración JSON', type: 'textarea', rows: 16, value: json, onChange: setJson })) : null));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 16.b Modo sensor: lo que ve el teléfono
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Esta pantalla NO es la app. Es lo único que se dibuja cuando alguien abre
+  // la dirección del QR: una vista de cámara, el estado del enlace y nada más.
+  // Ni juegos, ni ranking, ni editor. El teléfono es un sensor, y un sensor que
+  // además ofrece jugar sería un teléfono que alguien se lleva a la mano en
+  // medio de la partida.
+  //
+  // La frase "la imagen no sale del teléfono" se sostiene acá: el <video> se
+  // conecta al modelo de pose y a nada más, y por el enlace solo se serializan
+  // landmarks. No hay ninguna ruta de código que mande píxeles.
+
+  function PantallaSensor(props) {
+    const sala = props.sala;
+    const [estado, setEstado] = useState({ fase: 'arrancando', aviso: '' });
+    const [salud, setSalud] = useState(null);
+    const videoRef = useRef(null);
+    const ref = useRef({ enlace: null, prov: null, stream: null, parar: null, wake: null });
+
+    useEffect(() => {
+      const R = ref.current;
+      let vivo = true;
+
+      // El simulador también vale como sensor: sirve para comprobar el enlace
+      // y la latencia ANTES de que llegue nadie, que es cuando el operador
+      // todavía puede mover el router. Se declara en la pantalla para que
+      // nadie confunda un maniquí con una persona.
+      const conDemo = s(model.hardware.motorPose) === 'demo';
+
+      const arrancar = async () => {
+        if (conDemo) {
+          R.prov = proveedorDemo();
+          await R.prov.iniciar();
+          conectarEnlace();
+          return;
+        }
+        // 1. La cámara. Si el navegador no la da, casi siempre es el contexto
+        //    inseguro, y hay que decirlo con esas palabras.
+        try {
+          R.stream = await abrirCamara(Object.assign({}, model.hardware, { camaraDeviceId: '' }));
+          const v = videoRef.current;
+          if (!v) throw new Error('No se pudo montar el video.');
+          v.srcObject = R.stream;
+          await v.play().catch(() => {});
+        } catch (e) {
+          if (!vivo) return;
+          const seguro = typeof window === 'undefined' || window.isSecureContext !== false;
+          setEstado({
+            fase: 'sin-camara',
+            aviso: seguro ? mensajeCamara(e)
+              : 'Esta página no está en un contexto seguro (https o localhost), así que el navegador ' +
+                'no va a dar permiso de cámara por más que se lo pidas. Hay que abrirla por https: ' +
+                'está explicado en puente-sensor/README.md.',
+          });
+          return;
+        }
+        // 2. La pantalla del teléfono no se puede apagar: si se bloquea, se
+        //    corta el sensor en medio de una partida.
+        try {
+          if (navigator.wakeLock && navigator.wakeLock.request) R.wake = await navigator.wakeLock.request('screen');
+        } catch (e) { /* no todos los navegadores la tienen; no es fatal */ }
+
+        // 3. El motor de pose, con la tubería completa de la Fase 2. Se corre
+        //    ACÁ y no en la pantalla: es lo que convierte 30 MB/s de vídeo en
+        //    30 kB/s de puntos.
+        try {
+          R.prov = proveedorMediaPipe(model.hardware, model.espacio);
+          await R.prov.iniciar(videoRef.current);
+        } catch (e) {
+          if (!vivo) return;
+          setEstado({ fase: 'sin-motor', aviso: mensajeCamara(e) });
+          return;
+        }
+        if (!vivo) return;
+        conectarEnlace();
+      };
+
+      /** El enlace con la pantalla y el bucle de transmisión. */
+      function conectarEnlace() {
+        R.enlace = enlaceSensor({
+          rol: 'sensor', hw: model.hardware, sala,
+          alCambiar: (e, aviso) => { if (vivo) setEstado({ fase: e, aviso: aviso || '' }); },
+        });
+        R.enlace.iniciar();
+
+        // Bucle propio, al ritmo configurado. No se manda a 60 Hz "por si
+        // acaso": cada cuadro de más es batería del teléfono y ancho de banda
+        // en un wifi que ya es el eslabón débil.
+        const cadaMs = 1000 / clamp(num(model.hardware.sensorHz, 24), 5, 40);
+        let ultimo = 0, ultimoEstado = 0;
+        R.parar = loop(() => {
+          const t = nowMs();
+          if (t - ultimo < cadaMs) return;
+          ultimo = t;
+          const lec = R.prov.leer();
+          const v = videoRef.current;
+          if (lec && lec.landmarks) {
+            R.enlace.mandarPose(lec.landmarks, lec.mundo, v ? v.videoWidth : 0, v ? v.videoHeight : 0);
+          }
+          if (t - ultimoEstado > 1000) {
+            ultimoEstado = t;
+            const sp = R.prov.salud ? R.prov.salud() : { hz: 0, ms: 0 };
+            R.enlace.mandarEstado({ hz: sp.hz, ms: sp.ms, recorte: sp.recorte, aceptados: sp.aceptados, rechazados: sp.rechazados, demo: conDemo });
+            setSalud(Object.assign({ pose: sp }, R.enlace.salud()));
+          }
+        });
+      }
+
+      arrancar();
+      return () => {
+        vivo = false;
+        if (R.parar) R.parar();
+        try { R.enlace && R.enlace.detener(); } catch (e) { /* noop */ }
+        try { R.prov && R.prov.detener(); } catch (e) { /* noop */ }
+        try { R.wake && R.wake.release && R.wake.release(); } catch (e) { /* noop */ }
+        if (R.stream) { try { R.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
+      };
+    }, [sala]);
+
+    const FRASES = {
+      arrancando: ['Encendiendo la cámara…', ''],
+      conectando: ['Buscando la pantalla…', ''],
+      esperando: ['Esperando a la pantalla', 'Abre el mismo código de sala en el tótem o el notebook.'],
+      ws: ['✅ Conectado con la pantalla', 'Por el puente local.'],
+      rtc: ['✅ Conectado con la pantalla', 'Enlace directo entre los dos equipos.'],
+      caido: ['⚠️ Se cortó el enlace', 'Reintentando solo. No cierres esta pantalla.'],
+      inactivo: ['Detenido', ''],
+      'sin-camara': ['❌ Sin cámara', ''],
+      'sin-motor': ['❌ No se pudo cargar el motor de pose', ''],
+    };
+    const [titulo, sub] = FRASES[estado.fase] || ['…', ''];
+    const conectado = estado.fase === 'ws' || estado.fase === 'rtc';
+
+    return h('div', { className: 'fp-sensor' },
+      h('header', { className: 'fp-sensor-head' },
+        h('span', { className: 'fp-sensor-logo' }, '📱'),
+        h('div', null,
+          h('b', null, 'Modo sensor'),
+          h('span', null, 'Sala ' + salaLegible(sala)))),
+      h('div', { className: 'fp-sensor-cam' + (s(model.hardware.motorPose) === 'demo' ? ' is-demo' : '') },
+        s(model.hardware.motorPose) === 'demo'
+          ? h('div', { className: 'fp-sensor-demo' }, '🎭', h('span', null, 'Simulador: no hay nadie siendo leído'))
+          : h('video', { ref: videoRef, autoPlay: true, playsInline: true, muted: true })),
+      h('div', { className: 'fp-sensor-estado' + (conectado ? ' is-ok' : estado.fase === 'caido' || estado.fase.startsWith('sin-') ? ' is-mal' : '') },
+        h('b', null, titulo),
+        sub ? h('span', null, sub) : null,
+        estado.aviso ? h('p', { className: 'fp-error' }, estado.aviso) : null),
+      salud ? h('ul', { className: 'fp-sensor-datos' },
+        h('li', null, 'Pose: ' + (salud.pose.hz || 0) + ' fps · ' + (salud.pose.ms || 0) + ' ms'),
+        h('li', null, 'Enviados: ' + salud.enviados + ' cuadros'),
+        h('li', null, 'Enlace: ' + (salud.via === 'rtc' ? 'directo' : salud.via === 'ws' ? 'por el puente' : '—') +
+          (salud.rtt != null ? ' · ' + salud.rtt + ' ms ida y vuelta' : ''))) : null,
+      h('p', { className: 'fp-sensor-privacidad' },
+        '🔒 La imagen no sale de este teléfono. Se calculan acá los 33 puntos del cuerpo y se ' +
+        'transmiten solo esos números. No se graba, no se guarda y no se envía vídeo.'),
+      h('p', { className: 'fp-note' },
+        'Deja esta pantalla abierta y el teléfono apoyado y quieto. Si se bloquea la pantalla, ' +
+        'el sensor se corta.'));
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -8754,6 +13290,10 @@ export default function mount(shell) {
     gol: JuegoGol, esquiva2d: JuegoEsquiva2D, esquiva3d: JuegoEsquiva3D,
     vuelo: JuegoVuelo, vuelo3d: JuegoVuelo3D,
   };
+
+  // Se lee UNA vez al montar: si cambiara a mitad de sesión, un teléfono
+  // pasaría de sensor a pantalla con una partida en curso.
+  const salaSensor = salaDeLaUrl();
 
   function Component() {
     const [m, setM] = useState(model);
@@ -8775,7 +13315,11 @@ export default function mount(shell) {
       const el = rootRef.current;
       if (el) { el.addEventListener('pointerdown', tocar); el.addEventListener('keydown', tocar); }
       const iv = setInterval(() => {
-        if (route.screen !== 'home' && nowMs() - idleRef.current > secs * 1000) go('home');
+        if (route.screen !== 'home' && nowMs() - idleRef.current > secs * 1000) {
+          // Quien se fue a mitad no midió una partida: que no ensucie la mediana.
+          salidaPorInactividad();
+          go('home');
+        }
       }, 2000);
       timers.add(iv);
       return () => {
@@ -8786,9 +13330,15 @@ export default function mount(shell) {
 
     const t = themeOf(m);
     let vista;
-    if (r.screen === 'editor') vista = h(Editor, { model: m });
+    // Si la dirección trae un código de sala, este dispositivo es un SENSOR y
+    // no una pantalla. Se decide antes que cualquier otra ruta: un teléfono
+    // que además muestra el menú de juegos es un teléfono que alguien se lleva
+    // a la mano en mitad de la partida.
+    if (salaSensor) vista = h(PantallaSensor, { sala: salaSensor });
+    else if (r.screen === 'editor') vista = h(Editor, { model: m });
     else if (r.screen === 'ranking') vista = h(Ranking, { model: m });
     else if (r.screen === 'diagnostico') vista = h(Diagnostico, { model: m });
+    else if (r.screen === 'metricas') vista = h(Metricas, { model: m });
     else if (r.screen === 'juego') {
       const g = m.games.find((x) => x.id === r.gameId);
       const R = g ? RENDERERS[g.type] : null;
@@ -8823,6 +13373,7 @@ export default function mount(shell) {
         { name: 'BORRAR_RANKING', description: 'Vacía el ranking del tótem.', inputSchema: { type: 'object', properties: {} } },
       ],
       getSnapshot: () => ({
+        version: APP_VERSION,
         pantalla: route.screen + (route.gameId ? ':' + route.gameId : ''),
         marca: model.branding,
         tema: model.branding.theme,
@@ -8873,7 +13424,17 @@ export default function mount(shell) {
             if (!g) return { success: false, error: 'No existe el juego "' + s(p.id) + '".' };
             const cambio = {};
             if (p.name != null && s(p.name).trim()) cambio.name = s(p.name).slice(0, 80);
-            if (typeof p.enabled === 'boolean') cambio.enabled = p.enabled;
+            // Sacar un juego de la portada en pleno evento deja a la fila sin
+            // ese juego: es reversible, pero no en silencio ni a distancia.
+            if (typeof p.enabled === 'boolean' && p.enabled !== (g.enabled !== false)) {
+              if (!p.enabled) {
+                go('editor');
+                if (!confirm('El asistente pide OCULTAR "' + g.name + '" de la portada.\n\n¿Autorizas?')) {
+                  return { success: false, error: 'Nadie confirmó en el tótem: "' + g.name + '" sigue visible.' };
+                }
+              }
+              cambio.enabled = p.enabled;
+            }
             if (isObj(p.config)) {
               // Solo se aceptan claves que el juego realmente conoce.
               const validas = (CAMPOS_JUEGO[g.type] || []).map((f) => f.key);
@@ -8893,8 +13454,20 @@ export default function mount(shell) {
             return { success: true, message: rows.map((r, i) => (i + 1) + '. ' + (r.jugador || 'Anónimo') + ' — ' + r.puntaje + ' (' + r.juego + ')').join(' · ') };
           }
           if (type === 'BORRAR_RANKING') {
-            commit(merge(model, { scores: [] }));
-            return { success: true, message: 'Ranking vaciado.' };
+            // El agente PIDE, la persona confirma. Un tótem es un equipo
+            // compartido y esta acción llega por lenguaje natural: nadie debe
+            // poder vaciar el ranking de un evento hablándole a la app desde
+            // otra sala. Se abre el mismo diálogo que usa el botón "Vaciar" y
+            // hace falta un toque humano en la pantalla.
+            const n = (model.scores || []).length;
+            if (!n) return { success: true, message: 'El ranking ya está vacío.' };
+            go('ranking');
+            if (!confirm('El asistente pide vaciar el ranking (' + n + ' partidas).\n\n' +
+                '¿Autorizas? Se descarga una copia antes de borrar.')) {
+              return { success: false, error: 'Nadie confirmó en la pantalla del tótem: el ranking NO se borró.' };
+            }
+            vaciarRanking('agente');
+            return { success: true, message: 'Ranking vaciado tras confirmarse en el tótem. Se guardó una copia de ' + n + ' partidas.' };
           }
           return { success: false, error: 'Acción no soportada: ' + type };
         } catch (e) {
