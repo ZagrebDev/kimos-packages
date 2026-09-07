@@ -38,6 +38,13 @@ function App() {
     return () => { listeners.delete(setM); };
   }, []);
 
+  // Agente IA: se registra mientras la ventana esté abierta y se desregistra
+  // al cerrarla (el host también lo limpia, pero el contrato pide hacerlo).
+  useEffect(() => {
+    offAgent = registrarAgente();
+    return () => { if (offAgent) { offAgent(); offAgent = null; } };
+  }, []);
+
   // Parámetros de ⚙️ Configurar: se aplican en caliente al guardarlos.
   useEffect(() => {
     if (!shell.config || !shell.config.onChange) return undefined;

@@ -109,6 +109,8 @@ parts.push(`
       actUpsertMailTemplate, actRemoveMailTemplate, actSetDefaultMailTemplate,
       defaultMailTemplate, actPrepareMail, actSendMail, plantillaCorreoEjemplo,
       porMes, requiereAtencion, porCliente,
+      registrarAgente, agentSnapshot, agentDispatch, AGENT_TOOLS,
+      resolverDoc, resolverCatalogo, resolverProducto, selectionDesdeNombres,
     },
   };
 }

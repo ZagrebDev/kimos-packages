@@ -774,6 +774,114 @@ seccion('Tablero de seguimiento');
   ok(res.total > 0, 'y suma el valor de todo lo cotizado');
 }
 
+seccion('Agente IA');
+{
+  const T = mounted.__test;
+  const off = T.registrarAgente();
+  ok(!!agentReg, 'la app se registra en el puente de agentes');
+  ok(agentReg.tools.length >= 20, 'con todas sus herramientas (' + agentReg.tools.length + ')');
+  ok(agentReg.tools.every((x) => x.name && x.description && x.inputSchema),
+    'y cada una con nombre, descripción y esquema');
+  ok(agentReg.description.indexOf('ENVIAR_CORREO') !== -1,
+    'la descripción avisa de que enviar correo manda un correo real');
+
+  const snap = agentReg.getSnapshot();
+  eq(snap.version, '1.0.0', 'el retrato dice qué build está corriendo');
+  ok(Array.isArray(snap.cotizaciones) && snap.cotizaciones.length > 0, 'lista las cotizaciones');
+  ok(snap.cotizaciones.every((x) => x.id), 'con sus ids, que es lo que hace falta para actuar');
+  ok(!!snap.cotizador.siguienteNumero, 'y el siguiente correlativo');
+  ok(Array.isArray(snap.requiereAtencion), 'incluye lo que pide atención');
+  ok(Array.isArray(snap.variablesDeCorreo) && snap.variablesDeCorreo.length > 5, 'y las variables de correo disponibles');
+
+  const call = (type, payload) => agentReg.dispatchAction({ app: 'cotizaciones', type, payload: payload || {} });
+
+  // Ciclo completo por el agente.
+  let r = await call('CREAR_COTIZACION', {
+    nombre: 'Propuesta agente', cliente: 'Municipalidad de Iquique', clienteCorreo: 'compras@iquique.cl',
+    items: [{ titulo: 'Asistencia presencial', cantidad: 2, precioUnitario: 590000 }],
+  });
+  ok(r.success, 'el agente crea una cotización', r.error);
+  const id = r.cotizacion.id;
+  ok(r.message.indexOf('1.180.000') !== -1 || r.message.indexOf('1.404.200') !== -1,
+    'y responde con el total ya calculado', r.message);
+
+  r = await call('AGREGAR_ITEM', { cotizacion: 'Propuesta agente', titulo: 'Implementación', cantidad: 1, precioUnitario: 390000 });
+  ok(r.success, 'añade líneas refiriéndose a la cotización por su nombre', r.error);
+
+  r = await call('ACTUALIZAR_ITEM', { cotizacion: id, item: 'Implementación', precioUnitario: 450000 });
+  ok(r.success, 'y edita una línea por el nombre del ítem', r.error);
+  eq(T.docById(id).lines.find((l) => l.title === 'Implementación').unitPrice, 450000, 'con el precio aplicado');
+
+  r = await call('ACTUALIZAR_COTIZACION', { cotizacion: id, diasDeVigencia: 30, descuentoPct: 5 });
+  ok(r.success, 'cambia la cabecera', r.error);
+  eq(T.docById(id).validDays, 30, 'con la vigencia aplicada');
+  eq(T.docById(id).discountPct, 5, 'y el descuento');
+
+  r = await call('ACTUALIZAR_COTIZACION', { cotizacion: id });
+  ok(!r.success && r.error.indexOf('ningún campo') !== -1, 'sin campos que cambiar, lo dice en vez de fingir que hizo algo');
+
+  r = await call('MOVER_ITEM', { cotizacion: id, item: 'Implementación', posicion: 0 });
+  ok(r.success && T.docById(id).lines[0].title === 'Implementación', 'reordena las líneas');
+
+  r = await call('CAMBIAR_ESTADO', { cotizacion: id, estado: 'inventado' });
+  ok(!r.success && r.error.indexOf('no válido') !== -1, 'un estado inventado se rechaza con las opciones válidas', r.error);
+  r = await call('CAMBIAR_ESTADO', { cotizacion: id, estado: 'sent' });
+  ok(r.success && T.docById(id).status === 'sent', 'y uno válido se aplica');
+
+  r = await call('CREAR_REVISION', { cotizacion: id });
+  ok(r.success && r.cotizacion.numero.indexOf('-R2') !== -1, 'emite revisiones', r.error || r.cotizacion.numero);
+
+  // Referencias ambiguas: no se elige al azar.
+  await call('CREAR_COTIZACION', { nombre: 'Propuesta agente', cliente: 'Otro cliente' });
+  r = await call('VER_COTIZACION', { cotizacion: 'Propuesta agente' });
+  ok(!r.success && r.error.indexOf('Precisa cuál') !== -1,
+    'con varias coincidencias pide precisar en vez de elegir una: equivocarse de cotización es caro', r.error);
+  r = await call('VER_COTIZACION', { cotizacion: id });
+  ok(r.success && r.cotizacion.items.length === 2, 'por id siempre resuelve');
+
+  r = await call('VER_COTIZACION', { cotizacion: 'no existe nada así' });
+  ok(!r.success && r.error.indexOf('No encontré') !== -1, 'y si no hay ninguna, lo dice');
+
+  // Catálogo del sistema.
+  r = await call('BUSCAR_PRODUCTOS', { texto: 'tótem' });
+  ok(r.success && r.productos.length >= 1, 'busca en el catálogo del sistema', r.error);
+  ok(r.productos[0].pasos.length >= 0, 'devolviendo los pasos configurables');
+
+  r = await call('AGREGAR_PRODUCTO', { cotizacion: id, producto: 'Tótem a medida', combinacion: { Pantalla: '43 pulgadas' } });
+  ok(r.success, 'cotiza un producto configurable eligiendo por NOMBRES de paso y valor', r.error);
+  ok(r.message.indexOf('43 pulgadas') !== -1, 'y dice qué combinación quedó', r.message);
+
+  r = await call('AGREGAR_PRODUCTO', { cotizacion: id, producto: 'Tótem a medida', combinacion: { Pantalla: '99 pulgadas' } });
+  ok(!r.success && r.error.indexOf('Opciones:') !== -1,
+    'una combinación inexistente NO se traga: se avisa con las opciones reales', r.error);
+
+  // Lienzo.
+  r = await call('AGREGAR_BLOQUE', { cotizacion: id, tipo: 'text', texto: 'Alcance', ancho: 6, tamaño: 'xl' });
+  ok(r.success && !!r.bloqueId, 'añade bloques al lienzo', r.error);
+  r = await call('ACTUALIZAR_BLOQUE', { cotizacion: id, bloque: r.bloqueId, texto: 'Alcance del proyecto' });
+  ok(r.success, 'y los edita');
+  r = await call('AGREGAR_BLOQUE', { cotizacion: id, tipo: 'inventado' });
+  ok(!r.success && r.error.indexOf('no válido') !== -1, 'un tipo de bloque inventado se rechaza');
+
+  // Correo: preparar no envía.
+  const antesMail = SMTP.enviados.length;
+  r = await call('PREPARAR_CORREO', { cotizacion: id });
+  ok(r.success && !!r.correo.subject, 'prepara el correo', r.error);
+  eq(SMTP.enviados.length, antesMail, 'y preparar NO envía nada');
+  r = await call('ENVIAR_CORREO', { cotizacion: id, para: 'compras@iquique.cl', asunto: 'Propuesta', mensaje: 'Adjuntamos.' });
+  ok(r.success, 'enviar sí manda', r.error);
+  eq(SMTP.enviados.length, antesMail + 1, 'con una llamada al endpoint');
+
+  r = await call('RESUMEN', {});
+  ok(r.success && !!r.resumen.enJuego, 'resume el embudo', r.error);
+
+  r = await call('ACCION_QUE_NO_EXISTE', {});
+  ok(!r.success && r.error.indexOf('Disponibles') !== -1, 'una acción desconocida responde con las que sí existen');
+
+  if (off) off();
+  ok(!agentReg, 'y al cerrar la ventana la app se desregistra');
+}
+
 seccion('Render de todas las pantallas');
 {
   const T = mounted.__test;

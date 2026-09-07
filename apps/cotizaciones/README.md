@@ -70,6 +70,11 @@ lo suyo.
   y ticket medio; qué **requiere atención hoy** (por vencer, vencidas sin
   respuesta, borradores olvidados); reparto por estado, evolución mensual y
   clientes con más peso.
+- **Agente IA** con paridad real sobre la app: crear, editar, replicar,
+  revisar, cotizar productos del catálogo eligiendo su combinación, componer
+  el lienzo, exportar, publicar y enviar. Las cotizaciones se refieren por
+  número, nombre o cliente, y si hay varias que coinciden **lo dice en vez de
+  elegir una**.
 - **Colaboración multiusuario** sin pérdidas (APP-SPEC §5.1): fusión por
   línea, lápidas para las bajas, leer-fusionar-escribir y auto-reparación.
 
@@ -144,13 +149,31 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 221 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero y render
+node test/test-app.mjs    # 262 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
 nunca queda desalineada. El resto de los lugares donde vive la versión
 (catálogo raíz y este README) los verifica `node tools/check-versions.mjs
 cotizaciones` desde la raíz del repo.
+
+## El agente
+
+Registra 27 herramientas y despacha a **las mismas acciones `act*` que usa la
+interfaz** (APP-SPEC §5 y §6): no hay un camino paralelo que pueda quedar
+desincronizado, y como el modelo emite al mutar, la pantalla se repinta sola
+cuando el agente actúa.
+
+Tres decisiones que vale la pena conocer al usarlo:
+
+- **Referencias humanas.** Un agente no tiene los ids delante: recibe «la de
+  la UNAB» o «COT-2026-0007». Cada resolutor acepta id, número o nombre
+  aproximado; con varias coincidencias devuelve la lista y pide precisar.
+- **Nada se traga.** Pedir una combinación de producto que no existe responde
+  con los valores reales del paso, no cotiza otra cosa parecida.
+- **`ENVIAR_CORREO` manda un correo real** desde el buzón de la empresa, y la
+  descripción del agente lo dice. `PREPARAR_CORREO` resuelve la plantilla sin
+  enviar nada.
 
 ## Modelo de datos
 
@@ -177,4 +200,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; tablero de seguimiento; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; tablero de seguimiento; agente IA con paridad sobre la app; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
