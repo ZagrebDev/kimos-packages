@@ -105,6 +105,9 @@ parts.push(`
       actMoveBlock, actResetBlocks,
       actSetDefaultTemplate, defaultTemplate, actNewRevision, serieDe, numeroRevision,
       actExportPdf, actPublishQuote, printCss, nombreArchivo, PAPER_SIZES,
+      aplicarVars, resolverCorreo, cuerpoHtml, mailStatus, MAIL_VARS,
+      actUpsertMailTemplate, actRemoveMailTemplate, actSetDefaultMailTemplate,
+      defaultMailTemplate, actPrepareMail, actSendMail, plantillaCorreoEjemplo,
     },
   };
 }

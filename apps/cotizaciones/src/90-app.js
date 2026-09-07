@@ -19,6 +19,7 @@ const TAB_VIEWS = {
   quotes: (m) => h(QuotesTab, { m, kind: KIND_QUOTE }),
   templates: (m) => h(QuotesTab, { m, kind: KIND_TEMPLATE }),
   catalog: (m) => h(CatalogTab, { m }),
+  mails: (m) => h(MailsTab, { m }),
   settings: (m) => h(SettingsTab, { m }),
 };
 const VISIBLE_TABS = TABS.filter(([id]) => !!TAB_VIEWS[id]);

@@ -136,7 +136,12 @@ function normalizeMail(raw) {
     cc: s(r.cc),
     bcc: s(r.bcc),
     replyTo: s(r.replyTo),
-    attachPdf: r.attachPdf !== false,
+    // Adjuntar la propuesta como archivo HTML autocontenido, y/o incluir un
+    // botón con su enlace publicado. El PDF no se puede adjuntar solo: lo
+    // escribe el diálogo de impresión del navegador en el disco del usuario
+    // y la página nunca lo recibe (ver src/85-mail.js).
+    attachProposal: r.attachProposal === true,
+    includeLink: r.includeLink !== false,
     isDefault: r.isDefault === true,
     updatedAt: s(r.updatedAt),
     updatedBy: s(r.updatedBy),

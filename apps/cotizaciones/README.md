@@ -52,6 +52,12 @@ lo suyo.
   autocontenida (con el CSS embebido, para que lo enviado no cambie de
   aspecto cuando la app suba de versión) y devuelve una URL que se puede
   mandar al cliente sin adjuntar nada.
+- **Envío por correo** con el SMTP del tenant
+  (`POST /api/integrations/email/send`), desde **plantillas de correo
+  editables** con variables (`{{cliente}}`, `{{numero}}`, `{{total}}`,
+  `{{validez}}`, `{{firma}}`…), destinatarios, copia, copia oculta,
+  responder-a y previsualización de cómo lo verá el cliente. El envío queda
+  registrado en el historial y pasa la cotización a *Enviada*.
 - **Historial de versiones** del cotizador completo por el menú 🗂️ Documentos
   del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
@@ -78,8 +84,26 @@ lo suyo.
    derecha. Es la maqueta que se exportará a PDF.
 5. **👁 Vista previa** muestra la propuesta como se imprimirá, y desde ahí se
    exporta a PDF o se publica su enlace.
-6. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
+6. **✉ Enviar** manda la propuesta por correo con la plantilla que elijas.
+7. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
    sola al pasar su vigencia.
+
+## El adjunto: qué se puede y qué no
+
+El PDF lo genera el **diálogo de impresión del navegador** y lo guarda la
+persona en su disco: la página nunca recibe ese archivo, así que la app **no
+puede adjuntarlo sola**. Por eso el envío ofrece tres caminos, en orden de
+comodidad:
+
+1. **Enlace** a la propuesta publicada — siempre funciona, no pesa, y el
+   cliente la ve tal cual en su navegador.
+2. **La propuesta como HTML** autocontenido, generada y adjuntada con un clic.
+3. **El PDF**: se exporta primero (👁 Vista previa → Exportar PDF), se guarda,
+   y se adjunta con «Añadir archivo».
+
+Un PDF adjunto automáticamente exigiría renderizarlo en el servidor (Chromium
+headless o WeasyPrint en `kimos-enterprice`), que es una dependencia bastante
+mayor que lo que resuelve.
 
 ## Estructura del proyecto
 
@@ -98,7 +122,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 176 pruebas: cálculo, modelo, catálogo, lienzo, PDF, fusión y render
+node test/test-app.mjs    # 204 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -131,4 +155,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

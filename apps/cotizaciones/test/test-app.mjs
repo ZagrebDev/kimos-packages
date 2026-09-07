@@ -129,6 +129,9 @@ const EXT = {
   }],
 };
 
+// Integración de correo del tenant simulada.
+const SMTP = { status: { configured: true, fromEmail: 'buzon@metakut.cl' }, enviados: [], falla: '' };
+
 // ── Shell simulado ───────────────────────────────────────────────────────
 const store = new Map();          // items de la instancia
 const notices = [];
@@ -165,6 +168,12 @@ const shell = {
     const method = ((init && init.method) || 'GET').toUpperCase();
     const items = url.match(/\/items(?:\/([^/?]+))?$/);
     if (url.endsWith('/api/identity/me')) return json({ id: 'u1', displayName: 'Probador' });
+    if (url.endsWith('/api/integrations/email/status')) return json(SMTP.status);
+    if (url.endsWith('/api/integrations/email/send')) {
+      SMTP.enviados.push(JSON.parse(init.body));
+      if (SMTP.falla) return json({ detail: SMTP.falla }, 400);
+      return json({ ok: true, to: JSON.parse(init.body).to });
+    }
     if (items && method === 'GET') return json({ items: Array.from(store.values()) });
     if (items && method === 'POST') {
       const body = JSON.parse(init.body);
@@ -644,10 +653,82 @@ seccion('Exportar a PDF');
   globalThis.window.open = abrir;
 }
 
+seccion('Correo');
+{
+  const T = mounted.__test;
+  const q = T.actNewQuote({ name: 'Propuesta para enviar' });
+  T.actPatchClient(q.id, { name: 'Universidad Andrés Bello', contact: 'Ana Pérez', email: 'compras@unab.cl' });
+  T.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 1000000 });
+  T.actPatchDoc(q.id, { date: '2026-09-07', validDays: 15 });
+  const doc = T.docById(q.id);
+
+  // Variables.
+  const ctx = T.contextoDe(doc, T.getModel().def);
+  eq(T.aplicarVars('Hola {{contacto}}', doc, ctx), 'Hola Ana Pérez', 'las variables se sustituyen');
+  eq(T.aplicarVars('{{cliente}}', doc, ctx), 'Universidad Andrés Bello', 'incluida la del cliente');
+  ok(T.aplicarVars('{{total}}', doc, ctx).indexOf('1.190.000') !== -1, 'y el total ya formateado', T.aplicarVars('{{total}}', doc, ctx));
+  eq(T.aplicarVars('{{numero}}', doc, ctx), doc.number, 'y el número de la cotización');
+  eq(T.aplicarVars('{{inventada}}', doc, ctx), '{{inventada}}',
+    'una variable desconocida se deja a la vista: es más fácil verla en la previsualización que descubrir un hueco en el correo enviado');
+  eq(T.aplicarVars('{{ CLIENTE }}', doc, ctx), 'Universidad Andrés Bello', 'se toleran espacios y mayúsculas');
+
+  // Plantilla.
+  const tpl = T.actUpsertMailTemplate(T.plantillaCorreoEjemplo());
+  ok(!!tpl, 'se guarda una plantilla de correo');
+  T.actSetDefaultMailTemplate(tpl.id);
+  eq(T.defaultMailTemplate().id, tpl.id, 'y se marca como predeterminada');
+
+  const correo = T.resolverCorreo(tpl, doc);
+  eq(correo.to, 'compras@unab.cl', 'sin destinatario en la plantilla, se usa el correo del cliente');
+  ok(correo.subject.indexOf(doc.number) !== -1, 'el asunto trae el número resuelto', correo.subject);
+  ok(correo.body.indexOf('Ana Pérez') !== -1, 'y el cuerpo el contacto');
+  ok(correo.body.indexOf('{{') === -1, 'sin dejar variables sin resolver', correo.body);
+
+  // El cuerpo HTML escapa el texto: nunca se interpreta como marcado.
+  const html = T.cuerpoHtml('Hola <b>mundo</b> & cía', '', '');
+  ok(html.indexOf('&lt;b&gt;') !== -1, 'el HTML del correo escapa el texto de la persona', html);
+  ok(html.indexOf('<b>mundo</b>') === -1, 'así que un “<b>” escrito a mano no llega en negrita');
+  ok(T.cuerpoHtml('x', 'https://kimos.dev/p.html', 'Ver').indexOf('href="https://kimos.dev/p.html"') !== -1,
+    'y el enlace se pinta como botón cuando lo hay');
+  ok(T.cuerpoHtml('x', 'javascript:alert(1)', 'Ver').indexOf('<a ') === -1,
+    'un enlace que no sea http(s) no se pinta');
+
+  // Envío.
+  const antes = SMTP.enviados.length;
+  const res = await T.actSendMail(q.id, correo);
+  ok(res.ok, 'el correo sale', res.error);
+  eq(SMTP.enviados.length, antes + 1, 'con una llamada al endpoint del tenant');
+  const enviado = SMTP.enviados[SMTP.enviados.length - 1];
+  eq(enviado.to, 'compras@unab.cl', 'al destinatario correcto');
+  ok(enviado.html.indexOf('Ana Pérez') !== -1, 'con el cuerpo en HTML');
+  ok(enviado.text.indexOf('Ana Pérez') !== -1, 'y también en texto plano, para quien no ve HTML');
+  eq(T.docById(q.id).status, 'sent', 'mandar la cotización la deja como enviada');
+  ok(T.docById(q.id).events.some((e) => e.type === 'mail'), 'y el envío queda en el historial');
+
+  // Errores: nada sale a medias ni en silencio.
+  const sinDestino = await T.actSendMail(q.id, Object.assign({}, correo, { to: '' }));
+  ok(!sinDestino.ok && sinDestino.error.indexOf('destinatario') !== -1, 'sin destinatario no se envía');
+  const sinAsunto = await T.actSendMail(q.id, Object.assign({}, correo, { subject: '' }));
+  ok(!sinAsunto.ok && sinAsunto.error.indexOf('asunto') !== -1, 'sin asunto tampoco');
+
+  SMTP.falla = 'SMTP: credenciales rechazadas';
+  const falla = await T.actSendMail(q.id, correo);
+  ok(!falla.ok && falla.error.indexOf('credenciales') !== -1, 'un error del servidor llega tal cual a quien envía', falla.error);
+  SMTP.falla = '';
+
+  SMTP.status = { configured: false };
+  await T.mailStatus(true);
+  const sinSmtp = await T.actSendMail(q.id, correo);
+  ok(!sinSmtp.ok && sinSmtp.error.indexOf('no está configurado') !== -1,
+    'y si el tenant no tiene correo configurado, se dice qué falta y quién lo arregla', sinSmtp.error);
+  SMTP.status = { configured: true, fromEmail: 'buzon@metakut.cl' };
+  await T.mailStatus(true);
+}
+
 seccion('Render de todas las pantallas');
 {
   const T = mounted.__test;
-  for (const tab of ['quotes', 'templates', 'catalog', 'settings']) {
+  for (const tab of ['quotes', 'templates', 'catalog', 'mails', 'settings']) {
     T.actSetTab(tab);
     T.actCloseEditor();
     const n = render(R.createElement(mounted.Component, {}), tab);

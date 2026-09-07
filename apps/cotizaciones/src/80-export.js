@@ -174,7 +174,27 @@ async function exportarPdf(doc, opts) {
 async function publicarPropuesta(doc, opts) {
   const o = isObj(opts) ? opts : {};
   if (!shell.authFetch) throw new Error('Este host no permite subir archivos.');
+  const html = await construirHtmlPropuesta(doc, o);
 
+  const path = 'imagenes/cotizaciones/propuestas/' + nombreArchivo(doc) + '-'
+    + Date.now().toString(36) + '.html';
+  const fd = new FormData();
+  fd.append('path', path);
+  fd.append('file', new File([html], path.split('/').pop(), { type: 'text/html' }));
+  const res = await shell.authFetch(API + '/api/v2/files', { method: 'POST', body: fd });
+  if (!res.ok) {
+    const detalle = await res.json().catch(() => ({}));
+    throw new Error(s(detalle.detail) || 'No se pudo publicar (HTTP ' + res.status + ').');
+  }
+  return API + '/api/public/files/' + path;
+}
+
+/**
+ * La propuesta como documento HTML autocontenido. La misma pieza sirve para
+ * publicarla como enlace y para adjuntarla a un correo.
+ */
+async function construirHtmlPropuesta(doc, opts) {
+  const o = isObj(opts) ? opts : {};
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;height:1200px;border:0;';
@@ -208,17 +228,7 @@ async function publicarPropuesta(doc, opts) {
       '</body></html>',
     ].join('\n');
 
-    const path = 'imagenes/cotizaciones/propuestas/' + nombreArchivo(doc) + '-'
-      + Date.now().toString(36) + '.html';
-    const fd = new FormData();
-    fd.append('path', path);
-    fd.append('file', new File([html], path.split('/').pop(), { type: 'text/html' }));
-    const res = await shell.authFetch(API + '/api/v2/files', { method: 'POST', body: fd });
-    if (!res.ok) {
-      const detalle = await res.json().catch(() => ({}));
-      throw new Error(s(detalle.detail) || 'No se pudo publicar (HTTP ' + res.status + ').');
-    }
-    return API + '/api/public/files/' + path;
+    return html;
   } finally {
     if (limpiar) limpiar();
     iframe.remove();

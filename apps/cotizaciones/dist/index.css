@@ -702,3 +702,40 @@
 }
 .kimos-cotizaciones .cz-link { color: var(--cz-accent); font-size: 12px; text-decoration: none; }
 .kimos-cotizaciones .cz-link:hover { text-decoration: underline; }
+
+/* ── Correo ──────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-banner {
+  padding: 8px 12px; border-radius: var(--cz-radius); font-size: 12px;
+  border: 1px solid var(--cz-line-soft); background: hsl(var(--muted, 220 14% 89%) / .5);
+}
+.kimos-cotizaciones .cz-banner.ok { color: var(--cz-ok); border-color: color-mix(in srgb, var(--cz-ok) 35%, transparent); }
+.kimos-cotizaciones .cz-banner.warn { color: var(--cz-warn); border-color: color-mix(in srgb, var(--cz-warn) 35%, transparent); }
+.kimos-cotizaciones .cz-mailbody { font-family: inherit; line-height: 1.6; resize: vertical; min-height: 160px; }
+.kimos-cotizaciones .cz-vars { margin-top: 14px; }
+.kimos-cotizaciones .cz-vars-t { font: 600 11px/1.4 'Inter', sans-serif; color: var(--cz-dim); margin-bottom: 6px; }
+.kimos-cotizaciones .cz-vars-l { display: flex; flex-wrap: wrap; gap: 5px; }
+.kimos-cotizaciones .cz-vars-l .cz-chip { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; }
+
+.kimos-cotizaciones .cz-send-adj { margin-top: 14px; border-top: 1px solid var(--cz-line-soft); padding-top: 12px; }
+.kimos-cotizaciones .cz-adjlist { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.kimos-cotizaciones .cz-adj {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  border: 1px solid var(--cz-line-soft); border-radius: var(--cz-radius); padding: 4px 6px 4px 10px;
+}
+.kimos-cotizaciones .cz-adj-n { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cotizaciones .cz-adj-s { color: var(--cz-dim); font-size: 11px; }
+.kimos-cotizaciones .cz-send-err { color: var(--cz-err); font-size: 12px; }
+.kimos-cotizaciones .cz-send-prev { margin-top: 12px; }
+.kimos-cotizaciones .cz-send-prev-t {
+  border: 0; background: none; color: var(--cz-dim); cursor: pointer; padding: 0;
+  font: 600 11px/1.4 'Inter', sans-serif;
+}
+.kimos-cotizaciones .cz-send-prev-body {
+  margin-top: 8px; padding: 14px; border: 1px solid var(--cz-line-soft);
+  border-radius: var(--cz-radius); background: var(--cz-card); font-size: 13px; line-height: 1.65;
+}
+.kimos-cotizaciones .cz-send-prev-sub { font-weight: 700; margin-bottom: 10px; }
+.kimos-cotizaciones .cz-send-prev-cta {
+  display: inline-block; margin-top: 16px; padding: 10px 18px; border-radius: 6px;
+  background: var(--cz-fg); color: var(--cz-card); font-weight: 600; font-size: 13px;
+}

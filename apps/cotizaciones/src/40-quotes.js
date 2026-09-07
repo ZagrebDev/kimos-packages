@@ -156,6 +156,7 @@ function QuoteEditor(props) {
   const [ask, confirmNode] = useConfirm();
   const [panel, setPanel] = useState('');   // panel lateral desplegado
   const [preview, setPreview] = useState(false);
+  const [enviar, setEnviar] = useState(false);
 
   const patch = (p) => actPatchDoc(doc.id, p);
   const patchClient = (p) => actPatchClient(doc.id, p);
@@ -187,6 +188,11 @@ function QuoteEditor(props) {
         options: STATUSES.map(([k, l]) => ({ value: k, label: l })),
       }) : null,
       h('div', { key: 'sp', className: 'cz-spacer' }),
+      !esPlantilla ? h(Btn, {
+        key: 'snd', size: 'sm',
+        title: 'Enviar la cotización por correo con el SMTP de la empresa',
+        onClick: () => setEnviar(true),
+      }, '✉ Enviar') : null,
       h(Btn, {
         key: 'pv', size: 'sm', variant: 'primary',
         title: 'Ver la propuesta como se imprimirá, exportarla a PDF o publicar su enlace',
@@ -231,6 +237,7 @@ function QuoteEditor(props) {
       ]),
     ]),
     preview ? h(PreviewModal, { key: 'pv', m, doc, onClose: () => setPreview(false) }) : null,
+    enviar ? h(SendMailModal, { key: 'sm', m, doc, onClose: () => setEnviar(false) }) : null,
     confirmNode,
   ]);
 }
