@@ -289,6 +289,55 @@
       ]
     },
     {
+      "id": "cotizaciones",
+      "name": "Cotizaciones",
+      "description": "Cotizaciones y propuestas comerciales de punta a punta: catálogo propio de ítems y servicios prefijados reutilizables, líneas traídas del catálogo de la app Productos y de los productos configurables de ProductLab (con su combinación de pasos y valores resuelta a precio), cliente tomado de la app Clientes, moneda/impuesto/descuentos/abono y saldo parametrizables, cotizaciones tipo reutilizables y duplicación de cotizaciones ya hechas, editor visual de cuadrícula arrastrable para componer la propuesta con textos, imágenes y tablas, exportación a PDF fiel al editor, envío por correo con el SMTP del tenant usando plantillas de correo editables con variables, y seguimiento por estado con vencimientos y valor del pipeline. Control total por agente IA.",
+      "icon": "🧾",
+      "version": "1.0.0",
+      "author": "Kimos",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "data.read:products",
+        "data.read:productlab",
+        "data.read:customers"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Cotizaciones",
+        "fields": [
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca; se usa en chips, énfasis y estados activos. Vacío = el acento de KIMOS."
+          },
+          {
+            "key": "denseTables",
+            "label": "Tablas compactas",
+            "type": "boolean",
+            "help": "Más filas visibles por pantalla en el listado y en las líneas de la cotización."
+          },
+          {
+            "key": "confirmSend",
+            "label": "Confirmar antes de enviar por correo",
+            "type": "boolean",
+            "help": "Pide confirmación explícita antes de que salga cada correo con la cotización."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "accent": "",
+        "denseTables": false,
+        "confirmSend": true
+      }
+    },
+    {
       "id": "contact-forms",
       "name": "Formularios de Contacto",
       "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",

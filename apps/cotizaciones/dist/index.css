@@ -1,0 +1,402 @@
+/* Cotizaciones — app OFICIAL de KIMOS.
+   Ni un color propio cableado: toda la paleta sale de los tokens del tema del
+   host (shadcn/HSL en :root, clase .dark para el modo noche, --primary como
+   acento elegido por el usuario). La app cambia de día/noche y de acento
+   JUNTO con KIMOS. Los fallbacks reproducen el tema claro por si la app corre
+   fuera del shell (tests). Referencia: APP-SPEC §9 y apps/productlab. */
+
+.kimos-cotizaciones {
+  --cz-fg: hsl(var(--foreground, 220 25% 6%));
+  --cz-dim: hsl(var(--muted-foreground, 215 20% 32%));
+  --cz-accent: var(--cz-accent-override, hsl(var(--primary, 178 96% 59%)));
+  --cz-accent-fg: hsl(var(--primary-foreground, 220 20% 10%));
+  --cz-line: hsl(var(--border, 214.3 18% 72%) / .55);
+  --cz-line-soft: hsl(var(--border, 214.3 18% 72%) / .32);
+  --cz-plata: hsl(var(--muted, 220 14% 89%));
+  --cz-card: hsl(var(--card, 0 0% 100%));
+  --cz-glass: hsl(var(--card, 0 0% 100%) / .6);
+  --cz-glass-strong: hsl(var(--card, 0 0% 100%) / .85);
+  --cz-bg: hsl(var(--background, 220 20% 97%));
+  --cz-input: hsl(var(--card, 0 0% 100%) / .75);
+  --cz-ok: #0B8A42;
+  --cz-warn: #B36B00;
+  --cz-err: #C40000;
+  --cz-radius: var(--radius, 0.5rem);
+  --cz-shadow-sm: var(--shadow-sm, 0 1px 2px 0 hsl(220 20% 10% / 0.05));
+  --cz-shadow-md: var(--shadow-md, 0 4px 6px -1px hsl(220 20% 10% / 0.1));
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* La raíz no pinta fondo: debajo está el fondo de pantalla del escritorio. */
+  background: transparent;
+  color: var(--cz-fg);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+.kimos-cotizaciones *,
+.kimos-cotizaciones *::before,
+.kimos-cotizaciones *::after { box-sizing: border-box; }
+
+/* Modo noche: solo se retocan los semánticos que quedan ilegibles en oscuro. */
+.dark .kimos-cotizaciones { --cz-ok: #4ADE80; --cz-warn: #FBBF24; --cz-err: #F87171; }
+
+.kimos-cotizaciones .cz-mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+.kimos-cotizaciones .cz-right { text-align: right; }
+.kimos-cotizaciones .cz-dim { color: var(--cz-dim); }
+.kimos-cotizaciones .cz-strong { font-weight: 600; }
+.kimos-cotizaciones .cz-warn { color: var(--cz-warn); }
+.kimos-cotizaciones .cz-bad { color: var(--cz-err); }
+.kimos-cotizaciones .cz-spacer { flex: 1 1 auto; min-width: 0; }
+.kimos-cotizaciones .cz-unit { color: var(--cz-dim); font-size: 12px; white-space: nowrap; }
+.kimos-cotizaciones .cz-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── Cabecera: título · pestañas · acciones ─────────────────────────── */
+.kimos-cotizaciones .cz-hd {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+  padding: 10px 16px; flex-shrink: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--cz-line-soft);
+}
+.kimos-cotizaciones .cz-hd-nav { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.kimos-cotizaciones .cz-hd-ico { font-size: 20px; line-height: 1; padding: 0 4px; }
+.kimos-cotizaciones .cz-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.kimos-cotizaciones .cz-crumb {
+  border: 0; background: none; cursor: pointer; padding: 6px 8px;
+  font: 500 15px/1.2 'Inter', sans-serif; color: var(--cz-dim);
+  border-radius: var(--cz-radius); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 280px;
+}
+.kimos-cotizaciones .cz-crumb:hover { color: var(--cz-fg); background: var(--cz-plata); }
+.kimos-cotizaciones .cz-crumb.on { color: var(--cz-fg); font-weight: 600; cursor: default; }
+.kimos-cotizaciones span.cz-crumb.on { display: inline-block; }
+.kimos-cotizaciones .cz-crumb.on:hover { background: none; }
+.kimos-cotizaciones .cz-crumb-sep { color: var(--cz-dim); opacity: .6; }
+.kimos-cotizaciones .cz-ver {
+  font: 500 11px/1 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--cz-dim); border: 1px solid var(--cz-line-soft);
+  padding: 3px 6px; border-radius: 99px; margin-left: 4px; white-space: nowrap;
+}
+
+/* Pestañas: TabsList/TabsTrigger de shadcn (lista muted, pastilla activa). */
+.kimos-cotizaciones .cz-bigtabs {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: hsl(var(--muted, 220 14% 89%) / .7); color: var(--cz-dim);
+  padding: 4px; border-radius: calc(var(--cz-radius) + 2px);
+  max-width: 100%; overflow-x: auto; scrollbar-width: none;
+}
+.kimos-cotizaciones .cz-bigtabs::-webkit-scrollbar { display: none; }
+.kimos-cotizaciones .cz-bigtab {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 0; background: none; cursor: pointer;
+  padding: 8px 16px; min-height: 38px;
+  font: 500 14px/1.2 'Inter', sans-serif; color: inherit;
+  border-radius: var(--cz-radius); white-space: nowrap;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+.kimos-cotizaciones .cz-bigtab:hover { color: var(--cz-fg); }
+.kimos-cotizaciones .cz-bigtab.on {
+  background: hsl(var(--background, 220 20% 97%)); color: var(--cz-fg);
+  box-shadow: var(--cz-shadow-sm);
+}
+.kimos-cotizaciones .cz-bigtab-ico { font-size: 15px; }
+.kimos-cotizaciones .cz-hd-acciones { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.kimos-cotizaciones .cz-hd-kpi { font-size: 12px; color: var(--cz-dim); white-space: nowrap; }
+.kimos-cotizaciones .cz-hd-kpi-lbl { opacity: .8; }
+
+/* ── Cuerpo ─────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.kimos-cotizaciones .cz-tab { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.kimos-cotizaciones .cz-loading { padding: 40px; text-align: center; color: var(--cz-dim); }
+
+/* ── Botones ────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  background: var(--cz-glass); color: var(--cz-fg);
+  font: 500 13px/1 'Inter', sans-serif; cursor: pointer;
+  backdrop-filter: blur(10px); box-shadow: var(--cz-shadow-sm);
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+.kimos-cotizaciones .cz-btn:hover:not(:disabled) { background: var(--cz-plata); }
+.kimos-cotizaciones .cz-btn:disabled { opacity: .5; cursor: not-allowed; }
+.kimos-cotizaciones .cz-btn-sm { min-height: 30px; padding: 0 10px; font-size: 12px; }
+.kimos-cotizaciones .cz-btn-lg { min-height: 42px; padding: 0 20px; font-size: 14px; }
+.kimos-cotizaciones .cz-btn-primary {
+  background: var(--cz-accent); border-color: transparent; color: var(--cz-accent-fg); font-weight: 600;
+}
+.kimos-cotizaciones .cz-btn-primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--cz-accent); }
+.kimos-cotizaciones .cz-btn-ghost { background: none; border-color: transparent; box-shadow: none; }
+.kimos-cotizaciones .cz-btn-ghost:hover:not(:disabled) { background: var(--cz-plata); }
+.kimos-cotizaciones .cz-btn-danger { color: var(--cz-err); border-color: hsl(0 60% 50% / .4); }
+.kimos-cotizaciones .cz-btn-danger:hover:not(:disabled) { background: hsl(0 70% 50% / .1); }
+
+.kimos-cotizaciones .cz-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex-shrink: 0;
+  border: 1px solid transparent; border-radius: var(--cz-radius);
+  background: none; color: var(--cz-dim); cursor: pointer; font-size: 14px; line-height: 1;
+  transition: background .15s ease, color .15s ease;
+}
+.kimos-cotizaciones .cz-ico:hover:not(:disabled) { background: var(--cz-plata); color: var(--cz-fg); }
+.kimos-cotizaciones .cz-ico:disabled { opacity: .35; cursor: not-allowed; }
+.kimos-cotizaciones .cz-ico.on { color: var(--cz-accent); }
+
+/* ── Controles de formulario ────────────────────────────────────────── */
+.kimos-cotizaciones .cz-in {
+  width: 100%; min-height: 34px; padding: 6px 10px;
+  border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  background: var(--cz-input); color: var(--cz-fg);
+  font: 400 13px/1.4 'Inter', sans-serif;
+  outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kimos-cotizaciones .cz-in:focus {
+  border-color: var(--cz-accent);
+  box-shadow: 0 0 0 3px hsl(var(--primary, 178 96% 59%) / .18);
+}
+.kimos-cotizaciones .cz-in::placeholder { color: var(--cz-dim); opacity: .7; }
+.kimos-cotizaciones .cz-in-bad { border-color: var(--cz-err); }
+.kimos-cotizaciones .cz-area { resize: none; overflow: hidden; min-height: 34px; }
+.kimos-cotizaciones .cz-sel { cursor: pointer; }
+
+.kimos-cotizaciones .cz-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kimos-cotizaciones .cz-field-wide { grid-column: 1 / -1; }
+.kimos-cotizaciones .cz-field-lbl { font-size: 12px; font-weight: 500; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-field-hint { cursor: help; }
+.kimos-cotizaciones .cz-field-help { font-size: 11px; color: var(--cz-dim); opacity: .85; }
+.kimos-cotizaciones .cz-grid2 {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px;
+}
+
+.kimos-cotizaciones .cz-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.kimos-cotizaciones .cz-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.kimos-cotizaciones .cz-toggle-box {
+  width: 34px; height: 20px; border-radius: 99px; flex-shrink: 0;
+  background: var(--cz-plata); border: 1px solid var(--cz-line);
+  position: relative; transition: background .15s ease;
+}
+.kimos-cotizaciones .cz-toggle-box::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 99px; background: var(--cz-card);
+  box-shadow: var(--cz-shadow-sm); transition: transform .15s ease;
+}
+.kimos-cotizaciones .cz-toggle input:checked + .cz-toggle-box { background: var(--cz-accent); border-color: transparent; }
+.kimos-cotizaciones .cz-toggle input:checked + .cz-toggle-box::after { transform: translateX(14px); }
+.kimos-cotizaciones .cz-toggle-lbl { font-size: 12px; color: var(--cz-dim); }
+
+/* ── Chips ──────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 99px;
+  border: 1px solid var(--cz-line); background: var(--cz-glass);
+  font: 500 12px/1.5 'Inter', sans-serif; color: var(--cz-dim);
+  cursor: default; white-space: nowrap;
+}
+.kimos-cotizaciones button.cz-chip { cursor: pointer; }
+.kimos-cotizaciones button.cz-chip:hover { background: var(--cz-plata); color: var(--cz-fg); }
+.kimos-cotizaciones .cz-chip.on { border-color: var(--cz-accent); color: var(--cz-fg); background: hsl(var(--primary, 178 96% 59%) / .14); }
+.kimos-cotizaciones .cz-chip-status { color: var(--chip); border-color: color-mix(in srgb, var(--chip) 45%, transparent); background: color-mix(in srgb, var(--chip) 12%, transparent); }
+.kimos-cotizaciones .cz-chip-status::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: var(--chip); }
+
+/* ── Barra de listado ───────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-listbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-search {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  background: var(--cz-input); padding: 0 6px 0 10px; min-width: 230px;
+}
+.kimos-cotizaciones .cz-search-ico { font-size: 12px; opacity: .6; }
+.kimos-cotizaciones .cz-search-in { border: 0; background: none; box-shadow: none !important; }
+.kimos-cotizaciones .cz-search-in:focus { border: 0; }
+
+/* ── Tablas ─────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-tablewrap {
+  border: 1px solid var(--cz-line-soft); border-radius: calc(var(--cz-radius) + 2px);
+  background: var(--cz-glass); backdrop-filter: blur(10px);
+  box-shadow: var(--cz-shadow-sm); overflow-x: auto;
+}
+.kimos-cotizaciones .cz-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kimos-cotizaciones .cz-th {
+  text-align: left; font: 600 11px/1.4 'Inter', sans-serif; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--cz-dim);
+  padding: 10px 12px; border-bottom: 1px solid var(--cz-line);
+  white-space: nowrap; cursor: pointer; user-select: none;
+}
+.kimos-cotizaciones .cz-th.cz-right { text-align: right; }
+.kimos-cotizaciones .cz-th:hover { color: var(--cz-fg); }
+.kimos-cotizaciones .cz-th.on { color: var(--cz-fg); }
+.kimos-cotizaciones .cz-th-arrow { font-size: 9px; }
+.kimos-cotizaciones .cz-th-acts, .kimos-cotizaciones .cz-th-grip { cursor: default; width: 1%; }
+.kimos-cotizaciones .cz-table td { padding: 10px 12px; border-bottom: 1px solid var(--cz-line-soft); vertical-align: top; }
+.kimos-cotizaciones .cz-table tbody tr:last-child td { border-bottom: 0; }
+.kimos-cotizaciones .cz-tablewrap.dense .cz-table td { padding: 5px 10px; }
+.kimos-cotizaciones .cz-tr:hover { background: hsl(var(--muted, 220 14% 89%) / .45); }
+.kimos-cotizaciones .cz-table tbody tr { cursor: pointer; }
+.kimos-cotizaciones .cz-cell-title { font-weight: 500; }
+.kimos-cotizaciones .cz-cell-sub { font-size: 11px; color: var(--cz-dim); margin-top: 2px; }
+.kimos-cotizaciones .cz-td-acts { white-space: nowrap; text-align: right; cursor: default; }
+.kimos-cotizaciones .cz-nores { text-align: center; color: var(--cz-dim); padding: 16px; font-size: 13px; }
+
+/* ── Estado vacío ───────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 56px 24px; text-align: center;
+}
+.kimos-cotizaciones .cz-empty-ico { font-size: 40px; opacity: .55; }
+.kimos-cotizaciones .cz-empty-title { font: 600 17px/1.3 'Inter', sans-serif; }
+.kimos-cotizaciones .cz-empty-text { color: var(--cz-dim); max-width: 520px; font-size: 13px; }
+.kimos-cotizaciones .cz-empty-action { margin-top: 6px; }
+
+/* ── Tarjetas ───────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-card {
+  border: 1px solid var(--cz-line-soft); border-radius: calc(var(--cz-radius) + 2px);
+  background: var(--cz-glass); backdrop-filter: blur(10px);
+  box-shadow: var(--cz-shadow-sm); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px; min-width: 0;
+}
+.kimos-cotizaciones .cz-card-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-card-hd h3 { margin: 0; font: 600 14px/1.3 'Inter', sans-serif; }
+.kimos-cotizaciones .cz-card-note { font-size: 11px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-card-lines { padding-bottom: 8px; }
+
+/* ── Editor ─────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-editor { display: flex; flex-direction: column; height: 100%; }
+.kimos-cotizaciones .cz-docbar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--cz-line-soft); flex-shrink: 0; flex-wrap: wrap;
+}
+.kimos-cotizaciones .cz-docbar-id { display: flex; align-items: center; gap: 8px; min-width: 220px; flex: 1 1 260px; }
+.kimos-cotizaciones .cz-docbar-name { font-weight: 600; font-size: 15px; min-height: 36px; }
+.kimos-cotizaciones .cz-docbar-num { font-size: 12px; color: var(--cz-dim); white-space: nowrap; }
+.kimos-cotizaciones .cz-docbar-status { width: auto; min-width: 130px; }
+.kimos-cotizaciones .cz-editor-body {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px; padding: 16px; align-items: start;
+}
+.kimos-cotizaciones .cz-editor-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.kimos-cotizaciones .cz-editor-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; }
+
+/* ── Tabla de líneas ────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-lines td { vertical-align: top; }
+.kimos-cotizaciones .cz-lines .cz-in { min-height: 30px; padding: 5px 8px; }
+.kimos-cotizaciones .cz-linerow.dragging { opacity: .4; }
+.kimos-cotizaciones .cz-linerow.over td { box-shadow: inset 0 2px 0 0 var(--cz-accent); }
+.kimos-cotizaciones .cz-linerow.optional { background: hsl(var(--muted, 220 14% 89%) / .35); }
+.kimos-cotizaciones .cz-td-grip {
+  cursor: grab; user-select: none; white-space: nowrap; width: 1%;
+  color: var(--cz-dim); font-size: 12px; padding-top: 14px !important;
+}
+.kimos-cotizaciones .cz-td-grip:active { cursor: grabbing; }
+.kimos-cotizaciones .cz-linenum { display: inline-block; min-width: 16px; text-align: right; margin-right: 4px; }
+.kimos-cotizaciones .cz-grip { opacity: .45; }
+.kimos-cotizaciones .cz-td-item { min-width: 180px; position: relative; }
+.kimos-cotizaciones .cz-td-desc { min-width: 260px; width: 40%; }
+.kimos-cotizaciones .cz-td-qty { width: 130px; }
+.kimos-cotizaciones .cz-td-price { width: 130px; }
+.kimos-cotizaciones .cz-qtylabel { margin-top: 4px; font-size: 11px !important; min-height: 26px !important; }
+.kimos-cotizaciones .cz-src { position: absolute; top: 6px; right: 4px; font-size: 11px; opacity: .75; }
+.kimos-cotizaciones .cz-lines-empty { padding: 12px; color: var(--cz-dim); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+
+/* ── Totales ────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-tot { display: flex; flex-direction: column; gap: 2px; }
+.kimos-cotizaciones .cz-tot-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 5px 0; font-size: 13px;
+}
+.kimos-cotizaciones .cz-tot-lbl { color: var(--cz-dim); }
+.kimos-cotizaciones .cz-tot-val { font-weight: 500; }
+.kimos-cotizaciones .cz-tot-disc .cz-tot-val { color: var(--cz-ok); }
+.kimos-cotizaciones .cz-tot-total {
+  border-top: 1px solid var(--cz-line); margin-top: 4px; padding-top: 10px;
+  font-size: 16px;
+}
+.kimos-cotizaciones .cz-tot-total .cz-tot-lbl { color: var(--cz-fg); font-weight: 600; letter-spacing: .02em; }
+.kimos-cotizaciones .cz-tot-total .cz-tot-val { font-weight: 700; }
+.kimos-cotizaciones .cz-tot-split { font-size: 12px; }
+.kimos-cotizaciones .cz-tot-opt { font-size: 12px; opacity: .8; border-top: 1px dashed var(--cz-line-soft); padding-top: 8px; margin-top: 4px; }
+.kimos-cotizaciones .cz-tot-adj {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px;
+  border-top: 1px solid var(--cz-line-soft); padding-top: 12px;
+}
+.kimos-cotizaciones .cz-tot-adj .cz-field-wide { grid-column: 1 / -1; }
+
+/* ── Notas ──────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-textlist { display: flex; flex-direction: column; gap: 6px; }
+.kimos-cotizaciones .cz-textlist-row { display: flex; align-items: flex-start; gap: 8px; }
+.kimos-cotizaciones .cz-textlist-bullet { color: var(--cz-dim); padding-top: 7px; }
+.kimos-cotizaciones .cz-textlist-acts { display: flex; gap: 2px; flex-shrink: 0; }
+.kimos-cotizaciones .cz-textlist-add { align-self: flex-start; }
+
+/* ── Historial ──────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
+.kimos-cotizaciones .cz-event { display: flex; flex-direction: column; font-size: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--cz-line-soft); }
+.kimos-cotizaciones .cz-event:last-child { border-bottom: 0; }
+.kimos-cotizaciones .cz-event-at { font-size: 10px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-event-by { font-size: 10px; color: var(--cz-dim); opacity: .8; }
+
+/* ── Imagen ─────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-imgfield { display: flex; gap: 10px; align-items: flex-start; }
+.kimos-cotizaciones .cz-imgfield-thumb {
+  width: 64px; height: 64px; flex-shrink: 0; object-fit: contain;
+  border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  background: var(--cz-card); padding: 4px;
+}
+.kimos-cotizaciones .cz-imgfield-empty { display: flex; align-items: center; justify-content: center; font-size: 22px; opacity: .35; }
+.kimos-cotizaciones .cz-imgfield-ctl { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.kimos-cotizaciones .cz-imgfield-btns { display: flex; gap: 6px; }
+
+/* ── Sincronización ─────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-sync { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-sync-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--cz-ok); }
+.kimos-cotizaciones .cz-sync-busy .cz-sync-dot { background: var(--cz-warn); animation: cz-pulse 1s ease-in-out infinite; }
+.kimos-cotizaciones .cz-sync-off .cz-sync-dot { background: var(--cz-err); }
+@keyframes cz-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* ── Modal ──────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-modal-back {
+  position: absolute; inset: 0; z-index: 40;
+  background: hsl(220 25% 6% / .45); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.kimos-cotizaciones .cz-modal {
+  width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  border: 1px solid var(--cz-line); border-radius: calc(var(--cz-radius) + 4px);
+  background: var(--cz-glass-strong); backdrop-filter: blur(16px);
+  box-shadow: var(--cz-shadow-md); overflow: hidden;
+}
+.kimos-cotizaciones .cz-modal-wide { width: min(880px, 100%); }
+.kimos-cotizaciones .cz-modal-full { width: 100%; height: 100%; }
+.kimos-cotizaciones .cz-modal-hd {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-bottom: 1px solid var(--cz-line-soft);
+}
+.kimos-cotizaciones .cz-modal-title { font: 600 15px/1.3 'Inter', sans-serif; flex: 1 1 auto; }
+.kimos-cotizaciones .cz-modal-body { padding: 16px; overflow: auto; flex: 1 1 auto; }
+.kimos-cotizaciones .cz-modal-ft {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 14px; border-top: 1px solid var(--cz-line-soft);
+}
+.kimos-cotizaciones .cz-confirm-text { font-size: 14px; line-height: 1.6; }
+
+/* ── Ajustes ────────────────────────────────────────────────────────── */
+.kimos-cotizaciones .cz-settings { max-width: 900px; }
+.kimos-cotizaciones .cz-settings-ft { font-size: 11px; color: var(--cz-dim); padding: 0 2px 8px; }
+
+/* ── Angosto: la cabecera pasa a dos filas (APP-SPEC §9.5) ──────────── */
+@media (max-width: 860px) {
+  .kimos-cotizaciones .cz-hd { grid-template-columns: 1fr auto; grid-template-areas: 'nav acc' 'tabs tabs'; row-gap: 8px; }
+  .kimos-cotizaciones .cz-hd-nav { grid-area: nav; }
+  .kimos-cotizaciones .cz-hd-acciones { grid-area: acc; }
+  .kimos-cotizaciones .cz-bigtabs { grid-area: tabs; width: 100%; justify-content: flex-start; }
+  .kimos-cotizaciones .cz-bigtab-lbl { display: none; }
+  .kimos-cotizaciones .cz-bigtab { padding: 8px 14px; }
+  .kimos-cotizaciones .cz-editor-body { grid-template-columns: minmax(0, 1fr); }
+  .kimos-cotizaciones .cz-editor-side { position: static; }
+  .kimos-cotizaciones .cz-grid2 { grid-template-columns: minmax(0, 1fr); }
+}
