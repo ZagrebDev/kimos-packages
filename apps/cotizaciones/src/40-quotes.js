@@ -179,8 +179,8 @@ function QuoteEditor(props) {
     // ── Cuerpo ───────────────────────────────────────────────────────
     h('div', { key: 'body', className: 'cz-editor-body' }, [
       h('div', { key: 'main', className: 'cz-editor-main' }, [
-        h(DocHeaderPanel, { key: 'hd', doc, rules, issuer, until, esPlantilla, patch, patchClient }),
-        h(LinesTable, { key: 'ln', doc, rules, cur, totals, ask }),
+        h(DocHeaderPanel, { key: 'hd', doc, m, rules, issuer, until, esPlantilla, patch, patchClient }),
+        h(LinesTable, { key: 'ln', doc, m, rules, cur, totals, ask }),
         h(NotesPanel, { key: 'nt', doc, issuer, patch }),
       ]),
       h('div', { key: 'side', className: 'cz-editor-side' }, [
@@ -194,8 +194,10 @@ function QuoteEditor(props) {
 
 // ── Cabecera del documento: emisor, cliente, fechas ──────────────────────
 function DocHeaderPanel(props) {
-  const { doc, rules, issuer, until, esPlantilla, patch, patchClient } = props;
+  const { doc, m, rules, issuer, until, esPlantilla, patch, patchClient } = props;
+  const [picker, setPicker] = useState(false);
   return h('section', { className: 'cz-card' }, [
+    picker ? h(ClientPickerModal, { key: 'cp', m, quoteId: doc.id, onClose: () => setPicker(false) }) : null,
     h('div', { key: 'h', className: 'cz-card-hd' }, [
       h('h3', { key: 't' }, esPlantilla ? 'Datos de la plantilla' : 'Cliente y vigencia'),
       issuer.name
@@ -203,8 +205,16 @@ function DocHeaderPanel(props) {
         : h('span', { key: 'i', className: 'cz-card-note cz-warn' }, 'Falta configurar el emisor en Ajustes'),
     ]),
     h('div', { key: 'g', className: 'cz-grid2' }, [
-      !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' },
-        h(Input, { value: doc.client.name, placeholder: 'Razón social o nombre', onChange: (e) => patchClient({ name: e.target.value }) })) : null,
+      !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' }, h('div', { className: 'cz-inline cz-nowrap' }, [
+        h(Input, {
+          key: 'i', value: doc.client.name, placeholder: 'Razón social o nombre',
+          onChange: (e) => patchClient({ name: e.target.value }),
+        }),
+        h(IconBtn, {
+          key: 'b', icon: '👥', title: 'Traer un cliente del directorio (app Clientes)',
+          onClick: () => setPicker(true),
+        }),
+      ])) : null,
       !esPlantilla ? h(Field, { key: 'ct', label: 'RUT / ID fiscal' },
         h(Input, { mono: true, value: doc.client.taxId, placeholder: '77.718.188-2', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'cc', label: 'Contacto' },
@@ -237,9 +247,10 @@ function DocHeaderPanel(props) {
  * no del documento, y no tiene por qué viajar a los demás usuarios.
  */
 function LinesTable(props) {
-  const { doc, rules, cur, totals, ask } = props;
+  const { doc, m, rules, cur, totals, ask } = props;
   const [dragId, setDragId] = useState('');
   const [overId, setOverId] = useState('');
+  const [picker, setPicker] = useState('');       // '' | 'own' | 'sys'
   const lines = arr(doc.lines);
 
   const drop = (targetId) => {
@@ -257,10 +268,20 @@ function LinesTable(props) {
         + (totals.optionalCount ? ' · ' + totals.optionalCount + ' opcional(es) fuera del total' : '')),
       h('div', { key: 'sp', className: 'cz-spacer' }),
       h(Btn, {
+        key: 'own', size: 'sm', title: 'Insertar un ítem o servicio del banco propio',
+        onClick: () => setPicker('own'),
+      }, '📦 Del catálogo'),
+      h(Btn, {
+        key: 'sys', size: 'sm', title: 'Cotizar un producto de las apps Productos o ProductLab',
+        onClick: () => setPicker('sys'),
+      }, '🛒 Del sistema'),
+      h(Btn, {
         key: 'add', size: 'sm', variant: 'primary',
         onClick: () => actAddLine(doc.id, { title: '', qty: 1, unitPrice: 0 }),
       }, '+ Línea'),
     ]),
+    picker === 'own' ? h(CatalogPickerModal, { key: 'pk', m, quoteId: doc.id, onClose: () => setPicker('') }) : null,
+    picker === 'sys' ? h(ProductPickerModal, { key: 'pk', m, quoteId: doc.id, onClose: () => setPicker('') }) : null,
     h('div', { key: 'w', className: 'cz-tablewrap' }, h('table', { className: 'cz-table cz-lines' }, [
       h('thead', { key: 'h' }, h('tr', null, [
         h('th', { key: 'g', className: 'cz-th cz-th-grip' }, ''),
@@ -356,7 +377,11 @@ function LineRow(props) {
         title: l.taxable ? 'Afecto a impuesto' : 'Exento de impuesto',
         onClick: () => set({ taxable: !l.taxable }),
       }),
-      h(IconBtn, {
+      origen ? h(IconBtn, {
+        key: 'p', icon: '⟳',
+        title: 'Volver a preguntarle el precio al catálogo' + (l.source.capturedAt ? ' (capturado el ' + fechaCorta(l.source.capturedAt) + ')' : ''),
+        onClick: () => actRefreshLinePrice(doc.id, l.id),
+      }) : h(IconBtn, {
         key: 's', icon: '📦', title: 'Guardar este ítem en el catálogo para reutilizarlo',
         onClick: () => actSaveLineToCatalog(doc.id, l.id),
       }),

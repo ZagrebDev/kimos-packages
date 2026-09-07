@@ -400,3 +400,79 @@
   .kimos-cotizaciones .cz-editor-side { position: static; }
   .kimos-cotizaciones .cz-grid2 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Catálogo del sistema (Productos y ProductLab) ───────────────────── */
+.kimos-cotizaciones .cz-catsys { display: flex; flex-direction: column; gap: 12px; }
+.kimos-cotizaciones .cz-sources { display: flex; flex-wrap: wrap; gap: 6px; }
+.kimos-cotizaciones .cz-catsys-ft { font-size: 11px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-cards {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.kimos-cotizaciones .cz-prodcard {
+  border: 1px solid var(--cz-line-soft); border-radius: calc(var(--cz-radius) + 2px);
+  background: var(--cz-glass); backdrop-filter: blur(10px);
+  box-shadow: var(--cz-shadow-sm); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.kimos-cotizaciones .cz-prodcard-img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: contain;
+  background: hsl(var(--muted, 220 14% 89%) / .5); padding: 6px;
+}
+.kimos-cotizaciones .cz-prodcard-noimg { display: flex; align-items: center; justify-content: center; font-size: 28px; opacity: .4; }
+.kimos-cotizaciones .cz-prodcard-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.kimos-cotizaciones .cz-prodcard-name { font-weight: 500; font-size: 13px; line-height: 1.35; }
+.kimos-cotizaciones .cz-prodcard-meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-prodcard-tag { border: 1px solid var(--cz-line-soft); border-radius: 99px; padding: 0 6px; }
+.kimos-cotizaciones .cz-prodcard-price { font-weight: 600; font-size: 14px; margin-top: 2px; }
+.kimos-cotizaciones .cz-prodcard-unit { font-size: 10px; font-weight: 400; color: var(--cz-dim); }
+
+/* ── Listas de selección (insertar ítems / productos / clientes) ─────── */
+.kimos-cotizaciones .cz-picklist {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 52vh; overflow: auto; margin-top: 10px;
+}
+.kimos-cotizaciones .cz-pickrow {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 10px; border: 1px solid transparent; border-radius: var(--cz-radius);
+  background: none; color: inherit; cursor: pointer; font: inherit;
+}
+.kimos-cotizaciones .cz-pickrow:hover { background: var(--cz-plata); border-color: var(--cz-line-soft); }
+.kimos-cotizaciones .cz-pickrow-img { width: 40px; height: 40px; object-fit: contain; border-radius: var(--cz-radius); background: hsl(var(--muted, 220 14% 89%) / .5); flex-shrink: 0; }
+.kimos-cotizaciones .cz-pickrow-main { flex: 1 1 auto; min-width: 0; }
+.kimos-cotizaciones .cz-pickrow-name { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-pickrow-tag { font-size: 10px; font-weight: 400; color: var(--cz-dim); border: 1px solid var(--cz-line-soft); border-radius: 99px; padding: 0 6px; }
+.kimos-cotizaciones .cz-pickrow-desc { font-size: 11px; color: var(--cz-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cotizaciones .cz-pickrow-price { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.kimos-cotizaciones .cz-pickrow-add { width: 20px; text-align: center; color: var(--cz-dim); font-size: 14px; }
+
+/* ── Configurador de un producto de ProductLab ───────────────────────── */
+.kimos-cotizaciones .cz-conf { display: flex; flex-direction: column; gap: 12px; }
+.kimos-cotizaciones .cz-conf-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-conf-name { font-weight: 600; font-size: 15px; }
+.kimos-cotizaciones .cz-conf-body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; align-items: start; }
+.kimos-cotizaciones .cz-conf-pasos { display: flex; flex-direction: column; gap: 14px; max-height: 52vh; overflow: auto; }
+.kimos-cotizaciones .cz-conf-paso-lbl { font-size: 12px; font-weight: 600; color: var(--cz-dim); margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.kimos-cotizaciones .cz-conf-paso-nota { font-weight: 400; opacity: .8; }
+.kimos-cotizaciones .cz-conf-valores { display: flex; flex-wrap: wrap; gap: 6px; }
+.kimos-cotizaciones .cz-conf-valor {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 7px 12px; border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  background: var(--cz-glass); color: inherit; cursor: pointer;
+  font: 500 12px/1.3 'Inter', sans-serif; text-align: left;
+}
+.kimos-cotizaciones .cz-conf-valor:hover { background: var(--cz-plata); }
+.kimos-cotizaciones .cz-conf-valor.on { border-color: var(--cz-accent); background: hsl(var(--primary, 178 96% 59%) / .14); }
+.kimos-cotizaciones .cz-conf-valor-d { font-size: 10px; font-weight: 400; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-conf-side { display: flex; flex-direction: column; gap: 10px; }
+.kimos-cotizaciones .cz-conf-img { width: 100%; aspect-ratio: 1; object-fit: contain; border: 1px solid var(--cz-line-soft); border-radius: var(--cz-radius); background: hsl(var(--muted, 220 14% 89%) / .4); padding: 6px; }
+.kimos-cotizaciones .cz-conf-precio { border-top: 1px solid var(--cz-line-soft); padding-top: 10px; }
+.kimos-cotizaciones .cz-conf-precio-lbl { font-size: 11px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-conf-precio-v { font-size: 20px; font-weight: 700; }
+.kimos-cotizaciones .cz-conf-precio-nota { font-size: 10px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-conf-total { border-top: 1px solid var(--cz-line-soft); padding-top: 10px; font-size: 12px; color: var(--cz-dim); }
+.kimos-cotizaciones .cz-nowrap { flex-wrap: nowrap; }
+
+@media (max-width: 860px) {
+  .kimos-cotizaciones .cz-conf-body { grid-template-columns: minmax(0, 1fr); }
+}

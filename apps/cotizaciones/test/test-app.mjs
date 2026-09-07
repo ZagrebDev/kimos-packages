@@ -33,6 +33,62 @@ globalThis.window = {
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, createElement: () => ({ style: {} }) };
 globalThis.FormData = class { append() {} };
 
+// ── Catálogos simulados de otras apps ────────────────────────────────────
+const EXT = {
+  products: [{
+    id: 'pinst-1', name: 'Catálogo tienda',
+    items: [
+      { id: 'definition', kind: 'definition' },
+      {
+        id: 'p-totem', name: 'Tótem interactivo 32"', sku: 'FG-TI0', status: 'active',
+        price: 1190000, imageUrl: 'https://cdn/totem.png',
+        description: '<p>Tótem táctil de piso con <b>pantalla 32"</b>.</p>',
+        options: [
+          { name: 'Color', values: [{ name: 'Negro' }, { name: 'Blanco' }] },
+          { name: 'Garantía extendida', optionType: 'addon', addonPrice: 119000, values: [{ name: 'Sí' }] },
+        ],
+        variants: [
+          { options: { Color: 'Negro' }, price: 1190000 },
+          { options: { Color: 'Blanco' }, price: 1249000 },
+        ],
+      },
+      { id: 'p-borrador', name: 'Producto en borrador', status: 'draft', price: 1000 },
+    ],
+  }],
+  productlab: [{
+    id: 'plinst-1', name: 'Laboratorio',
+    items: [
+      {
+        id: 'definition', kind: 'definition',
+        rules: { currency: 'CLP', salesTaxPct: 19, marginBasis: 'cost', marginDefaultPct: 0, deltaRoundTo: 1 },
+      },
+      { id: 'c-base', kind: 'component', name: 'Chasis', type: 'chasis', cost: 100000, currency: 'CLP', active: true },
+      { id: 'c-p32', kind: 'component', name: 'Pantalla 32"', type: 'pantalla', cost: 200000, currency: 'CLP', active: true },
+      { id: 'c-p43', kind: 'component', name: 'Pantalla 43"', type: 'pantalla', cost: 300000, currency: 'CLP', active: true },
+      { id: 'c-agotada', kind: 'component', name: 'Pantalla 55"', type: 'pantalla', cost: 400000, currency: 'CLP', active: true, stock: 0 },
+      {
+        id: 'pl-totem', kind: 'producto', name: 'Tótem a medida', sku: 'PL-TOT', status: 'active',
+        price: 357000, priceMode: 'auto',
+        groups: [{
+          id: 'g-pantalla', label: 'Pantalla', typeId: 'pantalla', defaultValueId: 'v32',
+          values: [
+            { id: 'v32', label: '32 pulgadas', componentIds: ['c-p32'] },
+            { id: 'v43', label: '43 pulgadas', componentIds: ['c-p43'] },
+            { id: 'v55', label: '55 pulgadas', componentIds: ['c-agotada'] },
+          ],
+        }],
+      },
+    ],
+  }],
+  customers: [{
+    id: 'cinst-1', name: 'Directorio',
+    items: [
+      { id: 'definition', kind: 'definition' },
+      { id: 'cli-unab', name: 'Universidad Andrés Bello', taxId: '99.555.444-3', email: 'compras@unab.cl', phone: '+56 2 2222', city: 'Santiago', country: 'Chile' },
+    ],
+  }],
+};
+
 // ── Shell simulado ───────────────────────────────────────────────────────
 const store = new Map();          // items de la instancia
 const notices = [];
@@ -50,6 +106,19 @@ const shell = {
     remove: async (id) => { store.delete(id); },
   },
   agent: { register: (reg) => { agentReg = reg; return () => { agentReg = null; }; } },
+  // Catálogos de OTRAS apps (APP-SPEC 7.c). Se simulan tres instancias: una
+  // de `products` con opciones y variantes, una de `productlab` con
+  // componentes y pasos, y una de `customers`.
+  data: {
+    listInstances: async (template) => (EXT[template] || []).map((x) => ({ id: x.id, name: x.name })),
+    listItems: async (id) => {
+      for (const lista of Object.values(EXT)) {
+        const inst = lista.find((x) => x.id === id);
+        if (inst) return JSON.parse(JSON.stringify(inst.items));
+      }
+      return [];
+    },
+  },
   config: { get: async () => ({}), set: async () => {}, onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
   authFetch: async (url, init) => {
@@ -334,10 +403,90 @@ seccion('Fusión sin pérdida (dos personas a la vez)');
   ok(m3.lines.some((l) => l.id === 'c'), 'pero si la línea se reeditó después de borrarla, se conserva');
 }
 
+seccion('Catálogo del sistema (Productos y ProductLab)');
+{
+  const T = mounted.__test;
+  const productos = await T.loadExternalCatalog(true);
+  eq(productos.length, 2, 'se leen los dos productos activos (el borrador se descarta)');
+
+  const tienda = productos.find((p) => p.source === 'products');
+  ok(!!tienda, 'entra el producto de la app Productos');
+  eq(tienda.description, 'Tótem táctil de piso con pantalla 32".', 'su descripción HTML llega como texto plano');
+  eq(tienda.price, 1190000, 'con el precio del catálogo');
+  eq(tienda.groups.length, 2, 'y sus dos opciones como pasos');
+  const color = tienda.groups.find((g) => g.label === 'Color');
+  eq(color.values.find((v) => v.name === 'Negro').delta, 0, 'la variante más barata fija el precio base');
+  eq(color.values.find((v) => v.name === 'Blanco').delta, 59000, 'y la otra queda como recargo');
+  const garantia = tienda.groups.find((g) => g.label === 'Garantía extendida');
+  eq(garantia.values.length, 2, 'un addon se ofrece como sí/no');
+  eq(garantia.values[0].delta, 0, 'con el “sin” en cero');
+  eq(garantia.values[1].delta, 119000, 'y el recargo del addon');
+
+  const lab = productos.find((p) => p.source === 'productlab');
+  ok(!!lab, 'entra el producto configurable de ProductLab');
+  eq(lab.groups.length, 1, 'con su paso');
+  const pantalla = lab.groups[0];
+  eq(pantalla.values.length, 2, 'la pantalla agotada (sin stock) no se ofrece');
+  // Margen 0 e IVA 19%: 300.000 − 200.000 = 100.000 netos → 119.000 brutos.
+  eq(pantalla.values.find((v) => v.name === '43 pulgadas').delta, 119000, 'el delta sale del motor de precios de ProductLab');
+  eq(T.precioSeleccion(lab, {}), 357000, 'sin elegir nada, el precio es el de la configuración por defecto');
+  eq(T.precioSeleccion(lab, { 'g-pantalla': 'v43' }), 476000, 'elegir la pantalla grande suma su delta');
+
+  eq(Math.round(T.precioParaCotizar(1190000, { taxPct: 19, priceMode: 'net' })), 1000000,
+    'un precio de catálogo con IVA se convierte a neto para cotizar');
+  eq(T.precioParaCotizar(1190000, { taxPct: 19, priceMode: 'gross' }), 1190000,
+    'y se deja tal cual si la cotización se escribe con impuesto incluido');
+  eq(T.precioParaCotizar(1000000, { taxPct: 19, priceMode: 'net', catalogPricesIncludeTax: false }), 1000000,
+    'si el catálogo ya guarda netos, no se toca');
+}
+
+seccion('Cotizar una combinación del catálogo');
+{
+  const T = mounted.__test;
+  const q = T.actNewQuote({ name: 'Propuesta con productos' });
+  const lab = T.productByKey('pl:plinst-1:pl-totem');
+
+  const linea = T.actAddProductToQuote(q.id, lab.key, { selection: { 'g-pantalla': 'v43' }, qty: 4 });
+  ok(!!linea, 'el producto configurable entra como línea');
+  eq(linea.title, 'Tótem a medida', 'con el nombre del producto');
+  eq(linea.qty, 4, 'y la cantidad pedida');
+  eq(linea.unitPrice, 400000, 'con el precio de la combinación, ya neto (476.000 / 1,19)');
+  eq(linea.source.kind, 'productlab', 'anotando de qué app viene');
+  eq(linea.source.selection.length, 1, 'y qué combinación se eligió');
+  eq(linea.source.selection[0].valueName, '43 pulgadas', 'con el valor legible, no solo su id');
+  eq(linea.source.capturedPrice, 476000, 'guardando también el precio de catálogo del momento');
+  ok(linea.description.indexOf('Pantalla: 43 pulgadas') !== -1, 'la descripción de la línea explica la combinación');
+
+  const sinCombinacion = T.actAddProductToQuote(q.id, lab.key, {});
+  eq(sinCombinacion.unitPrice, 300000, 'sin combinación se cotiza la configuración por defecto');
+
+  const conTienda = T.actAddProductToQuote(q.id, 'pr:pinst-1:p-totem', { selection: {} });
+  eq(conTienda.unitPrice, 1000000, 'un producto de la tienda también entra neto');
+  eq(conTienda.sku, 'FG-TI0', 'con su SKU');
+
+  // El precio congelado NO se mueve solo aunque cambie el catálogo.
+  EXT.productlab[0].items.find((i) => i.id === 'c-p43').cost = 400000;
+  await T.loadExternalCatalog(true);
+  eq(T.docById(q.id).lines[0].unitPrice, 400000, 'si el catálogo sube de precio, la cotización sigue diciendo lo mismo');
+  T.actRefreshLinePrice(q.id, linea.id);
+  eq(T.docById(q.id).lines[0].unitPrice, 500000, 'hasta que se pide expresamente actualizar el precio');
+  EXT.productlab[0].items.find((i) => i.id === 'c-p43').cost = 300000;
+
+  seccion('Cliente desde la app Clientes');
+  const clientes = await T.loadCustomers(true);
+  eq(clientes.length, 1, 'se lee el directorio de clientes');
+  eq(clientes[0].address, 'Santiago, Chile', 'juntando ciudad y país en una dirección legible');
+  T.actImportClient(q.id, 'cli-unab');
+  const doc = T.docById(q.id);
+  eq(doc.client.name, 'Universidad Andrés Bello', 'la ficha se copia a la cotización');
+  eq(doc.client.taxId, '99.555.444-3', 'con su identificación fiscal');
+  eq(doc.client.sourceItemId, 'cli-unab', 'y queda anotado de qué ficha salió');
+}
+
 seccion('Render de todas las pantallas');
 {
   const T = mounted.__test;
-  for (const tab of ['quotes', 'templates', 'settings']) {
+  for (const tab of ['quotes', 'templates', 'catalog', 'settings']) {
     T.actSetTab(tab);
     T.actCloseEditor();
     const n = render(R.createElement(mounted.Component, {}), tab);

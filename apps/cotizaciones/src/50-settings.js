@@ -93,6 +93,14 @@ function SettingsTab(props) {
             onChange: (v) => actPatchRules({ validBusinessDays: v }),
           }),
         ])),
+        h(Field, {
+          key: 'ci', label: 'Precios del catálogo del sistema', wide: true,
+          help: 'Los catálogos de Productos y ProductLab guardan el precio de venta al público. Si esta instancia guarda netos, apágalo.',
+        }, h(Toggle, {
+          checked: rules.catalogPricesIncludeTax,
+          label: rules.catalogPricesIncludeTax ? 'Vienen con impuesto incluido (se descuenta al cotizar en netos)' : 'Ya vienen netos',
+          onChange: (v) => actPatchRules({ catalogPricesIncludeTax: v }),
+        })),
         h(Field, { key: 'ad', label: 'Abono y saldo' }, h('div', { className: 'cz-inline' }, [
           h(Toggle, {
             key: 't', checked: rules.advanceEnabled, label: 'desglosar',

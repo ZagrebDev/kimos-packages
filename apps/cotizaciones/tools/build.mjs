@@ -96,6 +96,10 @@ parts.push(`
       actAddLine, actUpdateLine, actRemoveLine, actMoveLine, actDuplicateLine,
       actUpsertCatalogItem, actRemoveCatalogItem, actAddCatalogToQuote, actSaveLineToCatalog,
       actPatchIssuer, actPatchRules,
+      loadExternalCatalog, loadCustomers, productByKey,
+      actAddProductToQuote, actRefreshLinePrice, actImportClient,
+      precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
+      grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
     },
   };
 }

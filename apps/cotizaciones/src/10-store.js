@@ -42,6 +42,14 @@ let model = {
   docs: [],            // cotizaciones y plantillas (kind quote | template)
   catalog: [],         // ítems y servicios prefijados
   mails: [],           // plantillas de correo
+  // Catálogos de OTRAS apps (Productos, ProductLab, Clientes) leídos con
+  // `shell.data`. No se persisten: son un espejo de lectura que se refresca
+  // al abrir la pestaña o al pulsar recargar.
+  ext: {
+    loading: false, loaded: false, error: null, at: '',
+    products: [], sources: [],
+    customers: [], customerSources: [],
+  },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar

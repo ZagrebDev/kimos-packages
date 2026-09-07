@@ -226,6 +226,12 @@ function defaultRules() {
     numberPad: 4,
     // Notas que arrastra toda cotización nueva (una por línea).
     defaultNotes: [],
+    // Los precios de los catálogos de OTRAS apps (Productos, ProductLab)
+    // vienen con impuesto incluido: son precio de venta al público. Al
+    // traerlos a una cotización que se escribe en netos hay que quitárselo,
+    // y esta bandera dice si hay que hacerlo. Si el catálogo de la casa
+    // guardara netos, se apaga.
+    catalogPricesIncludeTax: true,
   };
 }
 
@@ -258,6 +264,7 @@ function normalizeRules(raw) {
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
     defaultNotes: arr(r.defaultNotes).map(s).filter(Boolean),
+    catalogPricesIncludeTax: r.catalogPricesIncludeTax !== false,
   };
 }
 
@@ -362,6 +369,24 @@ function lineNet(line, rules) {
   const gross = (rules && rules.priceMode) === 'gross' && l.taxable;
   const unitNet = gross ? l.unitPrice / (1 + taxPct / 100) : l.unitPrice;
   return l.qty * unitNet * (1 - l.discountPct / 100);
+}
+
+/**
+ * Precio de catálogo → precio que se escribe en la línea de la cotización.
+ *
+ * Los catálogos de Productos y ProductLab guardan el precio de venta al
+ * público (con impuesto). Una cotización escrita en netos necesita el neto,
+ * así que hay que quitárselo; una escrita con impuesto incluido lo necesita
+ * tal cual. `catalogPricesIncludeTax` cubre el caso contrario: catálogos que
+ * ya guardan precios netos.
+ */
+function precioParaCotizar(precioCatalogo, rules, taxPctDoc) {
+  const r = normalizeRules(rules);
+  const taxPct = taxPctDoc == null || taxPctDoc === '' ? r.taxPct : clamp(num(taxPctDoc), 0, 100);
+  const p = num(precioCatalogo);
+  const factor = 1 + taxPct / 100;
+  if (r.priceMode === 'gross') return r.catalogPricesIncludeTax ? p : p * factor;
+  return r.catalogPricesIncludeTax ? p / factor : p;
 }
 
 /**

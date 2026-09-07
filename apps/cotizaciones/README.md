@@ -19,6 +19,14 @@ lo suyo.
   opcional (se ofrece aparte y no suma al total). Se reordenan arrastrando.
 - **Banco de ítems y servicios prefijados**: cualquier línea se guarda en el
   catálogo propio con un clic y vuelve a cualquier otra cotización.
+- **Catálogo del sistema**: se cotizan productos de la app **Productos** (con
+  el recargo de cada opción deducido de sus variantes) y productos
+  configurables de **ProductLab**, eligiendo su combinación de pasos y valores
+  en un configurador que muestra el precio resultante en vivo. El precio y la
+  combinación quedan **congelados** en la línea —una cotización es una oferta
+  con fecha— y se actualizan solo si se pide (⟳ en la fila).
+- **Clientes** traídos del directorio de la app **Clientes**, sin retipear la
+  ficha.
 - **Cotizaciones tipo** reutilizables y **duplicación** de cualquier
   cotización ya hecha para modificarla sin tocar la original.
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
@@ -36,8 +44,10 @@ lo suyo.
    transferencia) y las reglas (moneda, impuesto, vigencia, abono).
 2. **Cotizaciones** → *Nueva cotización*. Rellena cliente y asunto, añade
    líneas y ajusta los totales en el panel de la derecha.
-3. Guarda una línea recurrente en el catálogo (📦) o la cotización completa
-   como **cotización tipo** para reutilizarla.
+3. Para líneas de catálogo usa **📦 Del catálogo** (tu banco de ítems) o
+   **🛒 Del sistema** (Productos y ProductLab). Guarda una línea recurrente en
+   el catálogo con el 📦 de su fila, o la cotización completa como
+   **cotización tipo** para reutilizarla.
 4. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
    sola al pasar su vigencia.
 
@@ -58,7 +68,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 84 pruebas: cálculo, modelo, fusión y render
+node test/test-app.mjs    # 123 pruebas: cálculo, modelo, catálogo, fusión y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -78,6 +88,12 @@ Todo vive como items de la instancia (`shell.items`), distinguidos por `kind`:
 | `catalog` | Un ítem o servicio prefijado del banco propio. |
 | `mail` | Una plantilla de correo. |
 
+Los catálogos de otras apps NO se copian aquí: se leen con `shell.data`
+(permisos `data.read:products`, `data.read:productlab`, `data.read:customers`)
+y el RBAC del usuario es siempre el techo. Lo único que se guarda en la línea
+es el precio, la descripción y la combinación elegida **en el momento de
+cotizar**.
+
 Una cotización guarda **su propia** moneda e impuesto al crearse: subir el IVA
 en Ajustes no reescribe lo que se cotizó el año pasado.
 
@@ -85,4 +101,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo y duplicación; banco de ítems prefijados; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo y duplicación; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

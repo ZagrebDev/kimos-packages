@@ -256,6 +256,12 @@ function defaultRules() {
     numberPad: 4,
     // Notas que arrastra toda cotización nueva (una por línea).
     defaultNotes: [],
+    // Los precios de los catálogos de OTRAS apps (Productos, ProductLab)
+    // vienen con impuesto incluido: son precio de venta al público. Al
+    // traerlos a una cotización que se escribe en netos hay que quitárselo,
+    // y esta bandera dice si hay que hacerlo. Si el catálogo de la casa
+    // guardara netos, se apaga.
+    catalogPricesIncludeTax: true,
   };
 }
 
@@ -288,6 +294,7 @@ function normalizeRules(raw) {
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
     defaultNotes: arr(r.defaultNotes).map(s).filter(Boolean),
+    catalogPricesIncludeTax: r.catalogPricesIncludeTax !== false,
   };
 }
 
@@ -392,6 +399,24 @@ function lineNet(line, rules) {
   const gross = (rules && rules.priceMode) === 'gross' && l.taxable;
   const unitNet = gross ? l.unitPrice / (1 + taxPct / 100) : l.unitPrice;
   return l.qty * unitNet * (1 - l.discountPct / 100);
+}
+
+/**
+ * Precio de catálogo → precio que se escribe en la línea de la cotización.
+ *
+ * Los catálogos de Productos y ProductLab guardan el precio de venta al
+ * público (con impuesto). Una cotización escrita en netos necesita el neto,
+ * así que hay que quitárselo; una escrita con impuesto incluido lo necesita
+ * tal cual. `catalogPricesIncludeTax` cubre el caso contrario: catálogos que
+ * ya guardan precios netos.
+ */
+function precioParaCotizar(precioCatalogo, rules, taxPctDoc) {
+  const r = normalizeRules(rules);
+  const taxPct = taxPctDoc == null || taxPctDoc === '' ? r.taxPct : clamp(num(taxPctDoc), 0, 100);
+  const p = num(precioCatalogo);
+  const factor = 1 + taxPct / 100;
+  if (r.priceMode === 'gross') return r.catalogPricesIncludeTax ? p : p * factor;
+  return r.catalogPricesIncludeTax ? p / factor : p;
 }
 
 /**
@@ -777,6 +802,14 @@ let model = {
   docs: [],            // cotizaciones y plantillas (kind quote | template)
   catalog: [],         // ítems y servicios prefijados
   mails: [],           // plantillas de correo
+  // Catálogos de OTRAS apps (Productos, ProductLab, Clientes) leídos con
+  // `shell.data`. No se persisten: son un espejo de lectura que se refresca
+  // al abrir la pestaña o al pulsar recargar.
+  ext: {
+    loading: false, loaded: false, error: null, at: '',
+    products: [], sources: [],
+    customers: [], customerSources: [],
+  },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar
@@ -2225,8 +2258,8 @@ function QuoteEditor(props) {
     // ── Cuerpo ───────────────────────────────────────────────────────
     h('div', { key: 'body', className: 'cz-editor-body' }, [
       h('div', { key: 'main', className: 'cz-editor-main' }, [
-        h(DocHeaderPanel, { key: 'hd', doc, rules, issuer, until, esPlantilla, patch, patchClient }),
-        h(LinesTable, { key: 'ln', doc, rules, cur, totals, ask }),
+        h(DocHeaderPanel, { key: 'hd', doc, m, rules, issuer, until, esPlantilla, patch, patchClient }),
+        h(LinesTable, { key: 'ln', doc, m, rules, cur, totals, ask }),
         h(NotesPanel, { key: 'nt', doc, issuer, patch }),
       ]),
       h('div', { key: 'side', className: 'cz-editor-side' }, [
@@ -2240,8 +2273,10 @@ function QuoteEditor(props) {
 
 // ── Cabecera del documento: emisor, cliente, fechas ──────────────────────
 function DocHeaderPanel(props) {
-  const { doc, rules, issuer, until, esPlantilla, patch, patchClient } = props;
+  const { doc, m, rules, issuer, until, esPlantilla, patch, patchClient } = props;
+  const [picker, setPicker] = useState(false);
   return h('section', { className: 'cz-card' }, [
+    picker ? h(ClientPickerModal, { key: 'cp', m, quoteId: doc.id, onClose: () => setPicker(false) }) : null,
     h('div', { key: 'h', className: 'cz-card-hd' }, [
       h('h3', { key: 't' }, esPlantilla ? 'Datos de la plantilla' : 'Cliente y vigencia'),
       issuer.name
@@ -2249,8 +2284,16 @@ function DocHeaderPanel(props) {
         : h('span', { key: 'i', className: 'cz-card-note cz-warn' }, 'Falta configurar el emisor en Ajustes'),
     ]),
     h('div', { key: 'g', className: 'cz-grid2' }, [
-      !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' },
-        h(Input, { value: doc.client.name, placeholder: 'Razón social o nombre', onChange: (e) => patchClient({ name: e.target.value }) })) : null,
+      !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' }, h('div', { className: 'cz-inline cz-nowrap' }, [
+        h(Input, {
+          key: 'i', value: doc.client.name, placeholder: 'Razón social o nombre',
+          onChange: (e) => patchClient({ name: e.target.value }),
+        }),
+        h(IconBtn, {
+          key: 'b', icon: '👥', title: 'Traer un cliente del directorio (app Clientes)',
+          onClick: () => setPicker(true),
+        }),
+      ])) : null,
       !esPlantilla ? h(Field, { key: 'ct', label: 'RUT / ID fiscal' },
         h(Input, { mono: true, value: doc.client.taxId, placeholder: '77.718.188-2', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'cc', label: 'Contacto' },
@@ -2283,9 +2326,10 @@ function DocHeaderPanel(props) {
  * no del documento, y no tiene por qué viajar a los demás usuarios.
  */
 function LinesTable(props) {
-  const { doc, rules, cur, totals, ask } = props;
+  const { doc, m, rules, cur, totals, ask } = props;
   const [dragId, setDragId] = useState('');
   const [overId, setOverId] = useState('');
+  const [picker, setPicker] = useState('');       // '' | 'own' | 'sys'
   const lines = arr(doc.lines);
 
   const drop = (targetId) => {
@@ -2303,10 +2347,20 @@ function LinesTable(props) {
         + (totals.optionalCount ? ' · ' + totals.optionalCount + ' opcional(es) fuera del total' : '')),
       h('div', { key: 'sp', className: 'cz-spacer' }),
       h(Btn, {
+        key: 'own', size: 'sm', title: 'Insertar un ítem o servicio del banco propio',
+        onClick: () => setPicker('own'),
+      }, '📦 Del catálogo'),
+      h(Btn, {
+        key: 'sys', size: 'sm', title: 'Cotizar un producto de las apps Productos o ProductLab',
+        onClick: () => setPicker('sys'),
+      }, '🛒 Del sistema'),
+      h(Btn, {
         key: 'add', size: 'sm', variant: 'primary',
         onClick: () => actAddLine(doc.id, { title: '', qty: 1, unitPrice: 0 }),
       }, '+ Línea'),
     ]),
+    picker === 'own' ? h(CatalogPickerModal, { key: 'pk', m, quoteId: doc.id, onClose: () => setPicker('') }) : null,
+    picker === 'sys' ? h(ProductPickerModal, { key: 'pk', m, quoteId: doc.id, onClose: () => setPicker('') }) : null,
     h('div', { key: 'w', className: 'cz-tablewrap' }, h('table', { className: 'cz-table cz-lines' }, [
       h('thead', { key: 'h' }, h('tr', null, [
         h('th', { key: 'g', className: 'cz-th cz-th-grip' }, ''),
@@ -2402,7 +2456,11 @@ function LineRow(props) {
         title: l.taxable ? 'Afecto a impuesto' : 'Exento de impuesto',
         onClick: () => set({ taxable: !l.taxable }),
       }),
-      h(IconBtn, {
+      origen ? h(IconBtn, {
+        key: 'p', icon: '⟳',
+        title: 'Volver a preguntarle el precio al catálogo' + (l.source.capturedAt ? ' (capturado el ' + fechaCorta(l.source.capturedAt) + ')' : ''),
+        onClick: () => actRefreshLinePrice(doc.id, l.id),
+      }) : h(IconBtn, {
         key: 's', icon: '📦', title: 'Guardar este ítem en el catálogo para reutilizarlo',
         onClick: () => actSaveLineToCatalog(doc.id, l.id),
       }),
@@ -2624,6 +2682,14 @@ function SettingsTab(props) {
             onChange: (v) => actPatchRules({ validBusinessDays: v }),
           }),
         ])),
+        h(Field, {
+          key: 'ci', label: 'Precios del catálogo del sistema', wide: true,
+          help: 'Los catálogos de Productos y ProductLab guardan el precio de venta al público. Si esta instancia guarda netos, apágalo.',
+        }, h(Toggle, {
+          checked: rules.catalogPricesIncludeTax,
+          label: rules.catalogPricesIncludeTax ? 'Vienen con impuesto incluido (se descuenta al cotizar en netos)' : 'Ya vienen netos',
+          onChange: (v) => actPatchRules({ catalogPricesIncludeTax: v }),
+        })),
         h(Field, { key: 'ad', label: 'Abono y saldo' }, h('div', { className: 'cz-inline' }, [
           h(Toggle, {
             key: 't', checked: rules.advanceEnabled, label: 'desglosar',
@@ -2679,6 +2745,1053 @@ function SettingsTab(props) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/60-catalog-engine.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ MOTOR DEL CATÁLOGO ═══════════════════════════════════════════════════
+ *
+ * Traduce los catálogos de OTRAS apps a una forma común que se pueda cotizar:
+ *
+ *   products    Catálogo de tienda: precio, SKU, imágenes, opciones y
+ *               variantes. El recargo de cada opción sale de las variantes
+ *               (precio ancla + delta por valor).
+ *   productlab  Productos configurables: pasos con valores, dependencias
+ *               entre pasos y precio calculado desde los componentes
+ *               (costo → margen → impuesto → redondeo).
+ *
+ * Con ProductLab hay dos caminos, y se prefiere el primero:
+ *   1. La instancia PUBLICA su catálogo resuelto en `definition.public.data`
+ *      (contrato v2: precio base + delta por valor). Es lo que ProductLab
+ *      considera verdad y no obliga a recalcular nada.
+ *   2. Si no publica, se replica su motor de precios sobre los componentes
+ *      crudos. Es la misma cadena que usa `apps/totem-productos`, de donde
+ *      viene esta implementación; mantenerlas alineadas es la razón de que
+ *      los nombres coincidan.
+ *
+ * Todo aquí es puro: ni red ni estado. Lo que necesita la cotización es el
+ * precio resultante de UNA combinación concreta de pasos y valores, y eso lo
+ * da `precioSeleccion()`.
+ */
+
+const norm = canon;
+
+/** Texto de la tienda (HTML) → texto plano acotado: la propuesta no pinta HTML. */
+function textoPlano(html, max) {
+  const t = s(html)
+    .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    // El hueco que deja una etiqueta cerrada justo antes de un signo de
+    // puntuación ("32\" ."): en una propuesta al cliente se nota.
+    .replace(/ +([,.;:!?%)\]])/g, '$1')
+    .replace(/\n{3,}/g, '\n\n').trim();
+  if (max && t.length > max) return t.slice(0, max - 1).trimEnd() + '…';
+  return t;
+}
+
+// ── Reglas de precio de ProductLab ──────────────────────────────────────
+function plRules(raw) {
+  const r = isObj(raw) ? raw : {};
+  return {
+    currency: s(r.currency || 'CLP'),
+    currencySymbol: s(r.currencySymbol || '$'),
+    currencyDecimals: clamp(Math.round(num(r.currencyDecimals)), 0, 4),
+    locale: s(r.locale || 'es-CL'),
+    fx: isObj(r.fx) ? r.fx : {},
+    // Se usa `num(valor, defecto)` y no `|| defecto`: un margen del 0 % o un
+    // impuesto del 0 % son valores legítimos, y ProductLab los respeta.
+    salesTaxPct: num(r.salesTaxPct, num(r.ivaPct, 19)),
+    marginBasis: r.marginBasis === 'sale' ? 'sale' : 'cost',
+    marginDefaultPct: num(r.marginDefaultPct, 25),
+    marginByType: isObj(r.marginByType) ? r.marginByType : {},
+    // Redondeo del delta: cero no tiene sentido (se dividiría por él).
+    deltaRoundTo: num(r.deltaRoundTo, 1) || 1,
+    leadTimeDays: num(r.leadTimeDays),
+  };
+}
+
+/**
+ * Motor de precios de ProductLab: de componente a precio de venta bruto.
+ * Cadena: costo (en su moneda) → tipo de cambio → quitar impuesto si el costo
+ * lo trae → impuesto propio del componente → margen (sobre costo o sobre
+ * venta) → impuesto de venta.
+ */
+function plEngine(defItem, comps) {
+  const rules = plRules(defItem && defItem.rules);
+  const byId = new Map(arr(comps).map((c) => [c.id, c]));
+  const iva = rules.salesTaxPct / 100;
+
+  const grossComp = (c) => {
+    if (!c) return null;
+    const fx = c.currency && c.currency !== rules.currency ? (num(rules.fx[c.currency]) || 1) : 1;
+    const costBase = num(c.cost) * fx;
+    const net = (c.costConIva ? costBase / (1 + iva) : costBase) * (1 + num(c.taxPct) / 100);
+    const mt = rules.marginByType[c.type];
+    const m = (mt == null || mt === '' ? rules.marginDefaultPct : num(mt, rules.marginDefaultPct)) / 100;
+    const priced = rules.marginBasis === 'sale' ? (m < 1 ? net / (1 - m) : net) : net * (1 + m);
+    return priced * (1 + iva);
+  };
+  const disponible = (c, qty) => !!c && c.active !== false && (c.stock == null || num(c.stock) >= (qty || 1));
+
+  /** Pool efectivo del valor: sus componentes más las alternativas, por tipo. */
+  const poolPorTipo = (v) => {
+    const solo = new Set(arr(v.soloExacto));
+    const tipos = new Map();
+    arr(v.componentIds).forEach((cid) => {
+      const base = byId.get(cid);
+      if (!base) return;
+      const alts = [base];
+      if (!solo.has(cid)) arr(base.altIds).forEach((aid) => { const a = byId.get(aid); if (a) alts.push(a); });
+      const lista = tipos.get(base.type) || [];
+      alts.forEach((c) => { if (lista.indexOf(c) === -1) lista.push(c); });
+      tipos.set(base.type, lista);
+    });
+    return tipos;
+  };
+
+  /** Precio bruto del valor, o null si algún tipo se quedó sin alternativa. */
+  const valueGross = (v) => {
+    const qty = num(v.qty) || 1;
+    if (!arr(v.componentIds).length) return { gross: num(v.priceDelta), comp: null };
+    let suma = 0;
+    let elegido = null;
+    for (const lista of poolPorTipo(v).values()) {
+      let mejor = null;
+      for (const c of lista) {
+        if (!disponible(c, qty)) continue;
+        const g = grossComp(c);
+        if (g != null && (mejor == null || g < mejor.g)) mejor = { c, g };
+      }
+      if (!mejor) return null;             // agotado: el valor no se ofrece
+      suma += mejor.g * qty;
+      if (!elegido) elegido = mejor.c;
+    }
+    return { gross: suma + num(v.priceDelta), comp: elegido };
+  };
+
+  const roundDelta = (n) => Math.round(n / rules.deltaRoundTo) * rules.deltaRoundTo;
+  return { rules, byId, grossComp, disponible, valueGross, roundDelta };
+}
+
+// ── Forma común ─────────────────────────────────────────────────────────
+// Producto normalizado:
+//   { key, source, id, instanceId, instanceName, name, sku, brand, price,
+//     imageUrl, images[], description, specs[], stock, configurable,
+//     groups[], presets[] }
+// Grupo (paso): { id, label, nota, dependsOn:{groupId,valueIds}|null, values[] }
+// Valor: { id, name, desc, imageUrl, delta, isDefault }
+
+function normValor(v) {
+  return {
+    id: s(v.id),
+    name: s(v.name || v.label),
+    desc: s(v.desc || v.detalle),
+    imageUrl: s(v.imageUrl),
+    delta: num(v.delta),
+    isDefault: v.isDefault === true,
+  };
+}
+
+/** Desde el JSON público v2 de ProductLab (`definition.public.data.productos`). */
+function fromPublicPL(pp, inst) {
+  if (!pp || !s(pp.name)) return null;
+  const groups = arr(pp.groups).map((g) => {
+    const values = arr(g.values).filter((v) => v && v.fallback !== true).map(normValor).filter((v) => v.id && v.name);
+    if (!values.length) return null;
+    if (!values.some((v) => v.isDefault)) values[0].isDefault = true;
+    const d = g.dependsOn;
+    return {
+      id: s(g.id), label: s(g.label || g.type), nota: s(g.nota),
+      dependsOn: d && d.groupId && arr(d.valueIds).length ? { groupId: s(d.groupId), valueIds: arr(d.valueIds).map(s) } : null,
+      values,
+    };
+  }).filter(Boolean);
+  const specs = arr(pp.storefront && pp.storefront.specs)
+    .map((x) => ({ group: s(x.group), label: s(x.label), value: s(x.value) })).filter((x) => x.label);
+  return {
+    key: 'pl:' + inst.id + ':' + s(pp.sku || pp.productId || pp.name),
+    source: 'productlab', id: s(pp.sku || pp.productId || pp.name),
+    instanceId: inst.id, instanceName: s(inst.name),
+    name: s(pp.name), sku: s(pp.sku), brand: '',
+    price: num(pp.basePrice),
+    imageUrl: s(pp.imageUrl), images: arr(pp.images).map(s).filter(Boolean),
+    description: textoPlano(pp.description, 900),
+    specs, stock: null,
+    configurable: groups.length > 0, groups,
+    presets: arr(pp.presets).map((pr) => {
+      // En el JSON público la selección viene por NOMBRES, no por ids.
+      const sel = {};
+      arr(pr.selection).forEach((par) => {
+        const g = groups.find((x) => norm(x.label) === norm(par.group));
+        if (!g) return;
+        const v = g.values.find((x) => norm(x.name) === norm(par.value));
+        if (v) sel[g.id] = v.id;
+      });
+      return { id: s(pr.id) || uid('pre'), name: s(pr.name), sel };
+    }).filter((pr) => pr.name),
+  };
+}
+
+/** Desde items crudos de ProductLab (kind `producto`/`equipo`) + motor. */
+function fromRawPL(eq, engine, inst, storeItems) {
+  if (!eq || !s(eq.name) || eq.status === 'inactive') return null;
+  const groups = [];
+  arr(eq.groups).forEach((g) => {
+    if (!g || g.baseStep === true) return;
+    const brutos = [];
+    arr(g.values).forEach((v) => {
+      if (!v || v.fallback === true) return;
+      const vg = engine.valueGross(v);
+      if (vg == null) return;                       // agotado: no se ofrece
+      const comp = vg.comp;
+      const qty = num(v.qty) || 1;
+      const detalleAuto = comp ? (qty > 1 ? qty + '× ' : '') + s(comp.specs || comp.name) : '';
+      let img = s(v.imageUrl);
+      if (!img) {
+        for (const cid of arr(v.componentIds)) {
+          const c = engine.byId.get(cid);
+          if (c && c.type === g.typeId && c.imageUrl) { img = s(c.imageUrl); break; }
+        }
+      }
+      brutos.push({ id: s(v.id), name: s(v.label), desc: s(v.detalle) || detalleAuto, imageUrl: img, gross: vg.gross });
+    });
+    if (!brutos.length) return;
+    // El delta de cada valor es su diferencia con el valor por defecto: así el
+    // precio base del producto ya incluye la configuración por defecto.
+    const def = brutos.find((v) => v.id === s(g.defaultValueId)) || brutos[0];
+    const d = g.dependsOn;
+    groups.push({
+      id: s(g.id), label: s(g.label) || s(g.typeId), nota: s(g.nota),
+      dependsOn: d && d.stepId && arr(d.valueIds).length ? { groupId: s(d.stepId), valueIds: arr(d.valueIds).map(s) } : null,
+      values: brutos.map((v) => ({
+        id: v.id, name: v.name, desc: v.desc, imageUrl: v.imageUrl,
+        delta: engine.roundDelta(v.gross - def.gross), isDefault: v === def,
+      })),
+    });
+  });
+
+  // Precio base según el modo de precio del producto.
+  const ref = eq.storeRef || null;
+  const storeItem = ref && storeItems ? storeItems.get(s(ref.itemId)) : null;
+  let price;
+  if (eq.priceMode === 'fixed') price = num(eq.fixedPrice) || num(eq.price);
+  else if (eq.priceMode === 'store') price = (storeItem && num(storeItem.price)) || num(eq.fixedPrice) || num(eq.price);
+  else price = num(eq.price);
+
+  const sf = isObj(eq.storefront) ? eq.storefront : {};
+  const imgs = [];
+  const push = (u) => { const x = s(u); if (x && imgs.indexOf(x) === -1) imgs.push(x); };
+  push(eq.imageUrl);
+  arr(eq.galleryImages).forEach(push);
+  if (storeItem) (arr(storeItem.images).length ? arr(storeItem.images) : [storeItem.imageUrl]).forEach(push);
+
+  return {
+    key: 'pl:' + inst.id + ':' + s(eq.id),
+    source: 'productlab', id: s(eq.id),
+    instanceId: inst.id, instanceName: s(inst.name),
+    name: s(eq.name), sku: s(eq.sku), brand: '',
+    price: Math.round(price),
+    imageUrl: imgs[0] || '', images: imgs,
+    description: textoPlano(storeItem && (storeItem.description || storeItem.body), 900),
+    specs: arr(sf.specs).map((x) => ({ group: s(x.group), label: s(x.label), value: s(x.value) })).filter((x) => x.label),
+    stock: null,
+    configurable: groups.length > 0, groups,
+    presets: arr(eq.presets).map((pr) => ({
+      id: s(pr.id) || uid('pre'), name: s(pr.name), sel: isObj(pr.selection) ? pr.selection : {},
+    })).filter((pr) => pr.name),
+  };
+}
+
+/** Pasos derivados de las opciones y variantes de un item de `products`. */
+function groupsFromProducts(p) {
+  const groups = [];
+  const base = num(p.price);
+  arr(p.options).forEach((o, oi) => {
+    if (!o || !s(o.name) || !arr(o.values).length) return;
+    const gid = 'opt-' + oi;
+    if (o.optionType === 'addon') {
+      // Un addon es sí/no con recargo fijo.
+      const recargo = Math.max(0, num(o.addonPrice));
+      groups.push({
+        id: gid, label: s(o.name), nota: '', dependsOn: null,
+        values: [{ id: gid + '-no', name: 'Sin ' + s(o.name).toLowerCase(), desc: '', imageUrl: '', delta: 0, isDefault: true }]
+          .concat(arr(o.values).map((v, vi) => ({
+            id: gid + '-' + vi, name: s(v.name), desc: '', imageUrl: '', delta: recargo, isDefault: false,
+          }))),
+      });
+      return;
+    }
+    // Opción normal: el recargo sale de las variantes que llevan ese valor.
+    const vals = arr(o.values).map((v, vi) => {
+      const conValor = arr(p.variants).filter((vr) => vr && vr.options && norm(vr.options[o.name]) === norm(v.name));
+      const precios = conValor.map((vr) => Number(vr.price)).filter(Number.isFinite);
+      return {
+        id: gid + '-' + vi, name: s(v.name), desc: '', imageUrl: '',
+        delta: precios.length ? Math.round(Math.min.apply(null, precios) - base) : 0,
+        isDefault: false,
+      };
+    }).filter((v) => v.name);
+    if (!vals.length) return;
+    // El valor más barato es el que fija el precio base: el resto son recargos.
+    let mi = 0;
+    vals.forEach((v, ix) => { if (v.delta < vals[mi].delta) mi = ix; });
+    const dmin = vals[mi].delta;
+    vals.forEach((v) => { v.delta -= dmin; });
+    vals[mi].isDefault = true;
+    groups.push({ id: gid, label: s(o.name), nota: '', dependsOn: null, values: vals });
+  });
+  return groups;
+}
+
+function fromProductsItem(p, inst) {
+  if (!p || p.kind === 'definition' || !s(p.name)) return null;
+  if (p.status && p.status !== 'active') return null;
+  const imgs = [];
+  arr(p.images).forEach((u) => { const x = s(u); if (x && imgs.indexOf(x) === -1) imgs.push(x); });
+  if (s(p.imageUrl) && imgs.indexOf(s(p.imageUrl)) === -1) imgs.unshift(s(p.imageUrl));
+  const groups = groupsFromProducts(p);
+  return {
+    key: 'pr:' + inst.id + ':' + s(p.id),
+    source: 'products', id: s(p.id),
+    instanceId: inst.id, instanceName: s(inst.name),
+    name: s(p.name), sku: s(p.sku), brand: s(p.brand),
+    price: num(p.price),
+    imageUrl: imgs[0] || '', images: imgs,
+    description: textoPlano(p.description, 900),
+    specs: [], stock: typeof p.stock === 'number' ? p.stock : null,
+    configurable: groups.length > 0, groups, presets: [],
+  };
+}
+
+// ── Selección y precio de una combinación ───────────────────────────────
+const defaultVal = (g) => arr(g.values).find((v) => v.isDefault) || arr(g.values)[0] || null;
+
+/** Completa la selección con los valores por defecto y descarta lo inválido. */
+function seleccionResuelta(prod, sel) {
+  const out = {};
+  const m = isObj(sel) ? sel : {};
+  arr(prod && prod.groups).forEach((g) => {
+    const ok = arr(g.values).some((v) => v.id === m[g.id]);
+    const d = defaultVal(g);
+    out[g.id] = ok ? m[g.id] : (d ? d.id : null);
+  });
+  return out;
+}
+
+/** Un paso dependiente solo cuenta si el paso del que depende está en su valor. */
+function grupoVisible(prod, g, selMap) {
+  const d = g.dependsOn;
+  if (!d || !d.groupId || !arr(d.valueIds).length) return true;
+  const target = arr(prod.groups).find((x) => x.id === d.groupId);
+  if (!target) return true;
+  return d.valueIds.indexOf(selMap[target.id]) !== -1;
+}
+
+/** Precio resultante de la combinación: base más el delta de cada paso visible. */
+function precioSeleccion(prod, sel) {
+  const m = seleccionResuelta(prod, sel);
+  let total = num(prod && prod.price);
+  arr(prod && prod.groups).forEach((g) => {
+    if (!grupoVisible(prod, g, m)) return;
+    const v = arr(g.values).find((x) => x.id === m[g.id]);
+    if (v) total += num(v.delta);
+  });
+  return total;
+}
+
+/** La imagen que corresponde a la combinación (la del primer paso que la fija). */
+function fotoSeleccion(prod, sel) {
+  const m = seleccionResuelta(prod, sel);
+  for (const g of arr(prod && prod.groups)) {
+    if (!grupoVisible(prod, g, m)) continue;
+    const v = arr(g.values).find((x) => x.id === m[g.id]);
+    if (v && v.imageUrl) return v.imageUrl;
+  }
+  return s(prod && prod.imageUrl) || arr(prod && prod.images)[0] || '';
+}
+
+/** La combinación elegida, legible: [{ stepId, stepName, valueId, valueName }]. */
+function detalleSeleccion(prod, sel) {
+  const m = seleccionResuelta(prod, sel);
+  const out = [];
+  arr(prod && prod.groups).forEach((g) => {
+    if (!grupoVisible(prod, g, m)) return;
+    const v = arr(g.values).find((x) => x.id === m[g.id]);
+    if (!v) return;
+    out.push({ stepId: g.id, stepName: g.label, valueId: v.id, valueName: v.name, delta: num(v.delta) });
+  });
+  return out;
+}
+
+/**
+ * Descripción de la línea cotizada: la del producto más la combinación
+ * elegida, para que el cliente lea en la propuesta exactamente qué se le
+ * está ofreciendo y no solo el nombre del producto.
+ */
+function descripcionSeleccion(prod, sel, incluirDescripcion) {
+  const partes = [];
+  if (incluirDescripcion !== false && s(prod.description)) partes.push(s(prod.description));
+  const det = detalleSeleccion(prod, sel);
+  if (det.length) partes.push(det.map((d) => d.stepName + ': ' + d.valueName).join(' · '));
+  return partes.join('\n');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/62-catalog-data.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ LECTURA DE LOS CATÁLOGOS DE OTRAS APPS ═══════════════════════════════
+ *
+ * `shell.data` (APP-SPEC §7.c) permite leer los datos de otras apps
+ * declarando el permiso en el manifest. La app pide tres:
+ *
+ *   data.read:products     el catálogo de la tienda
+ *   data.read:productlab   los productos configurables
+ *   data.read:customers    el directorio de clientes
+ *
+ * El RBAC del usuario es siempre el techo: solo se ven instancias de equipos
+ * a los que ya tiene acceso, y el permiso de la app nunca lo supera.
+ *
+ * Nada de esto se persiste en la cotización: es un espejo de lectura. Lo que
+ * SÍ se guarda en la línea es el precio, la descripción y la combinación
+ * elegida en el momento de cotizar, porque una cotización es una oferta con
+ * fecha: si mañana sube el precio del catálogo, la cotización enviada tiene
+ * que seguir diciendo lo que decía.
+ */
+
+/** Por qué no se puede leer el catálogo, o '' si sí se puede. */
+function catalogoNoDisponible() {
+  if (!shell.data || typeof shell.data.listInstances !== 'function') {
+    return 'Este host no expone shell.data, así que no es posible leer los catálogos de otras apps.';
+  }
+  return '';
+}
+
+const setExt = (patch) => setModel({ ext: Object.assign({}, model.ext, patch) });
+
+/**
+ * Carga los catálogos de Productos y ProductLab y los normaliza a la forma
+ * común. Una instancia sin acceso no tumba al resto: se salta y se sigue.
+ */
+async function loadExternalCatalog(force) {
+  const motivo = catalogoNoDisponible();
+  if (motivo) { setExt({ loading: false, loaded: true, error: motivo }); return []; }
+  if (model.ext.loading) return model.ext.products;
+  if (model.ext.loaded && !force) return model.ext.products;
+
+  setExt({ loading: true, error: null });
+  const productos = [];
+  const sources = [];
+  try {
+    const pInsts = arr(await shell.data.listInstances('products').catch(() => []));
+    const plInsts = arr(await shell.data.listInstances('productlab').catch(() => []));
+
+    // Los items de `products` se cargan primero porque ProductLab los usa
+    // para su modo de precio "store" y para heredar fotos y descripción.
+    const storeItems = new Map();
+    const porInstancia = [];
+    for (const inst of pInsts) {
+      try {
+        const items = arr(await shell.data.listItems(inst.id));
+        const reales = items.filter((p) => p && p.kind !== 'definition' && s(p.name));
+        reales.forEach((p) => storeItems.set(s(p.id), p));
+        porInstancia.push({ inst, items: reales });
+      } catch (e) { /* instancia sin acceso: no tumbar el resto */ }
+    }
+
+    // ProductLab: primero el catálogo publicado; si no publica, se replica su
+    // motor de precios sobre los componentes crudos.
+    const vinculados = new Set();
+    for (const inst of plInsts) {
+      try {
+        const items = arr(await shell.data.listItems(inst.id));
+        const def = items.find((i) => i && (i.id === 'definition' || i.kind === 'definition'));
+        const comps = items.filter((i) => i && i.kind === 'component');
+        const prods = items.filter((i) => i && (i.kind === 'producto' || i.kind === 'equipo'));
+        prods.forEach((eq) => { if (eq.storeRef && eq.storeRef.itemId) vinculados.add(s(eq.storeRef.itemId)); });
+
+        const pub = def && def.public && def.public.enabled && def.public.data
+          && Array.isArray(def.public.data.productos) ? def.public.data : null;
+        let n = 0;
+        if (pub) {
+          pub.productos.forEach((pp) => { const x = fromPublicPL(pp, inst); if (x) { productos.push(x); n++; } });
+        } else {
+          const engine = plEngine(def, comps);
+          prods.forEach((eq) => { const x = fromRawPL(eq, engine, inst, storeItems); if (x) { productos.push(x); n++; } });
+        }
+        sources.push({ app: 'productlab', id: inst.id, name: s(inst.name) || inst.id, count: n, published: !!pub });
+      } catch (e) { /* instancia sin acceso */ }
+    }
+
+    // Productos: se omiten los que ya entran como configurables desde
+    // ProductLab, para no ofrecer dos veces lo mismo.
+    for (const par of porInstancia) {
+      let n = 0;
+      par.items.forEach((p) => {
+        if (vinculados.has(s(p.id))) return;
+        const x = fromProductsItem(p, par.inst);
+        if (x) { productos.push(x); n++; }
+      });
+      sources.push({ app: 'products', id: par.inst.id, name: s(par.inst.name) || par.inst.id, count: n });
+    }
+
+    setExt({
+      loading: false, loaded: true, error: null, at: stamp(),
+      products: productos, sources,
+    });
+  } catch (e) {
+    setExt({ loading: false, loaded: true, error: (e && e.message) || 'No se pudo leer el catálogo.' });
+  }
+  return model.ext.products;
+}
+
+/** Directorio de clientes de la app Clientes, para no retipear la ficha. */
+async function loadCustomers(force) {
+  if (catalogoNoDisponible()) return [];
+  if (model.ext.customers.length && !force) return model.ext.customers;
+  const out = [];
+  const sources = [];
+  try {
+    const insts = arr(await shell.data.listInstances('customers').catch(() => []));
+    for (const inst of insts) {
+      try {
+        const items = arr(await shell.data.listItems(inst.id));
+        let n = 0;
+        for (const c of items) {
+          if (!c || c.kind === 'definition') continue;
+          const name = s(c.name || c.fullName || c.company || c.email);
+          if (!name) continue;
+          out.push({
+            id: s(c.id), instanceId: inst.id, instanceName: s(inst.name),
+            name,
+            taxId: s(c.taxId || c.rut || c.documentNumber),
+            email: s(c.email),
+            phone: s(c.phone),
+            // La app Clientes guarda ciudad y país por separado; para la
+            // cotización se juntan en una sola dirección legible.
+            address: [s(c.address || c.street), s(c.city), s(c.country)].filter(Boolean).join(', '),
+            contact: s(c.contact || c.contactName),
+          });
+          n++;
+        }
+        sources.push({ app: 'customers', id: inst.id, name: s(inst.name) || inst.id, count: n });
+      } catch (e) { /* instancia sin acceso */ }
+    }
+  } catch (e) { /* sin app de clientes instalada: la ficha se escribe a mano */ }
+  setExt({ customers: out, customerSources: sources });
+  return out;
+}
+
+const productByKey = (key) => model.ext.products.find((p) => p.key === s(key)) || null;
+
+// ── Acciones sobre el catálogo externo ──────────────────────────────────
+/**
+ * Inserta un producto del catálogo como línea de la cotización.
+ *
+ * `selection` es la combinación de pasos elegida (`{ stepId: valueId }`); si
+ * viene vacía o incompleta se completa con los valores por defecto. El precio
+ * se resuelve AHORA y se congela en la línea, junto con la combinación, para
+ * que la cotización siga diciendo lo mismo aunque el catálogo cambie.
+ */
+function actAddProductToQuote(quoteId, productKey, opts) {
+  const o = isObj(opts) ? opts : {};
+  const doc = docById(s(quoteId));
+  const prod = productByKey(productKey);
+  if (!doc || !prod) return null;
+
+  const sel = seleccionResuelta(prod, o.selection);
+  const bruto = precioSeleccion(prod, sel);
+  const rules = rulesOf();
+  const unitPrice = o.unitPrice != null && o.unitPrice !== ''
+    ? num(o.unitPrice)
+    : roundTo(precioParaCotizar(bruto, rules, doc.taxPct), currencyOf(doc, rules).decimals);
+
+  const line = normalizeLine({
+    title: prod.name,
+    description: o.description != null ? s(o.description) : descripcionSeleccion(prod, sel, o.includeDescription),
+    qty: o.qty == null ? 1 : Math.max(0, num(o.qty)),
+    unitPrice,
+    sku: prod.sku,
+    imageUrl: fotoSeleccion(prod, sel),
+    source: {
+      kind: prod.source === 'productlab' ? 'productlab' : 'product',
+      instanceId: prod.instanceId,
+      productId: prod.id,
+      selection: detalleSeleccion(prod, sel),
+      capturedAt: stamp(),
+      capturedPrice: bruto,
+    },
+  });
+  return actAddLine(quoteId, line);
+}
+
+/**
+ * Vuelve a preguntarle al catálogo por el precio de una línea que salió de
+ * él. No se hace solo: una cotización es una oferta con fecha, y el precio
+ * solo se actualiza si la persona lo pide.
+ */
+function actRefreshLinePrice(quoteId, lineId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+  const line = arr(doc.lines).find((l) => l.id === s(lineId));
+  if (!line || line.source.kind === 'manual') return null;
+
+  if (line.source.kind === 'catalog') {
+    const c = catalogById(line.source.itemId);
+    if (!c) { shell.notify({ level: 'warn', text: 'El ítem ya no está en el catálogo propio.' }); return null; }
+    return actUpdateLine(quoteId, lineId, {
+      unitPrice: c.unitPrice,
+      source: Object.assign({}, line.source, { capturedAt: stamp(), capturedPrice: c.unitPrice }),
+    });
+  }
+
+  const prod = model.ext.products.find((p) => p.instanceId === line.source.instanceId && p.id === line.source.productId);
+  if (!prod) { shell.notify({ level: 'warn', text: 'El producto ya no está en el catálogo; el precio se deja como estaba.' }); return null; }
+  // La combinación guardada viaja por ids de paso y valor: se rehidrata.
+  const sel = {};
+  arr(line.source.selection).forEach((d) => { if (d.stepId) sel[d.stepId] = d.valueId; });
+  const bruto = precioSeleccion(prod, sel);
+  const rules = rulesOf();
+  const unitPrice = roundTo(precioParaCotizar(bruto, rules, doc.taxPct), currencyOf(doc, rules).decimals);
+  const antes = line.unitPrice;
+  const out = actUpdateLine(quoteId, lineId, {
+    unitPrice,
+    source: Object.assign({}, line.source, { capturedAt: stamp(), capturedPrice: bruto }),
+  });
+  shell.notify({
+    level: unitPrice === antes ? 'info' : 'success',
+    text: unitPrice === antes ? 'El precio del catálogo no ha cambiado.' : 'Precio actualizado desde el catálogo.',
+  });
+  return out;
+}
+
+/** Copia la ficha de un cliente de la app Clientes a la cotización. */
+function actImportClient(quoteId, customerId) {
+  const c = model.ext.customers.find((x) => x.id === s(customerId));
+  if (!c) return null;
+  return commitDoc(s(quoteId), (d) => {
+    d.client = normalizeClient({
+      name: c.name, taxId: c.taxId, contact: c.contact, email: c.email,
+      phone: c.phone, address: c.address,
+      sourceApp: 'customers', sourceInstanceId: c.instanceId, sourceItemId: c.id,
+    });
+    return d;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/64-catalog-ui.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ PANTALLAS DEL CATÁLOGO ═══════════════════════════════════════════════
+ *
+ * Dos catálogos conviven en la misma pestaña, porque desde el punto de vista
+ * de quien cotiza son lo mismo —cosas que se insertan en una propuesta— pero
+ * se comportan distinto:
+ *
+ *   Ítems y servicios propios   Se crean y se editan aquí. Es el banco de
+ *                               líneas recurrentes (setup, logística,
+ *                               soporte…), lo que más se repite en una
+ *                               cotización de servicios.
+ *   Catálogo del sistema        Solo lectura: viene de las apps Productos y
+ *                               ProductLab. Los configurables se cotizan
+ *                               eligiendo su combinación de pasos.
+ */
+
+// ── Pestaña Catálogo ────────────────────────────────────────────────────
+function CatalogTab(props) {
+  const m = props.m;
+  const [fuente, setFuente] = useState('propios');
+  const [editando, setEditando] = useState(null);
+  const [ask, confirmNode] = useConfirm();
+
+  useEffect(() => { if (fuente === 'sistema') void loadExternalCatalog(false); }, [fuente]);
+
+  return h('div', { className: 'cz-tab' }, [
+    h('div', { key: 'bar', className: 'cz-listbar' }, [
+      h('div', { key: 'f', className: 'cz-filters' }, [
+        h(Chip, { key: 'p', on: fuente === 'propios', onClick: () => setFuente('propios') },
+          '📦 Ítems y servicios propios (' + m.catalog.filter((c) => !c.archived).length + ')'),
+        h(Chip, { key: 's', on: fuente === 'sistema', onClick: () => setFuente('sistema') },
+          '🛒 Catálogo del sistema' + (m.ext.loaded ? ' (' + m.ext.products.length + ')' : '')),
+      ]),
+      h(SearchBox, { key: 'q', value: m.search, onChange: actSetSearch, placeholder: 'Buscar en el catálogo…' }),
+      h('div', { key: 'sp', className: 'cz-spacer' }),
+      fuente === 'propios'
+        ? h(Btn, { key: 'n', variant: 'primary', onClick: () => setEditando(normalizeCatalogItem({})) }, '+ Nuevo ítem')
+        : h(Btn, { key: 'r', onClick: () => void loadExternalCatalog(true), disabled: m.ext.loading },
+          m.ext.loading ? 'Leyendo…' : '⟳ Recargar catálogo'),
+    ]),
+    fuente === 'propios'
+      ? h(CatalogOwnList, { key: 'own', m, ask, onEdit: setEditando })
+      : h(CatalogSystemList, { key: 'sys', m }),
+    editando ? h(CatalogItemModal, {
+      key: 'ed', item: editando, m,
+      onClose: () => setEditando(null),
+      onSave: (it) => { actUpsertCatalogItem(it); setEditando(null); },
+    }) : null,
+    confirmNode,
+  ]);
+}
+
+function CatalogOwnList(props) {
+  const { m, ask, onEdit } = props;
+  const q = canon(m.search);
+  const list = m.catalog
+    .filter((c) => !c.archived)
+    .filter((c) => !q || canon(c.name + ' ' + c.description + ' ' + c.group + ' ' + c.sku).indexOf(q) !== -1)
+    .slice()
+    .sort((a, b) => canon(a.group + ' ' + a.name).localeCompare(canon(b.group + ' ' + b.name)));
+  const cur = currencyOf(null, normalizeRules(m.def.rules));
+
+  if (!m.catalog.filter((c) => !c.archived).length) {
+    return h(Empty, {
+      icon: '📦',
+      title: 'El banco de ítems está vacío',
+      text: 'Guarda aquí lo que repites en cada propuesta —setup, logística, soporte, arriendos— y lo insertas en una cotización con un clic. También puedes guardar cualquier línea de una cotización con el botón 📦 de su fila.',
+      action: h(Btn, { variant: 'primary', onClick: () => onEdit(normalizeCatalogItem({})) }, 'Crear el primer ítem'),
+    });
+  }
+
+  return h('div', { className: cx('cz-tablewrap', m.settings.denseTables && 'dense') },
+    h('table', { className: 'cz-table' }, [
+      h('thead', { key: 'h' }, h('tr', null, [
+        h('th', { key: 'n', className: 'cz-th' }, 'Ítem'),
+        h('th', { key: 'g', className: 'cz-th' }, 'Grupo'),
+        h('th', { key: 'u', className: 'cz-th cz-right' }, 'Precio'),
+        h('th', { key: 'v', className: 'cz-th cz-right' }, 'Usos'),
+        h('th', { key: 'a', className: 'cz-th cz-th-acts' }, ''),
+      ])),
+      h('tbody', { key: 'b' }, list.map((c) => h('tr', {
+        key: c.id, className: 'cz-tr', onClick: () => onEdit(c),
+      }, [
+        h('td', { key: 'n' }, [
+          h('div', { key: 't', className: 'cz-cell-title' }, c.name),
+          c.description ? h('div', { key: 'd', className: 'cz-cell-sub' }, c.description.slice(0, 120)) : null,
+        ]),
+        h('td', { key: 'g', className: 'cz-dim' }, c.group || '—'),
+        h('td', { key: 'u', className: 'cz-mono cz-right' }, [
+          money(c.unitPrice, cur),
+          !c.taxable ? h('div', { key: 'x', className: 'cz-cell-sub' }, 'exento') : null,
+        ]),
+        h('td', { key: 'v', className: 'cz-mono cz-right cz-dim' }, c.usageCount || '—'),
+        h('td', { key: 'a', className: 'cz-td-acts', onClick: (e) => e.stopPropagation() }, [
+          h(IconBtn, {
+            key: 'd', icon: '⧉', title: 'Duplicar ítem',
+            onClick: () => actUpsertCatalogItem(Object.assign({}, c, { id: uid('c'), name: c.name + ' (copia)', usageCount: 0 })),
+          }),
+          h(IconBtn, {
+            key: 'x', icon: '🗑', title: 'Eliminar del catálogo',
+            onClick: async () => {
+              const ok = await ask({ title: 'Eliminar ítem', danger: true, okLabel: 'Eliminar', text: '¿Eliminar «' + c.name + '» del catálogo? Las cotizaciones que ya lo usan no cambian.' });
+              if (ok) actRemoveCatalogItem(c.id);
+            },
+          }),
+        ]),
+      ]))),
+    ]));
+}
+
+function CatalogSystemList(props) {
+  const m = props.m;
+  const ext = m.ext;
+  const q = canon(m.search);
+  const rules = normalizeRules(m.def.rules);
+  const cur = currencyOf(null, rules);
+
+  if (ext.loading && !ext.products.length) return h('div', { className: 'cz-loading' }, 'Leyendo los catálogos de Productos y ProductLab…');
+  if (ext.error) {
+    return h(Empty, {
+      icon: '⚠️', title: 'No se pudo leer el catálogo', text: ext.error,
+      action: h(Btn, { onClick: () => void loadExternalCatalog(true) }, 'Reintentar'),
+    });
+  }
+  if (!ext.products.length) {
+    return h(Empty, {
+      icon: '🛒',
+      title: 'No hay productos que cotizar',
+      text: 'Esta pestaña muestra el catálogo de la app Productos y los productos configurables de ProductLab a los que tengas acceso. Si acabas de crearlos, recarga.',
+      action: h(Btn, { onClick: () => void loadExternalCatalog(true) }, '⟳ Recargar'),
+    });
+  }
+
+  const list = ext.products
+    .filter((p) => !q || canon(p.name + ' ' + p.sku + ' ' + p.brand + ' ' + p.description).indexOf(q) !== -1)
+    .slice()
+    .sort((a, b) => canon(a.name).localeCompare(canon(b.name)));
+
+  return h('div', { className: 'cz-catsys' }, [
+    h('div', { key: 'src', className: 'cz-sources' }, ext.sources.map((f) => h(Chip, {
+      key: f.app + f.id,
+      title: f.app === 'productlab'
+        ? (f.published ? 'ProductLab publica su catálogo resuelto: se usa ese precio.' : 'ProductLab no publica: se replica su motor de precios.')
+        : 'Catálogo de la app Productos',
+    }, (f.app === 'productlab' ? '🧪 ' : '🛒 ') + f.name + ' · ' + f.count))),
+    h('div', { key: 'g', className: 'cz-cards' }, list.map((p) => h('div', { key: p.key, className: 'cz-prodcard' }, [
+      p.imageUrl
+        ? h('img', { key: 'i', className: 'cz-prodcard-img', src: p.imageUrl, alt: '', loading: 'lazy' })
+        : h('div', { key: 'i', className: 'cz-prodcard-img cz-prodcard-noimg' }, p.source === 'productlab' ? '🧪' : '🛒'),
+      h('div', { key: 'b', className: 'cz-prodcard-body' }, [
+        h('div', { key: 'n', className: 'cz-prodcard-name' }, p.name),
+        h('div', { key: 's', className: 'cz-prodcard-meta' }, [
+          p.sku ? h('span', { key: 'k', className: 'cz-mono' }, p.sku) : null,
+          p.configurable ? h('span', { key: 'c', className: 'cz-prodcard-tag' }, p.groups.length + ' paso(s)') : null,
+        ]),
+        h('div', { key: 'p', className: 'cz-prodcard-price cz-mono' }, [
+          money(precioParaCotizar(p.price, rules), cur),
+          h('span', { key: 'u', className: 'cz-prodcard-unit' },
+            rules.priceMode === 'gross' ? '' : ' neto'),
+        ]),
+      ]),
+    ]))),
+    h('div', { key: 'ft', className: 'cz-catsys-ft' },
+      'Solo lectura. Para cotizar un producto, ábrelo desde una cotización con «+ Del sistema»: ahí eliges su combinación y se inserta con el precio resuelto.'),
+  ]);
+}
+
+// ── Editor de un ítem del banco propio ──────────────────────────────────
+function CatalogItemModal(props) {
+  const { item, m, onClose, onSave } = props;
+  const [it, setIt] = useState(() => normalizeCatalogItem(item));
+  const set = (p) => setIt(Object.assign({}, it, p));
+  const cur = currencyOf(null, normalizeRules(m.def.rules));
+  const grupos = Array.from(new Set(m.catalog.map((c) => c.group).filter(Boolean)));
+
+  return h(Modal, {
+    open: true, title: item.name ? 'Editar ítem del catálogo' : 'Nuevo ítem del catálogo', onClose,
+    footer: [
+      h(Btn, { key: 'c', onClick: onClose }, 'Cancelar'),
+      h(Btn, { key: 's', variant: 'primary', disabled: !s(it.name).trim(), onClick: () => onSave(it) }, 'Guardar'),
+    ],
+  }, h('div', { className: 'cz-grid2' }, [
+    h(Field, { key: 'n', label: 'Nombre', wide: true },
+      h(Input, { value: it.name, placeholder: 'Setup inicial y configuración', autoFocus: true, onChange: (e) => set({ name: e.target.value }) })),
+    h(Field, { key: 'd', label: 'Descripción', wide: true, help: 'Es lo que verá el cliente en la columna DESCRIPCIÓN.' },
+      h(AutoArea, { minRows: 3, value: it.description, placeholder: 'DISEÑO, PERSONALIZACIÓN E IMPLEMENTACIÓN DE FLUJOS…', onChange: (e) => set({ description: e.target.value }) })),
+    h(Field, { key: 'g', label: 'Grupo', help: grupos.length ? 'Existentes: ' + grupos.join(', ') : 'Libre: “Servicios”, “Logística”…' },
+      h(Input, { value: it.group, list: 'cz-grupos', onChange: (e) => set({ group: e.target.value }) })),
+    h(Field, { key: 'k', label: 'SKU / código' },
+      h(Input, { mono: true, value: it.sku, onChange: (e) => set({ sku: e.target.value }) })),
+    h(Field, { key: 'p', label: 'Precio unitario' },
+      h(NumField, { value: it.unitPrice, decimals: cur.decimals, locale: cur.locale, onChange: (v) => set({ unitPrice: num(v) }) })),
+    h(Field, { key: 'q', label: 'Cantidad por defecto' },
+      h(NumField, { value: it.qty, decimals: 2, onChange: (v) => set({ qty: num(v) }) })),
+    h(Field, { key: 'u', label: 'Unidad', help: 'Opcional: “mes”, “sede”, “evento”.' },
+      h(Input, { value: it.unit, onChange: (e) => set({ unit: e.target.value }) })),
+    h(Field, { key: 't', label: 'Impuesto' },
+      h(Toggle, { checked: it.taxable, label: it.taxable ? 'Afecto' : 'Exento', onChange: (v) => set({ taxable: v }) })),
+    h(Field, { key: 'i', label: 'Imagen', wide: true },
+      h(ImageField, { value: it.imageUrl, folder: 'items', onChange: (v) => set({ imageUrl: v }) })),
+  ]));
+}
+
+// ── Selector de ítems propios para insertar en una cotización ───────────
+function CatalogPickerModal(props) {
+  const { m, quoteId, onClose } = props;
+  const [q, setQ] = useState('');
+  const [puestos, setPuestos] = useState([]);
+  const cur = currencyOf(docById(quoteId), normalizeRules(m.def.rules));
+  const needle = canon(q);
+  const list = m.catalog
+    .filter((c) => !c.archived)
+    .filter((c) => !needle || canon(c.name + ' ' + c.description + ' ' + c.group).indexOf(needle) !== -1)
+    .slice()
+    .sort((a, b) => (b.usageCount - a.usageCount) || canon(a.name).localeCompare(canon(b.name)));
+
+  const insertar = (c) => {
+    const l = actAddCatalogToQuote(quoteId, c.id);
+    if (l) setPuestos(puestos.concat([c.id]));
+  };
+
+  return h(Modal, {
+    open: true, wide: true, title: 'Insertar del catálogo propio', onClose,
+    footer: [
+      h('span', { key: 'n', className: 'cz-dim' }, puestos.length ? puestos.length + ' línea(s) añadida(s)' : ''),
+      h('div', { key: 'sp', className: 'cz-spacer' }),
+      h(Btn, { key: 'c', variant: 'primary', onClick: onClose }, 'Listo'),
+    ],
+  }, [
+    h(SearchBox, { key: 'q', value: q, onChange: setQ, placeholder: 'Buscar ítem o servicio…' }),
+    !m.catalog.filter((c) => !c.archived).length
+      ? h(Empty, { key: 'e', icon: '📦', title: 'El banco de ítems está vacío', text: 'Guarda una línea de esta cotización con el botón 📦 de su fila y volverá a aparecer aquí.' })
+      : h('div', { key: 'l', className: 'cz-picklist' }, list.map((c) => h('button', {
+        key: c.id, type: 'button', className: 'cz-pickrow', onClick: () => insertar(c),
+      }, [
+        h('div', { key: 'a', className: 'cz-pickrow-main' }, [
+          h('div', { key: 'n', className: 'cz-pickrow-name' }, [
+            c.name,
+            c.group ? h('span', { key: 'g', className: 'cz-pickrow-tag' }, c.group) : null,
+          ]),
+          c.description ? h('div', { key: 'd', className: 'cz-pickrow-desc' }, c.description.slice(0, 140)) : null,
+        ]),
+        h('div', { key: 'p', className: 'cz-pickrow-price cz-mono' }, money(c.unitPrice, cur)),
+        h('span', { key: 'x', className: 'cz-pickrow-add' }, puestos.indexOf(c.id) !== -1 ? '✓' : '+'),
+      ]))),
+  ]);
+}
+
+// ── Selector de productos del sistema, con su configurador ──────────────
+function ProductPickerModal(props) {
+  const { m, quoteId, onClose } = props;
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState(null);           // producto elegido
+  const [combo, setCombo] = useState({});         // combinación de pasos
+  const [qty, setQty] = useState(1);
+  const [incluirDesc, setIncluirDesc] = useState(true);
+  const doc = docById(quoteId);
+  const rules = normalizeRules(m.def.rules);
+  const cur = currencyOf(doc, rules);
+
+  useEffect(() => { void loadExternalCatalog(false); }, []);
+
+  const needle = canon(q);
+  const list = m.ext.products
+    .filter((p) => !needle || canon(p.name + ' ' + p.sku + ' ' + p.brand).indexOf(needle) !== -1)
+    .slice()
+    .sort((a, b) => canon(a.name).localeCompare(canon(b.name)));
+
+  const elegir = (p) => {
+    setSel(p);
+    setCombo(seleccionResuelta(p, {}));
+    setQty(1);
+  };
+
+  const bruto = sel ? precioSeleccion(sel, combo) : 0;
+  const unitario = sel ? roundTo(precioParaCotizar(bruto, rules, doc && doc.taxPct), cur.decimals) : 0;
+
+  const insertar = () => {
+    const l = actAddProductToQuote(quoteId, sel.key, { selection: combo, qty, includeDescription: incluirDesc });
+    if (l) { shell.notify({ level: 'success', text: 'Añadido: ' + sel.name }); onClose(); }
+  };
+
+  const cuerpo = sel
+    ? h('div', { className: 'cz-conf' }, [
+      h('div', { key: 'hd', className: 'cz-conf-hd' }, [
+        h(Btn, { key: 'b', size: 'sm', onClick: () => setSel(null) }, '← Otro producto'),
+        h('div', { key: 'n', className: 'cz-conf-name' }, sel.name),
+        h('span', { key: 's', className: 'cz-chip' }, sel.source === 'productlab' ? '🧪 ProductLab' : '🛒 Productos'),
+      ]),
+      h('div', { key: 'bd', className: 'cz-conf-body' }, [
+        h('div', { key: 'l', className: 'cz-conf-pasos' }, [
+          ...(sel.configurable
+            ? sel.groups.filter((g) => grupoVisible(sel, g, combo)).map((g) => h('div', { key: g.id, className: 'cz-conf-paso' }, [
+              h('div', { key: 'l', className: 'cz-conf-paso-lbl' }, [
+                g.label,
+                g.nota ? h('span', { key: 'n', className: 'cz-conf-paso-nota' }, g.nota) : null,
+              ]),
+              h('div', { key: 'v', className: 'cz-conf-valores' }, g.values.map((v) => h('button', {
+                key: v.id, type: 'button',
+                className: cx('cz-conf-valor', combo[g.id] === v.id && 'on'),
+                title: v.desc,
+                onClick: () => setCombo(seleccionResuelta(sel, Object.assign({}, combo, { [g.id]: v.id }))),
+              }, [
+                h('span', { key: 'n', className: 'cz-conf-valor-n' }, v.name),
+                v.delta ? h('span', { key: 'd', className: 'cz-conf-valor-d cz-mono' },
+                  (v.delta > 0 ? '+' : '−') + money(Math.abs(precioParaCotizar(v.delta, rules, doc && doc.taxPct)), cur)) : null,
+              ]))),
+            ]))
+            : [h('div', { key: 'nc', className: 'cz-dim' }, 'Este producto no tiene pasos configurables: se cotiza tal cual.')]),
+          sel.presets && sel.presets.length ? h('div', { key: 'pre', className: 'cz-conf-paso' }, [
+            h('div', { key: 'l', className: 'cz-conf-paso-lbl' }, 'Combinaciones guardadas'),
+            h('div', { key: 'v', className: 'cz-conf-valores' }, sel.presets.map((pr) => h('button', {
+              key: pr.id, type: 'button', className: 'cz-conf-valor',
+              onClick: () => setCombo(seleccionResuelta(sel, pr.sel)),
+            }, pr.name))),
+          ]) : null,
+        ]),
+        h('div', { key: 'r', className: 'cz-conf-side' }, [
+          sel.imageUrl || fotoSeleccion(sel, combo)
+            ? h('img', { key: 'i', className: 'cz-conf-img', src: fotoSeleccion(sel, combo), alt: '' })
+            : null,
+          h('div', { key: 'p', className: 'cz-conf-precio' }, [
+            h('div', { key: 'l', className: 'cz-conf-precio-lbl' }, rules.priceMode === 'gross' ? 'Precio unitario' : 'Neto unitario'),
+            h('div', { key: 'v', className: 'cz-conf-precio-v cz-mono' }, money(unitario, cur)),
+            rules.priceMode !== 'gross' && rules.catalogPricesIncludeTax
+              ? h('div', { key: 'g', className: 'cz-conf-precio-nota' }, 'Catálogo: ' + money(bruto, cur) + ' con impuesto')
+              : null,
+          ]),
+          h(Field, { key: 'q', label: 'Cantidad' },
+            h(NumField, { value: qty, decimals: 2, onChange: (v) => setQty(Math.max(0, num(v))) })),
+          h(Toggle, {
+            key: 'd', checked: incluirDesc, label: 'Incluir la descripción del producto',
+            onChange: setIncluirDesc,
+          }),
+          h('div', { key: 't', className: 'cz-conf-total' }, [
+            h('span', { key: 'l' }, 'Total de la línea '),
+            h('span', { key: 'v', className: 'cz-mono cz-strong' }, money(unitario * qty, cur)),
+          ]),
+        ]),
+      ]),
+    ])
+    : h('div', null, [
+      h(SearchBox, { key: 'q', value: q, onChange: setQ, placeholder: 'Buscar producto por nombre o SKU…' }),
+      m.ext.loading && !m.ext.products.length
+        ? h('div', { key: 'l', className: 'cz-loading' }, 'Leyendo los catálogos…')
+        : (m.ext.error
+          ? h(Empty, { key: 'e', icon: '⚠️', title: 'No se pudo leer el catálogo', text: m.ext.error })
+          : (!list.length
+            ? h(Empty, { key: 'e', icon: '🛒', title: 'Sin productos', text: 'No hay productos en las apps Productos ni ProductLab a los que tengas acceso.' })
+            : h('div', { key: 'l', className: 'cz-picklist' }, list.map((p) => h('button', {
+              key: p.key, type: 'button', className: 'cz-pickrow', onClick: () => elegir(p),
+            }, [
+              p.imageUrl ? h('img', { key: 'i', className: 'cz-pickrow-img', src: p.imageUrl, alt: '', loading: 'lazy' }) : null,
+              h('div', { key: 'a', className: 'cz-pickrow-main' }, [
+                h('div', { key: 'n', className: 'cz-pickrow-name' }, [
+                  p.name,
+                  h('span', { key: 'g', className: 'cz-pickrow-tag' }, p.source === 'productlab' ? '🧪 configurable' : '🛒 catálogo'),
+                ]),
+                h('div', { key: 'd', className: 'cz-pickrow-desc' },
+                  [p.sku, p.instanceName, p.configurable ? p.groups.length + ' paso(s)' : ''].filter(Boolean).join(' · ')),
+              ]),
+              h('div', { key: 'p', className: 'cz-pickrow-price cz-mono' }, money(precioParaCotizar(p.price, rules, doc && doc.taxPct), cur)),
+              h('span', { key: 'x', className: 'cz-pickrow-add' }, '›'),
+            ]))))),
+    ]);
+
+  return h(Modal, {
+    open: true, wide: true, title: 'Cotizar del catálogo del sistema', onClose,
+    footer: sel ? [
+      h(Btn, { key: 'c', onClick: onClose }, 'Cancelar'),
+      h(Btn, { key: 'i', variant: 'primary', onClick: insertar }, 'Añadir a la cotización'),
+    ] : null,
+  }, cuerpo);
+}
+
+// ── Selector de cliente desde la app Clientes ───────────────────────────
+function ClientPickerModal(props) {
+  const { m, quoteId, onClose } = props;
+  const [q, setQ] = useState('');
+  useEffect(() => { void loadCustomers(false); }, []);
+  const needle = canon(q);
+  const list = m.ext.customers
+    .filter((c) => !needle || canon(c.name + ' ' + c.taxId + ' ' + c.email).indexOf(needle) !== -1)
+    .slice(0, 200);
+
+  return h(Modal, {
+    open: true, title: 'Traer un cliente del directorio', onClose,
+    footer: [h(Btn, { key: 'c', onClick: onClose }, 'Cerrar')],
+  }, [
+    h(SearchBox, { key: 'q', value: q, onChange: setQ, placeholder: 'Buscar cliente…' }),
+    !m.ext.customers.length
+      ? h(Empty, {
+        key: 'e', icon: '👥', title: 'Sin clientes que traer',
+        text: 'Esta ventana lee la app Clientes. Si no está instalada o no tienes acceso a sus instancias, escribe la ficha a mano en la cotización.',
+      })
+      : h('div', { key: 'l', className: 'cz-picklist' }, list.map((c) => h('button', {
+        key: c.id, type: 'button', className: 'cz-pickrow',
+        onClick: () => { actImportClient(quoteId, c.id); onClose(); },
+      }, [
+        h('div', { key: 'a', className: 'cz-pickrow-main' }, [
+          h('div', { key: 'n', className: 'cz-pickrow-name' }, c.name),
+          h('div', { key: 'd', className: 'cz-pickrow-desc' }, [c.taxId, c.email, c.phone].filter(Boolean).join(' · ') || c.instanceName),
+        ]),
+        h('span', { key: 'x', className: 'cz-pickrow-add' }, '+'),
+      ]))),
+  ]);
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/90-app.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ APLICACIÓN ═══════════════════════════════════════════════════════════
@@ -2701,6 +3814,7 @@ function SettingsTab(props) {
 const TAB_VIEWS = {
   quotes: (m) => h(QuotesTab, { m, kind: KIND_QUOTE }),
   templates: (m) => h(QuotesTab, { m, kind: KIND_TEMPLATE }),
+  catalog: (m) => h(CatalogTab, { m }),
   settings: (m) => h(SettingsTab, { m }),
 };
 const VISIBLE_TABS = TABS.filter(([id]) => !!TAB_VIEWS[id]);
@@ -2843,6 +3957,10 @@ function Header(props) {
       actAddLine, actUpdateLine, actRemoveLine, actMoveLine, actDuplicateLine,
       actUpsertCatalogItem, actRemoveCatalogItem, actAddCatalogToQuote, actSaveLineToCatalog,
       actPatchIssuer, actPatchRules,
+      loadExternalCatalog, loadCustomers, productByKey,
+      actAddProductToQuote, actRefreshLinePrice, actImportClient,
+      precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
+      grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
     },
   };
 }
