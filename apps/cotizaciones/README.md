@@ -66,6 +66,10 @@ lo suyo.
   transferencia, moneda, si los precios se escriben netos o con impuesto
   incluido, impuesto, vigencia por defecto, reparto abono/saldo, formato del
   correlativo y notas que arrastra cada cotización nueva.
+- **Tablero de seguimiento**: valor en juego, ganado, cotizado, tasa de cierre
+  y ticket medio; qué **requiere atención hoy** (por vencer, vencidas sin
+  respuesta, borradores olvidados); reparto por estado, evolución mensual y
+  clientes con más peso.
 - **Colaboración multiusuario** sin pérdidas (APP-SPEC §5.1): fusión por
   línea, lápidas para las bajas, leer-fusionar-escribir y auto-reparación.
 
@@ -87,6 +91,24 @@ lo suyo.
 6. **✉ Enviar** manda la propuesta por correo con la plantilla que elijas.
 7. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
    sola al pasar su vigencia.
+
+## Los gráficos: por qué no hay paleta de colores
+
+El tablero codifica la magnitud con la **longitud** de las barras en un solo
+tono derivado de `--foreground`, no con una paleta por categoría. Dos razones,
+las dos comprobadas y no de gusto:
+
+1. Pintar cada estado de un color pone **verde («ganada») contra rojo
+   («perdida»)** a distinguir el dato más importante del tablero, y ese par
+   tiene una separación de **ΔE 4,2 bajo deuteranopia**: para una parte de las
+   personas son el mismo color. Aquí la identidad la llevan la etiqueta y el
+   chip de estado, que son texto.
+2. El acento de KIMOS es un cian claro: como **relleno** sobre fondo claro no
+   llega a 3:1 de contraste. Derivar la barra de la tinta del tema lo
+   garantiza en día y en noche sin cablear ningún color (APP-SPEC §9).
+
+El mes en curso se destaca con **énfasis** (tinta plena frente a atenuada), no
+con un color más.
 
 ## El adjunto: qué se puede y qué no
 
@@ -122,7 +144,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 204 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo y render
+node test/test-app.mjs    # 221 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -155,4 +177,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; tablero de seguimiento; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

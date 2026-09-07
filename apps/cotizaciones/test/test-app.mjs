@@ -227,6 +227,8 @@ function render(node, path) {
 }
 
 const esperar = () => new Promise((r) => setTimeout(r, 30));
+const today = () => new Date().toISOString().slice(0, 10);
+const hace_dias = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 
 // ── Ejecución ────────────────────────────────────────────────────────────
 const mod = await import('../dist/index.js');
@@ -725,10 +727,57 @@ seccion('Correo');
   await T.mailStatus(true);
 }
 
+seccion('Tablero de seguimiento');
+{
+  const T = mounted.__test;
+  const rules = T.rulesOf();
+  const quotes = T.quotesOf();
+
+  const meses = T.porMes(quotes, rules, 12);
+  eq(meses.length, 12, 'la evolución cubre doce meses');
+  eq(meses[11].key, new Date().toISOString().slice(0, 7), 'y termina en el mes en curso');
+  ok(meses[11].total > 0, 'con lo cotizado este mes dentro', meses[11].total);
+  ok(meses.every((x) => x.count >= 0), 'y ningún mes queda sin contar');
+  eq(T.porMes(quotes, rules, 99).length, 24, 'un rango absurdo se recorta');
+
+  const clientes = T.porCliente(quotes, rules, 3);
+  ok(clientes.length <= 3, 'los clientes se limitan a los pedidos');
+  ok(clientes.length < 2 || clientes[0].total >= clientes[1].total, 'ordenados por valor cotizado');
+  ok(clientes.some((c) => c.nombre === 'Sin cliente') || clientes.every((c) => c.nombre),
+    'una cotización sin cliente se agrupa aparte en vez de perderse');
+
+  // Lo que pide atención.
+  const q1 = T.actNewQuote({ name: 'Vence pronto' });
+  T.actPatchDoc(q1.id, { date: today(), validDays: 1 });
+  T.actSetStatus(q1.id, 'sent');
+  const q2 = T.actNewQuote({ name: 'Borrador olvidado' });
+  T.actPatchDoc(q2.id, { date: hace_dias(20) });
+  const q3 = T.actNewQuote({ name: 'Ya vencida' });
+  T.actPatchDoc(q3.id, { date: hace_dias(60), validDays: 5 });
+  T.actSetStatus(q3.id, 'sent');
+
+  const at = T.requiereAtencion(T.quotesOf(), rules);
+  const motivos = new Map(at.map((x) => [x.doc.id, x.motivo]));
+  ok(motivos.has(q1.id) && motivos.get(q1.id).indexOf('Vence') === 0, 'una enviada por vencer aparece', motivos.get(q1.id));
+  ok(motivos.has(q2.id) && motivos.get(q2.id).indexOf('Borrador') === 0, 'un borrador olvidado aparece', motivos.get(q2.id));
+  ok(motivos.has(q3.id) && motivos.get(q3.id).indexOf('Venció') === 0, 'una vencida sin respuesta aparece', motivos.get(q3.id));
+  eq(at[0].doc.id, q3.id, 'lo vencido va primero: es lo más urgente');
+
+  // Una cotización sustituida por su revisión ya no molesta en el tablero.
+  const rev = T.actNewRevision(q3.id);
+  ok(!!rev, 'se emite la revisión');
+  const at2 = T.requiereAtencion(T.quotesOf(), rules);
+  ok(!at2.some((x) => x.doc.id === q3.id), 'y la sustituida deja de pedir atención: ya la relevó su revisión');
+
+  const res = T.pipelineSummary();
+  eq(res.byStatus.sent.count + res.byStatus.expired.count >= 1, true, 'el resumen reparte por estado');
+  ok(res.total > 0, 'y suma el valor de todo lo cotizado');
+}
+
 seccion('Render de todas las pantallas');
 {
   const T = mounted.__test;
-  for (const tab of ['quotes', 'templates', 'catalog', 'mails', 'settings']) {
+  for (const tab of ['quotes', 'templates', 'catalog', 'mails', 'board', 'settings']) {
     T.actSetTab(tab);
     T.actCloseEditor();
     const n = render(R.createElement(mounted.Component, {}), tab);

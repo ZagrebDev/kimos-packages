@@ -739,3 +739,90 @@
   display: inline-block; margin-top: 16px; padding: 10px 18px; border-radius: 6px;
   background: var(--cz-fg); color: var(--cz-card); font-weight: 600; font-size: 13px;
 }
+
+/* ══ SEGUIMIENTO ══════════════════════════════════════════════════════════
+   Las barras codifican MAGNITUD con su longitud, en un solo tono derivado de
+   la tinta del tema: así el contraste está garantizado en día y en noche sin
+   cablear ningún color, y nadie necesita distinguir verde de rojo para leer
+   el tablero (la identidad la llevan la etiqueta y el chip de estado). */
+.kimos-cotizaciones .cz-board { max-width: 1100px; }
+.kimos-cotizaciones .cz-kpis {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.kimos-cotizaciones .cz-kpi {
+  border: 1px solid var(--cz-line-soft); border-radius: calc(var(--cz-radius) + 2px);
+  background: var(--cz-glass); backdrop-filter: blur(10px);
+  box-shadow: var(--cz-shadow-sm); padding: 14px 16px;
+}
+.kimos-cotizaciones .cz-kpi.on { border-color: var(--cz-accent); }
+.kimos-cotizaciones .cz-kpi-l {
+  font: 600 10px/1.4 'Inter', sans-serif; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--cz-dim);
+}
+.kimos-cotizaciones .cz-kpi-v { font-size: 22px; font-weight: 700; margin-top: 4px; line-height: 1.2; }
+.kimos-cotizaciones .cz-kpi-s { font-size: 11px; color: var(--cz-dim); margin-top: 2px; }
+
+/* Lista de lo que pide atención */
+.kimos-cotizaciones .cz-atlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.kimos-cotizaciones .cz-atrow-b {
+  display: grid; grid-template-columns: 90px minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  gap: 12px; align-items: center; width: 100%; text-align: left;
+  border: 0; background: none; color: inherit; cursor: pointer; font: inherit;
+  padding: 7px 8px; border-radius: var(--cz-radius); font-size: 12px;
+}
+.kimos-cotizaciones .cz-atrow-b:hover { background: var(--cz-plata); }
+.kimos-cotizaciones .cz-atrow-t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cotizaciones .cz-atrow-c { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-cotizaciones .cz-atrow-m {
+  font-size: 11px; color: var(--cz-warn); white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--cz-warn) 35%, transparent);
+  border-radius: 99px; padding: 1px 8px;
+}
+
+/* Barras de magnitud */
+.kimos-cotizaciones .cz-magtable td { padding: 7px 10px; }
+.kimos-cotizaciones .cz-magtable tbody tr { cursor: default; }
+.kimos-cotizaciones .cz-magrow.vacia { opacity: .45; }
+.kimos-cotizaciones .cz-magcell { width: 45%; min-width: 120px; }
+.kimos-cotizaciones .cz-bar {
+  position: relative; height: 12px; border-radius: 3px;
+  background: hsl(var(--muted, 220 14% 89%) / .8);
+  overflow: hidden;
+}
+.kimos-cotizaciones .cz-bar-fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: 3px;
+  /* Tinta del tema: contraste garantizado sobre la pista en día y noche. */
+  background: hsl(var(--foreground, 220 25% 6%) / .55);
+  min-width: 2px;
+}
+.kimos-cotizaciones .cz-bar-won {
+  position: absolute; inset: 0 auto 0 0; border-radius: 3px;
+  background: hsl(var(--foreground, 220 25% 6%) / .9);
+}
+
+/* Columnas por mes */
+.kimos-cotizaciones .cz-cols {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 6px; align-items: end; height: 150px;
+}
+.kimos-cotizaciones .cz-col { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.kimos-cotizaciones .cz-col-bar { flex: 1 1 auto; display: flex; align-items: flex-end; }
+.kimos-cotizaciones .cz-col-fill {
+  width: 100%; border-radius: 4px 4px 0 0;
+  background: hsl(var(--foreground, 220 25% 6%) / .32);
+  transition: background .15s ease;
+}
+.kimos-cotizaciones .cz-col:hover .cz-col-fill { background: hsl(var(--foreground, 220 25% 6%) / .55); }
+/* Énfasis en lugar de más colores: el mes en curso, a tinta plena. */
+.kimos-cotizaciones .cz-col.on .cz-col-fill { background: hsl(var(--foreground, 220 25% 6%) / .82); }
+.kimos-cotizaciones .cz-col-l {
+  text-align: center; font-size: 10px; color: var(--cz-dim);
+  padding-top: 6px; border-top: 1px solid var(--cz-line-soft); margin-top: 4px;
+}
+.kimos-cotizaciones .cz-col.on .cz-col-l { color: var(--cz-fg); font-weight: 600; }
+
+@media (max-width: 860px) {
+  .kimos-cotizaciones .cz-atrow-b { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
+  .kimos-cotizaciones .cz-atrow-c { display: none; }
+}

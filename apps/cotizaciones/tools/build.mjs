@@ -108,6 +108,7 @@ parts.push(`
       aplicarVars, resolverCorreo, cuerpoHtml, mailStatus, MAIL_VARS,
       actUpsertMailTemplate, actRemoveMailTemplate, actSetDefaultMailTemplate,
       defaultMailTemplate, actPrepareMail, actSendMail, plantillaCorreoEjemplo,
+      porMes, requiereAtencion, porCliente,
     },
   };
 }
