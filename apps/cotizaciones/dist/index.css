@@ -199,6 +199,20 @@
 .kimos-cotizaciones button.cz-chip { cursor: pointer; }
 .kimos-cotizaciones button.cz-chip:hover { background: var(--cz-plata); color: var(--cz-fg); }
 .kimos-cotizaciones .cz-chip.on { border-color: var(--cz-accent); color: var(--cz-fg); background: hsl(var(--primary, 178 96% 59%) / .14); }
+/* Estados: el color acompaña al nombre, que va siempre como texto — nadie
+   depende del color para leer en qué estado está una cotización. Cada estado
+   trae su paso para fondo claro y otro para fondo oscuro: un rojo pensado
+   para papel blanco sobre fondo oscuro no se lee. */
+.kimos-cotizaciones .cz-st-draft { --chip: #6B7280; }
+.kimos-cotizaciones .cz-st-sent { --chip: #2563EB; }
+.kimos-cotizaciones .cz-st-accepted { --chip: #0B8A42; }
+.kimos-cotizaciones .cz-st-rejected { --chip: #C40000; }
+.kimos-cotizaciones .cz-st-expired { --chip: #B36B00; }
+.dark .kimos-cotizaciones .cz-st-draft { --chip: #9CA3AF; }
+.dark .kimos-cotizaciones .cz-st-sent { --chip: #60A5FA; }
+.dark .kimos-cotizaciones .cz-st-accepted { --chip: #4ADE80; }
+.dark .kimos-cotizaciones .cz-st-rejected { --chip: #F87171; }
+.dark .kimos-cotizaciones .cz-st-expired { --chip: #FBBF24; }
 .kimos-cotizaciones .cz-chip-status { color: var(--chip); border-color: color-mix(in srgb, var(--chip) 45%, transparent); background: color-mix(in srgb, var(--chip) 12%, transparent); }
 .kimos-cotizaciones .cz-chip-status::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: var(--chip); }
 

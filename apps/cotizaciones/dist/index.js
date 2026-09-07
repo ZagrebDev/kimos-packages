@@ -57,16 +57,22 @@ const KIND_CATALOG = 'catalog';
 const KIND_MAIL = 'mail';
 const KIND_DEF = 'definition';
 
-/** Estados del ciclo de vida de una cotización (el orden es el del tablero). */
+/**
+ * Estados del ciclo de vida de una cotización (el orden es el del tablero).
+ *
+ * El color NO vive aquí: cada estado lleva su clase (`cz-st-{estado}`) y el
+ * color lo pone el CSS, que tiene su variante de modo noche. Un rojo pensado
+ * para fondo claro sobre fondo oscuro no se lee, y desde JS no hay forma de
+ * saber en qué modo está el escritorio.
+ */
 const STATUSES = [
-  ['draft', 'Borrador', '#6B7280'],
-  ['sent', 'Enviada', '#2563EB'],
-  ['accepted', 'Aceptada', '#0B8A42'],
-  ['rejected', 'Rechazada', '#C40000'],
-  ['expired', 'Vencida', '#B36B00'],
+  ['draft', 'Borrador'],
+  ['sent', 'Enviada'],
+  ['accepted', 'Aceptada'],
+  ['rejected', 'Rechazada'],
+  ['expired', 'Vencida'],
 ];
 const STATUS_LABEL = new Map(STATUSES.map(([k, l]) => [k, l]));
-const STATUS_COLOR = new Map(STATUSES.map(([k, , c]) => [k, c]));
 const isStatus = (v) => STATUS_LABEL.has(v);
 
 /** Ventana de vida de una lápida: pasado ese plazo ya nadie la necesita. */
@@ -1525,15 +1531,18 @@ function NumField(props) {
   });
 }
 
-/** Chip de estado de una cotización, con el color del estado. */
+/**
+ * Chip de estado. El color lo pone la clase, no un estilo en línea: así el
+ * CSS puede dar una variante legible en modo noche, cosa que desde JS no se
+ * puede decidir. El nombre del estado va SIEMPRE como texto, de modo que
+ * nadie dependa del color para leerlo.
+ */
 function StatusChip(props) {
-  const st = s(props && props.status) || 'draft';
-  const color = STATUS_COLOR.get(st) || '#6B7280';
+  const st = isStatus(props && props.status) ? props.status : 'draft';
   return h('span', {
-    className: 'cz-chip cz-chip-status',
-    style: { '--chip': color },
-    title: 'Estado: ' + (STATUS_LABEL.get(st) || st),
-  }, STATUS_LABEL.get(st) || st);
+    className: 'cz-chip cz-chip-status cz-st-' + st,
+    title: 'Estado: ' + STATUS_LABEL.get(st),
+  }, STATUS_LABEL.get(st));
 }
 
 function Chip(props) {
