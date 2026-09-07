@@ -155,6 +155,7 @@ function QuoteEditor(props) {
   const until = validUntilOf(doc, rules);
   const [ask, confirmNode] = useConfirm();
   const [panel, setPanel] = useState('');   // panel lateral desplegado
+  const [preview, setPreview] = useState(false);
 
   const patch = (p) => actPatchDoc(doc.id, p);
   const patchClient = (p) => actPatchClient(doc.id, p);
@@ -186,6 +187,11 @@ function QuoteEditor(props) {
         options: STATUSES.map(([k, l]) => ({ value: k, label: l })),
       }) : null,
       h('div', { key: 'sp', className: 'cz-spacer' }),
+      h(Btn, {
+        key: 'pv', size: 'sm', variant: 'primary',
+        title: 'Ver la propuesta como se imprimirá, exportarla a PDF o publicar su enlace',
+        onClick: () => setPreview(true),
+      }, '👁 Vista previa'),
       h(Btn, {
         key: 'dup', size: 'sm', title: 'Crear una copia editable de esta cotización',
         onClick: () => actDuplicate(doc.id, { asTemplate: esPlantilla }),
@@ -224,6 +230,7 @@ function QuoteEditor(props) {
         h(EventsPanel, { key: 'ev', doc, open: panel === 'events', onToggle: () => setPanel(panel === 'events' ? '' : 'events') }),
       ]),
     ]),
+    preview ? h(PreviewModal, { key: 'pv', m, doc, onClose: () => setPreview(false) }) : null,
     confirmNode,
   ]);
 }

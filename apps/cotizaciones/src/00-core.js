@@ -232,6 +232,9 @@ function defaultRules() {
     // y esta bandera dice si hay que hacerlo. Si el catálogo de la casa
     // guardara netos, se apaga.
     catalogPricesIncludeTax: true,
+    // Papel de la exportación a PDF.
+    paper: 'a4',
+    pageMargin: 16,
   };
 }
 
@@ -265,6 +268,8 @@ function normalizeRules(raw) {
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
     defaultNotes: arr(r.defaultNotes).map(s).filter(Boolean),
     catalogPricesIncludeTax: r.catalogPricesIncludeTax !== false,
+    paper: ['a4', 'letter', 'legal'].indexOf(s(r.paper)) !== -1 ? s(r.paper) : d.paper,
+    pageMargin: clamp(Math.round(num(r.pageMargin != null ? r.pageMargin : d.pageMargin)), 5, 40),
   };
 }
 
@@ -492,6 +497,9 @@ function normalizeQuote(raw) {
     blocks: arr(r.blocks),
     // Correo preparado para esta cotización (Fase 6).
     mail: isObj(r.mail) ? r.mail : null,
+    // Enlace público de la propuesta publicada, si se generó.
+    publicUrl: s(r.publicUrl),
+    publishedAt: s(r.publishedAt),
     // Bitácora de seguimiento: creación, envíos, cambios de estado.
     events: arr(r.events).map((e) => ({
       at: s(e && e.at), by: s(e && e.by), type: s(e && e.type), detail: s(e && e.detail),

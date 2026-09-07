@@ -43,6 +43,15 @@ lo suyo.
   esos precios—: se emite una revisión con el mismo número y sufijo `-R2`,
   enlazada con la anterior, que queda marcada como sustituida. Las revisiones
   no consumen correlativo.
+- **Exportación a PDF** fiel al editor: la ventana de impresión renderiza la
+  **misma hoja con los mismos componentes** del lienzo, así que lo que se ve
+  en Diseño es lo que sale impreso. Tamaño de papel y márgenes configurables,
+  bloques que no se parten entre páginas, cabecera de tabla repetida y saltos
+  de página explícitos. El papel sale blanco aunque KIMOS esté en modo noche.
+- **Enlace público** de la propuesta: se sube a Archivos como página HTML
+  autocontenida (con el CSS embebido, para que lo enviado no cambie de
+  aspecto cuando la app suba de versión) y devuelve una URL que se puede
+  mandar al cliente sin adjuntar nada.
 - **Historial de versiones** del cotizador completo por el menú 🗂️ Documentos
   del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
@@ -67,7 +76,9 @@ lo suyo.
 4. En **🎨 Diseño** compón la propuesta: añade bloques, arrástralos, cámbiales
    el ancho tirando del borde derecho y ajusta cada uno en el panel de la
    derecha. Es la maqueta que se exportará a PDF.
-5. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
+5. **👁 Vista previa** muestra la propuesta como se imprimirá, y desde ahí se
+   exporta a PDF o se publica su enlace.
+6. Cambia el estado a **Enviada** cuando salga; la app la marcará **Vencida**
    sola al pasar su vigencia.
 
 ## Estructura del proyecto
@@ -87,7 +98,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 160 pruebas: cálculo, modelo, catálogo, lienzo, revisiones, fusión y render
+node test/test-app.mjs    # 176 pruebas: cálculo, modelo, catálogo, lienzo, PDF, fusión y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -120,4 +131,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

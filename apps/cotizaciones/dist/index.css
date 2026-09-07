@@ -688,3 +688,17 @@
 .kimos-cotizaciones .cz-radio.on::after {
   content: ''; position: absolute; inset: 3px; border-radius: 99px; background: var(--cz-accent);
 }
+
+/* ── Vista previa de la propuesta ────────────────────────────────────── */
+.kimos-cotizaciones .cz-preview {
+  display: flex; justify-content: center;
+  background: hsl(var(--muted, 220 14% 89%) / .45);
+  margin: -16px; padding: 24px; min-height: 100%;
+}
+.kimos-cotizaciones .cz-preview .cz-sheet {
+  background: var(--cz-card); color: var(--cz-fg);
+  border: 1px solid var(--cz-line); border-radius: var(--cz-radius);
+  box-shadow: var(--cz-shadow-md); padding: 42px;
+}
+.kimos-cotizaciones .cz-link { color: var(--cz-accent); font-size: 12px; text-decoration: none; }
+.kimos-cotizaciones .cz-link:hover { text-decoration: underline; }

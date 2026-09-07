@@ -30,8 +30,48 @@ globalThis.window = {
   addEventListener: () => {}, removeEventListener: () => {},
   hasFocus: () => true,
 };
-globalThis.document = { visibilityState: 'visible', hasFocus: () => true, createElement: () => ({ style: {} }) };
+// DOM mínimo: lo justo para que la ventana de impresión se pueda construir
+// nodo a nodo y se pueda comprobar qué se le puso dentro.
+function fakeEl(tag) {
+  const el = {
+    tagName: String(tag).toUpperCase(), children: [], childNodes: [], dataset: {}, style: {},
+    attrs: {}, listeners: {}, textContent: '', className: '', innerHTML: '<div>hoja</div>',
+    setAttribute(k, v) { this.attrs[k] = v; },
+    appendChild(c) { this.children.push(c); this.childNodes.push(c); return c; },
+    addEventListener(k, fn) { (this.listeners[k] = this.listeners[k] || []).push(fn); },
+    removeEventListener() {},
+    querySelectorAll(sel) { return sel.indexOf('img') !== -1 ? [] : []; },
+    remove() {},
+  };
+  return el;
+}
+function fakeDoc() {
+  const d = {
+    title: '', head: fakeEl('head'), body: fakeEl('body'),
+    visibilityState: 'visible', hasFocus: () => true,
+    createElement: (t) => fakeEl(t),
+    querySelectorAll: () => [],
+  };
+  return d;
+}
+globalThis.document = fakeDoc();
 globalThis.FormData = class { append() {} };
+
+// Ventanas de impresión abiertas durante la prueba.
+const ventanas = [];
+globalThis.window.open = () => {
+  const d = fakeDoc();
+  const w = { document: d, focus: () => { w.focused = true; }, print: () => { w.printed = true; }, close: () => {} };
+  ventanas.push(w);
+  return w;
+};
+// ReactDOM simulado: `render` deja un hijo para que el bundle sepa que pintó.
+globalThis.ReactDOM = {
+  createRoot: (container) => ({
+    render: () => { container.appendChild(fakeEl('div')); },
+    unmount: () => {},
+  }),
+};
 
 // ── Catálogos simulados de otras apps ────────────────────────────────────
 const EXT = {
@@ -567,6 +607,41 @@ seccion('Lienzo visual');
   const ctx = T.contextoDe(T.docById(q.id), T.getModel().def);
   eq(ctx.totals.subtotal, 200000, 'el contexto de pintado calcula los totales del documento');
   eq(ctx.doc.lines.length, 1, 'y el bloque de ítems pinta las líneas reales, sin copiarlas');
+}
+
+seccion('Exportar a PDF');
+{
+  const T = mounted.__test;
+  const css = T.printCss({ paper: 'a4', margin: 16 });
+  ok(css.indexOf('@page { size: A4; margin: 16mm; }') !== -1, 'el tamaño y el margen del papel van al @page');
+  ok(T.printCss({ paper: 'letter', margin: 25 }).indexOf('size: letter; margin: 25mm') !== -1, 'y cambian con los ajustes');
+  ok(T.printCss({ margin: 999 }).indexOf('margin: 40mm') !== -1, 'un margen absurdo se recorta a lo imprimible');
+  ok(css.indexOf('background: #fff') !== -1, 'el papel es blanco aunque KIMOS esté en modo noche');
+  ok(css.indexOf('.cz-print .cz-cell { break-inside: avoid; }') !== -1, 'un bloque no se parte entre dos páginas');
+  ok(css.indexOf('thead { display: table-header-group; }') !== -1, 'y la cabecera de la tabla se repite en cada página');
+
+  const q = T.quotesOf().find((x) => x.lines.length) || T.quotesOf()[0];
+  eq(T.nombreArchivo(T.docById(q.id)).indexOf(' '), -1, 'el nombre de archivo no lleva espacios');
+  ok(/^[a-z0-9-]+$/.test(T.nombreArchivo(T.docById(q.id))), 'ni acentos ni mayúsculas', T.nombreArchivo(T.docById(q.id)));
+
+  const antes = ventanas.length;
+  const ok1 = await T.actExportPdf(q.id);
+  ok(ok1, 'la exportación llega hasta el final');
+  eq(ventanas.length, antes + 1, 'se abrió una ventana de impresión');
+  const w = ventanas[ventanas.length - 1];
+  const links = w.document.head.children.filter((c) => c.tagName === 'LINK');
+  eq(links.length, 1, 'con la hoja de estilos de la app enlazada');
+  ok(String(links[0].href).indexOf('/bundle.css') !== -1, 'la publicada por el host, no una copia', links[0].href);
+  ok(w.document.body.children.length > 0, 'y la hoja renderizada dentro');
+  ok(T.docById(q.id).events.some((e) => e.type === 'export'), 'la exportación queda en el historial');
+
+  // Ventanas emergentes bloqueadas: se avisa en vez de fallar en silencio.
+  const abrir = globalThis.window.open;
+  globalThis.window.open = () => null;
+  const ok2 = await T.actExportPdf(q.id);
+  ok(!ok2, 'si el navegador bloquea la ventana, la exportación lo dice');
+  ok(notices.some((n) => n.indexOf('ventanas emergentes') !== -1), 'con un aviso que explica qué hacer');
+  globalThis.window.open = abrir;
 }
 
 seccion('Render de todas las pantallas');

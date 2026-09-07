@@ -104,6 +104,7 @@ parts.push(`
       actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
       actMoveBlock, actResetBlocks,
       actSetDefaultTemplate, defaultTemplate, actNewRevision, serieDe, numeroRevision,
+      actExportPdf, actPublishQuote, printCss, nombreArchivo, PAPER_SIZES,
     },
   };
 }

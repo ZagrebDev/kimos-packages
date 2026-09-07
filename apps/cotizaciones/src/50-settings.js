@@ -115,6 +115,24 @@ function SettingsTab(props) {
       ]),
     ]),
 
+    // ── Papel ────────────────────────────────────────────────────────
+    h('section', { key: 'pa', className: 'cz-card' }, [
+      h('div', { key: 'h', className: 'cz-card-hd' }, [
+        h('h3', { key: 't' }, 'Papel del PDF'),
+        h('span', { key: 'n', className: 'cz-card-note' }, 'Tamaño y márgenes con los que se exporta la propuesta.'),
+      ]),
+      h('div', { key: 'g', className: 'cz-grid2' }, [
+        h(Field, { key: 'p', label: 'Tamaño' }, h(Select, {
+          value: rules.paper, onChange: (e) => actPatchRules({ paper: e.target.value }),
+          options: PAPER_SIZES.map(([k, label]) => ({ value: k, label })),
+        })),
+        h(Field, { key: 'm', label: 'Margen', help: rules.pageMargin + ' mm por lado' }, h('input', {
+          type: 'range', min: 5, max: 40, value: rules.pageMargin, className: 'cz-range',
+          onChange: (e) => actPatchRules({ pageMargin: num(e.target.value) }),
+        })),
+      ]),
+    ]),
+
     // ── Correlativo ──────────────────────────────────────────────────
     h('section', { key: 'nu', className: 'cz-card' }, [
       h('div', { key: 'h', className: 'cz-card-hd' }, [
