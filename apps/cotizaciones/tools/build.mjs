@@ -103,6 +103,7 @@ parts.push(`
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
       actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
       actMoveBlock, actResetBlocks,
+      actSetDefaultTemplate, defaultTemplate, actNewRevision, serieDe, numeroRevision,
     },
   };
 }

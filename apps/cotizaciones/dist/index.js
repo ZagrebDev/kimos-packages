@@ -534,6 +534,15 @@ function normalizeQuote(raw) {
     updatedBy: s(r.updatedBy),
     templateOf: s(r.templateOf),      // plantilla de la que nació
     duplicateOf: s(r.duplicateOf),    // cotización de la que se replicó
+    // Plantilla marcada como predeterminada: es la que usa "Nueva cotización"
+    // sin preguntar nada.
+    isDefault: r.isDefault === true,
+    // Revisiones: una cotización enviada no se reescribe, se revisa. La
+    // revisión conserva el número con sufijo (-R2) y apunta a la anterior;
+    // la anterior queda marcada como sustituida.
+    revision: Math.max(0, Math.round(num(r.revision))),
+    revisionOf: s(r.revisionOf),
+    supersededBy: s(r.supersededBy),
   };
   // El backend pone createdAt/updatedAt: no forman parte del modelo y
   // ensuciarían la detección de cambios.
@@ -645,6 +654,9 @@ function nextNumber(quotes, rules) {
   let max = 0;
   for (const q of arr(quotes)) {
     if (!q || q.kind === KIND_TEMPLATE) continue;
+    // Una revisión reutiliza el número de su original (COT-2026-0001-R2):
+    // no consume correlativo.
+    if (s(q.revisionOf)) continue;
     // Solo cuentan los del mismo año cuando el correlativo lleva año.
     if (r.numberIncludeYear && s(q.number).indexOf(String(year)) === -1) continue;
     const seq = q.numberSeq != null ? Math.round(num(q.numberSeq)) : 0;
@@ -698,6 +710,10 @@ function cloneDoc(src, opts) {
   copy.events = [];
   copy.deletedLines = [];
   copy.mail = null;
+  copy.isDefault = false;
+  copy.revision = 0;
+  copy.revisionOf = '';
+  copy.supersededBy = '';
   copy.metaUpdatedAt = stamp();
   copy.updatedBy = s(o.by);
   if (copy.kind === KIND_TEMPLATE) {
@@ -2103,6 +2119,10 @@ function QuotesTab(props) {
   const list = visibleDocs(kind);
   const total = m.docs.filter((d) => d.kind === kind).length;
   const [ask, confirmNode] = useConfirm();
+  const [nueva, setNueva] = useState(false);
+  // Una plantilla se crea en blanco y se llena; una cotización casi siempre
+  // parte de algo, así que ahí se pregunta de qué.
+  const crear = () => (esPlantilla ? actNewQuote({ kind }) : setNueva(true));
 
   const th = (id, label, extra) => h('th', {
     key: id,
@@ -2125,8 +2145,9 @@ function QuotesTab(props) {
     h('div', { key: 'sp', className: 'cz-spacer' }),
     h(Btn, {
       key: 'new', variant: 'primary',
-      onClick: () => actNewQuote({ kind }),
+      onClick: crear,
     }, esPlantilla ? '+ Nueva plantilla' : '+ Nueva cotización'),
+    nueva ? h(NewQuoteModal, { key: 'nq', m, onClose: () => setNueva(false) }) : null,
   ]);
 
   if (!total) {
@@ -2139,7 +2160,7 @@ function QuotesTab(props) {
         text: esPlantilla
           ? 'Una cotización tipo es una propuesta predeterminada que se reutiliza: se crea desde cero aquí, o se guarda desde cualquier cotización con “Guardar como tipo”.'
           : 'Crea la primera y añade sus líneas a mano, desde el catálogo de ítems prefijados o desde el catálogo de productos del sistema.',
-        action: h(Btn, { variant: 'primary', onClick: () => actNewQuote({ kind }) },
+        action: h(Btn, { variant: 'primary', onClick: crear },
           esPlantilla ? 'Crear cotización tipo' : 'Crear la primera cotización'),
       }),
       confirmNode,
@@ -2171,8 +2192,12 @@ function QuotesTab(props) {
           }, [
             !esPlantilla ? h('td', { key: 'n', className: 'cz-mono cz-dim' }, d.number || '—') : null,
             h('td', { key: 'name' }, [
-              h('div', { key: 'a', className: 'cz-cell-title' }, d.name),
+              h('div', { key: 'a', className: 'cz-cell-title' }, [
+                d.name,
+                d.isDefault ? h('span', { key: 'd', className: 'cz-star', title: 'Plantilla predeterminada' }, ' ⭐') : null,
+              ]),
               d.subtitle ? h('div', { key: 'b', className: 'cz-cell-sub' }, d.subtitle) : null,
+              d.supersededBy ? h('div', { key: 'c', className: 'cz-cell-sub cz-warn' }, 'sustituida por una revisión') : null,
             ]),
             !esPlantilla ? h('td', { key: 'c' }, [
               h('div', { key: 'a' }, d.client.name || '—'),
@@ -2196,6 +2221,12 @@ function QuotesTab(props) {
               esPlantilla ? h(IconBtn, {
                 key: 'u', icon: '▶', title: 'Crear una cotización desde esta plantilla',
                 onClick: () => actNewQuote({ templateId: d.id }),
+              }) : null,
+              esPlantilla ? h(IconBtn, {
+                key: 's', icon: d.isDefault ? '⭐' : '☆',
+                className: d.isDefault ? 'on' : '',
+                title: d.isDefault ? 'Es la plantilla predeterminada; pulsa para dejar de serlo' : 'Usar esta plantilla como predeterminada al crear una cotización',
+                onClick: () => actSetDefaultTemplate(d.isDefault ? '' : d.id),
               }) : null,
               h(IconBtn, {
                 key: 'x', icon: '🗑', title: 'Eliminar',
@@ -2263,6 +2294,11 @@ function QuoteEditor(props) {
         key: 'dup', size: 'sm', title: 'Crear una copia editable de esta cotización',
         onClick: () => actDuplicate(doc.id, { asTemplate: esPlantilla }),
       }, '⧉ Duplicar'),
+      !esPlantilla && doc.status !== 'draft' && !doc.supersededBy ? h(Btn, {
+        key: 'rev', size: 'sm',
+        title: 'Emitir una revisión: la cotización enviada se conserva tal cual y la nueva lleva el mismo número con sufijo',
+        onClick: () => actNewRevision(doc.id),
+      }, '↻ Revisar') : null,
       !esPlantilla ? h(Btn, {
         key: 'tpl', size: 'sm', title: 'Guardar esta cotización como cotización tipo reutilizable',
         onClick: () => actSaveAsTemplate(doc.id),
@@ -2270,9 +2306,15 @@ function QuoteEditor(props) {
         key: 'use', size: 'sm', variant: 'primary', title: 'Crear una cotización desde esta plantilla',
         onClick: () => actNewQuote({ templateId: doc.id }),
       }, '▶ Usar plantilla'),
+      esPlantilla ? h(Btn, {
+        key: 'def', size: 'sm', active: doc.isDefault,
+        title: doc.isDefault ? 'Es la plantilla predeterminada' : 'Usar esta plantilla al crear una cotización nueva',
+        onClick: () => actSetDefaultTemplate(doc.isDefault ? '' : doc.id),
+      }, doc.isDefault ? '⭐ Predeterminada' : '☆ Predeterminada') : null,
     ]),
 
     // ── Cuerpo ───────────────────────────────────────────────────────
+    !esPlantilla ? h(RevisionBar, { key: 'rb', doc }) : null,
     m.editorView === 'design'
       ? h(CanvasEditor, { key: 'canvas', m, doc })
       : h('div', { key: 'body', className: 'cz-editor-body' }, [
@@ -2600,6 +2642,171 @@ function EventsPanel(props) {
         e.by ? h('span', { key: 'b', className: 'cz-event-by' }, e.by) : null,
       ]))
       : [h('li', { key: 'e', className: 'cz-dim' }, 'Sin eventos todavía.')]) : null,
+  ]);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/45-templates.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ PLANTILLAS, REVISIONES Y CREACIÓN ════════════════════════════════════
+ *
+ * Tres formas de no empezar de cero, que son las tres que aparecen en el
+ * trabajo real:
+ *
+ *   Cotización tipo   Una propuesta predeterminada que se reutiliza tal cual.
+ *                     Se puede marcar UNA como predeterminada: entonces
+ *                     "Nueva cotización" la usa sin preguntar nada.
+ *   Duplicar          Partir de una cotización ya hecha —normalmente para
+ *                     otro cliente— y cambiarle lo que toque.
+ *   Revisar           Lo que pasa cuando el cliente pide cambios sobre una
+ *                     cotización YA ENVIADA: no se reescribe la que salió
+ *                     (fuera hay una copia con ese número y esos precios),
+ *                     se emite una revisión con el mismo número y sufijo
+ *                     -R2, enlazada con la anterior, y la anterior queda
+ *                     marcada como sustituida.
+ */
+
+// ── Plantilla predeterminada ────────────────────────────────────────────
+const defaultTemplate = () => templatesOf().find((t) => t.isDefault) || null;
+
+/** Marca (o desmarca) la plantilla predeterminada. Solo puede haber una. */
+function actSetDefaultTemplate(templateId) {
+  const id = s(templateId);
+  const t = id ? docById(id) : null;
+  if (id && (!t || t.kind !== KIND_TEMPLATE)) return null;
+  for (const d of templatesOf()) {
+    const debe = d.id === id;
+    if (d.isDefault !== debe) commitDoc(d.id, (x) => { x.isDefault = debe; return x; });
+  }
+  return t;
+}
+
+// ── Revisiones ──────────────────────────────────────────────────────────
+/** El número de una revisión: el del original con sufijo -R2, -R3… */
+function numeroRevision(base, revision) {
+  const raw = s(base).replace(/-R\d+$/i, '');
+  return raw ? raw + '-R' + Math.max(2, Math.round(num(revision, 2))) : '';
+}
+
+/**
+ * Emite una revisión de una cotización. La original NO se toca más allá de
+ * dejarla apuntando a su relevo: lo que se envió al cliente tiene que seguir
+ * consultable tal como salió.
+ */
+function actNewRevision(id, opts) {
+  const o = isObj(opts) ? opts : {};
+  const src = docById(s(id));
+  if (!src || src.kind !== KIND_QUOTE) return null;
+
+  // La cadena de revisiones se cuenta desde el original de la serie.
+  const raizId = s(src.revisionOf) || src.id;
+  const raiz = docById(raizId) || src;
+  const hechas = quotesOf().filter((q) => s(q.revisionOf) === raizId).length;
+  const revision = Math.max(2, hechas + 2);
+
+  const copy = cloneDoc(src, { kind: KIND_QUOTE, name: s(o.name) || src.name, by: meLabel() });
+  copy.number = numeroRevision(raiz.number, revision) || src.number;
+  copy.numberSeq = raiz.numberSeq;
+  copy.revision = revision;
+  copy.revisionOf = raizId;
+  copy.duplicateOf = '';
+  copy.client = normalizeClient(src.client);       // una revisión es del mismo cliente
+  logEvent(copy, 'revision', 'Revisión ' + revision + ' de ' + (raiz.number || raiz.name));
+
+  const created = createDoc(copy);
+  commitDoc(src.id, (d) => {
+    d.supersededBy = created.id;
+    return logEvent(d, 'superseded', 'Sustituida por la revisión ' + revision + ' (' + created.number + ')');
+  });
+  setModel({ openId: created.id, tab: 'quotes' });
+  shell.notify({ level: 'success', text: 'Revisión ' + revision + ' creada: ' + created.number });
+  return created;
+}
+
+/** La serie completa de una cotización, de la original a la última revisión. */
+function serieDe(doc) {
+  if (!doc) return [];
+  const raizId = s(doc.revisionOf) || doc.id;
+  const raiz = docById(raizId);
+  const revs = quotesOf().filter((q) => s(q.revisionOf) === raizId);
+  return (raiz ? [raiz] : []).concat(revs.sort((a, b) => a.revision - b.revision));
+}
+
+// ── Diálogo de creación ─────────────────────────────────────────────────
+/**
+ * "Nueva cotización" con su punto de partida. Si hay una plantilla
+ * predeterminada, el diálogo la trae elegida: el camino de un clic sigue
+ * siendo un clic, pero se puede cambiar antes de crear.
+ */
+function NewQuoteModal(props) {
+  const { m, onClose } = props;
+  const plantillas = templatesOf();
+  const recientes = quotesOf().slice().sort((a, b) => s(b.date).localeCompare(s(a.date))).slice(0, 8);
+  const porDefecto = defaultTemplate();
+  const [origen, setOrigen] = useState(() => (porDefecto ? 'template:' + porDefecto.id : 'blank'));
+  const [nombre, setNombre] = useState('');
+  const rules = normalizeRules(m.def.rules);
+  const cur = currencyOf(null, rules);
+
+  const crear = () => {
+    const [tipo, id] = origen.split(':');
+    if (tipo === 'blank') actNewQuote({ name: nombre });
+    else actNewQuote({ templateId: id, name: nombre, clearClient: tipo === 'quote' });
+    onClose();
+  };
+
+  const opcion = (valor, titulo, detalle) => h('button', {
+    key: valor, type: 'button', className: cx('cz-pickrow', origen === valor && 'on'),
+    onClick: () => setOrigen(valor),
+  }, [
+    h('span', { key: 'r', className: cx('cz-radio', origen === valor && 'on') }),
+    h('div', { key: 'm', className: 'cz-pickrow-main' }, [
+      h('div', { key: 't', className: 'cz-pickrow-name' }, titulo),
+      detalle ? h('div', { key: 'd', className: 'cz-pickrow-desc' }, detalle) : null,
+    ]),
+  ]);
+
+  return h(Modal, {
+    open: true, title: 'Nueva cotización', onClose,
+    footer: [
+      h(Btn, { key: 'c', onClick: onClose }, 'Cancelar'),
+      h(Btn, { key: 'k', variant: 'primary', onClick: crear }, 'Crear'),
+    ],
+  }, [
+    h(Field, { key: 'n', label: 'Nombre', wide: true },
+      h(Input, { value: nombre, autoFocus: true, placeholder: 'Propuesta …', onChange: (e) => setNombre(e.target.value) })),
+    h('div', { key: 'l', className: 'cz-picklist cz-picklist-radio' }, [
+      h('div', { key: 'h1', className: 'cz-picklist-hd' }, 'Empezar'),
+      opcion('blank', 'En blanco', 'Solo con las notas y las reglas del cotizador.'),
+      plantillas.length ? h('div', { key: 'h2', className: 'cz-picklist-hd' }, 'Desde una cotización tipo') : null,
+      ...plantillas.map((t) => opcion('template:' + t.id, t.name + (t.isDefault ? ' ⭐' : ''),
+        t.lines.length + ' línea(s) · ' + money(computeTotals(t, rules).total, cur))),
+      recientes.length ? h('div', { key: 'h3', className: 'cz-picklist-hd' }, 'Replicando una cotización reciente') : null,
+      ...recientes.map((q) => opcion('quote:' + q.id, q.name,
+        [q.number, q.client.name, money(computeTotals(q, rules).total, cur)].filter(Boolean).join(' · '))),
+    ]),
+    h('div', { key: 'f', className: 'cz-inspector-help' },
+      'Replicar una cotización copia sus líneas y su maqueta, pero no su cliente ni su número: la copia nace en borrador con correlativo propio.'),
+  ]);
+}
+
+/** Aviso y accesos de la serie de revisiones, en la cabecera del editor. */
+function RevisionBar(props) {
+  const { doc } = props;
+  const serie = serieDe(doc);
+  if (serie.length < 2 && !s(doc.supersededBy) && !s(doc.revisionOf)) return null;
+  const sustituta = s(doc.supersededBy) ? docById(doc.supersededBy) : null;
+
+  return h('div', { className: cx('cz-revbar', sustituta && 'old') }, [
+    sustituta
+      ? h('span', { key: 'w' }, 'Esta cotización quedó sustituida por su revisión ' + (sustituta.number || sustituta.name) + '.')
+      : h('span', { key: 'w' }, doc.revision ? 'Revisión ' + doc.revision + ' de ' + (serie[0] ? serie[0].number : '') : 'Cotización original de la serie.'),
+    h('div', { key: 'sp', className: 'cz-spacer' }),
+    ...serie.map((q) => h(Btn, {
+      key: q.id, size: 'sm', active: q.id === doc.id,
+      title: q.name + ' · ' + fechaCorta(q.date),
+      onClick: () => actOpen(q.id),
+    }, q.revision ? 'R' + q.revision : 'Original')),
   ]);
 }
 
@@ -4578,6 +4785,7 @@ function Header(props) {
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
       actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
       actMoveBlock, actResetBlocks,
+      actSetDefaultTemplate, defaultTemplate, actNewRevision, serieDe, numeroRevision,
     },
   };
 }

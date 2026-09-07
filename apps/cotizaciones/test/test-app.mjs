@@ -483,6 +483,51 @@ seccion('Cotizar una combinación del catálogo');
   eq(doc.client.sourceItemId, 'cli-unab', 'y queda anotado de qué ficha salió');
 }
 
+seccion('Plantillas predeterminadas y revisiones');
+{
+  const T = mounted.__test;
+  const base = T.actNewQuote({ name: 'Propuesta base' });
+  T.actAddLine(base.id, { title: 'Servicio', qty: 1, unitPrice: 500000 });
+  T.actPatchClient(base.id, { name: 'Cliente A' });
+
+  const tpl = T.actSaveAsTemplate(base.id, 'Tipo servicios');
+  ok(!T.defaultTemplate(), 'al principio no hay plantilla predeterminada');
+  T.actSetDefaultTemplate(tpl.id);
+  eq(T.defaultTemplate().id, tpl.id, 'se puede marcar una plantilla como predeterminada');
+
+  const otra = T.actSaveAsTemplate(base.id, 'Otro tipo');
+  T.actSetDefaultTemplate(otra.id);
+  eq(T.defaultTemplate().id, otra.id, 'marcar otra la cambia');
+  eq(T.docById(tpl.id).isDefault, false, 'y solo puede haber una a la vez');
+  T.actSetDefaultTemplate('');
+  ok(!T.defaultTemplate(), 'y se puede desmarcar');
+
+  // Revisión de una cotización ya enviada.
+  T.actSetStatus(base.id, 'sent');
+  const r2 = T.actNewRevision(base.id);
+  ok(!!r2, 'una cotización enviada se puede revisar');
+  eq(r2.revision, 2, 'la primera revisión es la 2');
+  eq(r2.number, T.docById(base.id).number + '-R2', 'con el número del original y el sufijo');
+  eq(r2.revisionOf, base.id, 'apuntando a la original');
+  eq(r2.status, 'draft', 'la revisión nace en borrador');
+  eq(r2.client.name, 'Cliente A', 'y conserva el cliente: es la misma negociación');
+  eq(T.docById(base.id).supersededBy, r2.id, 'la original queda marcada como sustituida');
+  eq(T.docById(base.id).status, 'sent', 'pero NO se reescribe: lo que se envió sigue como salió');
+
+  T.actSetStatus(r2.id, 'sent');
+  const r3 = T.actNewRevision(r2.id);
+  eq(r3.revision, 3, 'revisar una revisión sigue la serie');
+  eq(r3.revisionOf, base.id, 'todas las revisiones cuelgan de la original');
+  eq(T.serieDe(r3).length, 3, 'la serie tiene original y dos revisiones');
+  eq(T.serieDe(r3)[0].id, base.id, 'empezando por la original');
+
+  // El correlativo no cuenta las revisiones.
+  const antes = T.nextNumber(T.getModel().docs, T.rulesOf()).seq;
+  const nueva = T.actNewQuote({ name: 'Otra más' });
+  eq(T.nextNumber(T.getModel().docs, T.rulesOf()).seq, antes + 1, 'una cotización nueva sí consume correlativo');
+  ok(nueva.number.indexOf('-R') === -1, 'y las revisiones no dejaron huecos en la serie', nueva.number);
+}
+
 seccion('Lienzo visual');
 {
   const T = mounted.__test;

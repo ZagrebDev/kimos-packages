@@ -15,6 +15,10 @@ function QuotesTab(props) {
   const list = visibleDocs(kind);
   const total = m.docs.filter((d) => d.kind === kind).length;
   const [ask, confirmNode] = useConfirm();
+  const [nueva, setNueva] = useState(false);
+  // Una plantilla se crea en blanco y se llena; una cotización casi siempre
+  // parte de algo, así que ahí se pregunta de qué.
+  const crear = () => (esPlantilla ? actNewQuote({ kind }) : setNueva(true));
 
   const th = (id, label, extra) => h('th', {
     key: id,
@@ -37,8 +41,9 @@ function QuotesTab(props) {
     h('div', { key: 'sp', className: 'cz-spacer' }),
     h(Btn, {
       key: 'new', variant: 'primary',
-      onClick: () => actNewQuote({ kind }),
+      onClick: crear,
     }, esPlantilla ? '+ Nueva plantilla' : '+ Nueva cotización'),
+    nueva ? h(NewQuoteModal, { key: 'nq', m, onClose: () => setNueva(false) }) : null,
   ]);
 
   if (!total) {
@@ -51,7 +56,7 @@ function QuotesTab(props) {
         text: esPlantilla
           ? 'Una cotización tipo es una propuesta predeterminada que se reutiliza: se crea desde cero aquí, o se guarda desde cualquier cotización con “Guardar como tipo”.'
           : 'Crea la primera y añade sus líneas a mano, desde el catálogo de ítems prefijados o desde el catálogo de productos del sistema.',
-        action: h(Btn, { variant: 'primary', onClick: () => actNewQuote({ kind }) },
+        action: h(Btn, { variant: 'primary', onClick: crear },
           esPlantilla ? 'Crear cotización tipo' : 'Crear la primera cotización'),
       }),
       confirmNode,
@@ -83,8 +88,12 @@ function QuotesTab(props) {
           }, [
             !esPlantilla ? h('td', { key: 'n', className: 'cz-mono cz-dim' }, d.number || '—') : null,
             h('td', { key: 'name' }, [
-              h('div', { key: 'a', className: 'cz-cell-title' }, d.name),
+              h('div', { key: 'a', className: 'cz-cell-title' }, [
+                d.name,
+                d.isDefault ? h('span', { key: 'd', className: 'cz-star', title: 'Plantilla predeterminada' }, ' ⭐') : null,
+              ]),
               d.subtitle ? h('div', { key: 'b', className: 'cz-cell-sub' }, d.subtitle) : null,
+              d.supersededBy ? h('div', { key: 'c', className: 'cz-cell-sub cz-warn' }, 'sustituida por una revisión') : null,
             ]),
             !esPlantilla ? h('td', { key: 'c' }, [
               h('div', { key: 'a' }, d.client.name || '—'),
@@ -108,6 +117,12 @@ function QuotesTab(props) {
               esPlantilla ? h(IconBtn, {
                 key: 'u', icon: '▶', title: 'Crear una cotización desde esta plantilla',
                 onClick: () => actNewQuote({ templateId: d.id }),
+              }) : null,
+              esPlantilla ? h(IconBtn, {
+                key: 's', icon: d.isDefault ? '⭐' : '☆',
+                className: d.isDefault ? 'on' : '',
+                title: d.isDefault ? 'Es la plantilla predeterminada; pulsa para dejar de serlo' : 'Usar esta plantilla como predeterminada al crear una cotización',
+                onClick: () => actSetDefaultTemplate(d.isDefault ? '' : d.id),
               }) : null,
               h(IconBtn, {
                 key: 'x', icon: '🗑', title: 'Eliminar',
@@ -175,6 +190,11 @@ function QuoteEditor(props) {
         key: 'dup', size: 'sm', title: 'Crear una copia editable de esta cotización',
         onClick: () => actDuplicate(doc.id, { asTemplate: esPlantilla }),
       }, '⧉ Duplicar'),
+      !esPlantilla && doc.status !== 'draft' && !doc.supersededBy ? h(Btn, {
+        key: 'rev', size: 'sm',
+        title: 'Emitir una revisión: la cotización enviada se conserva tal cual y la nueva lleva el mismo número con sufijo',
+        onClick: () => actNewRevision(doc.id),
+      }, '↻ Revisar') : null,
       !esPlantilla ? h(Btn, {
         key: 'tpl', size: 'sm', title: 'Guardar esta cotización como cotización tipo reutilizable',
         onClick: () => actSaveAsTemplate(doc.id),
@@ -182,9 +202,15 @@ function QuoteEditor(props) {
         key: 'use', size: 'sm', variant: 'primary', title: 'Crear una cotización desde esta plantilla',
         onClick: () => actNewQuote({ templateId: doc.id }),
       }, '▶ Usar plantilla'),
+      esPlantilla ? h(Btn, {
+        key: 'def', size: 'sm', active: doc.isDefault,
+        title: doc.isDefault ? 'Es la plantilla predeterminada' : 'Usar esta plantilla al crear una cotización nueva',
+        onClick: () => actSetDefaultTemplate(doc.isDefault ? '' : doc.id),
+      }, doc.isDefault ? '⭐ Predeterminada' : '☆ Predeterminada') : null,
     ]),
 
     // ── Cuerpo ───────────────────────────────────────────────────────
+    !esPlantilla ? h(RevisionBar, { key: 'rb', doc }) : null,
     m.editorView === 'design'
       ? h(CanvasEditor, { key: 'canvas', m, doc })
       : h('div', { key: 'body', className: 'cz-editor-body' }, [

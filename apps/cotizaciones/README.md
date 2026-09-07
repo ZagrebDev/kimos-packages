@@ -33,8 +33,18 @@ lo suyo.
   saltos de página— que se arrastran para reordenar y se estiran para cambiar
   su ancho. Los bloques de datos **no copian nada**: leen del documento, así
   que editar una línea en Datos cambia lo que pinta el lienzo.
-- **Cotizaciones tipo** reutilizables y **duplicación** de cualquier
-  cotización ya hecha para modificarla sin tocar la original.
+- **Cotizaciones tipo** reutilizables, una de ellas marcable como
+  **predeterminada** (la usa «Nueva cotización» sin preguntar), y
+  **duplicación** de cualquier cotización ya hecha para modificarla sin tocar
+  la original. El diálogo de creación deja elegir el punto de partida: en
+  blanco, desde una plantilla o replicando una cotización reciente.
+- **Revisiones**: cuando el cliente pide cambios sobre una cotización ya
+  enviada, no se reescribe la que salió —fuera hay una copia con ese número y
+  esos precios—: se emite una revisión con el mismo número y sufijo `-R2`,
+  enlazada con la anterior, que queda marcada como sustituida. Las revisiones
+  no consumen correlativo.
+- **Historial de versiones** del cotizador completo por el menú 🗂️ Documentos
+  del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
   vencimiento automático de las enviadas y bitácora por cotización.
 - **Emisor y reglas** configurables: razón social, RUT, logo, datos de
@@ -77,7 +87,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 141 pruebas: cálculo, modelo, catálogo, lienzo, fusión y render
+node test/test-app.mjs    # 160 pruebas: cálculo, modelo, catálogo, lienzo, revisiones, fusión y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -110,4 +120,4 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
-| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo y duplicación; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |
+| 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

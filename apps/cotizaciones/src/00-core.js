@@ -504,6 +504,15 @@ function normalizeQuote(raw) {
     updatedBy: s(r.updatedBy),
     templateOf: s(r.templateOf),      // plantilla de la que nació
     duplicateOf: s(r.duplicateOf),    // cotización de la que se replicó
+    // Plantilla marcada como predeterminada: es la que usa "Nueva cotización"
+    // sin preguntar nada.
+    isDefault: r.isDefault === true,
+    // Revisiones: una cotización enviada no se reescribe, se revisa. La
+    // revisión conserva el número con sufijo (-R2) y apunta a la anterior;
+    // la anterior queda marcada como sustituida.
+    revision: Math.max(0, Math.round(num(r.revision))),
+    revisionOf: s(r.revisionOf),
+    supersededBy: s(r.supersededBy),
   };
   // El backend pone createdAt/updatedAt: no forman parte del modelo y
   // ensuciarían la detección de cambios.
@@ -615,6 +624,9 @@ function nextNumber(quotes, rules) {
   let max = 0;
   for (const q of arr(quotes)) {
     if (!q || q.kind === KIND_TEMPLATE) continue;
+    // Una revisión reutiliza el número de su original (COT-2026-0001-R2):
+    // no consume correlativo.
+    if (s(q.revisionOf)) continue;
     // Solo cuentan los del mismo año cuando el correlativo lleva año.
     if (r.numberIncludeYear && s(q.number).indexOf(String(year)) === -1) continue;
     const seq = q.numberSeq != null ? Math.round(num(q.numberSeq)) : 0;
@@ -668,6 +680,10 @@ function cloneDoc(src, opts) {
   copy.events = [];
   copy.deletedLines = [];
   copy.mail = null;
+  copy.isDefault = false;
+  copy.revision = 0;
+  copy.revisionOf = '';
+  copy.supersededBy = '';
   copy.metaUpdatedAt = stamp();
   copy.updatedBy = s(o.by);
   if (copy.kind === KIND_TEMPLATE) {
