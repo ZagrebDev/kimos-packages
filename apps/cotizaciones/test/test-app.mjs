@@ -891,6 +891,29 @@ seccion('Render de todas las pantallas');
     const n = render(R.createElement(mounted.Component, {}), tab);
     ok(n > 10, 'la pestaña «' + tab + '» se renderiza (' + n + ' nodos)');
   }
+  // Los diálogos viven detrás de estado de interacción, así que no salen en
+  // el render de las pantallas: se pintan a mano para que un error dentro de
+  // uno no aparezca por primera vez en producción.
+  const conLineas = T.quotesOf().find((x) => x.lines.length) || T.quotesOf()[0];
+  T.actOpen(conLineas.id);
+  const dial = [
+    ['NewQuoteModal', {}],
+    ['CatalogItemModal', { item: { name: 'X' }, onSave: () => {} }],
+    ['CatalogPickerModal', { quoteId: conLineas.id }],
+    ['ProductPickerModal', { quoteId: conLineas.id }],
+    ['ClientPickerModal', { quoteId: conLineas.id }],
+    ['PreviewModal', { doc: conLineas }],
+    ['MailTemplateModal', { tpl: T.defaultMailTemplate() || {}, onSave: () => {} }],
+    ['SendMailModal', { doc: conLineas }],
+  ];
+  for (const [nombre, extra] of dial) {
+    const C = T.dialogos[nombre];
+    ok(typeof C === 'function', 'el diálogo ' + nombre + ' existe');
+    const n = render(R.createElement(C, Object.assign({ m: T.getModel(), onClose: () => {} }, extra)), nombre);
+    ok(n > 5, 'y se renderiza sin romperse (' + nombre + ', ' + n + ' nodos)');
+  }
+  T.actCloseEditor();
+
   const alguna = T.quotesOf()[0];
   T.actOpen(alguna.id);
   T.actSetEditorView('data');

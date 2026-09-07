@@ -149,7 +149,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 262 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
+node test/test-app.mjs    # 278 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`

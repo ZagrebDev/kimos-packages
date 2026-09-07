@@ -111,6 +111,13 @@ parts.push(`
       porMes, requiereAtencion, porCliente,
       registrarAgente, agentSnapshot, agentDispatch, AGENT_TOOLS,
       resolverDoc, resolverCatalogo, resolverProducto, selectionDesdeNombres,
+      // Los diálogos, para que el banco de pruebas los renderice: viven
+      // detrás de estado de interacción y si no se pintarían por primera vez
+      // en producción.
+      dialogos: {
+        NewQuoteModal, CatalogItemModal, CatalogPickerModal, ProductPickerModal,
+        ClientPickerModal, PreviewModal, MailTemplateModal, SendMailModal, Modal,
+      },
     },
   };
 }

@@ -3850,7 +3850,7 @@ function CatalogItemModal(props) {
     h(Field, { key: 'd', label: 'Descripción', wide: true, help: 'Es lo que verá el cliente en la columna DESCRIPCIÓN.' },
       h(AutoArea, { minRows: 3, value: it.description, placeholder: 'DISEÑO, PERSONALIZACIÓN E IMPLEMENTACIÓN DE FLUJOS…', onChange: (e) => set({ description: e.target.value }) })),
     h(Field, { key: 'g', label: 'Grupo', help: grupos.length ? 'Existentes: ' + grupos.join(', ') : 'Libre: “Servicios”, “Logística”…' },
-      h(Input, { value: it.group, list: 'cz-grupos', onChange: (e) => set({ group: e.target.value }) })),
+      h(Input, { value: it.group, onChange: (e) => set({ group: e.target.value }) })),
     h(Field, { key: 'k', label: 'SKU / código' },
       h(Input, { mono: true, value: it.sku, onChange: (e) => set({ sku: e.target.value }) })),
     h(Field, { key: 'p', label: 'Precio unitario' },
@@ -6747,6 +6747,13 @@ function registrarAgente() {
       porMes, requiereAtencion, porCliente,
       registrarAgente, agentSnapshot, agentDispatch, AGENT_TOOLS,
       resolverDoc, resolverCatalogo, resolverProducto, selectionDesdeNombres,
+      // Los diálogos, para que el banco de pruebas los renderice: viven
+      // detrás de estado de interacción y si no se pintarían por primera vez
+      // en producción.
+      dialogos: {
+        NewQuoteModal, CatalogItemModal, CatalogPickerModal, ProductPickerModal,
+        ClientPickerModal, PreviewModal, MailTemplateModal, SendMailModal, Modal,
+      },
     },
   };
 }
