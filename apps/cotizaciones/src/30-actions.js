@@ -49,6 +49,14 @@ function actOpen(id) {
 }
 const actCloseEditor = () => { setModel({ openId: '' }); return true; };
 
+/** Formulario o lienzo: las dos caras del mismo documento. */
+const EDITOR_VIEWS = [['data', 'Datos', '▤'], ['design', 'Diseño', '🎨']];
+function actSetEditorView(view) {
+  const v = EDITOR_VIEWS.some(([k]) => k === s(view)) ? s(view) : 'data';
+  setModel({ editorView: v });
+  return v;
+}
+
 // ── Documentos ──────────────────────────────────────────────────────────
 /**
  * Crea una cotización. Si se pasa `templateId`, se replica esa plantilla

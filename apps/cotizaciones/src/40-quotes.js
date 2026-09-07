@@ -156,6 +156,14 @@ function QuoteEditor(props) {
         }),
         !esPlantilla ? h('span', { key: 'num', className: 'cz-docbar-num cz-mono' }, doc.number || '—') : null,
       ]),
+      h('div', { key: 'vw', className: 'cz-segmented cz-docbar-view' }, EDITOR_VIEWS.map(([k, label, icon]) => h('button', {
+        key: k, type: 'button', className: cx('cz-seg', m.editorView === k && 'on'),
+        title: k === 'design' ? 'Componer la propuesta visualmente: bloques, textos e imágenes' : 'Editar los datos de la cotización',
+        onClick: () => actSetEditorView(k),
+      }, [
+        h('span', { key: 'i' }, icon),
+        h('span', { key: 'l', className: 'cz-seg-lbl' }, label),
+      ]))),
       !esPlantilla ? h(Select, {
         key: 'st', className: 'cz-docbar-status', value: effectiveStatus(doc, rules),
         title: 'Estado de la cotización',
@@ -177,7 +185,9 @@ function QuoteEditor(props) {
     ]),
 
     // ── Cuerpo ───────────────────────────────────────────────────────
-    h('div', { key: 'body', className: 'cz-editor-body' }, [
+    m.editorView === 'design'
+      ? h(CanvasEditor, { key: 'canvas', m, doc })
+      : h('div', { key: 'body', className: 'cz-editor-body' }, [
       h('div', { key: 'main', className: 'cz-editor-main' }, [
         h(DocHeaderPanel, { key: 'hd', doc, m, rules, issuer, until, esPlantilla, patch, patchClient }),
         h(LinesTable, { key: 'ln', doc, m, rules, cur, totals, ask }),

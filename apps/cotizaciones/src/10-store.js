@@ -59,6 +59,7 @@ let model = {
   // Vista (compartida por usuario y agente)
   tab: 'quotes',
   openId: '',          // documento abierto en el editor
+  editorView: 'data',  // 'data' (formulario) | 'design' (lienzo visual)
   search: '',
   filterStatus: '',
   sort: { by: 'date', dir: 'desc' },

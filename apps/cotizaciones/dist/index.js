@@ -819,6 +819,7 @@ let model = {
   // Vista (compartida por usuario y agente)
   tab: 'quotes',
   openId: '',          // documento abierto en el editor
+  editorView: 'data',  // 'data' (formulario) | 'design' (lienzo visual)
   search: '',
   filterStatus: '',
   sort: { by: 'date', dir: 'desc' },
@@ -1792,6 +1793,14 @@ function actOpen(id) {
 }
 const actCloseEditor = () => { setModel({ openId: '' }); return true; };
 
+/** Formulario o lienzo: las dos caras del mismo documento. */
+const EDITOR_VIEWS = [['data', 'Datos', '▤'], ['design', 'Diseño', '🎨']];
+function actSetEditorView(view) {
+  const v = EDITOR_VIEWS.some(([k]) => k === s(view)) ? s(view) : 'data';
+  setModel({ editorView: v });
+  return v;
+}
+
 // ── Documentos ──────────────────────────────────────────────────────────
 /**
  * Crea una cotización. Si se pasa `templateId`, se replica esa plantilla
@@ -2235,6 +2244,14 @@ function QuoteEditor(props) {
         }),
         !esPlantilla ? h('span', { key: 'num', className: 'cz-docbar-num cz-mono' }, doc.number || '—') : null,
       ]),
+      h('div', { key: 'vw', className: 'cz-segmented cz-docbar-view' }, EDITOR_VIEWS.map(([k, label, icon]) => h('button', {
+        key: k, type: 'button', className: cx('cz-seg', m.editorView === k && 'on'),
+        title: k === 'design' ? 'Componer la propuesta visualmente: bloques, textos e imágenes' : 'Editar los datos de la cotización',
+        onClick: () => actSetEditorView(k),
+      }, [
+        h('span', { key: 'i' }, icon),
+        h('span', { key: 'l', className: 'cz-seg-lbl' }, label),
+      ]))),
       !esPlantilla ? h(Select, {
         key: 'st', className: 'cz-docbar-status', value: effectiveStatus(doc, rules),
         title: 'Estado de la cotización',
@@ -2256,7 +2273,9 @@ function QuoteEditor(props) {
     ]),
 
     // ── Cuerpo ───────────────────────────────────────────────────────
-    h('div', { key: 'body', className: 'cz-editor-body' }, [
+    m.editorView === 'design'
+      ? h(CanvasEditor, { key: 'canvas', m, doc })
+      : h('div', { key: 'body', className: 'cz-editor-body' }, [
       h('div', { key: 'main', className: 'cz-editor-main' }, [
         h(DocHeaderPanel, { key: 'hd', doc, m, rules, issuer, until, esPlantilla, patch, patchClient }),
         h(LinesTable, { key: 'ln', doc, m, rules, cur, totals, ask }),
@@ -3792,6 +3811,601 @@ function ClientPickerModal(props) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/70-blocks.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ LIENZO: MODELO Y PINTADO DE BLOQUES ══════════════════════════════════
+ *
+ * Una propuesta es una lista de **bloques** sobre una cuadrícula de 12
+ * columnas. Cada bloque declara cuántas columnas ocupa (`w`) y los bloques
+ * fluyen en orden, envolviendo cuando se llena la fila. Se eligió eso y no
+ * posicionamiento absoluto por una razón práctica: una cotización termina en
+ * un PDF paginado, y una cuadrícula que fluye se pagina sola; con
+ * coordenadas absolutas habría que resolver a mano qué cae en cada página.
+ *
+ * Hay dos clases de bloque:
+ *
+ *   Vinculados   `header`, `items`, `totals`, `notes`, `payment`. No guardan
+ *                contenido: lo leen del documento. Editar una línea en la
+ *                pestaña Datos cambia lo que pinta el bloque `items`, y al
+ *                revés. Nunca hay dos copias del mismo dato.
+ *   Propios      `text`, `image`, `spacer`, `divider`, `pagebreak`. Su
+ *                contenido vive en el bloque y solo existe en el lienzo.
+ *
+ * ESTE MISMO pintado es el que se usa para exportar el PDF (fase 5): el
+ * documento se renderiza con los mismos componentes en la ventana de
+ * impresión, así que lo que se ve en el lienzo es exactamente lo que sale
+ * impreso, sin un segundo maquetador que se desincronice.
+ */
+
+const GRID_COLS = 12;
+
+/** Catálogo de bloques: qué se puede añadir al lienzo y cómo se presenta. */
+const BLOCK_TYPES = [
+  { type: 'header', label: 'Cabecera', icon: '🏷', w: 12, linked: true, help: 'Emisor, cliente, número y fechas. Se completa desde los datos de la cotización.' },
+  { type: 'items', label: 'Tabla de ítems', icon: '▤', w: 12, linked: true, help: 'Las líneas de la cotización, tal como se imprimen.' },
+  { type: 'totals', label: 'Totales', icon: '∑', w: 12, linked: true, help: 'Subtotal, impuesto, total y el desglose de abono y saldo.' },
+  { type: 'notes', label: 'Notas', icon: '✎', w: 12, linked: true, help: 'Las notas y condiciones de la cotización.' },
+  { type: 'payment', label: 'Datos de pago', icon: '🏦', w: 12, linked: true, help: 'Los datos de transferencia del pie.' },
+  { type: 'text', label: 'Texto', icon: '¶', w: 12, help: 'Un título, un párrafo o una nota al margen.' },
+  { type: 'image', label: 'Imagen', icon: '🖼', w: 6, help: 'Una foto, un plano, un render o el logo de la sede.' },
+  { type: 'divider', label: 'Separador', icon: '─', w: 12, help: 'Una línea que separa secciones.' },
+  { type: 'spacer', label: 'Espacio', icon: '␣', w: 12, help: 'Aire en blanco entre bloques.' },
+  { type: 'pagebreak', label: 'Salto de página', icon: '⤓', w: 12, help: 'Fuerza el corte de página al exportar el PDF.' },
+];
+const BLOCK_BY_TYPE = new Map(BLOCK_TYPES.map((b) => [b.type, b]));
+const isLinkedBlock = (type) => !!(BLOCK_BY_TYPE.get(type) || {}).linked;
+
+const TEXT_SIZES = [['xs', 'Muy pequeño'], ['sm', 'Pequeño'], ['md', 'Normal'], ['lg', 'Grande'], ['xl', 'Título'], ['xxl', 'Portada']];
+const ALIGNS = [['left', 'Izquierda'], ['center', 'Centro'], ['right', 'Derecha']];
+const TONES = [['default', 'Normal'], ['dim', 'Suave'], ['accent', 'Acento'], ['invert', 'Sobre acento']];
+
+function normalizeBlock(raw) {
+  const r = isObj(raw) ? raw : {};
+  const type = BLOCK_BY_TYPE.has(s(r.type)) ? s(r.type) : 'text';
+  const def = BLOCK_BY_TYPE.get(type);
+  return {
+    id: s(r.id) || uid('b'),
+    type,
+    w: clamp(Math.round(num(r.w, def.w)), 1, GRID_COLS),
+    // Presentación (común a todos los bloques).
+    align: ALIGNS.some(([k]) => k === r.align) ? s(r.align) : 'left',
+    tone: TONES.some(([k]) => k === r.tone) ? s(r.tone) : 'default',
+    pad: clamp(Math.round(num(r.pad, 0)), 0, 48),
+    // Contenido propio, según el tipo.
+    text: s(r.text),
+    size: TEXT_SIZES.some(([k]) => k === r.size) ? s(r.size) : 'md',
+    url: s(r.url),
+    caption: s(r.caption),
+    fit: r.fit === 'contain' ? 'contain' : 'cover',
+    height: clamp(Math.round(num(r.height, 180)), 40, 900),
+    // Opciones de los bloques vinculados.
+    showImages: r.showImages === true,      // fotos de los ítems en la tabla
+    hideEmpty: r.hideEmpty !== false,        // no imprimir el bloque si no hay qué mostrar
+    title: s(r.title),                       // encabezado opcional del bloque
+    updatedAt: s(r.updatedAt),
+    updatedBy: s(r.updatedBy),
+  };
+}
+
+/**
+ * Maqueta por defecto: la de las propuestas de la casa. Se siembra la primera
+ * vez que se abre el lienzo de una cotización, de modo que nadie empiece
+ * delante de una hoja en blanco.
+ */
+function bloquesPorDefecto() {
+  return [
+    normalizeBlock({ type: 'header', w: 12 }),
+    normalizeBlock({ type: 'items', w: 12 }),
+    normalizeBlock({ type: 'totals', w: 12 }),
+    normalizeBlock({ type: 'notes', w: 12 }),
+    normalizeBlock({ type: 'payment', w: 12 }),
+  ];
+}
+
+/** Los bloques del documento, sembrando la maqueta por defecto si no hay. */
+function bloquesDe(doc) {
+  const list = arr(doc && doc.blocks).map(normalizeBlock);
+  return list.length ? list : bloquesPorDefecto();
+}
+
+/** ¿El bloque tiene algo que mostrar? Decide si se imprime o no. */
+function bloqueVacio(b, ctx) {
+  const doc = ctx.doc;
+  if (b.type === 'items') return !arr(doc.lines).length;
+  if (b.type === 'notes') return !arr(doc.notes).filter((n) => s(n).trim()).length;
+  if (b.type === 'payment') return !s(doc.paymentInfo || ctx.issuer.paymentInfo).trim();
+  if (b.type === 'text') return !s(b.text).trim();
+  if (b.type === 'image') return !s(b.url).trim();
+  return false;
+}
+
+// ── Pintado ─────────────────────────────────────────────────────────────
+/**
+ * Contexto de pintado: todo lo que un bloque necesita saber, resuelto una
+ * sola vez por el llamador (el lienzo o la ventana de impresión).
+ */
+function contextoDe(doc, def) {
+  const rules = normalizeRules(def && def.rules);
+  const issuer = normalizeIssuer(def && def.issuer);
+  const totals = computeTotals(doc, rules);
+  return { doc, rules, issuer, totals, cur: totals.currency, until: validUntilOf(doc, rules) };
+}
+
+/** Un bloque, pintado. El mismo componente sirve al lienzo y al PDF. */
+function Block(props) {
+  const { block: b, ctx, mode } = props;
+  const edit = mode === 'edit';
+  if (!edit && b.hideEmpty && bloqueVacio(b, ctx)) return null;
+
+  const cuerpo = (() => {
+    switch (b.type) {
+      case 'header': return h(BlockHeader, { b, ctx });
+      case 'items': return h(BlockItems, { b, ctx });
+      case 'totals': return h(BlockTotals, { b, ctx });
+      case 'notes': return h(BlockNotes, { b, ctx });
+      case 'payment': return h(BlockPayment, { b, ctx });
+      case 'text': return h(BlockText, { b, ctx, edit, onChange: props.onChange });
+      case 'image': return h(BlockImage, { b, ctx, edit });
+      case 'divider': return h('hr', { className: 'cz-b-hr' });
+      case 'spacer': return h('div', { className: 'cz-b-spacer', style: { height: b.height } });
+      case 'pagebreak': return h('div', { className: 'cz-b-pagebreak' }, edit ? '⤓ Salto de página' : '');
+      default: return null;
+    }
+  })();
+
+  return h('div', {
+    className: cx('cz-b', 'cz-b-' + b.type, 'cz-tone-' + b.tone, 'cz-al-' + b.align),
+    style: b.pad ? { padding: b.pad } : undefined,
+  }, [
+    b.title ? h('h3', { key: 't', className: 'cz-b-title' }, b.title) : null,
+    cuerpo,
+  ]);
+}
+
+function BlockHeader(props) {
+  const { ctx } = props;
+  const { doc, issuer, until, rules } = ctx;
+  const esPlantilla = doc.kind === KIND_TEMPLATE;
+  const dato = (label, value) => (s(value) ? h('div', { key: label, className: 'cz-hdblock-row' }, [
+    h('span', { key: 'l', className: 'cz-hdblock-lbl' }, label),
+    h('span', { key: 'v', className: 'cz-hdblock-val' }, value),
+  ]) : null);
+
+  return h('div', { className: 'cz-hdblock' }, [
+    h('div', { key: 'l', className: 'cz-hdblock-emisor' }, [
+      issuer.logoUrl ? h('img', { key: 'g', className: 'cz-hdblock-logo', src: issuer.logoUrl, alt: '' }) : null,
+      h('div', { key: 'd', className: 'cz-hdblock-emisor-d' }, [
+        h('div', { key: 'n', className: 'cz-hdblock-emisor-n' }, issuer.name || 'Sin emisor configurado'),
+        issuer.taxId ? h('div', { key: 'r', className: 'cz-mono cz-dim' }, issuer.taxId) : null,
+        issuer.tagline ? h('div', { key: 't', className: 'cz-dim' }, issuer.tagline) : null,
+        h('div', { key: 'c', className: 'cz-dim cz-hdblock-contacto' },
+          [issuer.email, issuer.phone, issuer.web].filter(Boolean).join(' · ')),
+      ]),
+    ]),
+    h('div', { key: 'r', className: 'cz-hdblock-doc' }, [
+      h('div', { key: 't', className: 'cz-hdblock-tit' }, esPlantilla ? 'COTIZACIÓN TIPO' : 'COTIZACIÓN'),
+      !esPlantilla ? h('div', { key: 'n', className: 'cz-hdblock-num cz-mono' }, doc.number) : null,
+      dato('Fecha', fechaCorta(doc.date)),
+      !esPlantilla ? dato('Válida hasta', fechaCorta(until)) : null,
+      !esPlantilla ? dato('Cliente', doc.client.name) : null,
+      !esPlantilla ? dato('RUT', doc.client.taxId) : null,
+      !esPlantilla ? dato('Contacto', doc.client.contact || doc.client.email) : null,
+      doc.subtitle ? h('div', { key: 's', className: 'cz-hdblock-sub' }, doc.subtitle) : null,
+      rules.currency !== 'CLP' ? dato('Moneda', ctx.cur.code) : null,
+    ]),
+  ]);
+}
+
+function BlockItems(props) {
+  const { b, ctx } = props;
+  const { doc, rules, cur } = ctx;
+  const taxPct = doc.taxPct == null ? rules.taxPct : doc.taxPct;
+  const lineRules = { taxPct, priceMode: rules.priceMode };
+  const activas = arr(doc.lines).filter((l) => !l.optional);
+  const opcionales = arr(doc.lines).filter((l) => l.optional);
+
+  const fila = (l, i) => h('tr', { key: l.id, className: cx('cz-b-tr', l.optional && 'opt') }, [
+    b.showImages ? h('td', { key: 'i', className: 'cz-b-td-img' },
+      l.imageUrl ? h('img', { src: l.imageUrl, alt: '', className: 'cz-b-itemimg' }) : null) : null,
+    h('td', { key: 'n', className: 'cz-b-td-item' }, [
+      h('div', { key: 't' }, l.title),
+      l.sku ? h('div', { key: 's', className: 'cz-b-sku cz-mono' }, l.sku) : null,
+    ]),
+    h('td', { key: 'd', className: 'cz-b-td-desc' }, parrafos(l.description)),
+    h('td', { key: 'q', className: 'cz-b-td-num' }, l.qtyLabel || numberFmt(l.qty, 2, cur.locale) + (l.unit ? ' ' + l.unit : '')),
+    h('td', { key: 'u', className: 'cz-b-td-num cz-mono' }, money(l.unitPrice, cur)),
+    h('td', { key: 'v', className: 'cz-b-td-num cz-mono cz-strong' }, money(lineDisplayTotal(l, lineRules), cur)),
+  ]);
+
+  return h('div', null, [
+    h('table', { key: 't', className: 'cz-b-table' }, [
+      h('thead', { key: 'h' }, h('tr', null, [
+        b.showImages ? h('th', { key: 'i', className: 'cz-b-th' }, '') : null,
+        h('th', { key: 'n', className: 'cz-b-th' }, 'ITEM'),
+        h('th', { key: 'd', className: 'cz-b-th' }, 'DESCRIPCIÓN'),
+        h('th', { key: 'q', className: 'cz-b-th cz-b-th-num' }, 'CANTIDAD'),
+        h('th', { key: 'u', className: 'cz-b-th cz-b-th-num' }, rules.priceMode === 'gross' ? 'PRECIO UNIT' : 'NETO UNIT'),
+        h('th', { key: 'v', className: 'cz-b-th cz-b-th-num' }, rules.priceMode === 'gross' ? 'TOTAL' : 'NETO TOTAL'),
+      ])),
+      h('tbody', { key: 'b' }, activas.map(fila)),
+    ]),
+    opcionales.length ? h('div', { key: 'o', className: 'cz-b-opt' }, [
+      h('div', { key: 't', className: 'cz-b-opt-tit' }, 'Opcionales (no incluidos en el total)'),
+      h('table', { key: 'tb', className: 'cz-b-table' }, h('tbody', null, opcionales.map(fila))),
+    ]) : null,
+  ]);
+}
+
+function BlockTotals(props) {
+  const { ctx } = props;
+  const { totals: t, rules, cur } = ctx;
+  const fila = (label, value, cls) => h('div', { key: label, className: cx('cz-b-tot-row', cls) }, [
+    h('span', { key: 'l' }, label),
+    h('span', { key: 'v', className: 'cz-mono' }, value),
+  ]);
+  return h('div', { className: 'cz-b-tot' }, [
+    fila(rules.priceMode === 'gross' ? 'SUBTOTAL' : 'SUBTOTAL NETO', money(t.subtotal, cur)),
+    t.discount ? fila('DESCUENTO', '− ' + money(t.discount, cur)) : null,
+    fila((rules.taxLabel || 'IVA').toUpperCase() + ' (' + numberFmt(t.taxPct, 2, cur.locale) + '%)', money(t.tax, cur)),
+    fila('TOTAL' + (t.tax ? ' ' + (rules.taxLabel || 'IVA').toUpperCase() + ' INCLUIDO' : ''), money(t.total, cur), 'cz-b-tot-total'),
+    t.advanceEnabled ? fila('ABONO (' + numberFmt(t.advancePct, 2, cur.locale) + '%)', money(t.advance, cur)) : null,
+    t.advanceEnabled ? fila('SALDO (' + numberFmt(100 - t.advancePct, 2, cur.locale) + '%)', money(t.balance, cur)) : null,
+  ]);
+}
+
+function BlockNotes(props) {
+  const notas = arr(props.ctx.doc.notes).filter((n) => s(n).trim());
+  return h('div', { className: 'cz-b-notes' }, [
+    h('div', { key: 't', className: 'cz-b-notes-tit' }, props.b.title ? '' : 'Notas'),
+    h('ul', { key: 'l', className: 'cz-b-notes-list' }, notas.map((n, i) => h('li', { key: i }, s(n).replace(/^[-–—]\s*/, '')))),
+  ]);
+}
+
+function BlockPayment(props) {
+  const { b, ctx } = props;
+  const texto = s(ctx.doc.paymentInfo) || s(ctx.issuer.paymentInfo);
+  return h('div', { className: 'cz-b-pay' }, [
+    h('div', { key: 't', className: 'cz-b-pay-tit' }, b.title ? '' : 'Datos de transferencia'),
+    h('div', { key: 'v', className: 'cz-b-pay-body' }, parrafos(texto)),
+  ]);
+}
+
+function BlockText(props) {
+  const { b, edit, onChange } = props;
+  const cls = cx('cz-b-text', 'cz-sz-' + b.size);
+  if (edit && onChange) {
+    return h(AutoArea, {
+      className: cls, value: b.text, placeholder: 'Escribe aquí…',
+      onChange: (e) => onChange({ text: e.target.value }),
+    });
+  }
+  return h('div', { className: cls }, parrafos(b.text));
+}
+
+function BlockImage(props) {
+  const { b, edit } = props;
+  if (!s(b.url)) {
+    return edit
+      ? h('div', { className: 'cz-b-img-empty' }, 'Sin imagen: elige una en el panel de la derecha.')
+      : null;
+  }
+  return h('figure', { className: 'cz-b-fig' }, [
+    h('img', {
+      key: 'i', className: 'cz-b-img', src: b.url, alt: s(b.caption),
+      style: { height: b.height, objectFit: b.fit },
+    }),
+    b.caption ? h('figcaption', { key: 'c', className: 'cz-b-figcap' }, b.caption) : null,
+  ]);
+}
+
+/**
+ * Texto multilínea → párrafos. Se pinta como elementos React, nunca como
+ * HTML: el texto lo escribe una persona (o llega del catálogo de otra app) y
+ * no se interpreta jamás como marcado.
+ */
+function parrafos(texto) {
+  return s(texto).split(/\n/).map((linea, i) => h('div', { key: i, className: 'cz-b-line' }, linea || ' '));
+}
+
+/** La hoja completa: los bloques del documento sobre la cuadrícula. */
+function Sheet(props) {
+  const { doc, def, mode } = props;
+  const ctx = contextoDe(doc, def);
+  const blocks = bloquesDe(doc);
+  return h('div', { className: cx('cz-sheet', 'cz-sheet-' + (mode || 'preview')) },
+    blocks.map((b) => h('div', {
+      key: b.id, className: 'cz-cell', style: { gridColumn: 'span ' + b.w },
+    }, h(Block, { block: b, ctx, mode: mode === 'edit' ? 'edit' : 'print' }))));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/72-canvas.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ LIENZO: EDICIÓN VISUAL ═══════════════════════════════════════════════
+ *
+ * El editor de la maqueta: los bloques se ven **tal como se imprimirán** y se
+ * manipulan encima. Se arrastra para reordenar, se tira del borde derecho
+ * para cambiar cuántas columnas ocupa un bloque, y el panel de la derecha
+ * ajusta lo suyo (tamaño de texto, imagen, aire, tono).
+ *
+ * El estado de interacción —qué bloque está seleccionado, cuál se está
+ * arrastrando— vive en el componente y NO en el documento: no tiene por qué
+ * viajar al resto de las personas que tengan la cotización abierta.
+ */
+
+// ── Acciones sobre los bloques ──────────────────────────────────────────
+/** Escribe la lista completa de bloques en el documento. */
+function actSetBlocks(quoteId, blocks) {
+  return actPatchDoc(s(quoteId), { blocks: arr(blocks).map(normalizeBlock) });
+}
+
+function actAddBlock(quoteId, type, atIndex, props) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+  const def = BLOCK_BY_TYPE.get(s(type));
+  if (!def) return null;
+  const b = normalizeBlock(Object.assign({ type: def.type, w: def.w }, isObj(props) ? props : {}));
+  b.updatedAt = stamp();
+  b.updatedBy = meLabel();
+  const list = bloquesDe(doc);
+  const at = atIndex == null ? list.length : clamp(Math.round(num(atIndex)), 0, list.length);
+  list.splice(at, 0, b);
+  actSetBlocks(quoteId, list);
+  return b;
+}
+
+function actUpdateBlock(quoteId, blockId, patch) {
+  const doc = docById(s(quoteId));
+  if (!doc || !isObj(patch)) return null;
+  let out = null;
+  const list = bloquesDe(doc).map((b) => {
+    if (b.id !== s(blockId)) return b;
+    out = normalizeBlock(Object.assign({}, b, patch, { id: b.id, updatedAt: stamp(), updatedBy: meLabel() }));
+    return out;
+  });
+  if (out) actSetBlocks(quoteId, list);
+  return out;
+}
+
+function actRemoveBlock(quoteId, blockId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return false;
+  const list = bloquesDe(doc);
+  const next = list.filter((b) => b.id !== s(blockId));
+  if (next.length === list.length) return false;
+  actSetBlocks(quoteId, next);
+  return true;
+}
+
+function actMoveBlock(quoteId, blockId, toIndex) {
+  const doc = docById(s(quoteId));
+  if (!doc) return false;
+  const list = bloquesDe(doc);
+  const from = list.findIndex((b) => b.id === s(blockId));
+  if (from < 0) return false;
+  const to = clamp(Math.round(num(toIndex)), 0, list.length - 1);
+  if (to === from) return false;
+  const [it] = list.splice(from, 1);
+  list.splice(to, 0, it);
+  actSetBlocks(quoteId, list);
+  return true;
+}
+
+/** Vuelve a la maqueta de la casa, perdiendo los bloques propios del lienzo. */
+function actResetBlocks(quoteId) {
+  return actSetBlocks(quoteId, bloquesPorDefecto());
+}
+
+// ── El lienzo ───────────────────────────────────────────────────────────
+function CanvasEditor(props) {
+  const { m, doc } = props;
+  const [selId, setSelId] = useState('');
+  const [dragId, setDragId] = useState('');
+  const [overId, setOverId] = useState('');
+  const [menu, setMenu] = useState(false);
+  const [ask, confirmNode] = useConfirm();
+  const gridRef = useRef(null);
+
+  const blocks = bloquesDe(doc);
+  const sel = blocks.find((b) => b.id === selId) || null;
+  const ctx = contextoDe(doc, m.def);
+
+  // La primera vez que se abre el lienzo se siembra la maqueta por defecto,
+  // para que quede guardada y editable en vez de ser un cálculo implícito.
+  useEffect(() => {
+    if (!arr(doc.blocks).length) actSetBlocks(doc.id, bloquesPorDefecto());
+  }, [doc.id]);
+
+  const soltar = (targetId) => {
+    if (!dragId || dragId === targetId) { setDragId(''); setOverId(''); return; }
+    const to = blocks.findIndex((b) => b.id === targetId);
+    if (to >= 0) actMoveBlock(doc.id, dragId, to);
+    setDragId(''); setOverId('');
+  };
+
+  /**
+   * Redimensionado: se sigue el puntero y se traduce la distancia recorrida a
+   * columnas usando el ancho real de la cuadrícula, así el bloque encaja
+   * siempre en la rejilla y nunca queda a mitad de columna.
+   */
+  const empezarResize = (b, ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const grid = gridRef.current;
+    if (!grid) return;
+    const anchoCol = grid.getBoundingClientRect().width / GRID_COLS;
+    const x0 = ev.clientX;
+    const w0 = b.w;
+    let ultimo = w0;
+    const mover = (e) => {
+      const cols = clamp(w0 + Math.round((e.clientX - x0) / anchoCol), 1, GRID_COLS);
+      if (cols !== ultimo) { ultimo = cols; actUpdateBlock(doc.id, b.id, { w: cols }); }
+    };
+    const soltarPuntero = () => {
+      window.removeEventListener('pointermove', mover);
+      window.removeEventListener('pointerup', soltarPuntero);
+    };
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltarPuntero);
+  };
+
+  return h('div', { className: 'cz-canvas' }, [
+    // ── Barra del lienzo ─────────────────────────────────────────────
+    h('div', { key: 'tb', className: 'cz-canvas-tb' }, [
+      h('div', { key: 'add', className: 'cz-menu-wrap' }, [
+        h(Btn, { key: 'b', size: 'sm', variant: 'primary', onClick: () => setMenu(!menu) }, '+ Añadir bloque'),
+        menu ? h('div', { key: 'm', className: 'cz-menu' }, BLOCK_TYPES.map((t) => h('button', {
+          key: t.type, type: 'button', className: 'cz-menu-it',
+          title: t.help,
+          onClick: () => {
+            const at = sel ? blocks.findIndex((b) => b.id === sel.id) + 1 : blocks.length;
+            const nuevo = actAddBlock(doc.id, t.type, at);
+            if (nuevo) setSelId(nuevo.id);
+            setMenu(false);
+          },
+        }, [
+          h('span', { key: 'i', className: 'cz-menu-ico' }, t.icon),
+          h('span', { key: 'l', className: 'cz-menu-lbl' }, t.label),
+          t.linked ? h('span', { key: 'v', className: 'cz-menu-tag', title: 'Toma su contenido de los datos de la cotización' }, 'vinculado') : null,
+        ]))) : null,
+      ]),
+      h('span', { key: 'n', className: 'cz-canvas-note' },
+        'Arrastra para reordenar · tira del borde derecho para cambiar el ancho'),
+      h('div', { key: 'sp', className: 'cz-spacer' }),
+      h(Btn, {
+        key: 'r', size: 'sm',
+        title: 'Volver a la maqueta por defecto (se pierden los bloques añadidos)',
+        onClick: async () => {
+          const ok = await ask({
+            title: 'Restablecer la maqueta', danger: true, okLabel: 'Restablecer',
+            text: 'Se vuelve a la maqueta por defecto y se pierden los textos e imágenes que hayas añadido al lienzo. Los datos de la cotización no se tocan.',
+          });
+          if (ok) { actResetBlocks(doc.id); setSelId(''); }
+        },
+      }, '↺ Restablecer'),
+    ]),
+
+    // ── Hoja y panel ─────────────────────────────────────────────────
+    h('div', { key: 'body', className: 'cz-canvas-body' }, [
+      h('div', { key: 'paper', className: 'cz-paper', onMouseDown: (e) => { if (e.target === e.currentTarget) setSelId(''); } },
+        h('div', { key: 'g', ref: gridRef, className: 'cz-sheet cz-sheet-edit' }, blocks.map((b, i) => h('div', {
+          key: b.id,
+          className: cx('cz-cell', 'cz-cell-edit', selId === b.id && 'sel', dragId === b.id && 'dragging', overId === b.id && 'over'),
+          style: { gridColumn: 'span ' + b.w },
+          onMouseDown: () => setSelId(b.id),
+          onDragOver: (e) => { e.preventDefault(); setOverId(b.id); },
+          onDrop: (e) => { e.preventDefault(); soltar(b.id); },
+        }, [
+          h('div', {
+            key: 'h', className: 'cz-cell-handle', draggable: true,
+            title: (BLOCK_BY_TYPE.get(b.type) || {}).label + ' — arrastra para mover',
+            onDragStart: () => setDragId(b.id),
+            onDragEnd: () => { setDragId(''); setOverId(''); },
+          }, [
+            h('span', { key: 'i' }, (BLOCK_BY_TYPE.get(b.type) || {}).icon),
+            h('span', { key: 'w', className: 'cz-cell-w' }, b.w + '/' + GRID_COLS),
+          ]),
+          h(Block, {
+            key: 'b', block: b, ctx, mode: 'edit',
+            onChange: (patch) => actUpdateBlock(doc.id, b.id, patch),
+          }),
+          h('div', {
+            key: 'r', className: 'cz-cell-resize', title: 'Arrastra para cambiar el ancho',
+            onPointerDown: (e) => empezarResize(b, e),
+          }),
+        ])))),
+      h('aside', { key: 'insp', className: 'cz-inspector' },
+        sel ? h(BlockInspector, { doc, block: sel, m, onClose: () => setSelId('') })
+          : h('div', { className: 'cz-inspector-empty' }, [
+            h('div', { key: 't', className: 'cz-inspector-empty-t' }, 'Nada seleccionado'),
+            h('div', { key: 'x', className: 'cz-dim' }, 'Pulsa un bloque de la hoja para ajustarlo, o añade uno nuevo.'),
+          ])),
+    ]),
+    confirmNode,
+  ]);
+}
+
+// ── Panel del bloque seleccionado ───────────────────────────────────────
+function BlockInspector(props) {
+  const { doc, block: b, m } = props;
+  const meta = BLOCK_BY_TYPE.get(b.type) || {};
+  const set = (patch) => actUpdateBlock(doc.id, b.id, patch);
+  const blocks = bloquesDe(doc);
+  const idx = blocks.findIndex((x) => x.id === b.id);
+
+  return h('div', { className: 'cz-inspector-in' }, [
+    h('div', { key: 'h', className: 'cz-inspector-hd' }, [
+      h('span', { key: 'i', className: 'cz-inspector-ico' }, meta.icon),
+      h('span', { key: 't', className: 'cz-inspector-t' }, meta.label),
+      h('div', { key: 'sp', className: 'cz-spacer' }),
+      h(IconBtn, { key: 'u', icon: '↑', title: 'Subir', disabled: idx <= 0, onClick: () => actMoveBlock(doc.id, b.id, idx - 1) }),
+      h(IconBtn, { key: 'd', icon: '↓', title: 'Bajar', disabled: idx >= blocks.length - 1, onClick: () => actMoveBlock(doc.id, b.id, idx + 1) }),
+      h(IconBtn, {
+        key: 'c', icon: '⧉', title: 'Duplicar bloque',
+        onClick: () => actAddBlock(doc.id, b.type, idx + 1, Object.assign({}, b, { id: undefined })),
+      }),
+      h(IconBtn, { key: 'x', icon: '🗑', title: 'Quitar bloque', onClick: () => { actRemoveBlock(doc.id, b.id); props.onClose(); } }),
+    ]),
+    meta.help ? h('div', { key: 'help', className: 'cz-inspector-help' }, meta.help) : null,
+
+    h(Field, { key: 'w', label: 'Ancho', help: b.w + ' de ' + GRID_COLS + ' columnas' }, h('input', {
+      type: 'range', min: 1, max: GRID_COLS, value: b.w, className: 'cz-range',
+      onChange: (e) => set({ w: num(e.target.value) }),
+    })),
+    h(Field, { key: 'a', label: 'Alineación' }, h('div', { className: 'cz-segmented' }, ALIGNS.map(([k, label]) => h('button', {
+      key: k, type: 'button', className: cx('cz-seg', b.align === k && 'on'), title: label,
+      onClick: () => set({ align: k }),
+    }, k === 'left' ? '⯇' : (k === 'center' ? '≡' : '⯈'))))),
+    h(Field, { key: 'to', label: 'Tono' }, h(Select, {
+      value: b.tone, onChange: (e) => set({ tone: e.target.value }),
+      options: TONES.map(([k, label]) => ({ value: k, label })),
+    })),
+    h(Field, { key: 'ti', label: 'Encabezado del bloque', help: 'Opcional: un título encima del contenido.' },
+      h(Input, { value: b.title, placeholder: '—', onChange: (e) => set({ title: e.target.value }) })),
+    h(Field, { key: 'p', label: 'Margen interior', help: b.pad + ' px' }, h('input', {
+      type: 'range', min: 0, max: 48, step: 2, value: b.pad, className: 'cz-range',
+      onChange: (e) => set({ pad: num(e.target.value) }),
+    })),
+
+    // ── Propiedades del tipo ─────────────────────────────────────────
+    b.type === 'text' ? h(Field, { key: 'sz', label: 'Tamaño del texto' }, h(Select, {
+      value: b.size, onChange: (e) => set({ size: e.target.value }),
+      options: TEXT_SIZES.map(([k, label]) => ({ value: k, label })),
+    })) : null,
+    b.type === 'text' ? h(Field, { key: 'tx', label: 'Texto', wide: true },
+      h(AutoArea, { minRows: 4, value: b.text, placeholder: 'También puedes escribir directamente sobre la hoja.', onChange: (e) => set({ text: e.target.value }) })) : null,
+
+    b.type === 'image' ? h(Field, { key: 'im', label: 'Imagen', wide: true },
+      h(ImageField, { value: b.url, folder: 'lienzo', onChange: (v) => set({ url: v }) })) : null,
+    b.type === 'image' ? h(Field, { key: 'cp', label: 'Pie de foto' },
+      h(Input, { value: b.caption, onChange: (e) => set({ caption: e.target.value }) })) : null,
+    b.type === 'image' ? h(Field, { key: 'fi', label: 'Encaje' }, h(Select, {
+      value: b.fit, onChange: (e) => set({ fit: e.target.value }),
+      options: [{ value: 'cover', label: 'Recortar para llenar' }, { value: 'contain', label: 'Ver completa' }],
+    })) : null,
+    b.type === 'image' || b.type === 'spacer' ? h(Field, {
+      key: 'he', label: 'Alto', help: b.height + ' px',
+    }, h('input', {
+      type: 'range', min: 40, max: 700, step: 10, value: b.height, className: 'cz-range',
+      onChange: (e) => set({ height: num(e.target.value) }),
+    })) : null,
+
+    b.type === 'items' ? h(Field, { key: 'si', label: 'Fotos de los ítems' }, h(Toggle, {
+      checked: b.showImages, label: b.showImages ? 'Se muestran' : 'Solo texto',
+      onChange: (v) => set({ showImages: v }),
+    })) : null,
+
+    meta.linked ? h(Field, { key: 'hv', label: 'Si no hay contenido' }, h(Toggle, {
+      checked: b.hideEmpty, label: b.hideEmpty ? 'No se imprime el bloque' : 'Se imprime vacío',
+      onChange: (v) => set({ hideEmpty: v }),
+    })) : null,
+
+    meta.linked ? h('div', { key: 'lk', className: 'cz-inspector-help' },
+      'Este bloque toma su contenido de los datos de la cotización: edítalo en la pestaña Datos y aquí se actualiza solo.') : null,
+  ]);
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/90-app.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ APLICACIÓN ═══════════════════════════════════════════════════════════
@@ -3961,6 +4575,9 @@ function Header(props) {
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
+      bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
+      actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
+      actMoveBlock, actResetBlocks,
     },
   };
 }

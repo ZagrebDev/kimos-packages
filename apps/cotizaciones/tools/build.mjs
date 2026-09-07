@@ -100,6 +100,9 @@ parts.push(`
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
+      bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
+      actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
+      actMoveBlock, actResetBlocks,
     },
   };
 }

@@ -483,6 +483,47 @@ seccion('Cotizar una combinación del catálogo');
   eq(doc.client.sourceItemId, 'cli-unab', 'y queda anotado de qué ficha salió');
 }
 
+seccion('Lienzo visual');
+{
+  const T = mounted.__test;
+  const q = T.actNewQuote({ name: 'Propuesta con lienzo' });
+  T.actAddLine(q.id, { title: 'Servicio', qty: 2, unitPrice: 100000 });
+
+  eq((T.docById(q.id).blocks || []).length, 0, 'una cotización nace sin bloques guardados');
+  const porDefecto = T.bloquesDe(T.docById(q.id));
+  eq(porDefecto.length, 5, 'pero el lienzo le presta la maqueta de la casa');
+  eq(porDefecto.map((b) => b.type).join(','), 'header,items,totals,notes,payment', 'con los bloques en el orden de la propuesta');
+  ok(porDefecto.every((b) => b.w === 12), 'todos a ancho completo');
+
+  T.actSetBlocks(q.id, T.bloquesPorDefecto());
+  const texto = T.actAddBlock(q.id, 'text', 1, { text: 'Alcance del proyecto', size: 'xl' });
+  ok(!!texto, 'se añade un bloque de texto');
+  eq(T.bloquesDe(T.docById(q.id))[1].id, texto.id, 'en la posición pedida');
+  eq(T.bloquesDe(T.docById(q.id)).length, 6, 'y la maqueta queda con seis bloques');
+
+  T.actUpdateBlock(q.id, texto.id, { w: 6, align: 'center' });
+  const tras = T.bloquesDe(T.docById(q.id))[1];
+  eq(tras.w, 6, 'el ancho se cambia en columnas');
+  eq(tras.align, 'center', 'y la alineación también');
+  T.actUpdateBlock(q.id, texto.id, { w: 99 });
+  eq(T.bloquesDe(T.docById(q.id))[1].w, 12, 'un ancho fuera de rango se recorta a la cuadrícula');
+
+  T.actMoveBlock(q.id, texto.id, 4);
+  eq(T.bloquesDe(T.docById(q.id))[4].id, texto.id, 'los bloques se reordenan');
+  ok(T.actRemoveBlock(q.id, texto.id), 'y se quitan');
+  eq(T.bloquesDe(T.docById(q.id)).length, 5, 'volviendo a cinco');
+
+  const img = T.actAddBlock(q.id, 'image', 0, { url: 'https://cdn/plano.png', caption: 'Planta' });
+  eq(img.w, 6, 'una imagen entra a media hoja por defecto');
+  T.actResetBlocks(q.id);
+  eq(T.bloquesDe(T.docById(q.id)).length, 5, 'restablecer devuelve la maqueta de la casa');
+
+  // Los bloques vinculados no duplican datos: leen del documento.
+  const ctx = T.contextoDe(T.docById(q.id), T.getModel().def);
+  eq(ctx.totals.subtotal, 200000, 'el contexto de pintado calcula los totales del documento');
+  eq(ctx.doc.lines.length, 1, 'y el bloque de ítems pinta las líneas reales, sin copiarlas');
+}
+
 seccion('Render de todas las pantallas');
 {
   const T = mounted.__test;
@@ -494,8 +535,13 @@ seccion('Render de todas las pantallas');
   }
   const alguna = T.quotesOf()[0];
   T.actOpen(alguna.id);
+  T.actSetEditorView('data');
   const n = render(R.createElement(mounted.Component, {}), 'editor');
   ok(n > 40, 'el editor de una cotización se renderiza (' + n + ' nodos)');
+  T.actSetEditorView('design');
+  const nd = render(R.createElement(mounted.Component, {}), 'lienzo');
+  ok(nd > 40, 'el lienzo visual se renderiza (' + nd + ' nodos)');
+  T.actSetEditorView('data');
   T.actCloseEditor();
 }
 
