@@ -1,10 +1,10 @@
 {
   "id": "kimos-project-manager",
   "name": "Gestor de Proyectos",
-  "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa: costeo separado en CAPEX y OPEX, partidas por centro y por moneda, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
+  "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa con conversor de moneda que toma el tipo de cambio del día: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con su equivalente en dólares a la vista, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
   "icon": "🧭",
   "author": "KIMOS",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "entry": "dist/index.js",
   "css": "dist/index.css",
   "appShellApi": "1.x",

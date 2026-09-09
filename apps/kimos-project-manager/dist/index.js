@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -176,7 +176,14 @@ export default function mount(shell) {
   const SOURCE_KINDS = [
     ['folder', 'Carpeta local'], ['drive', 'Google Drive'], ['cloud', 'Otra nube / enlace'],
   ];
-  const CURRENCIES = ['CLP', 'COP', 'USD', 'PEN', 'MXN', 'EUR', 'BRL', 'ARS'];
+  const CURRENCY_NAMES = {
+    USD: 'Dólar estadounidense', CLP: 'Peso chileno', COP: 'Peso colombiano',
+    PEN: 'Sol peruano', MXN: 'Peso mexicano', EUR: 'Euro', BRL: 'Real brasileño',
+    ARS: 'Peso argentino', UYU: 'Peso uruguayo', BOB: 'Boliviano', PYG: 'Guaraní',
+    GBP: 'Libra esterlina', CAD: 'Dólar canadiense', UF: 'Unidad de Fomento (Chile)',
+  };
+  const CURRENCIES = Object.keys(CURRENCY_NAMES);
+  const currencyLabel = (c) => s(c) + (CURRENCY_NAMES[c] ? ' — ' + CURRENCY_NAMES[c] : '');
   const LOG_KINDS = [
     ['note', 'Nota'], ['decision', 'Decisión'], ['meeting', 'Reunión'],
     ['issue', 'Problema'], ['milestone', 'Hito'], ['system', 'Sistema'],
@@ -289,7 +296,7 @@ export default function mount(shell) {
     currency: 'CLP', budget: 0, manualProgress: null,
     blackouts: [], phases: [], tasks: [], milestones: [], risks: [],
     documents: [], budgetLines: [], log: [], questions: [], links: [],
-    centers: [], baseline: null, pricing: null, service: null,
+    centers: [], baseline: null, pricing: null, service: null, fx: null,
     createdAt: stamp(), updatedAt: stamp(),
   }, patch || {});
 
@@ -331,7 +338,7 @@ export default function mount(shell) {
    *  gestión del proyecto, porque el precio se presenta donde se firma. */
   const newCenter = (patch) => Object.assign({
     id: uid('ctr'), name: '', code: '', country: '', currency: 'CLP',
-    fx: 1, fxNote: '', units: 0, notes: '', colorIndex: 0, updatedAt: stamp(),
+    fx: 1, fxManual: false, fxNote: '', units: 0, notes: '', colorIndex: 0, updatedAt: stamp(),
   }, patch || {});
 
   /** Partida de costeo. `kind` separa la inversión del servicio recurrente:
@@ -426,6 +433,7 @@ export default function mount(shell) {
       proj.centers = arr(p.centers).filter(Boolean).map((x) => newCenter(x));
       proj.pricing = Object.assign(defaultPricing(), p.pricing || {});
       proj.service = normalizeService(p.service);
+      proj.fx = normalizeFx(p.fx);
       proj.baseline = p.baseline && arr(p.baseline.lines).length
         ? Object.assign({ label: 'Presupuesto de referencia', capturedAt: stamp() }, p.baseline, {
           lines: arr(p.baseline.lines).filter(Boolean).map((x) => newLine(x)),
@@ -440,6 +448,233 @@ export default function mount(shell) {
       return proj;
     });
     return m;
+  }
+
+
+  // ── Tipo de cambio ──────────────────────────────────────────────────────
+  /* Un proyecto se costea en una moneda y se oferta en otra. La app guarda
+   * UNA tabla de tipos de cambio por proyecto, siempre con el dólar como
+   * base, y de ahí deriva todo: la conversión de cada centro, el equivalente
+   * en dólares que se muestra junto a cada importe y la conversión de los
+   * costos cuando se cambia la moneda de gestión.
+   *
+   * La tabla se puede actualizar con el valor del día desde un proveedor
+   * público, o escribirse a mano. Si la red del host bloquea la consulta
+   * —el bundle corre dentro de la página de KIMOS y su CSP manda—, la app
+   * lo dice y deja el valor manual, que es el que termina firmando la
+   * oferta de todas formas. */
+
+  const FX_BASE = 'USD';
+  /** Valores de arranque. Son supuestos: la fecha de la oferta manda. */
+  const FX_SEED = {
+    USD: 1, CLP: 950, COP: 4100, PEN: 3.75, MXN: 17.5, EUR: 0.92,
+    BRL: 5.2, ARS: 1000, UYU: 40, BOB: 6.9, PYG: 7300, GBP: 0.79, CAD: 1.36, UF: 0.026,
+  };
+
+  const newFx = (patch) => Object.assign({
+    base: FX_BASE,
+    rates: Object.assign({}, FX_SEED),
+    updatedAt: '', source: 'valores de arranque', auto: true,
+    updatedAtLocal: '',
+  }, patch || {});
+
+  const normalizeFx = (raw) => {
+    const fx = newFx(raw || {});
+    const rates = Object.assign({}, FX_SEED);
+    for (const [k, v] of Object.entries(fx.rates || {})) {
+      const num = n(v, 0);
+      if (s(k) && num > 0) rates[s(k).toUpperCase()] = num;
+    }
+    rates[FX_BASE] = 1;
+    fx.rates = rates;
+    fx.base = FX_BASE;
+    return fx;
+  };
+
+  /** Cuántas unidades de `cur` valen un dólar. */
+  const rateOf = (fx, cur) => {
+    const c = s(cur).toUpperCase();
+    if (!c) return 0;
+    if (c === FX_BASE) return 1;
+    return n((fx && fx.rates ? fx.rates : {})[c], 0);
+  };
+  /** Convierte entre dos monedas cualesquiera pasando por el dólar. */
+  const convertMoney = (amount, from, to, fx) => {
+    const rf = rateOf(fx, from);
+    const rt = rateOf(fx, to);
+    if (!rf || !rt) return null;
+    return (n(amount, 0) / rf) * rt;
+  };
+  const toUsd = (amount, cur, fx) => convertMoney(amount, cur, FX_BASE, fx);
+  /** Tipo de cambio efectivo de un centro contra la moneda del proyecto. */
+  const centerFx = (p, c) => {
+    if (!c) return 1;
+    if (c.fxManual) return n(c.fx, 1) || 1;
+    const derived = convertMoney(1, s(p.currency) || FX_BASE, c.currency, normalizeFx(p.fx));
+    return derived && derived > 0 ? derived : (n(c.fx, 1) || 1);
+  };
+
+  const fmtUsd = (amount, cur, fx) => {
+    const c = s(cur).toUpperCase();
+    if (!c || c === FX_BASE) return '';
+    const v = toUsd(amount, c, fx);
+    if (v == null || !Number.isFinite(v)) return '';
+    const abs = Math.abs(v);
+    return '≈ US$ ' + fmtNum(v, abs < 100 ? 2 : 0);
+  };
+  /** La línea chica que acompaña a cada importe fuera del dólar. */
+  const UsdHint = (amount, cur, fx, extra) => {
+    const txt = fmtUsd(amount, cur, fx);
+    if (!txt) return null;
+    return h('span', { className: 'kp-usd' }, txt, extra ? h('span', { className: 'kp-usd-x' }, extra) : null);
+  };
+
+  /** Línea corta con el tipo de cambio vigente del proyecto. */
+  const fxLine = (p) => {
+    const fx = normalizeFx(p.fx);
+    const cur = s(p.currency) || FX_BASE;
+    const when = fx.updatedAt ? 'actualizado ' + fmtWhen(fx.updatedAt) : (fx.updatedAtLocal ? s(fx.updatedAtLocal) : 'sin actualizar');
+    if (cur === FX_BASE) {
+      return h('span', { className: 'kp-usd' }, 'Moneda base del conversor',
+        h('span', { className: 'kp-usd-x' }, '· ' + when + ' · ' + s(fx.source)));
+    }
+    const rate = rateOf(fx, cur);
+    return h('span', { className: 'kp-usd' },
+      rate ? '1 US$ = ' + fmtNum(rate, rate < 100 ? 4 : 2) + ' ' + cur : 'Sin tipo de cambio para ' + cur,
+      h('span', { className: 'kp-usd-x' }, '· ' + when + ' · ' + s(fx.source)));
+  };
+
+  /** Proveedores públicos de tipo de cambio, en orden de preferencia. Todos
+   *  son de acceso abierto y devuelven el dólar como base. */
+  const FX_PROVIDERS = [
+    {
+      id: 'open.er-api.com',
+      url: 'https://open.er-api.com/v6/latest/USD',
+      parse: (j) => {
+        if (!j || (j.result && j.result !== 'success') || !j.rates) return null;
+        return { rates: j.rates, date: s(j.time_last_update_utc) || s(j.time_last_update_unix) };
+      },
+    },
+    {
+      id: 'currency-api (jsDelivr)',
+      url: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',
+      parse: (j) => {
+        if (!j || !j.usd) return null;
+        const out = {};
+        for (const [k, v] of Object.entries(j.usd)) out[s(k).toUpperCase()] = n(v, 0);
+        return { rates: out, date: s(j.date) };
+      },
+    },
+    {
+      id: 'exchangerate.host',
+      url: 'https://api.exchangerate.host/latest?base=USD',
+      parse: (j) => (j && j.rates ? { rates: j.rates, date: s(j.date) } : null),
+    },
+  ];
+
+  /** Pide el tipo de cambio del día. Recorre los proveedores hasta que uno
+   *  responde; si ninguno lo hace, lo dice sin disfrazarlo. */
+  async function fetchDailyRates(wanted) {
+    const errors = [];
+    for (const prov of FX_PROVIDERS) {
+      try {
+        const res = await fetch(prov.url, { cache: 'no-store', credentials: 'omit', mode: 'cors' });
+        if (!res || !res.ok) { errors.push(prov.id + ': HTTP ' + ((res && res.status) || '?')); continue; }
+        const json = await res.json();
+        const parsed = prov.parse(json);
+        if (!parsed || !parsed.rates) { errors.push(prov.id + ': respuesta inesperada'); continue; }
+        const keep = uniq((arr(wanted).length ? arr(wanted) : CURRENCIES).concat(CURRENCIES).map((x) => s(x).toUpperCase()));
+        const rates = { USD: 1 };
+        let hits = 0;
+        for (const cur of keep) {
+          const v = n(parsed.rates[cur], 0);
+          if (v > 0) { rates[cur] = v; hits++; }
+        }
+        if (!hits) { errors.push(prov.id + ': no trajo ninguna de las monedas pedidas'); continue; }
+        return { rates, source: prov.id, date: parsed.date, missing: keep.filter((c) => c !== 'USD' && !rates[c]) };
+      } catch (e) {
+        errors.push(prov.id + ': ' + ((e && e.message) || 'sin respuesta'));
+      }
+    }
+    const err2 = new Error('Ningún proveedor de tipo de cambio respondió. ' + errors.join(' · '));
+    err2.detail = errors;
+    throw err2;
+  }
+
+  /** Actualiza la tabla del proyecto con el valor del día. */
+  async function refreshProjectRates(projectId) {
+    const p = findProject(projectId);
+    if (!p) return { ok: false, error: 'Proyecto no encontrado.' };
+    const wanted = uniq([s(p.currency)].concat(arr(p.centers).map((c) => s(c.currency))).filter(Boolean));
+    try {
+      const res = await fetchDailyRates(wanted);
+      const fx = normalizeFx(p.fx);
+      commit((m) => {
+        const proj = findProject(projectId);
+        if (!proj) return m;
+        proj.fx = normalizeFx(Object.assign({}, fx, {
+          rates: Object.assign({}, fx.rates, res.rates),
+          updatedAt: stamp(), source: res.source, updatedAtLocal: s(res.date),
+        }));
+        touch(proj);
+        return m;
+      });
+      addLog(projectId, 'system', 'Tipo de cambio actualizado desde ' + res.source +
+        ' (' + wanted.map((c) => c + ' ' + fmtNum(n(res.rates[c], 0), n(res.rates[c], 0) < 100 ? 2 : 0)).join(' · ') + ').', 'Conversor');
+      commit((m) => m);
+      return { ok: true, source: res.source, date: res.date, rates: res.rates, missing: res.missing };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'No se pudo consultar el tipo de cambio.' };
+    }
+  }
+
+  /** Cambia la moneda de gestión del proyecto. `convertAmounts` reexpresa
+   *  todos los importes al nuevo tipo de cambio; sin él, solo cambia la
+   *  etiqueta y los números quedan como están. */
+  function changeProjectCurrency(projectId, nextCurrency, convertAmounts) {
+    const p = findProject(projectId);
+    const to = s(nextCurrency).toUpperCase();
+    if (!p || !to || to === s(p.currency)) return false;
+    const fx = normalizeFx(p.fx);
+    const factor = convertAmounts ? convertMoney(1, p.currency, to, fx) : 1;
+    if (convertAmounts && (!factor || !Number.isFinite(factor))) return false;
+    const conv = (v) => Math.round(n(v, 0) * factor * 100) / 100;
+    commit((m) => {
+      const proj = findProject(projectId);
+      if (!proj) return m;
+      const from = s(proj.currency);
+      proj.currency = to;
+      if (convertAmounts) {
+        proj.budget = conv(proj.budget);
+        proj.budgetLines = arr(proj.budgetLines).map((b) => touch(Object.assign({}, b, { unitCost: conv(b.unitCost) })));
+        if (proj.baseline && arr(proj.baseline.lines).length) {
+          proj.baseline = Object.assign({}, proj.baseline, {
+            lines: arr(proj.baseline.lines).map((b) => Object.assign({}, b, { unitCost: conv(b.unitCost) })),
+          });
+        }
+        const svc = normalizeService(proj.service);
+        proj.service = Object.assign(svc, {
+          nocMonthly: conv(svc.nocMonthly),
+          techMonthlyCost: arr(svc.techMonthlyCost).map((x) => Object.assign({}, x, { cost: conv(x.cost) })),
+          partnerPerUnit: arr(svc.partnerPerUnit).map((x) => Object.assign({}, x, { usd: conv(x.usd) })),
+          updatedAt: stamp(),
+        });
+      }
+      // Los centros con tipo de cambio derivado se recalculan solos; los
+      // fijados a mano se reexpresan contra la nueva moneda de gestión.
+      proj.centers = arr(proj.centers).map((c) => {
+        if (!c.fxManual) return touch(Object.assign({}, c, { fx: convertMoney(1, to, c.currency, fx) || n(c.fx, 1) }));
+        const rebased = convertMoney(n(c.fx, 1), from, to, fx);
+        return touch(Object.assign({}, c, { fx: rebased && rebased > 0 ? rebased : n(c.fx, 1) }));
+      });
+      touch(proj);
+      return m;
+    });
+    addLog(projectId, 'system', 'Moneda de gestión cambiada a ' + to +
+      (convertAmounts ? ' y los importes se reexpresaron al tipo de cambio guardado (factor ' + fmtNum(factor, 4) + ').'
+        : ' sin convertir los importes: los números quedaron como estaban.'), 'Conversor');
+    commit((m) => m);
+    return true;
   }
 
   // ── Proyecto semilla: Parque Arauco ─────────────────────────────────────
@@ -562,13 +797,13 @@ export default function mount(shell) {
       newCenter({
         id: 'ctr-pak', name: 'Parque Arauco Kennedy', code: 'PAK', country: 'Chile',
         currency: 'CLP', fx: 950, units: 12, colorIndex: 0,
-        fxNote: 'Supuesto de modelación: 950 CLP por USD. Actualízalo con el tipo de cambio del día de la oferta.',
+        fxNote: 'Se deriva de la tabla de cambio del proyecto. Actualízala con el valor del día antes de cerrar la oferta.',
         notes: 'Av. Presidente Kennedy 5413, Santiago. Zonas C y D: instalación desde cero de 12 tótems indoor.',
       }),
       newCenter({
         id: 'ctr-plc', name: 'Parque La Colina', code: 'PLC', country: 'Colombia',
         currency: 'COP', fx: 4100, units: 15, colorIndex: 1,
-        fxNote: 'Supuesto de modelación: 4.100 COP por USD. Actualízalo con el tipo de cambio del día de la oferta.',
+        fxNote: 'Se deriva de la tabla de cambio del proyecto. Actualízala con el valor del día antes de cerrar la oferta.',
         notes: 'Carrera 58D # 146-51, Bogotá. Recambio completo de los tótems existentes; trabajos solo nocturnos con el centro cerrado.',
       }),
     ];
@@ -638,6 +873,12 @@ export default function mount(shell) {
       crewBreakevenMin: 150, crewBreakevenMax: 400,
     });
 
+    const fx = newFx({
+      rates: Object.assign({}, FX_SEED, { USD: 1, CLP: 950, COP: 4100 }),
+      source: 'supuestos de modelación',
+      updatedAt: '',
+    });
+
     const pricing = Object.assign(defaultPricing(), {
       contractType: 'llave_en_mano', marginMode: 'sale', allocation: 'units',
       notes: 'La oferta se presenta en moneda local por centro comercial, a valor neto y con los impuestos cuantificados por separado (§8.1 de las Bases).',
@@ -685,7 +926,7 @@ export default function mount(shell) {
       budget: 285000,
       blackouts: [{ id: 'blk-pa-dic', from: '2026-12-01', to: '2026-12-31', label: 'Diciembre bloqueado en PAK (resp. 107): no se pueden realizar trabajos en los centros comerciales' }],
       phases, tasks, milestones, risks, documents, budgetLines, questions, log,
-      centers, baseline, service, pricing,
+      centers, baseline, service, pricing, fx,
     });
 
     return { client: cli, project };
@@ -1139,8 +1380,16 @@ export default function mount(shell) {
    *  a la vista para poder defenderlo (o bajarlo) frente al cliente. */
   function recommendMargin(p, capexCost, opexMonthly) {
     const size = capexCost + opexMonthly * 12;
-    const base = size < 100000 ? 18 : size < 500000 ? 14 : size < 2000000 ? 11 : 9;
-    const parts = [{ label: 'Base por envergadura (' + fmtMoney(size, p.currency) + ' a 12 meses)', pts: base }];
+    // La envergadura se mide SIEMPRE en dólares: un proyecto de 300 millones
+    // de pesos no es más grande que el mismo proyecto expresado en dólares,
+    // y sin esta conversión las bandas dependerían de la moneda elegida.
+    const sizeUsd = n(toUsd(size, p.currency, normalizeFx(p.fx)), 0) || size;
+    const base = sizeUsd < 100000 ? 18 : sizeUsd < 500000 ? 14 : sizeUsd < 2000000 ? 11 : 9;
+    const parts = [{
+      label: 'Base por envergadura (' + fmtMoney(size, p.currency) +
+        (s(p.currency) === FX_BASE ? '' : ' ≈ ' + fmtMoney(sizeUsd, FX_BASE)) + ' a 12 meses)',
+      pts: base,
+    }];
 
     const contract = s((p.pricing || {}).contractType);
     if (contract === 'llave_en_mano' || contract === 'suma_alzada') {
@@ -1379,9 +1628,9 @@ export default function mount(shell) {
       const opex = n(directOpex.get(c.id), 0) + sharedOpex * w;
       const capexPrice = priceFrom(capex, capexMarginPct, mode);
       const opexPrice = priceFrom(opex, opexMarginPct, mode);
-      const fx = n(c.fx, 0) || 1;
+      const fx = centerFx(p, c) || 1;
       return {
-        center: c, units: n(c.units, 0), share: w,
+        center: c, units: n(c.units, 0), share: w, fx,
         capexCost: capex, opexCost: opex,
         capexPrice, opexPrice,
         capexLocal: capexPrice * fx, opexLocal: opexPrice * fx,
@@ -2198,7 +2447,7 @@ export default function mount(shell) {
           { v: fmtNum(r.units), num: true },
           { v: money0(r.capexPrice), num: true },
           { v: money0(r.opexPrice), num: true },
-          { v: fmtNum(r.center.fx, 2) + ' ' + r.center.currency + '/' + cur, num: true },
+          { v: fmtNum(r.fx, r.fx < 100 ? 4 : 2) + ' ' + r.center.currency + '/' + cur, num: true },
           { v: money0(r.capexLocal, r.center.currency), num: true, strong: true },
           { v: money0(r.opexLocal, r.center.currency), num: true, strong: true },
         ])));
@@ -3120,6 +3369,61 @@ export default function mount(shell) {
     className: 'kp-input', value: s(value), onChange: (e) => onChange(e.target.value),
   }, opts || {}));
 
+  /* ── Campo numérico con separador de miles ──────────────────────────────
+   * Un costo unitario de 5500 se lee mal; 5.500 se lee de un vistazo. El
+   * campo muestra el número agrupado mientras no se está escribiendo en él
+   * y el valor crudo al enfocarlo, para poder teclear sin pelear con el
+   * formateo. Acepta lo que la gente realmente escribe: 5.500, 5500, 5,5 y
+   * 5.500,25. */
+  const parseNum = (raw) => {
+    let t = s(raw).trim().replace(/\s|\u00a0/g, '');
+    if (!t) return 0;
+    const neg = /^-/.test(t);
+    t = t.replace(/[^0-9.,]/g, '');
+    const lastDot = t.lastIndexOf('.');
+    const lastComma = t.lastIndexOf(',');
+    if (lastDot >= 0 && lastComma >= 0) {
+      // el separador decimal es el que aparece más a la derecha
+      const dec = lastComma > lastDot ? ',' : '.';
+      const mil = dec === ',' ? '.' : ',';
+      t = t.split(mil).join('').replace(dec, '.');
+    } else if (lastComma >= 0) {
+      // una sola coma: decimal si deja 1 o 2 dígitos, si no es de miles
+      t = t.length - lastComma - 1 <= 2 ? t.replace(',', '.') : t.split(',').join('');
+    } else if (lastDot >= 0) {
+      const decimals = t.length - lastDot - 1;
+      const groups = t.split('.');
+      const looksGrouped = groups.length > 2 || (decimals === 3 && groups[0].length <= 3);
+      if (looksGrouped) t = groups.join('');
+    }
+    const v = Number(t);
+    if (!Number.isFinite(v)) return 0;
+    return neg ? -v : v;
+  };
+
+  /** Input numérico agrupado. `decimals` fija cuántos decimales muestra en
+   *  reposo (por defecto, los que tenga el valor hasta un máximo de 2). */
+  function NumInput(props) {
+    const [draft, setDraft] = useState(null);
+    const value = n(props.value, 0);
+    const dec = props.decimals != null ? props.decimals
+      : (Math.abs(value % 1) > 0.0000001 ? Math.min(4, (s(value).split('.')[1] || '').length) : 0);
+    const shown = draft != null ? draft : (props.value === '' || props.value == null ? '' : fmtNum(value, dec));
+    return h('input', Object.assign({
+      type: 'text', inputMode: 'decimal', value: shown,
+      className: props.className || 'kp-input',
+      onFocus: () => setDraft(props.value === '' || props.value == null ? '' : String(value)),
+      onChange: (e) => {
+        setDraft(e.target.value);
+        props.onChange(parseNum(e.target.value), e.target.value);
+      },
+      onBlur: (e) => {
+        setDraft(null);
+        if (props.onCommit) props.onCommit(parseNum(e.target.value));
+      },
+    }, props.attrs || {}));
+  }
+
   const TextArea = (value, onChange, opts) => h('textarea', Object.assign({
     className: 'kp-textarea', value: s(value), onChange: (e) => onChange(e.target.value),
   }, opts || {}));
@@ -3155,8 +3459,10 @@ export default function mount(shell) {
       h('div', { className: 'kp-panel-hd' },
         h('span', { className: 'kp-panel-title' }, title),
         IconBtn(I.x(16), 'Cerrar', onClose, { ghost: true })),
-      h('div', { className: 'kp-panel-body' }, bodyEls),
-      footEls ? h('div', { className: 'kp-panel-foot' }, footEls) : null));
+      // React.Children.toArray asigna claves estables a los hijos sueltos:
+      // así ningún editor tiene que numerar a mano su lista de campos.
+      h('div', { className: 'kp-panel-body' }, React.Children.toArray(bodyEls)),
+      footEls ? h('div', { className: 'kp-panel-foot' }, React.Children.toArray(footEls)) : null));
 
   // ── Portada: tablero global de la cartera ───────────────────────────────
   function viewDashboard(ctx) {
@@ -3926,18 +4232,31 @@ export default function mount(shell) {
     const setLines = (next) => set({ budgetLines: next });
     const sub = ui.econTab || 'costeo';
     const setSub = (v) => setUi((u) => ({ ...u, econTab: v }));
+    const fxTable = normalizeFx(p.fx);
 
     const overTone = e.budgetState === 'over' ? 'err' : e.budgetState === 'watch' ? 'warn' : 'ok';
     const kpis = h('div', { className: 'kp-grid kp-grid-4 kp-sec' },
-      Kpi('CAPEX · inversión', money0(e.capexCost, cur), { key: 'e1', icon: I.money(14), foot: e.capexLines.length + ' partidas · precio ' + money0(e.capexPrice, cur) }),
-      Kpi('OPEX · fee mensual', money0(e.opexMonthly, cur), { key: 'e2', icon: I.refresh(14), foot: e.term + ' meses · precio ' + money0(e.opexPrice, cur) + '/mes' }),
+      Kpi('CAPEX · inversión', money0(e.capexCost, cur), {
+        key: 'e1', icon: I.money(14),
+        foot: h('span', null, e.capexLines.length + ' partidas · precio ' + money0(e.capexPrice, cur),
+          UsdHint(e.capexCost, cur, fxTable) ? h('span', null, h('br'), UsdHint(e.capexCost, cur, fxTable)) : null),
+      }),
+      Kpi('OPEX · fee mensual', money0(e.opexMonthly, cur), {
+        key: 'e2', icon: I.refresh(14),
+        foot: h('span', null, e.term + ' meses · precio ' + money0(e.opexPrice, cur) + '/mes',
+          UsdHint(e.opexMonthly, cur, fxTable) ? h('span', null, h('br'), UsdHint(e.opexMonthly, cur, fxTable)) : null),
+      }),
       Kpi('Costeo total', money0(e.costingTotal, cur), {
         key: 'e3', icon: I.chart(14), tone: e.budgetState === 'over' ? 'err' : e.budgetState === 'watch' ? 'warn' : undefined,
         foot: e.budget > 0
           ? 'presupuesto ' + money0(e.budget, cur) + ' · ' + (e.overrun >= 0 ? '+' : '') + fmtNum(e.overrunPct, 1) + '%'
           : 'sin presupuesto declarado en la ficha',
       }),
-      Kpi('Precio propuesto', money0(e.contractPrice, cur), { key: 'e4', icon: I.target(14), foot: 'contrato completo · utilidad ' + money0(e.contractPrice - e.contractCost, cur) }));
+      Kpi('Precio propuesto', money0(e.contractPrice, cur), {
+        key: 'e4', icon: I.target(14),
+        foot: h('span', null, 'contrato completo · utilidad ' + money0(e.contractPrice - e.contractCost, cur),
+          UsdHint(e.contractPrice, cur, fxTable) ? h('span', null, h('br'), UsdHint(e.contractPrice, cur, fxTable)) : null),
+      }));
 
     // Aviso de desvío: el punto en que el costeo se comió el presupuesto.
     const overrunNote = e.budgetState === 'over'
@@ -3964,9 +4283,18 @@ export default function mount(shell) {
             b.note ? h('div', { className: 'kp-sec-note' }, b.note) : null),
           h('td', null, Select(b.category, LINE_CATEGORIES, (v) => upd({ category: v }), { className: 'kp-cellinput' })),
           h('td', null, Select(b.centerId, [['shared', 'Compartida']].concat(arr(p.centers).map((c) => [c.id, c.code || c.name])), (v) => upd({ centerId: v }), { className: 'kp-cellinput' })),
-          h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.qty, 0), style: { textAlign: 'right', width: '70px' }, onChange: (ev) => upd({ qty: n(ev.target.value, 0) }) })),
-          h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.unitCost, 0), style: { textAlign: 'right', width: '96px' }, onChange: (ev) => upd({ unitCost: n(ev.target.value, 0) }) })),
-          h('td', { className: 'kp-td-num kp-strong' }, fmtNum(lineTotal(b))),
+          h('td', { className: 'kp-td-num' }, h(NumInput, {
+            value: n(b.qty, 0), className: 'kp-cellinput',
+            attrs: { style: { textAlign: 'right', width: '78px' } },
+            onChange: (v) => upd({ qty: v }),
+          })),
+          h('td', { className: 'kp-td-num' }, h(NumInput, {
+            value: n(b.unitCost, 0), className: 'kp-cellinput',
+            attrs: { style: { textAlign: 'right', width: '108px' } },
+            onChange: (v) => upd({ unitCost: v }),
+          })),
+          h('td', { className: 'kp-td-num kp-strong' }, fmtNum(lineTotal(b)),
+            UsdHint(lineTotal(b), cur, fxTable)),
           h('td', { className: 'kp-td-act' },
             IconBtn(I.trash(13), 'Quitar la partida', () => setLines(lines.filter((x) => x.id !== b.id)), { ghost: true, tone: 'danger' })));
       };
@@ -3992,7 +4320,8 @@ export default function mount(shell) {
                 h('td', { className: 'kp-strong' }, isOpexTable ? 'Fee mensual · costo del período' : 'Total CAPEX'),
                 h('td', null), h('td', null), h('td', null),
                 h('td', { className: 'kp-td-num kp-strong' }, isOpexTable ? fmtNum(sum(rows, (b) => n(b.unitCost, 0))) : ''),
-                h('td', { className: 'kp-td-num kp-strong' }, fmtNum(sum(rows, lineTotal))),
+                h('td', { className: 'kp-td-num kp-strong' }, fmtNum(sum(rows, lineTotal)),
+                  UsdHint(sum(rows, lineTotal), cur, fxTable)),
                 h('td', null)))))
           : h('div', { className: 'kp-sec-note' }, 'Sin partidas en este bloque.'));
 
@@ -4061,7 +4390,68 @@ export default function mount(shell) {
     };
 
     // ── Centros y monedas ─────────────────────────────────────────────────
+    const usedCurrencies = uniq([s(p.currency)].concat(arr(p.centers).map((c) => s(c.currency))).filter(Boolean));
+    const fxBusy = ui.fxBusy === p.id;
+    const refreshFx = async () => {
+      setUi((u) => ({ ...u, fxBusy: p.id, fxError: '' }));
+      const res = await refreshProjectRates(p.id);
+      setUi((u) => ({ ...u, fxBusy: '', fxError: res.ok ? '' : res.error }));
+      if (res.ok) {
+        shell.notify && shell.notify({
+          level: 'success',
+          text: 'Tipo de cambio actualizado desde ' + res.source + (res.date ? ' (' + res.date + ')' : '') + '.',
+        });
+      }
+    };
+
     const viewCentros = () => h('div', null,
+      h('div', { className: 'kp-sec kp-card kp-card-pad' },
+        SectionHead('Conversor de moneda', 'Una sola tabla con el dólar como base: de ahí sale cada conversión de la app'),
+        h('div', { className: 'kp-fxbar' },
+          h('div', { className: 'kp-fxbar-main' },
+            h('span', { className: 'kp-fxbar-rate' },
+              s(p.currency) === FX_BASE
+                ? 'Moneda de gestión: US$ (base)'
+                : '1 US$ = ' + fmtNum(rateOf(fxTable, p.currency), rateOf(fxTable, p.currency) < 100 ? 4 : 2) + ' ' + s(p.currency)),
+            h('span', { className: 'kp-fxbar-src' },
+              (fxTable.updatedAt ? 'Actualizado ' + fmtWhen(fxTable.updatedAt) : 'Sin actualizar') +
+              ' · fuente: ' + s(fxTable.source) + (fxTable.updatedAtLocal ? ' · ' + s(fxTable.updatedAtLocal) : ''))),
+          h('div', { className: 'kp-fxbar-actions' },
+            h('button', { className: 'kp-btn kp-btn-sm kp-btn-primary', onClick: refreshFx, disabled: fxBusy },
+              fxBusy ? I.clock(13) : I.refresh(13), fxBusy ? 'Consultando…' : 'Actualizar al valor de hoy'))),
+        ui.fxError ? h('div', { style: { marginTop: '10px' } },
+          Note(h('span', null,
+            h('strong', null, 'No se pudo consultar el tipo de cambio del día. '),
+            'Escríbelo a mano en la tabla de abajo: es el valor que termina firmando la oferta de todas formas. ',
+            h('span', { className: 'kp-sec-note' }, ui.fxError)), 'warn', I.alert(15))) : null,
+        h('div', { className: 'kp-tablewrap', style: { marginTop: '12px' } },
+          h('table', { className: 'kp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Moneda'),
+              h('th', { className: 'kp-td-num' }, 'Unidades por 1 US$'),
+              h('th', { className: 'kp-td-num' }, '1 unidad en US$'),
+              h('th', null, 'Uso en este proyecto'))),
+            h('tbody', null, usedCurrencies.concat(CURRENCIES.filter((c) => !usedCurrencies.includes(c))).map((curr) => {
+              const rate = rateOf(fxTable, curr);
+              const roles = [];
+              if (curr === s(p.currency)) roles.push('moneda de gestión');
+              arr(p.centers).filter((c) => c.currency === curr).forEach((c) => roles.push(c.name));
+              return h('tr', { key: curr, style: roles.length ? null : { opacity: 0.55 } },
+                h('td', null, h('span', { className: roles.length ? 'kp-strong' : '' }, currencyLabel(curr))),
+                h('td', { className: 'kp-td-num' }, curr === FX_BASE ? '1' : h(NumInput, {
+                  value: rate, className: 'kp-cellinput', decimals: rate && rate < 100 ? 4 : 2,
+                  attrs: { style: { textAlign: 'right', width: '120px' } },
+                  onChange: (v) => set({ fx: normalizeFx(Object.assign({}, fxTable, {
+                    rates: Object.assign({}, fxTable.rates, { [curr]: v }),
+                    source: 'editado a mano', updatedAt: stamp(), updatedAtLocal: '',
+                  })) }),
+                })),
+                h('td', { className: 'kp-td-num kp-muted' }, rate ? 'US$ ' + fmtNum(1 / rate, 1 / rate < 100 ? 6 : 2) : '—'),
+                h('td', { className: 'kp-muted' }, roles.length ? roles.join(' · ') : '—'));
+            })))),
+        h('div', { className: 'kp-sec-note', style: { marginTop: '8px' } },
+          'La consulta sale del navegador de quien usa la app. Si la política de red del host la bloquea, el valor se escribe a mano y todo lo demás sigue funcionando igual.')),
+
       h('div', { className: 'kp-sec' },
         SectionHead('Centros de la oferta', 'El precio se presenta donde se firma: por centro y en su moneda',
           h('button', {
@@ -4081,11 +4471,26 @@ export default function mount(shell) {
                   c.fxNote ? h('div', { className: 'kp-sec-note' }, c.fxNote) : null),
                 h('td', null, h('input', { className: 'kp-cellinput', value: s(c.code), style: { width: '70px' }, onChange: (ev) => upd({ code: ev.target.value }) })),
                 h('td', null, h('input', { className: 'kp-cellinput', value: s(c.country), style: { width: '110px' }, onChange: (ev) => upd({ country: ev.target.value }) })),
-                h('td', null, Select(c.currency, CURRENCIES.map((x) => [x, x]), (v) => upd({ currency: v }), { className: 'kp-cellinput' })),
+                h('td', null, Select(c.currency, CURRENCIES.map((x) => [x, x]), (v) => upd(Object.assign({ currency: v }, c.fxManual ? {} : { fx: convertMoney(1, p.currency, v, fxTable) || n(c.fx, 1) })), { className: 'kp-cellinput' })),
                 h('td', { className: 'kp-td-num' },
-                  h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(c.fx, 1), style: { textAlign: 'right', width: '92px' }, onChange: (ev) => upd({ fx: n(ev.target.value, 1) }) }),
-                  h('div', { className: 'kp-sec-note' }, s(c.currency) + ' por 1 ' + cur)),
-                h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: n(c.units, 0), style: { textAlign: 'right', width: '64px' }, onChange: (ev) => upd({ units: n(ev.target.value, 0) }) })),
+                  c.fxManual
+                    ? h(NumInput, {
+                      value: n(c.fx, 1), className: 'kp-cellinput', decimals: n(c.fx, 1) < 100 ? 4 : 2,
+                      attrs: { style: { textAlign: 'right', width: '104px' } },
+                      onChange: (v) => upd({ fx: v }),
+                    })
+                    : h('span', { className: 'kp-strong' }, fmtNum(centerFx(p, c), centerFx(p, c) < 100 ? 4 : 2)),
+                  h('div', { className: 'kp-sec-note' }, s(c.currency) + ' por 1 ' + cur),
+                  h('button', {
+                    className: 'kp-btn kp-btn-sm kp-btn-ghost', style: { marginTop: '2px' },
+                    title: c.fxManual ? 'Volver a derivarlo de la tabla de cambio' : 'Fijarlo a mano para este centro',
+                    onClick: () => upd(c.fxManual ? { fxManual: false } : { fxManual: true, fx: centerFx(p, c) }),
+                  }, c.fxManual ? 'Derivar de la tabla' : 'Fijar a mano')),
+                h('td', { className: 'kp-td-num' }, h(NumInput, {
+                  value: n(c.units, 0), className: 'kp-cellinput', decimals: 0,
+                  attrs: { style: { textAlign: 'right', width: '72px' } },
+                  onChange: (v) => upd({ units: Math.round(v) }),
+                })),
                 h('td', { className: 'kp-td-act' }, IconBtn(I.trash(13), 'Quitar el centro', () => set({
                   centers: arr(p.centers).filter((x) => x.id !== c.id),
                   budgetLines: lines.map((b) => (b.centerId === c.id ? touch(Object.assign({}, b, { centerId: 'shared' })) : b)),
@@ -4146,7 +4551,9 @@ export default function mount(shell) {
         h('div', { className: 'kp-sec kp-card kp-card-pad' },
           SectionHead('Supuestos de modelación', 'Reemplázalos por cotizaciones reales antes de ofertar'),
           h('div', { className: 'kp-row-3' },
-            Field('NOC / monitoreo mensual (' + cur + ')', Input(svc.nocMonthly, (v) => setSvc({ nocMonthly: n(v, 0) }), { type: 'number', min: 0 })),
+            Field('NOC / monitoreo mensual (' + cur + ')',
+              h(NumInput, { value: svc.nocMonthly, onChange: (v) => setSvc({ nocMonthly: v }) }),
+              fmtUsd(svc.nocMonthly, cur, fxTable)),
             Field('Recargo por guardia 24x7 (%)', Input(svc.guardPremiumPct, (v) => setSvc({ guardPremiumPct: n(v, 0) }), { type: 'number', min: 0, max: 200 })),
             Field('Repuestos: % anual del equipamiento', Input(svc.sparesAnnualPct, (v) => setSvc({ sparesAnnualPct: n(v, 0) }), { type: 'number', min: 0, step: 0.1 }))),
           h('div', { className: 'kp-row-3', style: { marginTop: '12px' } },
@@ -4167,8 +4574,12 @@ export default function mount(shell) {
                 const setPartner = (v) => setSvc({ partnerPerUnit: arr(p.centers).map((cc) => ({ centerId: cc.id, usd: cc.id === c.id ? n(v, 0) : n((arr(svc.partnerPerUnit).find((x) => x.centerId === cc.id) || {}).usd, 0) })) });
                 return h('tr', { key: c.id },
                   h('td', null, c.name + (c.country ? ' · ' + c.country : '')),
-                  h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: tech, style: { textAlign: 'right', width: '100px' }, onChange: (ev) => setTech(ev.target.value) })),
-                  h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: partner, style: { textAlign: 'right', width: '100px' }, onChange: (ev) => setPartner(ev.target.value) })));
+                  h('td', { className: 'kp-td-num' },
+                    h(NumInput, { value: tech, className: 'kp-cellinput', attrs: { style: { textAlign: 'right', width: '110px' } }, onChange: setTech }),
+                    UsdHint(tech, cur, fxTable)),
+                  h('td', { className: 'kp-td-num' },
+                    h(NumInput, { value: partner, className: 'kp-cellinput', attrs: { style: { textAlign: 'right', width: '110px' } }, onChange: setPartner }),
+                    UsdHint(partner, cur, fxTable)));
               })))) : null),
 
         h('div', { className: 'kp-sec kp-card kp-card-pad' },
@@ -4310,16 +4721,20 @@ export default function mount(shell) {
               h('tbody', null, e.byCenter.map((r) => h('tr', { key: r.center.id },
                 h('td', { className: 'kp-strong' }, r.center.name),
                 h('td', null, r.center.currency),
-                h('td', { className: 'kp-td-num kp-strong' }, money0(r.capexLocal, r.center.currency)),
-                h('td', { className: 'kp-td-num kp-strong' }, money0(r.opexLocal, r.center.currency)),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(r.capexLocal, r.center.currency),
+                  UsdHint(r.capexLocal, r.center.currency, fxTable)),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(r.opexLocal, r.center.currency),
+                  UsdHint(r.opexLocal, r.center.currency, fxTable)),
                 h('td', { className: 'kp-td-num' }, money0(r.contractLocal, r.center.currency)),
-                h('td', { className: 'kp-td-num' }, r.perUnit ? money0(r.perUnit * n(r.center.fx, 1), r.center.currency) : '—')))))),
+                h('td', { className: 'kp-td-num' }, r.perUnit ? money0(r.perUnit * r.fx, r.center.currency) : '—')))))),
           h('div', { className: 'kp-grid kp-grid-2', style: { marginTop: '12px' } },
             e.byCenter.map((r) => h('div', { key: r.center.id, className: 'kp-card kp-card-pad' },
               h('div', { className: 'kp-kpi-label', style: { marginBottom: '4px' } }, r.center.name + ' · ' + r.center.currency),
               h('div', { className: 'kp-kpi-value' }, money0(r.capexLocal, r.center.currency)),
-              h('div', { className: 'kp-kpi-foot' }, 'más ' + money0(r.opexLocal, r.center.currency) + ' al mes de servicio · ' +
-                fmtNum(r.units) + ' equipos · tipo de cambio ' + fmtNum(r.center.fx, 2))))),
+              h('div', { className: 'kp-kpi-foot' },
+                'más ' + money0(r.opexLocal, r.center.currency) + ' al mes de servicio · ' +
+                fmtNum(r.units) + ' equipos · 1 ' + cur + ' = ' + fmtNum(r.fx, r.fx < 100 ? 4 : 2) + ' ' + r.center.currency,
+                UsdHint(r.capexLocal, r.center.currency, fxTable) ? h('span', null, h('br'), UsdHint(r.capexLocal, r.center.currency, fxTable)) : null)))),
           h('div', { style: { marginTop: '10px' } },
             Note('Los importes locales salen del tipo de cambio declarado en cada centro. A suma alzada, la devaluación entre la oferta y la entrega sale del margen: cúbrela con cláusula de reajuste, con cobertura financiera o con prima en el precio.', 'accent', I.money(15)))) : null);
     };
@@ -4580,9 +4995,16 @@ export default function mount(shell) {
             p.healthMode === 'auto' || !p.healthMode ? 'Calculada: hoy está "' + HEALTH_LABEL[st.health] + '".' : 'Fijada a mano.')),
         h('div', { className: 'kp-row-3', style: { marginBottom: '12px' } },
           Field('Dirección del proyecto', Input(p.manager, (v) => set({ manager: v }), { placeholder: 'Quién responde por este proyecto' })),
-          Field('Moneda', Select(p.currency, CURRENCIES.map((c) => [c, c]), (v) => set({ currency: v }))),
-          Field('Presupuesto', Input(p.budget, (v) => set({ budget: n(v, 0) }), { type: 'number', min: 0 }),
-            linesTotal ? 'Costeo por líneas: ' + fmtMoney(linesTotal, p.currency) : '')),
+          Field('Moneda',
+            Select(p.currency, CURRENCIES.map((c) => [c, currencyLabel(c)]), (v) => setUi((u) => ({
+              ...u, editor: { type: 'currency', projectId: p.id, data: { to: v } },
+            }))),
+            h('span', null, fxLine(p), UsdHint(1, p.currency, normalizeFx(p.fx), '· por unidad'))),
+          Field('Presupuesto',
+            h(NumInput, { value: p.budget, onChange: (v) => set({ budget: v }) }),
+            h('span', null,
+              linesTotal ? h('span', null, 'Costeo por líneas: ' + fmtMoney(linesTotal, p.currency), h('br')) : null,
+              UsdHint(p.budget, p.currency, normalizeFx(p.fx))))),
         h('div', { style: { marginBottom: '12px' } },
           Field('Objetivo', TextArea(p.objective, (v) => set({ objective: v }), { placeholder: 'Qué resultado concreto persigue este proyecto…' }))),
         h('div', { style: { marginBottom: '12px' } },
@@ -4752,8 +5174,10 @@ export default function mount(shell) {
           Field('Inicio', Input(data.startDate, (v) => upd({ startDate: v }), { type: 'date' })),
           Field('Término', Input(data.endDate, (v) => upd({ endDate: v }), { type: 'date' }))),
         h('div', { className: 'kp-row' },
-          Field('Moneda', Select(data.currency, CURRENCIES.map((c) => [c, c]), (v) => upd({ currency: v }))),
-          Field('Presupuesto', Input(data.budget, (v) => upd({ budget: n(v, 0) }), { type: 'number', min: 0 }))),
+          Field('Moneda', Select(data.currency, CURRENCIES.map((c) => [c, currencyLabel(c)]), (v) => upd({ currency: v }))),
+          Field('Presupuesto',
+            h(NumInput, { value: data.budget, onChange: (v) => upd({ budget: v }) }),
+            fmtUsd(data.budget, data.currency, newFx()))),
         Field('Objetivo', TextArea(data.objective, (v) => upd({ objective: v }), { placeholder: 'Qué resultado concreto persigue…' })),
         Field('Tipo de trabajo', Select(data.type, [['', 'Que lo deduzca el analista']].concat(PLAN_TEMPLATES.map((t) => [t.id, t.name])), (v) => upd({ type: v })),
           'Si lo declaras, el analista usa esa plantilla al proponer el plan.'),
@@ -4881,6 +5305,43 @@ export default function mount(shell) {
         h('button', { key: 'c', className: 'kp-btn', onClick: close }, 'Cancelar'),
         h('button', { key: 's', className: 'kp-btn kp-btn-primary', onClick: save, disabled: !s(data.name).trim() }, 'Guardar'),
       ], close);
+    }
+
+    if (ed.type === 'currency' && project) {
+      const to = s(data.to);
+      const fx = normalizeFx(project.fx);
+      const factor = convertMoney(1, project.currency, to, fx);
+      const sample = arr(project.budgetLines)[0];
+      return Panel('Cambiar la moneda de gestión', [
+        Note('El proyecto pasa de ' + currencyLabel(project.currency) + ' a ' + currencyLabel(to) + '. ' +
+          'Decide qué hacer con los importes ya cargados.', 'accent', I.money(15)),
+        factor && Number.isFinite(factor)
+          ? h('div', { className: 'kp-ans-kv' },
+            h('div', { className: 'kp-ans-kv-it' },
+              h('span', { className: 'kp-ans-kv-k' }, 'Tipo de cambio guardado'),
+              h('span', { className: 'kp-ans-kv-v' }, '1 ' + project.currency + ' = ' + fmtNum(factor, factor < 100 ? 4 : 2) + ' ' + to)),
+            h('div', { className: 'kp-ans-kv-it' },
+              h('span', { className: 'kp-ans-kv-k' }, 'Presupuesto'),
+              h('span', { className: 'kp-ans-kv-v' }, fmtMoney(project.budget, project.currency) + ' → ' + fmtMoney(n(project.budget, 0) * factor, to))),
+            sample ? h('div', { className: 'kp-ans-kv-it' },
+              h('span', { className: 'kp-ans-kv-k' }, 'Ejemplo: ' + s(sample.item).slice(0, 28)),
+              h('span', { className: 'kp-ans-kv-v' }, fmtNum(sample.unitCost) + ' → ' + fmtNum(n(sample.unitCost, 0) * factor)) ) : null)
+          : Note('No hay tipo de cambio guardado entre ' + project.currency + ' y ' + to + '. Actualiza la tabla en Economía → Centros y monedas antes de convertir.', 'warn', I.alert(15)),
+        h('div', { className: 'kp-sec-note' },
+          h('strong', null, 'Convertir'), ' reexpresa el presupuesto, las partidas, la línea base y los supuestos del modelo de servicio al nuevo tipo de cambio. ',
+          h('strong', null, 'Solo cambiar la etiqueta'), ' deja los números como están: úsalo si los importes ya estaban en la moneda nueva y lo que estaba mal era el rótulo.'),
+      ], [
+        h('button', { key: 'c', className: 'kp-btn kp-panel-foot-l', onClick: close }, 'Cancelar'),
+        h('button', {
+          key: 'label', className: 'kp-btn',
+          onClick: () => { changeProjectCurrency(project.id, to, false); close(); },
+        }, 'Solo cambiar la etiqueta'),
+        h('button', {
+          key: 'conv', className: 'kp-btn kp-btn-primary',
+          disabled: !factor || !Number.isFinite(factor),
+          onClick: () => { changeProjectCurrency(project.id, to, true); close(); },
+        }, I.refresh(14), 'Convertir importes'),
+      ], close, { center: true });
     }
 
     if (ed.type === 'cloud' && project) {
@@ -5168,6 +5629,8 @@ export default function mount(shell) {
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, name: { type: 'string' }, code: { type: 'string' }, country: { type: 'string' }, currency: { type: 'string' }, fx: { type: 'number' }, units: { type: 'number' } }, required: ['project', 'name'] } },
     { name: 'UPDATE_COSTING', description: 'Ajusta la política de precio y el modelo de servicio: margen del CAPEX y del servicio, modo de margen (sale/cost), regla de prorrateo, plazo del servicio, reajuste, horas de SLA y disponibilidad comprometida.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, capexMarginPct: { type: 'number' }, opexMarginPct: { type: 'number' }, marginMode: { type: 'string' }, allocation: { type: 'string' }, contractType: { type: 'string' }, termMonths: { type: 'number' }, escalationIndex: { type: 'string' }, escalationPct: { type: 'number' }, slaOnSiteHours: { type: 'number' }, availabilityPct: { type: 'number' }, nocMonthly: { type: 'number' } }, required: ['project'] } },
+    { name: 'UPDATE_FX', description: 'Conversor de moneda del proyecto. Con refresh=true consulta el tipo de cambio del día en un proveedor público y actualiza la tabla; con rates escribe valores a mano (unidades por 1 USD, p. ej. {"CLP": 947.5}); con currency cambia la moneda de gestión, y convert=true reexpresa además todos los importes al nuevo tipo de cambio.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, refresh: { type: 'boolean' }, rates: { type: 'object' }, currency: { type: 'string' }, convert: { type: 'boolean' } }, required: ['project'] } },
     { name: 'SET_BASELINE', description: 'Congela el costeo actual como línea base (presupuesto de referencia). Desde ahí, cada cambio de partida queda explicado en el puente presupuesto vs. costeo.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, label: { type: 'string' } }, required: ['project'] } },
   ];
@@ -5216,7 +5679,7 @@ export default function mount(shell) {
               precioContrato: Math.round(e2.contractPrice),
               centros: e2.byCenter.map((r) => ({
                 nombre: r.center.name, moneda: r.center.currency, equipos: r.units,
-                tipoCambio: n(r.center.fx, 1),
+                tipoCambio: n(r.fx, 1),
                 capexLocal: Math.round(r.capexLocal), feeMensualLocal: Math.round(r.opexLocal),
               })),
               servicio: {
@@ -5270,7 +5733,7 @@ export default function mount(shell) {
         if (s(pl.client) && !client) return ok('Proyecto "' + p.name + '" creado, pero no encontré al cliente "' + pl.client + '": quedó sin cliente asignado.', { projectId: p.id });
         return ok('Proyecto "' + p.name + '" creado.', { projectId: p.id });
       }
-      const needsProject = ['UPDATE_PROJECT', 'ADD_TASK', 'UPDATE_TASK', 'ADD_MILESTONE', 'ADD_RISK', 'UPDATE_RISK', 'ADD_DOCUMENT', 'ADD_LOG', 'PROPOSE_PLAN', 'APPLY_PLAN', 'ASK', 'ADD_BUDGET_LINE', 'ADD_CENTER', 'UPDATE_COSTING', 'SET_BASELINE'];
+      const needsProject = ['UPDATE_PROJECT', 'ADD_TASK', 'UPDATE_TASK', 'ADD_MILESTONE', 'ADD_RISK', 'UPDATE_RISK', 'ADD_DOCUMENT', 'ADD_LOG', 'PROPOSE_PLAN', 'APPLY_PLAN', 'ASK', 'ADD_BUDGET_LINE', 'ADD_CENTER', 'UPDATE_COSTING', 'SET_BASELINE', 'UPDATE_FX'];
       const p = needsProject.includes(type) ? resolveProject(pl.project) : null;
       if (needsProject.includes(type) && !p) return err('No encontré el proyecto "' + s(pl.project) + '". Usa su id, su código o su nombre exacto.');
 
@@ -5467,6 +5930,53 @@ export default function mount(shell) {
         const e2 = computeEconomics(findProject(p.id), Object.assign({ budgetAlertPct: 10 }, liveConfig));
         return ok('Costeo actualizado. Precio del contrato: ' + money0(e2.contractPrice, p.currency) +
           ' (margen CAPEX ' + fmtNum(e2.capexMarginPct, 1) + '%, servicio ' + fmtNum(e2.opexMarginPct, 1) + '%, plazo ' + e2.term + ' meses).');
+      }
+      if (type === 'UPDATE_FX') {
+        const done = [];
+        if (pl.rates && typeof pl.rates === 'object') {
+          const fx = normalizeFx(p.fx);
+          const next = Object.assign({}, fx.rates);
+          let count = 0;
+          for (const [k, v] of Object.entries(pl.rates)) {
+            const cur2 = s(k).toUpperCase();
+            const val = n(v, 0);
+            if (cur2 && cur2 !== FX_BASE && val > 0) { next[cur2] = val; count++; }
+          }
+          if (!count) return err('Ninguna tasa válida: usa unidades por 1 USD, como {"CLP": 947.5}.');
+          actions.saveProject(p.id, {
+            fx: normalizeFx(Object.assign({}, fx, { rates: next, source: 'escrito por el agente', updatedAt: stamp(), updatedAtLocal: '' })),
+          });
+          done.push(count + ' tasa(s) escritas a mano');
+        }
+        if (pl.refresh) {
+          const res = await refreshProjectRates(p.id);
+          if (!res.ok) {
+            return ok('No pude consultar el tipo de cambio del día' + (done.length ? ', pero sí ' + done.join(' y ') : '') + '.', {
+              error: res.error,
+              nota: 'La consulta sale del navegador y la política de red del host puede bloquearla. Escribe la tasa a mano con el parámetro rates.',
+            });
+          }
+          done.push('tipo de cambio del día tomado de ' + res.source + (res.date ? ' (' + res.date + ')' : ''));
+        }
+        if (s(pl.currency)) {
+          const to = s(pl.currency).toUpperCase();
+          if (!CURRENCIES.includes(to)) return err('Moneda no reconocida: ' + to + '. Usa una de ' + CURRENCIES.join(', ') + '.');
+          if (to !== s(p.currency)) {
+            const okc = changeProjectCurrency(p.id, to, pl.convert !== false);
+            if (!okc) return err('No pude cambiar la moneda: falta el tipo de cambio entre ' + p.currency + ' y ' + to + '.');
+            done.push('moneda de gestión en ' + to + (pl.convert === false ? ' sin convertir los importes' : ' con los importes convertidos'));
+          }
+        }
+        if (!done.length) {
+          const fx = normalizeFx(findProject(p.id).fx);
+          return ok('Tipo de cambio actual de "' + p.name + '".', {
+            monedaDeGestion: p.currency,
+            unidadesPorDolar: Object.fromEntries(uniq([s(p.currency)].concat(arr(p.centers).map((c) => s(c.currency)))).filter(Boolean).map((c) => [c, rateOf(fx, c)])),
+            actualizado: fx.updatedAt || 'nunca', fuente: fx.source,
+          });
+        }
+        const e2 = computeEconomics(findProject(p.id), Object.assign({ budgetAlertPct: 10 }, liveConfig));
+        return ok('Conversor actualizado: ' + done.join('; ') + '. Costeo ahora ' + money0(e2.costingTotal, e2.currency) + '.');
       }
       if (type === 'SET_BASELINE') {
         const lines = arr(p.budgetLines);

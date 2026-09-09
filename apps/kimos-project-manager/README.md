@@ -4,7 +4,7 @@ App instalable de KIMOS para **dirigir proyectos de punta a punta, separados por
 cliente**: planificar, ejecutar, controlar y cerrar, con un tablero global de la
 cartera en la portada y un tablero propio dentro de cada proyecto.
 
-**Versión actual: 1.1.0**
+**Versión actual: 1.2.0**
 
 ---
 
@@ -39,9 +39,18 @@ fijada, el **puente** muestra partida por partida qué bajó, qué subió y por 
 total terminó donde terminó.
 
 **Centros y monedas.** El proyecto se gestiona en una moneda, pero la oferta se
-firma por sede: cada centro declara su moneda local, su tipo de cambio y sus
-equipos, y las partidas compartidas se prorratean por unidades, por costo directo
-o en partes iguales.
+firma por sede: cada centro declara su moneda local y sus equipos, y las partidas
+compartidas se prorratean por unidades, por costo directo o en partes iguales.
+
+El **conversor** mantiene una sola tabla de tipos de cambio por proyecto, con el
+dólar como base, y de ahí sale cada conversión de la app. *Actualizar al valor de
+hoy* consulta un proveedor público —con dos respaldos si el primero no
+responde— y, si la política de red del host bloquea la consulta, lo dice y deja
+el valor escrito a mano, que es el que firma la oferta de todas formas. El tipo
+de cambio de cada centro se deriva de esa tabla salvo que se fije a mano. Todo
+importe fuera del dólar lleva su equivalente en dólares en pequeño al lado, y al
+cambiar la moneda de gestión la app pregunta si reexpresar los importes al nuevo
+tipo de cambio o solo cambiar la etiqueta.
 
 **Modelo de servicio.** Plazo, reajuste, horas de SLA y disponibilidad
 comprometida, más los supuestos de costo del servicio. Con eso la app construye
@@ -136,7 +145,8 @@ ejemplo completo de lo que la app sabe llevar.
 `CREATE_CLIENT` · `CREATE_PROJECT` · `UPDATE_PROJECT` · `ADD_TASK` ·
 `UPDATE_TASK` · `ADD_MILESTONE` · `ADD_RISK` · `UPDATE_RISK` · `ADD_DOCUMENT` ·
 `ADD_LOG` · `PROPOSE_PLAN` · `APPLY_PLAN` · `OPEN_VIEW` · **`ASK`** ·
-`ADD_BUDGET_LINE` · `ADD_CENTER` · `UPDATE_COSTING` · `SET_BASELINE`
+`ADD_BUDGET_LINE` · `ADD_CENTER` · `UPDATE_COSTING` · `SET_BASELINE` ·
+`UPDATE_FX`
 
 `getSnapshot()` devuelve la cartera completa con métricas por proyecto, tareas,
 riesgos y fuentes, para que el agente sepa sobre qué actuar antes de despachar.
@@ -168,5 +178,6 @@ visión normal ΔE ≥ 15 en ambos modos), con su juego de pasos para fondo oscu
 
 | Versión | Qué trae |
 |---|---|
+| **1.2.0** | **Conversor de moneda**: una tabla de tipos de cambio por proyecto con el dólar como base, actualizable con el valor del día desde tres proveedores públicos encadenados y editable a mano cuando la red del host no deja consultar. El tipo de cambio de cada centro se deriva de la tabla o se fija a mano; cada importe fuera del dólar muestra su equivalente en pequeño; y al cambiar la moneda de gestión la app ofrece reexpresar los importes o solo cambiar la etiqueta. Las cantidades y los costos unitarios ahora se escriben y se leen con **separador de miles**, con el valor crudo al enfocar el campo. Nueva herramienta de agente `UPDATE_FX`. Corregido: las bandas del margen recomendado se miden en dólares, así que ya no dependen de la moneda en que esté expresado el proyecto. |
 | **1.1.0** | Pestaña **Economía**: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con prorrateo de lo compartido, línea base y puente que explica cada desvío, modelo de costeo del servicio post-venta con tres escenarios y aritmética del SLA, y motor de margen que lleva del costo al precio ofertable en la moneda de cada sede. El indicador de presupuesto se marca en rojo cuando el costeo lo supera por encima del umbral configurado, en la ficha, en el tablero del proyecto y en el panel global. **Modo preguntas del analista** con ocho análisis que responden con los números del proyecto, disponibles también para el agente IA con la herramienta `ASK`. Cinco herramientas nuevas de agente para la economía. El proyecto semilla de Parque Arauco trae sus centros, su línea base y su modelo de servicio. |
 | **1.0.0** | Primera publicación. Cartera por cliente; tablero global y por proyecto en vivo; plan con fases, tareas, hitos y línea temporal; matriz de riesgos 5×5; biblioteca de documentos con carpetas locales, Drive y enlaces; analista que propone planes de trabajo con seis plantillas; bitácora; costeo por partidas; consultas abiertas; ventanas bloqueadas; enlace con Planificación, Kanban y Cotizaciones; agente IA con 13 herramientas; colaboración multiusuario con fusión por entidad; proyecto semilla de Parque Arauco. |
