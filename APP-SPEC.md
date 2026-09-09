@@ -43,7 +43,7 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e). |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` (§7.f). |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
 | `dataSchema` | object | – | Qué campos acepta tu app de OTRAS apps, y qué identidad representa. Sin esto, nadie escribe en la tuya. Ver §7.c. |
@@ -145,6 +145,7 @@ export default function mount(shell) {
 | `shell.data` | Leer y escribir datos de OTRAS apps, con permiso declarado (§7.c). |
 | `shell.records` | Identidades compartidas entre apps: clientes, contactos, proyectos (§7.d). |
 | `shell.files` | Subir/listar/borrar archivos con ruta gestionada por el host (§7.e). |
+| `shell.brand` | Marca del tenant: logos, razón social, colores (§7.f). |
 
 Los tres últimos dependen de permisos declarados en el manifest y, en hosts
 anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
@@ -561,14 +562,72 @@ if (shell.files) {
 - `upload` acota el tamaño (`maxMB`, 10 MB por defecto). Valida el tipo tú:
   la plataforma no adivina qué es aceptable para tu app.
 
-### Antes de usar cualquiera de las tres
+## 7.f Marca del tenant (`shell.brand`)
 
-`shell.records` y `shell.files` son **opcionales en el contrato** para que tu
-app siga funcionando en un host anterior. Comprueba siempre:
+Tercera pieza compartida, y la única donde el dato lo posee la **plataforma**:
+no existe —ni debe existir— una app «Marca», porque entonces todas las demás
+dependerían de que esa app estuviera instalada.
+
+```jsonc
+"permissions": ["brand.read"]
+```
+
+### Lo mejor es que casi nunca hace falta llamarla
+
+Si tu app cumple §9 —ningún color cableado, todo desde los tokens del tema del
+host—, **el host inyecta los colores de la marca activa y tu app se re-marca
+sola**. No hay nada que programar. Ese es el pago de haber respetado §9.
+
+Lo que sí se duplicaba hasta ahora son los **datos**: Cotizaciones tenía su
+«Emisor», Tarjetas el suyo, ProductLab su acento aparte. Eso es lo que
+`shell.brand` viene a resolver:
+
+```js
+if (shell.brand) {
+  const marca = await shell.brand.current();   // null si el tenant no configuró ninguna
+  if (marca) {
+    encabezado.logo   = marca.logos.light || '';
+    encabezado.emisor = marca.legalName || marca.name;
+    encabezado.rut    = marca.taxId;
+    pie.textoLegal    = marca.footer;
+  }
+}
+```
+
+Campos: `name`, `legalName`, `taxId`, `address`, `email`, `phone`, `website`,
+`footer`, `bankDetails`, `logos` (`light` / `dark` / `mark`), `colors`
+(`primary` / `accent`) y `themeTokens`.
+
+- `current()` devuelve **`null`** cuando el tenant no ha configurado su marca.
+  No es un error: tu app tiene que poder seguir con sus propios valores.
+- `themeTokens` son los colores ya convertidos a tokens (`--primary`,
+  `--primary-foreground`, …). **No los necesitas** para pintar tu app: el host
+  ya los inyectó. Sirven para el caso que el host no cubre — pintar la hoja de
+  una **ventana de impresión**, que vive fuera de tu DOM.
+- Un color que la marca no fija se queda con el del tema del tenant. No se
+  inventa un valor.
+- El texto que va **encima** de cada color de marca viene ya decidido por
+  luminancia (`--primary-foreground`). Úsalo en vez de asumir blanco: un
+  amarillo de marca es clarísimo y el texto blanco encima no se lee.
+
+Un buen patrón: la marca **rellena**, el usuario **puede sobrescribir**. En
+Cotizaciones, «Emisor» propone lo de la marca activa y deja cambiarlo para un
+caso puntual, en vez de imponerlo.
+
+### Antes de usar cualquiera de los tres
+
+`shell.records`, `shell.files` y `shell.brand` son **opcionales en el
+contrato**, para que tu app siga funcionando en un host que no los tenga.
+Comprueba siempre antes de usarlos:
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue */ }
 ```
+
+Y ten en cuenta que «existe» no es «hay algo»: `brand.current()` devuelve
+`null` en un tenant que no configuró su marca, y `records.resolve()` devuelve
+`resolved: false` para una identidad que ya no está. En los dos casos tu app
+sigue: por eso guardas siempre tu propia instantánea.
 
 ---
 
@@ -583,7 +642,7 @@ if (!shell.records) { /* pide el cliente a mano y sigue */ }
 - [ ] Persistencia probada (`multiInstance` si guardas datos).
 - [ ] Si hay agente: `getSnapshot` útil + validación de inputs + dedupe.
 - [ ] Carga sin red en runtime (recursos embebidos o por URL explícita del usuario).
-- [ ] Si usas `shell.records` o `shell.files`: comprobado `if (shell.records)` para no romper en un host anterior.
+- [ ] Si usas `shell.records`, `shell.files` o `shell.brand`: comprobado `if (shell.records)` para no romper en un host anterior.
 - [ ] Si otras apps deben escribir en la tuya: `dataSchema` declarado (§7.c).
 - [ ] Verificación: `node --input-type=module -e "import('./apps/{id}/dist/index.js')…"`.
 

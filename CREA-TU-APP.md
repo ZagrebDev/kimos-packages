@@ -148,6 +148,7 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.data.create/update` | Escribir en otra app, si esa app publica su contrato (§7.2). |
 | `shell.records` | Clientes, contactos y proyectos compartidos con el resto de KIMOS (§7.3). |
 | `shell.files.upload/list/remove` | Subir archivos; la ruta la gestiona el host (§7.4). |
+| `shell.brand.current()` | Marca del tenant: logos, razón social, colores (§7.5). |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -368,16 +369,44 @@ await shell.files.remove(url);    // solo borra dentro del espacio de tu app
 
 No subas ahí nada que no pueda ser público de lectura.
 
+### 7.5 La marca del tenant (`shell.brand`)
+
+No definas los colores ni el logo de la empresa dentro de tu app. Si respetas
+la regla de los tokens del tema (nada de colores cableados), **el host inyecta
+los colores de la marca activa y tu app se re-marca sola**: no hay nada que
+programar.
+
+Lo que sí puedes pedir son los **datos** de marca, para no obligar al usuario a
+volver a escribir su razón social:
+
+```jsonc
+"permissions": ["brand.read"]
+```
+
+```js
+if (shell.brand) {
+  const marca = await shell.brand.current();   // null si el tenant no configuró ninguna
+  if (marca) {
+    cabecera.logo   = marca.logos.light || '';
+    cabecera.emisor = marca.legalName || marca.name;
+    cabecera.rut    = marca.taxId;
+  }
+}
+```
+
+Buen patrón: la marca **rellena**, el usuario **puede sobrescribir** para un
+caso puntual. No la impongas.
+
 ### Compruébalo antes de usarlo
 
-`shell.records` y `shell.files` pueden no existir en un host anterior. Tu app
-no debe romperse por eso:
+`shell.records`, `shell.files` y `shell.brand` pueden no existir en un host
+anterior. Tu app no debe romperse por eso:
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }
 ```
 
-Detalle completo de las cuatro cosas: **APP-SPEC.md §7.c, §7.d y §7.e**.
+Detalle completo: **APP-SPEC.md §7.c, §7.d, §7.e y §7.f**.
 
 ---
 
@@ -420,6 +449,8 @@ pestaña Resultados.
       app sigue funcionando si `shell.records` no existe.
 - [ ] Si guardas archivos: `shell.files`, no un bucket propio ni base64 dentro
       del documento.
+- [ ] Si tu app muestra logo, razón social o colores de la empresa: vienen de
+      `shell.brand`, no de un formulario propio.
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.
 
 ## 10. Preguntas frecuentes

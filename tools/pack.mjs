@@ -18,6 +18,7 @@ const ALLOWED_PERMISSIONS = new Set([
   // Recursos compartidos de plataforma (APP-SPEC §7.d y §7.e).
   'records.link',   // identidades compartidas entre apps (shell.records)
   'files.write',    // subir archivos con ruta gestionada por el host (shell.files)
+  'brand.read',     // marca del tenant: logos, razón social, colores (shell.brand)
 ]);
 // Permisos parametrizados: data.read:{templateId} / data.write:{templateId},
 // o `*`. Lecturas y escrituras en datos de OTRA app vía shell.data,
