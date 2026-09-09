@@ -210,6 +210,9 @@ const notices = [];
 // Los ocho campos que la app Clientes declara en su `dataSchema` (v2.1.0).
 const DATA_SCHEMA_CUSTOMERS = ['name', 'taxId', 'email', 'phone', 'city', 'region', 'country', 'notes'];
 const ESCRITURA = { creados: [], ignorados: [], seq: 100, falla: '' };
+// La marca activa del tenant. Empieza sin configurar a propósito: es el
+// estado de un KIMOS recién instalado.
+const MARCA = { actual: null };
 let agentReg = null;
 
 const shell = {
@@ -263,6 +266,9 @@ const shell = {
     },
   },
   records: registroSimulado,
+  // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
+  // configurada, que es un caso normal y no un error.
+  brand: { current: async () => MARCA.actual },
   config: { get: async () => ({}), set: async () => {}, onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
   authFetch: async (url, init) => {
@@ -724,6 +730,49 @@ seccion('Identidad del cliente compartida con el resto de KIMOS');
     'y el motivo se le dice a quien está cotizando, no se traga');
 }
 
+seccion('La marca del sistema rellena el emisor');
+{
+  const T = mounted.__test;
+  eq(T.marcaNoDisponible(), '', 'el host expone la marca del sistema');
+
+  // Un KIMOS sin marca configurada: no es un error, y el emisor escrito a
+  // mano no se toca.
+  const antesNombre = T.issuerOf().name;
+  let antes = notices.length;
+  ok(await T.actImportBrand() === null, 'sin marca configurada no se trae nada');
+  ok(notices.slice(antes).some((n) => n.indexOf('marca configurada') !== -1),
+    'y se explica que la define un administrador');
+  eq(T.issuerOf().name, antesNombre, 'el emisor que ya había no se borra');
+
+  MARCA.actual = {
+    id: 'b1', name: 'Metakut', legalName: 'METAKUT SPA', taxId: '77.718.188-2',
+    email: 'info@kimos.dev', phone: '', website: 'kimos.dev', address: 'Santiago',
+    footer: '', bankDetails: 'Banco de Chile · Cuenta Vista · 2532924267',
+    logos: { light: 'https://cdn/logo-claro.png' }, colors: { primary: '#00e5d0' },
+    themeTokens: { '--primary': '174 100% 45%', '--primary-foreground': '220 25% 6%' },
+  };
+  T.actPatchIssuer({ phone: '+56 9 5555 4444' });
+
+  ok(!!(await T.actImportBrand()), 'con marca configurada, el emisor se rellena');
+  const em = T.issuerOf();
+  eq(em.name, 'METAKUT SPA', 'con la razón social de la marca, no el nombre comercial');
+  eq(em.taxId, '77.718.188-2', 'y su RUT');
+  eq(em.logoUrl, 'https://cdn/logo-claro.png', 'y su logo');
+  eq(em.paymentInfo, 'Banco de Chile · Cuenta Vista · 2532924267', 'y los datos de transferencia');
+  eq(em.phone, '+56 9 5555 4444',
+    'un campo que la marca NO trae no borra lo que ya estaba escrito aquí');
+
+  // La marca rellena, no impone: después se puede ajustar.
+  T.actPatchIssuer({ name: 'METAKUT SPA — Unidad Retail' });
+  eq(T.issuerOf().name, 'METAKUT SPA — Unidad Retail',
+    'y lo traído se puede cambiar: una unidad de negocio cotiza con otra razón social');
+
+  // Los colores NO se copian al emisor: el host ya inyecta los de la marca
+  // como tokens del tema y esta app no cablea ninguno (APP-SPEC §9). Copiarlos
+  // aquí crearía una segunda fuente que se desincroniza.
+  eq(T.issuerOf().accentColor, '', 'el color de la marca no se copia al emisor');
+}
+
 seccion('En un host sin registro de identidades la app sigue funcionando');
 {
   // `shell.records` es OPCIONAL en el contrato (APP-SPEC §7.d). Un tenant que
@@ -740,6 +789,7 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
     data: { listInstances: shell.data.listInstances, listItems: shell.data.listItems },
   });
   delete viejo.records;
+  delete viejo.brand;
 
   const app2 = mod.default(viejo);
   const V = app2.__test;
@@ -755,6 +805,7 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
   ok(notices.slice(antes).some((n) => n.indexOf('registro de identidades') !== -1),
     'y se explica por qué, en vez de fallar en silencio');
   eq(V.estadoVinculo(V.docById(q.id)).estado, 'suelto', 'la cotización queda suelta, que es lo correcto');
+  ok(V.marcaNoDisponible() !== '', 'y tampoco hay marca del sistema, sin que eso rompa nada');
   eq(V.docById(q.id).client.name, 'Cliente de Siempre', 'pero el cliente se guarda igual');
   V.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
   eq(V.computeTotals(V.docById(q.id), V.rulesOf()).total > 0, true, 'y la cotización se calcula igual');

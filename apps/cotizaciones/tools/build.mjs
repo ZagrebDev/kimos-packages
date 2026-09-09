@@ -100,6 +100,7 @@ parts.push(`
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
       actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
       estadoVinculo, clavesDeCliente, registroNoDisponible,
+      actImportBrand, marcaNoDisponible,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,

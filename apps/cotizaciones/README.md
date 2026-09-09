@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.1.0**
+**Versión actual: 1.2.0**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -69,6 +69,10 @@ lo suyo.
   del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
   vencimiento automático de las enviadas y bitácora por cotización.
+- **Marca del sistema**: el emisor se puede traer de la marca del tenant
+  (`shell.brand`, APP-SPEC §7.f) en vez de reescribir aquí razón social, RUT,
+  logo y datos de transferencia. Rellena; no impone: después se ajusta para
+  este cotizador.
 - **Emisor y reglas** configurables: razón social, RUT, logo, datos de
   transferencia, moneda, si los precios se escriben netos o con impuesto
   incluido, impuesto, vigencia por defecto, reparto abono/saldo, formato del
@@ -207,5 +211,6 @@ en Ajustes no reescribe lo que se cotizó el año pasado.
 
 | Versión | Qué trae |
 |---|---|
+| 1.2.0 | El emisor puede traerse de la **marca del sistema** (`shell.brand`): razón social, RUT, contacto, logo y datos de transferencia dejan de reescribirse aquí. La marca rellena y el usuario puede ajustar, para que una unidad de negocio pueda cotizar con otra razón social. Los colores no se copian: el host inyecta los de la marca como tokens del tema y esta app no cablea ninguno. |
 | 1.1.0 | El cliente deja de ser una copia suelta: la cotización guarda además su identidad compartida de KIMOS (`shell.records`), reutiliza el cliente que ya existe aunque el RUT venga escrito de otra forma, refresca la ficha cuando el registro cambia o se fusiona, y permite guardar en la app Clientes un cliente escrito a mano. Dos acciones nuevas del agente: `VINCULAR_CLIENTE` y `ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO`. En un host sin registro la app funciona exactamente como antes. |
 | 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; tablero de seguimiento; agente IA con paridad sobre la app; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

@@ -259,3 +259,67 @@ function estadoVinculo(doc) {
   if (s(c.sourceApp) === 'customers') return { estado: 'directorio', texto: 'Del directorio, sin identidad' };
   return { estado: 'suelto', texto: 'Solo en esta cotización' };
 }
+
+// ── Marca del tenant ────────────────────────────────────────────────────
+/**
+ * El emisor de las cotizaciones puede venir de la marca del sistema
+ * (`shell.brand`, APP-SPEC §7.f) en vez de reescribirse aquí.
+ *
+ * La marca RELLENA, no impone: se copia a los ajustes del cotizador y desde
+ * ahí se puede cambiar. Un tenant con dos unidades de negocio necesita poder
+ * cotizar con una razón social distinta de la marca por defecto, y quitarle
+ * esa posibilidad para «mantenerlo sincronizado» sería resolver un problema
+ * que no tiene a costa de uno que sí.
+ */
+function marcaNoDisponible() {
+  if (!shell.brand || typeof shell.brand.current !== 'function') {
+    return 'Este host todavía no expone la marca del sistema; el emisor se escribe aquí.';
+  }
+  return '';
+}
+
+/** Copia la marca activa del tenant a los ajustes del emisor. */
+async function actImportBrand() {
+  const motivo = marcaNoDisponible();
+  if (motivo) { shell.notify({ level: 'warn', text: motivo }); return null; }
+
+  let marca;
+  try {
+    marca = await shell.brand.current();
+  } catch (e) {
+    shell.notify({ level: 'error', text: 'No se pudo leer la marca: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  if (!isObj(marca)) {
+    shell.notify({
+      level: 'warn',
+      text: 'Este KIMOS todavía no tiene una marca configurada. La define un administrador y luego se trae desde aquí.',
+    });
+    return null;
+  }
+
+  const logos = isObj(marca.logos) ? marca.logos : {};
+  // Solo se pisa lo que la marca SÍ trae: si no tiene teléfono, no se borra
+  // el que ya estaba escrito aquí.
+  const patch = {};
+  const poner = (campo, valor) => { if (s(valor).trim()) patch[campo] = s(valor).trim(); };
+  poner('name', marca.legalName || marca.name);
+  poner('taxId', marca.taxId);
+  poner('email', marca.email);
+  poner('phone', marca.phone);
+  poner('web', marca.website);
+  poner('address', marca.address);
+  poner('logoUrl', logos.light || logos.mark || logos.dark);
+  poner('paymentInfo', marca.bankDetails);
+  if (!Object.keys(patch).length) {
+    shell.notify({ level: 'warn', text: 'La marca del sistema no tiene datos que traer todavía.' });
+    return null;
+  }
+
+  const out = actPatchIssuer(patch);
+  shell.notify({
+    level: 'success',
+    text: 'Emisor traído de la marca del sistema (' + s(marca.name) + '). Puedes ajustarlo para este cotizador.',
+  });
+  return out;
+}

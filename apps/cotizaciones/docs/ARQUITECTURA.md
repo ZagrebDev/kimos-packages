@@ -32,7 +32,7 @@ src/40-quotes.js      listado y editor de datos
 src/45-templates.js   plantillas, revisiones, diálogo de creación
 src/50-settings.js    ajustes
 src/60-catalog-*.js   motor, lectura y pantallas del catálogo
-src/66-records.js     identidad compartida del cliente
+src/66-records.js     identidad compartida del cliente y marca del tenant
 src/70-blocks.js      modelo y pintado de la propuesta          (compartido)
 src/72-canvas.js      edición visual del lienzo
 src/80-export.js      PDF y enlace público
@@ -158,6 +158,7 @@ Ninguna en tiempo de ejecución más allá del contrato del host:
 | `shell.data` (lectura) | catálogos de Productos, ProductLab y Clientes |
 | `shell.data.create` | guardar en la app Clientes un cliente escrito a mano (opcional) |
 | `shell.records` | identidad compartida del cliente (opcional: si falta, la app funciona igual) |
+| `shell.brand` | marca del tenant para rellenar el emisor (opcional) |
 | `shell.authFetch` | `/api/v2/files`, `/api/identity/me`, `/api/integrations/email/*` |
 
 El endpoint `POST /api/integrations/email/send` se añadió en

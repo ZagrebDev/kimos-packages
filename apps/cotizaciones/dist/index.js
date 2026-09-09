@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.1.0 — app oficial de KIMOS.
+ * Cotizaciones v1.2.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -2929,6 +2929,8 @@ function SettingsTab(props) {
       h('div', { key: 'h', className: 'cz-card-hd' }, [
         h('h3', { key: 't' }, 'Emisor'),
         h('span', { key: 'n', className: 'cz-card-note' }, 'Encabeza y firma todas las cotizaciones.'),
+        h('span', { key: 'sp', className: 'cz-recbar-sp' }),
+        h(BrandImportBtn, { key: 'b' }),
       ]),
       h('div', { key: 'g', className: 'cz-grid2' }, [
         h(Field, { key: 'n', label: 'Razón social' },
@@ -3072,6 +3074,28 @@ function SettingsTab(props) {
       'Los ajustes viven en esta instancia del cotizador. Un equipo puede tener varios '
       + '(por marca o por unidad de negocio) y cada uno lleva su emisor, su correlativo y sus reglas.'),
   ]);
+}
+
+/**
+ * «Traer de la marca del sistema»: rellena el emisor con la marca del tenant
+ * en vez de reescribir aquí razón social, RUT y logo que ya están definidos
+ * una vez para todo KIMOS (APP-SPEC §7.f).
+ *
+ * Los colores NO se traen: el host ya inyecta los de la marca como tokens del
+ * tema, y esta app no cablea ninguno (APP-SPEC §9), así que se re-marca sola.
+ */
+function BrandImportBtn() {
+  const [ocupado, setOcupado] = useState(false);
+  const motivo = marcaNoDisponible();
+  if (motivo) return h('span', { className: 'cz-card-note', title: motivo }, 'sin marca del sistema');
+  return h(Btn, {
+    size: 'sm', disabled: ocupado,
+    title: 'Rellena estos campos con la marca definida para todo KIMOS. Después puedes ajustarlos solo para este cotizador.',
+    onClick: () => {
+      setOcupado(true);
+      Promise.resolve().then(actImportBrand).then(() => setOcupado(false), () => setOcupado(false));
+    },
+  }, ocupado ? 'Trayendo…' : '🏷 Traer de la marca');
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -4390,6 +4414,70 @@ function estadoVinculo(doc) {
   if (s(c.recordRef)) return { estado: 'vinculado', texto: 'Cliente del sistema' };
   if (s(c.sourceApp) === 'customers') return { estado: 'directorio', texto: 'Del directorio, sin identidad' };
   return { estado: 'suelto', texto: 'Solo en esta cotización' };
+}
+
+// ── Marca del tenant ────────────────────────────────────────────────────
+/**
+ * El emisor de las cotizaciones puede venir de la marca del sistema
+ * (`shell.brand`, APP-SPEC §7.f) en vez de reescribirse aquí.
+ *
+ * La marca RELLENA, no impone: se copia a los ajustes del cotizador y desde
+ * ahí se puede cambiar. Un tenant con dos unidades de negocio necesita poder
+ * cotizar con una razón social distinta de la marca por defecto, y quitarle
+ * esa posibilidad para «mantenerlo sincronizado» sería resolver un problema
+ * que no tiene a costa de uno que sí.
+ */
+function marcaNoDisponible() {
+  if (!shell.brand || typeof shell.brand.current !== 'function') {
+    return 'Este host todavía no expone la marca del sistema; el emisor se escribe aquí.';
+  }
+  return '';
+}
+
+/** Copia la marca activa del tenant a los ajustes del emisor. */
+async function actImportBrand() {
+  const motivo = marcaNoDisponible();
+  if (motivo) { shell.notify({ level: 'warn', text: motivo }); return null; }
+
+  let marca;
+  try {
+    marca = await shell.brand.current();
+  } catch (e) {
+    shell.notify({ level: 'error', text: 'No se pudo leer la marca: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  if (!isObj(marca)) {
+    shell.notify({
+      level: 'warn',
+      text: 'Este KIMOS todavía no tiene una marca configurada. La define un administrador y luego se trae desde aquí.',
+    });
+    return null;
+  }
+
+  const logos = isObj(marca.logos) ? marca.logos : {};
+  // Solo se pisa lo que la marca SÍ trae: si no tiene teléfono, no se borra
+  // el que ya estaba escrito aquí.
+  const patch = {};
+  const poner = (campo, valor) => { if (s(valor).trim()) patch[campo] = s(valor).trim(); };
+  poner('name', marca.legalName || marca.name);
+  poner('taxId', marca.taxId);
+  poner('email', marca.email);
+  poner('phone', marca.phone);
+  poner('web', marca.website);
+  poner('address', marca.address);
+  poner('logoUrl', logos.light || logos.mark || logos.dark);
+  poner('paymentInfo', marca.bankDetails);
+  if (!Object.keys(patch).length) {
+    shell.notify({ level: 'warn', text: 'La marca del sistema no tiene datos que traer todavía.' });
+    return null;
+  }
+
+  const out = actPatchIssuer(patch);
+  shell.notify({
+    level: 'success',
+    text: 'Emisor traído de la marca del sistema (' + s(marca.name) + '). Puedes ajustarlo para este cotizador.',
+  });
+  return out;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -7095,6 +7183,7 @@ function registrarAgente() {
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
       actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
       estadoVinculo, clavesDeCliente, registroNoDisponible,
+      actImportBrand, marcaNoDisponible,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
