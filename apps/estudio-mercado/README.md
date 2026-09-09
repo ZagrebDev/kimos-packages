@@ -129,8 +129,13 @@ precio sugerido, el mercado y la economía por paciente que devuelve el modelo.
 node apps/estudio-mercado/build.mjs        # src/app.js + src/data.json → dist/index.js
 node apps/estudio-mercado/test/smoke.mjs   # contrato, cifras y render de las 10 pestañas
 node tools/check-versions.mjs estudio-mercado
-node tools/pack.mjs apps/estudio-mercado   # .kapp para instalar desde archivo
+node tools/pack.mjs apps/estudio-mercado apps/estudio-mercado/estudio-mercado-2.0.0.kapp
 ```
+
+El `.kapp` de la versión publicada vive en esta misma carpeta
+(`estudio-mercado-2.0.0.kapp`), para instalarlo desde la Tienda → *Instalar
+desde archivo* sin tener que empaquetarlo. Al subir de versión, regenerarlo con
+el nombre nuevo y borrar el anterior.
 
 Para actualizar los datos del estudio: regenerar `src/data.json` con
 `src/extraer-planilla.py` sobre la planilla nueva y volver a construir.
