@@ -263,6 +263,10 @@ const AGENT_TOOLS = [
   }, ['cotizacion']),
   tool('ACTUALIZAR_CLIENTE', 'Cambia la ficha del cliente de una cotización.',
     { cotizacion: T_STR, nombre: T_STR, rut: T_STR, contacto: T_STR, correo: T_STR, telefono: T_STR, direccion: T_STR }, ['cotizacion']),
+  tool('VINCULAR_CLIENTE', 'Reconoce al cliente de la cotización en todo KIMOS: si ya existe (mismo RUT o correo) lo reutiliza, y si no, lo registra. Con `guardarEnDirectorio` además crea su ficha en la app Clientes.',
+    { cotizacion: T_STR, guardarEnDirectorio: T_BOOL, directorio: T_STR }, ['cotizacion']),
+  tool('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', 'Vuelve a leer el cliente vinculado y refresca su ficha en la cotización (por si cambió de nombre o se fusionó con otro).',
+    { cotizacion: T_STR }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -457,6 +461,40 @@ async function agentDispatch(action) {
       if (!Object.keys(patch).length) return errMsg('No mandaste ningún dato del cliente.');
       const out = actPatchClient(r.doc.id, patch);
       return out ? okMsg('Cliente actualizado: ' + (out.client.name || '—') + '.') : errMsg('No se pudo actualizar el cliente.');
+    }
+
+    case 'VINCULAR_CLIENTE': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const motivo = registroNoDisponible();
+      if (motivo) return errMsg(motivo);
+      if (p.guardarEnDirectorio) {
+        // Guardar en el directorio ya vincula al final, así que no se hacen
+        // las dos cosas: se haría el findOrCreate dos veces.
+        const item = await actPushClientToDirectory(r.doc.id, s(p.directorio));
+        if (!item) return errMsg('No se pudo guardar el cliente en el directorio.');
+        const d = docById(r.doc.id);
+        return okMsg('Cliente guardado en el directorio y vinculado: ' + s(d.client.name) + '.',
+          { referencia: s(d.client.recordRef), fichaId: s(item.id) });
+      }
+      const res = await actLinkClientRecord(r.doc.id, { silent: true });
+      if (!res) return errMsg('No se pudo vincular. Comprueba que el cliente tenga al menos un nombre.');
+      return okMsg(
+        res.created
+          ? 'Cliente registrado en el sistema: ' + s(r.doc.client.name) + '.'
+          : 'Vinculado con «' + (s(res.record && res.record.label) || s(r.doc.client.name)) + '», que ya existía.',
+        { referencia: res.ref, creado: res.created, aviso: res.warning || undefined },
+      );
+    }
+
+    case 'ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!s(r.doc.client.recordRef)) return errMsg('Esa cotización no tiene el cliente vinculado; usa VINCULAR_CLIENTE primero.');
+      const out = await actRefreshClientRecord(r.doc.id);
+      if (!out) return errMsg('No se pudo refrescar el cliente desde el directorio.');
+      return okMsg('Cliente actualizado desde el directorio: ' + s(out.client.name) + '.',
+        { referencia: s(out.client.recordRef) });
     }
 
     case 'CAMBIAR_ESTADO': {

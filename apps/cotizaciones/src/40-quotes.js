@@ -287,6 +287,51 @@ function DocHeaderPanel(props) {
         h('span', { key: 'u', className: 'cz-unit' }, rules.validBusinessDays ? 'días hábiles' : 'días'),
       ])),
     ]),
+    !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * Estado de la identidad del cliente, bajo la ficha.
+ *
+ * Se pinta SIEMPRE, también cuando no hay vínculo: que una cotización viva
+ * solo con su copia del cliente es legítimo, pero conviene VERLO, porque es
+ * justo la situación que produce el segundo «Acme SpA» meses después.
+ */
+function ClientRecordBar(props) {
+  const { doc } = props;
+  const [ocupado, setOcupado] = useState('');
+  const v = estadoVinculo(doc);
+  const sinRegistro = registroNoDisponible();
+  const puedeEscribir = !!(shell.data && typeof shell.data.create === 'function');
+  const yaEnDirectorio = s(doc.client.sourceItemId) !== '';
+  const correr = (nombre, fn) => {
+    setOcupado(nombre);
+    Promise.resolve().then(fn).then(() => setOcupado(''), () => setOcupado(''));
+  };
+
+  return h('div', { className: 'cz-recbar' }, [
+    h('span', { key: 'd', className: 'cz-recdot cz-recdot-' + v.estado }),
+    h('span', { key: 't', className: 'cz-recbar-txt' }, v.texto),
+    h('span', { key: 'sp', className: 'cz-recbar-sp' }),
+    sinRegistro
+      ? h('span', { key: 'no', className: 'cz-card-note', title: sinRegistro }, 'sin directorio del sistema')
+      : (v.estado === 'vinculado'
+        ? h(Btn, {
+          key: 'r', size: 'sm', disabled: ocupado === 'ref',
+          title: 'Vuelve a leer el cliente del directorio por si cambió de nombre o se fusionó con otro',
+          onClick: () => correr('ref', () => actRefreshClientRecord(doc.id)),
+        }, ocupado === 'ref' ? 'Actualizando…' : 'Actualizar ficha')
+        : h(Btn, {
+          key: 'v', size: 'sm', variant: 'primary', disabled: ocupado === 'link',
+          title: 'Reconoce a este cliente en todo KIMOS. Si ya existe, se reutiliza en vez de crear otro.',
+          onClick: () => correr('link', () => actLinkClientRecord(doc.id)),
+        }, ocupado === 'link' ? 'Vinculando…' : 'Vincular con el sistema')),
+    (puedeEscribir && !yaEnDirectorio) ? h(Btn, {
+      key: 'p', size: 'sm', disabled: ocupado === 'push',
+      title: 'Guarda esta ficha en la app Clientes para no volver a escribirla',
+      onClick: () => correr('push', () => actPushClientToDirectory(doc.id)),
+    }, ocupado === 'push' ? 'Añadiendo…' : 'Añadir a Clientes') : null,
   ]);
 }
 

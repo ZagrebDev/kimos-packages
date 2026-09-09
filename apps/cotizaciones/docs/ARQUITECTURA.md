@@ -32,6 +32,7 @@ src/40-quotes.js      listado y editor de datos
 src/45-templates.js   plantillas, revisiones, diálogo de creación
 src/50-settings.js    ajustes
 src/60-catalog-*.js   motor, lectura y pantallas del catálogo
+src/66-records.js     identidad compartida del cliente
 src/70-blocks.js      modelo y pintado de la propuesta          (compartido)
 src/72-canvas.js      edición visual del lienzo
 src/80-export.js      PDF y enlace público
@@ -94,6 +95,30 @@ tiene que poder mostrar lo mismo.
   («ganada») contra rojo («perdida») —ΔE 4,2 bajo deuteranopia— a distinguir
   el dato más importante del tablero.
 
+### El cliente: referencia Y copia, no una de las dos
+
+Cuando el cliente vive solo dentro de la cotización, seis meses después hay
+tres «Acme SpA» en el sistema y ninguna vista completa. Cuando vive solo en un
+registro central, una propuesta enviada cambia de nombre sola el día que
+alguien corrige la ficha —y lo que se envió al cliente no cambia solo (mismo
+criterio que las revisiones).
+
+Así que se guardan las dos cosas:
+
+- `client.recordRef` — `kimos:record/account/…`, la identidad compartida. Es
+  lo que permite decir «esta cotización y ese proyecto son del mismo
+  cliente», y lo que hace que escribir el RUT de otra forma no cree un
+  segundo cliente (la plataforma normaliza antes de comparar).
+- `client.name`, `taxId`, `email`… — la instantánea. Es lo que se imprime.
+
+Refrescar la instantánea es un acto explícito, nunca automático, igual que
+actualizar el precio de una línea desde el catálogo. Y si el registro
+desaparece, no se borra nada: la cotización sigue diciendo lo que decía.
+
+Todo esto es opcional en los dos sentidos: `shell.records` puede no existir
+en un host anterior, y entonces la app funciona exactamente como la 1.0 (hay
+una prueba que lo comprueba montando la app con un shell sin registro).
+
 ### El adjunto del correo
 
 El PDF lo produce el diálogo de impresión del navegador y lo escribe la
@@ -130,7 +155,9 @@ Ninguna en tiempo de ejecución más allá del contrato del host:
 | `globalThis.React` | el shell |
 | `globalThis.ReactDOM` | el shell (para pintar la hoja en la ventana de impresión) |
 | `shell.items`, `saveData/loadData`, `config`, `documents` | AppShell v1 |
-| `shell.data` | catálogos de Productos, ProductLab y Clientes |
+| `shell.data` (lectura) | catálogos de Productos, ProductLab y Clientes |
+| `shell.data.create` | guardar en la app Clientes un cliente escrito a mano (opcional) |
+| `shell.records` | identidad compartida del cliente (opcional: si falta, la app funciona igual) |
 | `shell.authFetch` | `/api/v2/files`, `/api/identity/me`, `/api/integrations/email/*` |
 
 El endpoint `POST /api/integrations/email/send` se añadió en

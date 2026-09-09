@@ -227,7 +227,7 @@ function actRefreshLinePrice(quoteId, lineId) {
 function actImportClient(quoteId, customerId) {
   const c = model.ext.customers.find((x) => x.id === s(customerId));
   if (!c) return null;
-  return commitDoc(s(quoteId), (d) => {
+  const out = commitDoc(s(quoteId), (d) => {
     d.client = normalizeClient({
       name: c.name, taxId: c.taxId, contact: c.contact, email: c.email,
       phone: c.phone, address: c.address,
@@ -235,4 +235,10 @@ function actImportClient(quoteId, customerId) {
     });
     return d;
   });
+  // Traerlo del directorio ya dice quién es, así que se le da su identidad
+  // del sistema sin preguntar. En silencio: el usuario pidió importar un
+  // cliente, no gestionar identidades. Si no se puede (host antiguo, sin
+  // permiso), la cotización queda igual de utilizable.
+  try { actLinkClientRecord(s(quoteId), { silent: true }); } catch (e) { /* opcional */ }
+  return out;
 }

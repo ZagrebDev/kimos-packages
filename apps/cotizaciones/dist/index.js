@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.0.0 — app oficial de KIMOS.
+ * Cotizaciones v1.1.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -334,6 +334,11 @@ function normalizeClient(raw) {
     phone: s(r.phone),
     address: s(r.address),
     notes: s(r.notes),
+    // Identidad del cliente en la plataforma (`kimos:record/account/…`), si
+    // se vinculó. Los campos de arriba siguen siendo la INSTANTÁNEA: una
+    // propuesta enviada hace ocho meses se imprime igual aunque el registro
+    // se renombre o desaparezca. Ver src/66-records.js y APP-SPEC §7.d.
+    recordRef: s(r.recordRef),
     // Origen si vino de la app Clientes: permite volver a la ficha.
     sourceApp: s(r.sourceApp),
     sourceInstanceId: s(r.sourceInstanceId),
@@ -2413,6 +2418,51 @@ function DocHeaderPanel(props) {
         h('span', { key: 'u', className: 'cz-unit' }, rules.validBusinessDays ? 'días hábiles' : 'días'),
       ])),
     ]),
+    !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * Estado de la identidad del cliente, bajo la ficha.
+ *
+ * Se pinta SIEMPRE, también cuando no hay vínculo: que una cotización viva
+ * solo con su copia del cliente es legítimo, pero conviene VERLO, porque es
+ * justo la situación que produce el segundo «Acme SpA» meses después.
+ */
+function ClientRecordBar(props) {
+  const { doc } = props;
+  const [ocupado, setOcupado] = useState('');
+  const v = estadoVinculo(doc);
+  const sinRegistro = registroNoDisponible();
+  const puedeEscribir = !!(shell.data && typeof shell.data.create === 'function');
+  const yaEnDirectorio = s(doc.client.sourceItemId) !== '';
+  const correr = (nombre, fn) => {
+    setOcupado(nombre);
+    Promise.resolve().then(fn).then(() => setOcupado(''), () => setOcupado(''));
+  };
+
+  return h('div', { className: 'cz-recbar' }, [
+    h('span', { key: 'd', className: 'cz-recdot cz-recdot-' + v.estado }),
+    h('span', { key: 't', className: 'cz-recbar-txt' }, v.texto),
+    h('span', { key: 'sp', className: 'cz-recbar-sp' }),
+    sinRegistro
+      ? h('span', { key: 'no', className: 'cz-card-note', title: sinRegistro }, 'sin directorio del sistema')
+      : (v.estado === 'vinculado'
+        ? h(Btn, {
+          key: 'r', size: 'sm', disabled: ocupado === 'ref',
+          title: 'Vuelve a leer el cliente del directorio por si cambió de nombre o se fusionó con otro',
+          onClick: () => correr('ref', () => actRefreshClientRecord(doc.id)),
+        }, ocupado === 'ref' ? 'Actualizando…' : 'Actualizar ficha')
+        : h(Btn, {
+          key: 'v', size: 'sm', variant: 'primary', disabled: ocupado === 'link',
+          title: 'Reconoce a este cliente en todo KIMOS. Si ya existe, se reutiliza en vez de crear otro.',
+          onClick: () => correr('link', () => actLinkClientRecord(doc.id)),
+        }, ocupado === 'link' ? 'Vinculando…' : 'Vincular con el sistema')),
+    (puedeEscribir && !yaEnDirectorio) ? h(Btn, {
+      key: 'p', size: 'sm', disabled: ocupado === 'push',
+      title: 'Guarda esta ficha en la app Clientes para no volver a escribirla',
+      onClick: () => correr('push', () => actPushClientToDirectory(doc.id)),
+    }, ocupado === 'push' ? 'Añadiendo…' : 'Añadir a Clientes') : null,
   ]);
 }
 
@@ -3651,7 +3701,7 @@ function actRefreshLinePrice(quoteId, lineId) {
 function actImportClient(quoteId, customerId) {
   const c = model.ext.customers.find((x) => x.id === s(customerId));
   if (!c) return null;
-  return commitDoc(s(quoteId), (d) => {
+  const out = commitDoc(s(quoteId), (d) => {
     d.client = normalizeClient({
       name: c.name, taxId: c.taxId, contact: c.contact, email: c.email,
       phone: c.phone, address: c.address,
@@ -3659,6 +3709,12 @@ function actImportClient(quoteId, customerId) {
     });
     return d;
   });
+  // Traerlo del directorio ya dice quién es, así que se le da su identidad
+  // del sistema sin preguntar. En silencio: el usuario pidió importar un
+  // cliente, no gestionar identidades. Si no se puede (host antiguo, sin
+  // permiso), la cotización queda igual de utilizable.
+  try { actLinkClientRecord(s(quoteId), { silent: true }); } catch (e) { /* opcional */ }
+  return out;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -4069,6 +4125,271 @@ function ClientPickerModal(props) {
         h('span', { key: 'x', className: 'cz-pickrow-add' }, '+'),
       ]))),
   ]);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/66-records.js
+// ══════════════════════════════════════════════════════════════════════
+// ── El cliente de la cotización, ligado al resto de KIMOS ───────────────
+/**
+ * src/66-records.js — identidad compartida del cliente (`shell.records`).
+ *
+ * El problema que resuelve: hasta ahora cada cotización guardaba su copia del
+ * cliente ("Acme SpA", su RUT, su correo). Clientes guardaba la suya y
+ * Prospección guardaría la tercera. Tres Acmes y ninguna vista completa.
+ *
+ * La solución NO es que la cotización deje de guardar el cliente. Es guardar
+ * DOS cosas:
+ *
+ *   · `client.recordRef` — la referencia a la identidad de la plataforma
+ *     (`kimos:record/account/…`). Es lo que permite decir «esta cotización y
+ *     ese proyecto son del mismo cliente».
+ *   · `client.name`, `taxId`, `email`… — la instantánea, como hasta ahora.
+ *
+ * La instantánea NO es redundancia: es lo que hace que una cotización enviada
+ * hace ocho meses siga imprimiéndose igual aunque el registro se renombre o
+ * desaparezca. Una propuesta que se envió al cliente no cambia sola
+ * (mismo criterio que las revisiones en 45-templates.js).
+ *
+ * Todo esto es opcional en los dos sentidos: si el host no expone
+ * `shell.records`, la app funciona exactamente como antes y el cliente se
+ * escribe a mano. Ver APP-SPEC §7.d.
+ */
+
+const RECORD_TYPE = 'account';
+
+/** '' si se puede usar el registro; si no, el motivo, para poder explicarlo. */
+function registroNoDisponible() {
+  if (!shell.records || typeof shell.records.findOrCreate !== 'function') {
+    return 'Este host todavía no expone el registro de identidades, así que el cliente se guarda solo en esta cotización.';
+  }
+  return '';
+}
+
+/**
+ * Claves con las que se reconoce a un cliente, en orden de fiabilidad.
+ *
+ * El RUT identifica a la empresa; el correo, a menudo, solo a la persona que
+ * escribió. Se mandan las dos y la plataforma normaliza («77.718.188-2» y
+ * «777181882» son la misma), pero el orden importa cuando apuntan a sitios
+ * distintos.
+ */
+function clavesDeCliente(client) {
+  const c = isObj(client) ? client : {};
+  const keys = {};
+  if (s(c.taxId).trim()) keys.taxId = s(c.taxId).trim();
+  if (s(c.email).trim()) keys.email = s(c.email).trim();
+  return keys;
+}
+
+/** Un cliente sin nombre ni claves no es vinculable: no hay a quién apuntar. */
+function clienteVinculable(client) {
+  const c = isObj(client) ? client : {};
+  if (!s(c.name).trim()) return 'Escribe primero el nombre del cliente.';
+  return '';
+}
+
+/**
+ * Vincula el cliente de una cotización con la identidad del sistema.
+ *
+ * `findOrCreate` REUTILIZA si ya existe: eso es exactamente lo que evita el
+ * segundo «Acme SpA». Devuelve `{ ref, created, warning }` o `null` si no se
+ * pudo (y en ese caso ya avisó por pantalla: la cotización sigue siendo
+ * válida sin vínculo).
+ */
+async function actLinkClientRecord(quoteId, opts) {
+  const o = isObj(opts) ? opts : {};
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+
+  const motivo = registroNoDisponible();
+  if (motivo) {
+    if (!o.silent) shell.notify({ level: 'warn', text: motivo });
+    return null;
+  }
+  const falta = clienteVinculable(doc.client);
+  if (falta) {
+    if (!o.silent) shell.notify({ level: 'warn', text: falta });
+    return null;
+  }
+
+  const keys = clavesDeCliente(doc.client);
+  let res;
+  try {
+    res = await shell.records.findOrCreate(RECORD_TYPE, { keys, label: s(doc.client.name).trim() });
+  } catch (e) {
+    if (!o.silent) {
+      shell.notify({ level: 'error', text: 'No se pudo vincular con el directorio: ' + ((e && e.message) || 'error') });
+    }
+    return null;
+  }
+  if (!isObj(res) || !s(res.ref)) return null;
+
+  const registro = isObj(res.record) ? res.record : {};
+  commitDoc(s(quoteId), (d) => {
+    d.client = normalizeClient(Object.assign({}, d.client, { recordRef: s(res.ref) }));
+    return d;
+  });
+
+  // Anotar el vínculo inverso: es lo que después responde «dame todo lo de
+  // Acme» desde cualquier app. Si falla, el vínculo directo ya está guardado
+  // y la cotización es utilizable, así que no se convierte en un error.
+  try {
+    if (typeof shell.records.link === 'function' && s(shell.app && shell.app.instanceId)) {
+      await shell.records.link(s(res.ref), {
+        instanceId: s(shell.app.instanceId),
+        itemId: s(quoteId),
+        kind: doc.kind === KIND_TEMPLATE ? 'plantilla' : 'cotizacion',
+        label: s(doc.number) || s(doc.title) || s(doc.client.name),
+      });
+    }
+  } catch (e) { /* el índice inverso es una comodidad, no una condición */ }
+
+  if (!o.silent) {
+    // El aviso de la plataforma (claves que apuntaban a registros distintos,
+    // o un cliente sin ninguna clave natural) es la única señal temprana de
+    // un duplicado: se muestra tal cual, no se traga.
+    if (s(res.warning)) shell.notify({ level: 'warn', text: s(res.warning) });
+    else if (res.created) shell.notify({ level: 'success', text: 'Cliente registrado en el directorio del sistema.' });
+    else {
+      shell.notify({
+        level: 'success',
+        text: 'Vinculado con «' + (s(registro.label) || s(doc.client.name)) + '», que ya existía en el sistema.',
+      });
+    }
+  }
+  return { ref: s(res.ref), created: !!res.created, warning: s(res.warning), record: registro };
+}
+
+/**
+ * Vuelve a leer el registro y refresca la instantánea del cliente.
+ *
+ * Dos casos que importan:
+ *   · El registro cambió de nombre → se actualiza lo que se imprimirá.
+ *   · El registro se fusionó con otro (`replaces`) → se reapunta la
+ *     referencia, o quedaría colgando de una identidad que ya no es la buena.
+ *
+ * Si el registro ya no existe NO se borra nada: la cotización conserva su
+ * instantánea y solo se avisa.
+ */
+async function actRefreshClientRecord(quoteId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+  const ref = s(doc.client.recordRef);
+  if (!ref) return null;
+
+  const motivo = registroNoDisponible();
+  if (motivo || typeof shell.records.resolve !== 'function') {
+    shell.notify({ level: 'warn', text: motivo || 'Este host no permite refrescar el cliente.' });
+    return null;
+  }
+
+  let lista;
+  try {
+    lista = arr(await shell.records.resolve([ref]));
+  } catch (e) {
+    shell.notify({ level: 'error', text: 'No se pudo leer el directorio: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  const r = lista[0];
+  if (!isObj(r) || r.resolved === false) {
+    shell.notify({
+      level: 'warn',
+      text: 'Ese cliente ya no está en el directorio; la cotización conserva los datos con los que se hizo.',
+    });
+    return null;
+  }
+
+  const keys = isObj(r.keys) ? r.keys : {};
+  const next = commitDoc(s(quoteId), (d) => {
+    d.client = normalizeClient(Object.assign({}, d.client, {
+      name: s(r.label) || s(d.client.name),
+      // El registro solo guarda claves: lo que no conoce no se pisa.
+      taxId: s(keys.taxid) || s(d.client.taxId),
+      email: s(keys.email) || s(d.client.email),
+      recordRef: s(r.ref) || ref,
+    }));
+    return d;
+  });
+
+  if (s(r.replaces)) {
+    shell.notify({ level: 'info', text: 'Ese cliente se había fusionado con otro; la cotización ya apunta al correcto.' });
+  } else {
+    shell.notify({ level: 'success', text: 'Cliente actualizado desde el directorio.' });
+  }
+  return next;
+}
+
+/**
+ * Guarda el cliente escrito a mano en la app Clientes.
+ *
+ * Es lo que cierra el círculo: cotizar a alguien nuevo deja de ser un callejón
+ * sin salida donde el cliente vive solo dentro de una cotización.
+ *
+ * Requiere `data.write:customers` en el manifest Y que la app Clientes
+ * publique su `dataSchema` (APP-SPEC §7.c). Si no cumple una de las dos, la
+ * plataforma lo rechaza y aquí solo se explica.
+ */
+async function actPushClientToDirectory(quoteId, instanceId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+  if (!shell.data || typeof shell.data.create !== 'function') {
+    shell.notify({ level: 'warn', text: 'Este host no permite escribir en otras apps.' });
+    return null;
+  }
+  const falta = clienteVinculable(doc.client);
+  if (falta) { shell.notify({ level: 'warn', text: falta }); return null; }
+
+  // La instancia destino: la que se indique, o la única que haya. Con varias
+  // y ninguna elegida no se adivina: escribir en el directorio equivocado es
+  // peor que no escribir.
+  let destino = s(instanceId);
+  if (!destino) {
+    const fuentes = arr(model.ext.customerSources);
+    if (fuentes.length === 1) destino = s(fuentes[0].id);
+  }
+  if (!destino) {
+    shell.notify({ level: 'warn', text: 'Elige a qué directorio de clientes quieres añadirlo.' });
+    return null;
+  }
+
+  const c = doc.client;
+  const payload = { name: s(c.name).trim() };
+  if (s(c.taxId)) payload.taxId = s(c.taxId).trim();
+  if (s(c.email)) payload.email = s(c.email).trim();
+  if (s(c.phone)) payload.phone = s(c.phone).trim();
+
+  let item;
+  try {
+    item = await shell.data.create(destino, payload);
+  } catch (e) {
+    shell.notify({ level: 'error', text: 'No se pudo añadir al directorio: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  if (!isObj(item)) return null;
+
+  commitDoc(s(quoteId), (d) => {
+    d.client = normalizeClient(Object.assign({}, d.client, {
+      sourceApp: 'customers', sourceInstanceId: destino, sourceItemId: s(item.id),
+    }));
+    return d;
+  });
+  // El espejo de lectura queda viejo en cuanto se escribe: se refresca para
+  // que el selector de clientes lo encuentre sin recargar la app.
+  loadCustomers(true);
+  shell.notify({ level: 'success', text: 'Cliente añadido al directorio.' });
+
+  // Y se le da identidad, que es de lo que va todo esto.
+  await actLinkClientRecord(s(quoteId), { silent: true });
+  return item;
+}
+
+/** Estado del vínculo, para pintarlo sin repetir la lógica en la vista. */
+function estadoVinculo(doc) {
+  const c = (doc && doc.client) || {};
+  if (s(c.recordRef)) return { estado: 'vinculado', texto: 'Cliente del sistema' };
+  if (s(c.sourceApp) === 'customers') return { estado: 'directorio', texto: 'Del directorio, sin identidad' };
+  return { estado: 'suelto', texto: 'Solo en esta cotización' };
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -6260,6 +6581,10 @@ const AGENT_TOOLS = [
   }, ['cotizacion']),
   tool('ACTUALIZAR_CLIENTE', 'Cambia la ficha del cliente de una cotización.',
     { cotizacion: T_STR, nombre: T_STR, rut: T_STR, contacto: T_STR, correo: T_STR, telefono: T_STR, direccion: T_STR }, ['cotizacion']),
+  tool('VINCULAR_CLIENTE', 'Reconoce al cliente de la cotización en todo KIMOS: si ya existe (mismo RUT o correo) lo reutiliza, y si no, lo registra. Con `guardarEnDirectorio` además crea su ficha en la app Clientes.',
+    { cotizacion: T_STR, guardarEnDirectorio: T_BOOL, directorio: T_STR }, ['cotizacion']),
+  tool('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', 'Vuelve a leer el cliente vinculado y refresca su ficha en la cotización (por si cambió de nombre o se fusionó con otro).',
+    { cotizacion: T_STR }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -6454,6 +6779,40 @@ async function agentDispatch(action) {
       if (!Object.keys(patch).length) return errMsg('No mandaste ningún dato del cliente.');
       const out = actPatchClient(r.doc.id, patch);
       return out ? okMsg('Cliente actualizado: ' + (out.client.name || '—') + '.') : errMsg('No se pudo actualizar el cliente.');
+    }
+
+    case 'VINCULAR_CLIENTE': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const motivo = registroNoDisponible();
+      if (motivo) return errMsg(motivo);
+      if (p.guardarEnDirectorio) {
+        // Guardar en el directorio ya vincula al final, así que no se hacen
+        // las dos cosas: se haría el findOrCreate dos veces.
+        const item = await actPushClientToDirectory(r.doc.id, s(p.directorio));
+        if (!item) return errMsg('No se pudo guardar el cliente en el directorio.');
+        const d = docById(r.doc.id);
+        return okMsg('Cliente guardado en el directorio y vinculado: ' + s(d.client.name) + '.',
+          { referencia: s(d.client.recordRef), fichaId: s(item.id) });
+      }
+      const res = await actLinkClientRecord(r.doc.id, { silent: true });
+      if (!res) return errMsg('No se pudo vincular. Comprueba que el cliente tenga al menos un nombre.');
+      return okMsg(
+        res.created
+          ? 'Cliente registrado en el sistema: ' + s(r.doc.client.name) + '.'
+          : 'Vinculado con «' + (s(res.record && res.record.label) || s(r.doc.client.name)) + '», que ya existía.',
+        { referencia: res.ref, creado: res.created, aviso: res.warning || undefined },
+      );
+    }
+
+    case 'ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!s(r.doc.client.recordRef)) return errMsg('Esa cotización no tiene el cliente vinculado; usa VINCULAR_CLIENTE primero.');
+      const out = await actRefreshClientRecord(r.doc.id);
+      if (!out) return errMsg('No se pudo refrescar el cliente desde el directorio.');
+      return okMsg('Cliente actualizado desde el directorio: ' + s(out.client.name) + '.',
+        { referencia: s(out.client.recordRef) });
     }
 
     case 'CAMBIAR_ESTADO': {
@@ -6734,6 +7093,8 @@ function registrarAgente() {
       actPatchIssuer, actPatchRules,
       loadExternalCatalog, loadCustomers, productByKey,
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
+      actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
+      estadoVinculo, clavesDeCliente, registroNoDisponible,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,

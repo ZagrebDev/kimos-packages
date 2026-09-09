@@ -98,6 +98,8 @@ parts.push(`
       actPatchIssuer, actPatchRules,
       loadExternalCatalog, loadCustomers, productByKey,
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
+      actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
+      estadoVinculo, clavesDeCliente, registroNoDisponible,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
