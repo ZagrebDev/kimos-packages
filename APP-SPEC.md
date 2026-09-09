@@ -374,6 +374,14 @@ backend propio, para apps oficiales curadas): `contact-forms` y `web-agents`.
 
 ## 7.c Leer datos de OTRAS apps (`shell.data`)
 
+> ⚠️ **En revisión.** Esta sección describe el contrato **vigente** (solo
+> lectura) y sigue siendo válida. Está en curso una ampliación que añade
+> escritura gobernada, un registro de identidades compartidas entre apps
+> (`shell.records`), almacenamiento de archivos (`shell.files`) y marca global
+> (`shell.brand`). Antes de construir sobre lo que aquí se llama «evoluciones
+> futuras», lee el plan:
+> `kimos-enterprice/docs/plan-datos-entre-apps.md`.
+
 Tu app puede leer datos de otras apps (oficiales o de terceros) declarando el
 permiso en su manifest — el superadmin lo ve y aprueba al instalar:
 
