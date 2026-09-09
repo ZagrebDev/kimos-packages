@@ -1,0 +1,52 @@
+{
+  "formato": "kimos-funplai-pack",
+  "version": 1,
+  "id": "navidad",
+  "nombre": "Navidad",
+  "descripcion": "Guirnalda roja y verde, noche fría y luces.",
+  "tema": {
+    "accent": "#C62828",
+    "accent2": "#1B7F4B",
+    "bg": "#0E2338",
+    "bg2": "#061523",
+    "surface": "#FFF8EE",
+    "ink": "#14202C",
+    "decor": "banderines",
+    "emoji": "🎄",
+    "decorColores": [
+      "#C62828",
+      "#1B7F4B",
+      "#E8C86A"
+    ],
+    "decorEstrella": true,
+    "cielo": "#123A63",
+    "cieloBajo": "#9FC5E8",
+    "suelo": "#E8EEF5",
+    "cerros": "#2E4A6B",
+    "sol": "#FFF1C9"
+  },
+  "branding": {
+    "appName": "Kimos FunPlai",
+    "tagline": "Juegos de Navidad",
+    "logo": "🎄",
+    "heroTitle": "¡Feliz Navidad!",
+    "heroSubtitle": "Elige un juego y a jugar"
+  },
+  "juegos": {
+    "laser": {
+      "name": "Tiro al blanco navideño",
+      "blurb": "Dispara a estrellas, panes de pascua y bastones de caramelo. Esquiva el carbón."
+    },
+    "burro": {
+      "name": "Ponle la nariz al reno",
+      "blurb": "Arrastra la nariz con el dedo y suéltala en el centro de la mira."
+    }
+  },
+  "blancos": {
+    "volantin": "Estrella",
+    "empanada": "Pan de pascua",
+    "choripan": "Bastón de caramelo",
+    "aji": "Carbón",
+    "schop": "Calcetín roto"
+  }
+}

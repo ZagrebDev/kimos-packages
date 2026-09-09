@@ -169,7 +169,7 @@
       "name": "ProductLab",
       "description": "Laboratorio de productos personalizables para cualquier rubro: componentes e insumos (telas, materias primas, piezas, mano de obra o procesos externalizados) con costo de proveedor y verificación integrada, stock, compatibilidades, márgenes parametrizables (sobre costo o sobre venta), impuestos, monedas y redondeos configurables, valores genéricos con alternativas de varios proveedores (siempre se usa la más económica disponible), cantidades por valor (2×8), pasos dependientes, valores sin costo y recargos, modos de precio auto/fijo/tienda, configurador paso a paso con previsualizador en vivo, ficha visual con builder de descripción (heros, secciones de imagen de alto adaptable), visor 3D opcional con AR (el modelo se personaliza en vivo por paso), estilo del configurador por producto, y aplicación a la tienda vía la app Productos (precio + opciones + variantes: precio ancla + un addon por valor, con variantes solo para el color — sin tope de combinaciones). Publica además el JSON que alimenta el configurador del theme. Incluye migración de datos desde otro catálogo (p. ej. la app de computadores) y exportación/importación de componentes en CSV y del catálogo completo en JSON. Evolución de las apps gestion-productos (personalizador) y computadores.",
       "icon": "🧪",
-      "version": "3.44.2",
+      "version": "3.64.1",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -243,6 +243,104 @@
       ]
     },
     {
+      "id": "kimos-project-manager",
+      "name": "Gestor de Proyectos",
+      "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa con conversor de moneda que toma el tipo de cambio del día: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con su equivalente en dólares a la vista, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
+      "icon": "🧭",
+      "version": "1.2.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "data.read:gantt",
+        "data.read:kanban",
+        "data.read:cotizaciones"
+      ],
+      "configSchema": {
+        "title": "Preferencias del Gestor de Proyectos",
+        "fields": [
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Se usa en gráficos de avance, chips y estados activos."
+          },
+          {
+            "key": "defaultCurrency",
+            "label": "Moneda por defecto",
+            "type": "select",
+            "options": [
+              {
+                "value": "CLP",
+                "label": "CLP — Peso chileno"
+              },
+              {
+                "value": "COP",
+                "label": "COP — Peso colombiano"
+              },
+              {
+                "value": "USD",
+                "label": "USD — Dólar"
+              },
+              {
+                "value": "PEN",
+                "label": "PEN — Sol peruano"
+              },
+              {
+                "value": "MXN",
+                "label": "MXN — Peso mexicano"
+              },
+              {
+                "value": "EUR",
+                "label": "EUR — Euro"
+              }
+            ],
+            "help": "Moneda con la que se crean los proyectos y las líneas de presupuesto nuevas."
+          },
+          {
+            "key": "alertDays",
+            "label": "Días de anticipación para alertas",
+            "type": "number",
+            "min": 1,
+            "max": 90,
+            "help": "Una tarea o hito se marca 'por vencer' dentro de esta ventana."
+          },
+          {
+            "key": "budgetAlertPct",
+            "label": "Umbral de desvío del costeo (%)",
+            "type": "number",
+            "min": 1,
+            "max": 100,
+            "help": "Cuando el costeo por líneas supera el presupuesto del proyecto en más de este porcentaje, el indicador se marca en rojo y aparece la alerta en el panel."
+          },
+          {
+            "key": "denseTables",
+            "label": "Tablas compactas",
+            "type": "boolean",
+            "help": "Más filas visibles por pantalla en planes, riesgos y documentos."
+          },
+          {
+            "key": "showFinance",
+            "label": "Mostrar presupuesto",
+            "type": "boolean",
+            "help": "Muestra las cifras económicas en los tableros y la ficha del proyecto."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "accent": "#19ACB1",
+        "defaultCurrency": "CLP",
+        "alertDays": 7,
+        "denseTables": false,
+        "showFinance": true,
+        "budgetAlertPct": 10
+      }
+    },
+    {
       "id": "products",
       "name": "Productos",
       "description": "Catálogo de productos con gestión completa de opciones y variantes (tipos, addons, precios y stock por variante) y sincronización bidireccional con Jumpseller.",
@@ -289,11 +387,60 @@
       ]
     },
     {
+      "id": "cotizaciones",
+      "name": "Cotizaciones",
+      "description": "Cotizaciones y propuestas comerciales de punta a punta: catálogo propio de ítems y servicios prefijados reutilizables, líneas traídas del catálogo de la app Productos y de los productos configurables de ProductLab (con su combinación de pasos y valores resuelta a precio), cliente tomado de la app Clientes, moneda/impuesto/descuentos/abono y saldo parametrizables, cotizaciones tipo reutilizables y duplicación de cotizaciones ya hechas, editor visual de cuadrícula arrastrable para componer la propuesta con textos, imágenes y tablas, exportación a PDF fiel al editor, envío por correo con el SMTP del tenant usando plantillas de correo editables con variables, y seguimiento por estado con vencimientos y valor del pipeline. Control total por agente IA.",
+      "icon": "🧾",
+      "version": "1.0.0",
+      "author": "Kimos",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "data.read:products",
+        "data.read:productlab",
+        "data.read:customers"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Cotizaciones",
+        "fields": [
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca; se usa en chips, énfasis y estados activos. Vacío = el acento de KIMOS."
+          },
+          {
+            "key": "denseTables",
+            "label": "Tablas compactas",
+            "type": "boolean",
+            "help": "Más filas visibles por pantalla en el listado y en las líneas de la cotización."
+          },
+          {
+            "key": "confirmSend",
+            "label": "Confirmar antes de enviar por correo",
+            "type": "boolean",
+            "help": "Pide confirmación explícita antes de que salga cada correo con la cotización."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "accent": "",
+        "denseTables": false,
+        "confirmSend": true
+      }
+    },
+    {
       "id": "contact-forms",
       "name": "Formularios de Contacto",
       "description": "Crea formularios de contacto incrustables en cualquier sitio web y gestiona los mensajes recibidos. Cada instancia es un formulario con su propio código de incrustación (script, iframe o API).",
       "icon": "📬",
-      "version": "1.3.6",
+      "version": "1.3.7",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -411,10 +558,10 @@
     },
     {
       "id": "evento-ciberseguridad",
-      "name": "Desayuno Ejecutivo de Ciberseguridad 2026",
-      "description": "Dashboard del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: cuenta regresiva en vivo, temario, speakers, lugar y tu plan personal (asistencia, preguntas y notas), con control por agente IA.",
+      "name": "Anfitrión · Desayuno Ejecutivo de Ciberseguridad 2026",
+      "description": "Anfitrión táctil para totem y vitrina vertical 9:16 del Desayuno Ejecutivo de Ciberseguridad 2026 de NextTime Software: pantalla \"Ahora\" con la sesión en curso y la siguiente en tiempo real, agenda compacta con fichas de expositores en modal (QR de contacto y de sitio web), marco legal en tarjetas con detalle en modal, Diagnóstico Rápido de Cumplimiento y pie con el logo de Kimos.",
       "icon": "🛡️",
-      "version": "1.0.0",
+      "version": "2.9.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -425,28 +572,50 @@
         "agent.control"
       ],
       "configSchema": {
-        "title": "Preferencias del evento",
+        "title": "Preferencias del totem",
         "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          },
           {
             "key": "acento",
             "label": "Color de acento",
             "type": "color"
           },
           {
-            "key": "mostrarSegundos",
-            "label": "Mostrar los segundos en la cuenta regresiva",
-            "type": "boolean"
-          },
-          {
             "key": "mostrarFotos",
-            "label": "Mostrar las fotos de los speakers",
+            "label": "Mostrar las fotos de los expositores",
             "type": "boolean"
           }
         ]
       },
       "defaultConfig": {
-        "acento": "#00E9D8",
-        "mostrarSegundos": true,
+        "modo": "auto",
+        "segundosInactividad": 90,
+        "acento": "#00E4D0",
         "mostrarFotos": true
       }
     },
@@ -463,6 +632,623 @@
       "permissions": [
         "instance.read",
         "instance.write",
+        "agent.control"
+      ]
+    },
+    {
+      "id": "kimos.tarjetas",
+      "name": "Tarjetas Virtuales",
+      "description": "Genera tarjetas de presentación virtuales desde los usuarios reales del sistema KIMOS (foto de perfil, correo, cargo y teléfono), con código QR vCard funcional que guarda el contacto en el móvil al escanearlo y logo de la marca aplicado a cada tarjeta generada.",
+      "icon": "🪪",
+      "version": "1.3.0",
+      "author": "Kimos Apps",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Tarjetas",
+        "fields": [
+          {
+            "key": "defaultFormat",
+            "label": "Formato por defecto",
+            "type": "select",
+            "options": [
+              {
+                "value": "horizontal",
+                "label": "Horizontal (1050 x 600 px)"
+              },
+              {
+                "value": "vertical",
+                "label": "Vertical (600 x 950 px)"
+              }
+            ]
+          },
+          {
+            "key": "exportScale",
+            "label": "Resolución de descarga",
+            "type": "select",
+            "options": [
+              {
+                "value": "2",
+                "label": "2x Alta definición (HD)"
+              },
+              {
+                "value": "3",
+                "label": "3x Ultra nítida (Impresión)"
+              },
+              {
+                "value": "1",
+                "label": "1x Estándar"
+              }
+            ]
+          }
+        ]
+      },
+      "defaultConfig": {
+        "defaultFormat": "horizontal",
+        "exportScale": "2"
+      }
+    },
+    {
+      "id": "workoffice",
+      "name": "Kimos WorkOffice",
+      "description": "Suite ofimática de KIMOS: un espacio de trabajo con Documentos, Hojas de cálculo con motor de fórmulas, Presentaciones con modo presentador, Notas y Calendario, todo dentro de la misma ventana y guardado archivo por archivo (dos personas editando archivos distintos nunca se pisan). Explorador con recientes, favoritos, búsqueda global y papelera; paleta de comandos (Ctrl+K); autoguardado con estado a la vista; exportación e importación en CSV, Markdown y HTML; impresión y modo presentación. Se integra con el resto de KIMOS: trae filas de Productos, Clientes y Pedidos a una hoja, muestra las tareas de Planificación en el calendario y las Notas de Equipo junto a las personales, siempre en solo lectura y respetando el RBAC del usuario. Control total por agente IA.",
+      "icon": "🧰",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "data.read:products",
+        "data.read:customers",
+        "data.read:orders",
+        "data.read:gantt",
+        "data.read:notas-equipo"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos WorkOffice",
+        "fields": [
+          {
+            "key": "startModule",
+            "label": "Al abrir, mostrar",
+            "type": "select",
+            "options": [
+              {
+                "value": "drive",
+                "label": "Inicio (mis archivos)"
+              },
+              {
+                "value": "docs",
+                "label": "Documentos"
+              },
+              {
+                "value": "sheets",
+                "label": "Hojas de cálculo"
+              },
+              {
+                "value": "slides",
+                "label": "Presentaciones"
+              },
+              {
+                "value": "notes",
+                "label": "Notas"
+              },
+              {
+                "value": "calendar",
+                "label": "Calendario"
+              }
+            ],
+            "help": "Módulo que se abre al montar la ventana."
+          },
+          {
+            "key": "autosave",
+            "label": "Autoguardado",
+            "type": "boolean",
+            "help": "Guarda solo unos segundos después de dejar de escribir. Si lo apagas, el guardado es con Ctrl+S."
+          },
+          {
+            "key": "dense",
+            "label": "Interfaz compacta",
+            "type": "boolean",
+            "help": "Más filas y tarjetas por pantalla; útil en monitores pequeños."
+          },
+          {
+            "key": "weekStart",
+            "label": "La semana empieza en",
+            "type": "select",
+            "options": [
+              {
+                "value": "1",
+                "label": "Lunes"
+              },
+              {
+                "value": "0",
+                "label": "Domingo"
+              }
+            ]
+          },
+          {
+            "key": "currency",
+            "label": "Moneda de las hojas",
+            "type": "select",
+            "options": [
+              {
+                "value": "CLP",
+                "label": "Peso chileno (CLP)"
+              },
+              {
+                "value": "USD",
+                "label": "Dólar (USD)"
+              },
+              {
+                "value": "EUR",
+                "label": "Euro (EUR)"
+              },
+              {
+                "value": "MXN",
+                "label": "Peso mexicano (MXN)"
+              },
+              {
+                "value": "COP",
+                "label": "Peso colombiano (COP)"
+              },
+              {
+                "value": "ARS",
+                "label": "Peso argentino (ARS)"
+              }
+            ]
+          },
+          {
+            "key": "kimosData",
+            "label": "Traer datos de otras apps de KIMOS",
+            "type": "boolean",
+            "help": "Muestra las tareas de Planificación en el calendario y permite importar Productos, Clientes y Pedidos a una hoja. Siempre en solo lectura."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "startModule": "drive",
+        "autosave": true,
+        "dense": false,
+        "weekStart": "1",
+        "currency": "CLP",
+        "kimosData": true
+      },
+      "appShellApi": "1.x"
+    },
+    {
+      "id": "lidaria",
+      "name": "LiDARia",
+      "description": "Consola de captura 3D, supervisión por cámara, captura de movimiento y ampliación por sensores de KIMOS. Qué puede escanear y reconocer cada equipo (LiDAR, ToF, profundidad por movimiento, visión), qué trae de verdad cada uno —cámaras, micrófono, altavoz, radios, sensores— y cuáles de esos componentes se alcanzan desde el navegador y cuáles exigen contenedor nativo. Mide personas con una cámara común: con la altura del lente, su inclinación y su campo de visión declarados, convierte píxeles en centímetros —motor adoptado de Kimos FunPlai y validado en tótem— y entrega distancia, estatura, alturas de trabajo, alcances y talla de arnés y de ropa, diciendo también qué NO se puede derivar (talla de casco, peso, perímetros). Calcula el montaje de cámara: a qué distancia marcar la zona, cuánto inclinar el lente y si con ese campo de visión hay montaje posible. A qué distancia se puede vigilar cada implemento de protección —calculado por geometría—, y qué capacidades se pueden sumar en el futuro (reconocimiento facial y biométrico, fatiga de conductores, temperatura ambiental, arnés enganchado) con su puerta de cumplimiento: las funciones con dato sensible se distribuyen apagadas y el software no las enciende hasta que el expediente de la Ley 21.719 está completo y firmado. Incluye manual de uso paso a paso, catálogo de 20 accesorios y sensores conectables (ESP32, térmicas, básculas, webcams gran angular, cámaras de profundidad, drones) con su forma de conexión por plataforma, 14 rubros ampliables con packs .krub, matriz de 24 equipos contra 16 módulos, inventario, prospección, ecosistema, negocio y licencias. Control por agente IA con diecisiete herramientas.",
+      "icon": "🛰️",
+      "version": "1.4.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ]
+    },
+    {
+      "id": "kimos-safe-concierge",
+      "name": "KIMOS Safe Concierge",
+      "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil que muestra al conserje virtual —avatar humanizado o caricaturizado— junto al espejo en vivo de quien está frente a la cámara, con teclado en pantalla para escribir sin teclado físico. Atiende visitas, residentes, citofonía y encomiendas 24/7, y su consola convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
+      "icon": "🛡️",
+      "version": "1.1.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "public.submit"
+      ],
+      "configSchema": {
+        "title": "Preferencias de KIMOS Safe Concierge",
+        "fields": [
+          {
+            "key": "siteName",
+            "label": "Nombre de la comunidad o empresa",
+            "type": "string",
+            "help": "Aparece en el tótem y en el parte que se entrega a emergencias."
+          },
+          {
+            "key": "siteAddress",
+            "label": "Dirección exacta del acceso",
+            "type": "textarea",
+            "help": "Calle, número, comuna y referencias de ingreso. Es lo primero que piden SAMU, Bomberos y Carabineros."
+          },
+          {
+            "key": "startView",
+            "label": "Al abrir, mostrar",
+            "type": "select",
+            "options": [
+              {
+                "value": "panel",
+                "label": "Centro de operaciones"
+              },
+              {
+                "value": "totem",
+                "label": "Tótem (modo atención)"
+              },
+              {
+                "value": "incidents",
+                "label": "Incidentes"
+              },
+              {
+                "value": "access",
+                "label": "Accesos"
+              }
+            ]
+          },
+          {
+            "key": "avatarStyle",
+            "label": "Avatar del tótem",
+            "type": "select",
+            "options": [
+              {
+                "value": "human",
+                "label": "Humanizado"
+              },
+              {
+                "value": "cartoon",
+                "label": "Caricaturizado"
+              },
+              {
+                "value": "minimal",
+                "label": "Abstracto (sin rostro)"
+              }
+            ]
+          },
+          {
+            "key": "avatarName",
+            "label": "Nombre del avatar",
+            "type": "string"
+          },
+          {
+            "key": "voice",
+            "label": "Voz del avatar",
+            "type": "boolean",
+            "help": "Síntesis de voz del navegador; no envía audio a ningún servidor."
+          },
+          {
+            "key": "cameraSensor",
+            "label": "Analizar la cámara del tótem",
+            "type": "boolean",
+            "help": "Detección local de agitación y forcejeo. Los cuadros se procesan en el dispositivo y nunca se suben."
+          },
+          {
+            "key": "audioSensor",
+            "label": "Analizar el micrófono del tótem",
+            "type": "boolean",
+            "help": "Detección local de gritos e impactos por energía acústica. No transcribe ni graba conversaciones."
+          },
+          {
+            "key": "sensitivity",
+            "label": "Sensibilidad de la detección",
+            "type": "select",
+            "options": [
+              {
+                "value": "low",
+                "label": "Baja (menos falsos positivos)"
+              },
+              {
+                "value": "medium",
+                "label": "Media"
+              },
+              {
+                "value": "high",
+                "label": "Alta (más avisos, más ruido)"
+              }
+            ]
+          },
+          {
+            "key": "autoWarn",
+            "label": "Aviso disuasivo automático",
+            "type": "boolean",
+            "help": "Nivel 3 o superior: el tótem advierte por el parlante que se está avisando al personal de seguridad. Nunca llama solo a un servicio de emergencia."
+          },
+          {
+            "key": "retentionDays",
+            "label": "Retención de registros (días)",
+            "type": "number",
+            "min": 30,
+            "max": 3650,
+            "help": "La Ley 21.659 exige conservar los registros de vigilancia al menos 120 días."
+          },
+          {
+            "key": "privacyMode",
+            "label": "Modo privacidad (sin identificar por defecto)",
+            "type": "boolean",
+            "help": "Las detecciones se registran como «Persona 1» y solo se asocian a una identidad cuando alguien lo justifica."
+          },
+          {
+            "key": "accent",
+            "label": "Color del tótem",
+            "type": "color"
+          }
+        ]
+      },
+      "defaultConfig": {
+        "siteName": "",
+        "siteAddress": "",
+        "startView": "panel",
+        "avatarStyle": "human",
+        "avatarName": "Kim",
+        "voice": true,
+        "cameraSensor": false,
+        "audioSensor": false,
+        "sensitivity": "medium",
+        "autoWarn": true,
+        "retentionDays": 120,
+        "privacyMode": true,
+        "accent": "#19ACB1"
+      },
+      "appShellApi": "1.x"
+    },
+    {
+      "id": "totem-productos",
+      "name": "Totem de Productos",
+      "description": "Vitrina táctil vertical (9:16) del catálogo para tótems de atención al cliente: toma los productos de las apps Productos y ProductLab (incluidos los personalizables, con paso a paso, recargos por opción y fotos por valor), fichas touch con galería, especificaciones y configurador informativo con resumen para el equipo, pestaña Estilos para editar la visualización (colores, bordes rectos o redondeados, columnas, tipografía, precios), publicación del catálogo curado para usarla con la app Vitrinas (reserva la franja del dock de voz) y agente IA cuyas respuestas actúan en pantalla (mostrar producto, filtrar, personalizar paso a paso).",
+      "icon": "🛍️",
+      "version": "1.0.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control",
+        "public.read",
+        "data.read:products",
+        "data.read:productlab"
+      ],
+      "configSchema": {
+        "title": "Preferencias del totem",
+        "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la ventana es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          }
+        ]
+      },
+      "defaultConfig": {
+        "modo": "auto",
+        "segundosInactividad": 90
+      }
+    },
+    {
+      "id": "funplai",
+      "name": "Kimos FunPlai",
+      "description": "Once juegos interactivos para tótem, PC, tablet y móvil: 'Coloca la cola al burro' (táctil), 'Prueba de baile' (cámara con el cuerpo entero, o modo rítmico por toque y teclado), 'LaserGun dieciochero' (pistola IR o puntero: suman empanadas, choripanes y volantines; restan ajíes y schops), 'Rayuela Chilena' (deporte nacional con reglas oficiales, se lanza deslizando, con apuntado por arrastre y barra de precisión, o con el brazo por cámara), 'Boxeo' (contra un canguro boxeador o un boxeador humano) 'Gato' (tres en línea: cada partida empieza eligiendo en pantalla si se juega contra el tótem o entre dos personas, y si cada jugador usa cruces o círculos), 'Mete gol' (penales con la patada leída por cámara contra un arquero que patrulla el arco y se lanza) 'Alas de cóndor' en dos versiones —lateral y 3D por la cordillera de los Andes—, donde se vuela moviendo los brazos como alas, se planea abriéndolos en cruz, se vira inclinando el torso y se comen frutas en el aire, y 'Esquiva y gana' en dos versiones, 2D lateral y 3D en profundidad, donde se salta y se agacha de verdad y el avatar puede ser el contorno del cuerpo del participante. Todos los juegos con cámara comparten una única zona marcada en el piso (2,2 m del tótem), así que se calibra una vez y nadie se mueve entre juego y juego; los que solo necesitan el medio cuerpo superior —torso, brazos y cabeza— siguen funcionando aunque no se vean los pies. Gráficos con estética de consola 3D de fines de los noventa: cada juego ocurre en un escenario con cielo, cordillera y suelo en perspectiva, con sombreado por facetas, sombras de contacto y tipografía de marcador arcade. Todo editable desde la app: nombres, textos, colores, temática (que cambia el escenario completo), dificultad y coreografías. Incluye temática de Fiestas Patrias de Chile, ranking del tótem, diagnóstico de cámara/puntero y control por agente IA. La cámara se declara desde un catálogo (integrada, gran angular, ultra ancha, PTZ con gimbal o de profundidad) y la app verifica si ese lente cubre el espacio con el montaje real; el seguimiento del participante es digital, sin mover el lente, para no perder la medición en centímetros. Compatible con Kinect for Xbox One (v2) a través de un puente local: 25 articulaciones en metros reales, estado de cada mano (puño, abierta o señalando), inclinación del torso medida por el sensor y plano del piso. Con él, el boxeo exige puño cerrado y esquiva con el torso, la rayuela suelta el tejo al abrir la mano, el vuelo del cóndor mide el aleteo en metros y vira con la inclinación, 'Mete gol' lee la articulación del pie y cuánto avanza hacia la pantalla, 'Esquiva y gana' mide el salto contra el suelo real sin calibrar, y el LaserGun se puede jugar apuntando con el brazo y disparando al cerrar el puño. Sin Kinect todo sigue funcionando con la webcam. Incluye simulador del puente para probarlo en cualquier equipo sin el sensor. El Kinect se elige y se ajusta desde la app: está en el catálogo de cámaras del espacio de juego, y en 🔌 Hardware se configuran sus propiedades reales —con cuál de las seis personas que ve se juega, rango de distancia, suavizado del esqueleto, y si se usan el plano del piso, la inclinación del torso y el estado de las manos— con un botón que prueba el puente al momento. Durante la partida un indicador dice si se está jugando con el Kinect o con la webcam, y si se pidió Kinect y el puente no responde el juego avisa y sigue con la cámara en vez de quedarse muerto. Incluye lanzadores para Windows. La app se adapta sola a la altura de la cámara: en 🎥 Diagnóstico se autocalibra el montaje —exacto con el plano del piso del Kinect, estimado con dos posiciones si es una cámara corriente— y recupera alturas de 60 a 200 cm, incluidas cámaras bajas apuntando hacia arriba, ajustando también la marca del piso y el alto de la franja a la estatura de quien juega. Sirve igual un tótem, una tablet o un teléfono en trípode con Iriun o DroidCam, que están en el catálogo de cámaras. Todos los juegos de cuerpo leen ahora el tren inferior cuando está a la vista: la rayuela suma fuerza con el paso adelante, Esquiva 3D trae muros laterales que se esquivan dando un paso, los vuelos del cóndor pican juntando las piernas y frenan abriéndolas, y el salto se mide con la cadera en vez de los hombros para que manotear no dispare saltos fantasma; si la cámara no ve las piernas, todo sigue funcionando como antes. El puente Kinect entrega además la imagen del sensor, así que el Kinect reemplaza a la webcam por completo sin perder el esqueleto. El ranking no pierde partidas en silencio: guarda miles en vez de 60, exporta a CSV y avisa antes de soltar una sola fila, y también avisa si el equipo rechaza un guardado. Las acciones destructivas del agente —vaciar el ranking, ocultar un juego— piden confirmación en la pantalla del tótem: el agente pide, la persona confirma. La entrada alternativa de cada juego está documentada como capa de accesibilidad, con la tabla juego por juego en docs/ACCESIBILIDAD.md. El pipeline de pose gana la robustez que separa una webcam barata de un sensor caro: el cuadro se recorta a la zona de juego antes de mirarlo, así que quien pase por detrás no entra —y de paso corre más rápido, porque hay menos píxeles—; los cuadros donde el cuerpo salta de sitio o un hueso se estira se descartan en vez de aceptar a otra persona; el suavizado pasa a un filtro One Euro con parámetros medidos, que quita el temblor en reposo sin retrasar un golpe; los gestos se reconocen por la forma de su trayectoria en 250 ms y no por un umbral de un solo cuadro; la confianza se declara por grupo —cara, brazos, torso, piernas y pies— para que el aviso diga qué falta en vez de un «no te veo»; y la pose corre en su propio bucle a 20–30 Hz, así que un cuadro lento ya no traba el juego. El diagnóstico deja de ser una lista de comprobaciones y pasa a dar un veredicto: una prueba de campo de 20 segundos, que se corre el día del evento con alguien parado en la marca del piso, mide con el mismo motor y el mismo recorte que usan los juegos y responde con un semáforo si el montaje sirve. Mide los fps reales de la pose en ese equipo —no los del fabricante—, la confianza por grupo de landmarks para decir qué juegos sirven hoy, cuántos cuadros se descartaron, y cuánto de la zona de juego declarada cabe de verdad en el cuadro. Y mide la luz, que es lo único que no se arregla por software: el nivel sobre la persona y no sobre el cuadro —con un ventanal detrás la media engaña—, el ruido de imagen que delata a la cámara subiendo ganancia para disimular la penumbra, y el contraluz, con el aviso de girar el montaje cuando el fondo está más claro que quien juega. Los tres umbrales de luz se editan en el Editor: la app garantiza la medición, el listón queda escrito y a la vista. Además el tótem mide solo su tiempo de ciclo mientras se juega —ocupación por persona, relevo entre una y otra, y personas por hora— que es el número que decide, con fila de cuarenta personas, si se atienden 60 o 25 por hora. El mínimo de iluminación queda declarado en docs/ESPACIO-DE-JUEGO.md, con la recomendación de luz LED de relleno difusa junto a la cámara. Modo sensor remoto: el teléfono hace de cámara sin instalar nada, ni en él ni en el equipo de la pantalla. Se separan los dos papeles —la pantalla muestra un código de sala y un QR, el teléfono abre la app en su navegador, escanea y se empareja— y el teléfono calcula la pose ahí mismo y transmite solo los 33 puntos del cuerpo: unos 700 bytes por cuadro, dos órdenes de magnitud menos que vídeo, que es lo que hace que ande en el wifi de una feria. La imagen no sale del teléfono, y no por promesa sino porque por el enlace no cabe: lo único que se serializa son landmarks. Va por WebRTC directo entre los dos equipos, con respaldo por el mismo puente local que ya se usa para emparejar, sin STUN, sin TURN y sin nada en internet. Cada muestra lleva su marca de tiempo y el enlace corrige la deriva de reloj entre los dos equipos, así que el Diagnóstico puede informar el retraso real del gesto y decir a quién culpar: retraso alto con red rápida es el teléfono, retraso alto con red lenta es el wifi del recinto. Si el teléfono se bloquea o pierde el wifi, el enlace reconecta solo y la pantalla grande avisa en vez de quedarse congelada. El QR se dibuja sin ninguna dependencia nueva. La selección de cámara del sistema no cambia: un teléfono con Iriun o DroidCam sigue siendo una cámara más, y los dos caminos conviven. Incluye puente de salas que además sirve la app, con TLS opcional, y documentación de los tres montajes en docs/MODO-SENSOR.md. Modo concurso, porque en cuanto un juego reparte un premio deja de ser un juego. Antes de escribir la defensa se midió el exploit proyectando un cuerpo 3D con la geometría real de la cámara: acercarse NO infla lo que se mueve en el plano frontal —el gesto y el ancho de hombros crecen igual con la distancia— pero GIRARSE sí, porque la referencia cae con el coseno del giro y de perfil a 55° el mismo salto se lee un 73% más grande. Por eso el vigilante mira las dos cosas por separado, durante toda la partida y no solo al calibrar, comparando a la persona con la referencia que ella misma dejó al colocarse. Hay tres resultados y no dos: limpia, señalada e inválida, porque quien se giró tres segundos porque le hablaron no hizo trampa. El jugador se entera en pantalla mientras pasa y puede repetir. El desempate es determinista y está escrito: puntaje, limpieza de la partida, quién lo consiguió antes, y el identificador alfabético que desempata siempre; la misma lista ordenada dos veces da el mismo ganador. Cada partida queda sellada con fecha, sesión del tótem, versión de la app, motor de pose y veredicto, se exporta a CSV y se puede abrir como ficha para enseñársela a quien reclama. El concurso tiene tope de intentos, ventana de vigencia y cierre con constancia, y reabrirlo también queda registrado. El catálogo queda declarado como concurso de DESTREZA y no de azar —gana quien lo hace mejor, no quien tiene suerte—, que es más defendible y es el diferenciador frente a la ruleta de sorteos. Con plantilla de bases en docs/BASES-CONCURSO.md. Capa de activación y métricas con un semáforo de datos estricto, que es una decisión de diseño y no una preferencia. VERDE, y se mide siempre sin pedirle nada a nadie: cuánta gente se acercó a cada juego, partidas, abandonos, repeticiones, afluencia por hora del día, tiempo de ciclo y puntajes. Son contadores agregados —cuentan cuántas veces pasó algo, no a quién le pasó— así que se le pueden entregar enteros al auspiciador sin permiso de ningún participante. Qué juego eligió la gente, cuál abandonó y cuál repitió es preferencia revelada, y vale más que cualquier inferencia sacada de una cara. AMARILLO, y solo si la persona lo pide: el formulario de contacto se ofrece DESPUÉS de jugar, viene plegado, ninguna casilla está marcada, cada una declara su finalidad en texto claro, la foto va en casilla aparte del correo, y sin una sola casilla marcada no se guarda ni el nombre. Se guarda el texto exacto que la persona aceptó y no un booleano, junto a quién responde por el dato y cuánto se conserva. De quien dice que no no queda rastro: la conversión se mide con dos contadores. ROJO, y no por limitación técnica: no se estima edad ni género por la cara, no se infieren emociones ni conductas, y no se reidentifica a nadie entre partidas. El QR del puntaje se lo lleva cualquiera sin dejar ningún dato. El panel del auspiciador exporta todo a CSV y llama a las cosas por su nombre: personas atendidas son ocupaciones del tótem y no jugadores únicos, porque sin reidentificar no hay forma de contar personas distintas. El cartel de cámara activa quedó unificado en un solo componente y dice qué NO se hace con la imagen; en modo sensor dice que la imagen no sale del teléfono, que es verificable por arquitectura. Todo documentado en docs/PRIVACIDAD.md con finalidades por tipo de dato, plazos de conservación y la distinción responsable/encargado, alineado con la Ley 21.719 vigente el 1 de diciembre de 2026. Packs temáticos, porque mientras hubo uno solo «la temática es un parámetro» era teoría, y Fiestas Patrias es una semana al año. Vienen cuatro: el dieciochero, verano/playa, navidad y uno neutro corporativo pensado para que una marca lo copie y le ponga sus colores, su logo y sus textos. Se aplican con un toque desde el Editor, y están además como archivos versionados en assets/packs/, con una prueba que comprueba que sean idénticos a los que corren. Un pack cambia cómo se ve y cómo se llaman las cosas —colores, escenario, adornos, textos de portada, nombres de los juegos y de los blancos del LaserGun— y NO toca el montaje ni los datos: ni la cámara, ni el espacio en centímetros, ni el ranking, ni el concurso, ni las métricas, ni las reglas de un juego. Esa frontera es lo que permite cambiar la decoración a mitad de una jornada sin arriesgar una partida guardada, y está verificada. El import/export valida contra un esquema: un pack roto falla al importarlo, con el campo y el motivo, en vez de romper la app en pleno evento, y lo que no es del formato se ignora con aviso en vez de copiarse a ciegas dentro de la configuración. Una marca arma el suyo aplicando el pack corporativo, editando a gusto y exportando el resultado. De paso salió del código la bandera chilena que estaba escrita a mano en la guirnalda de la portada. Formato documentado con un pack de ejemplo comentado en docs/PERSONALIZACION.md. Prueba de baile deja de ser la excepción de esa tabla de accesibilidad y los once juegos se pueden jugar sin cámara: el modo rítmico táctil corre la MISMA coreografía sin cámara, con las notas cayendo hacia una línea y el compás sacado del bpm y de los beats que ya estaban escritos, así que una coreografía nueva escrita en el editor queda jugable por toque sin agregar un solo dato. El carril de cada nota sale de la propia pose —el lado que levanta el avatar— y cuando el paso levanta los dos brazos la nota es ancha y vale con cualquiera de los dos botones: se distinguen por ancho y posición, no por color, y sus colores no salen del pack de marca para que un tema oscuro no haga perder notas. Se juega con los botones grandes, con la columna entera de la pista o con el teclado, y hay un modo de un solo botón para pulsador único, una sola mano o la barra espaciadora. El botón del maniquí queda llamado por su nombre —baila solo, no es un modo de juego— en vez de disfrazarse de alternativa. Las dos entradas puntúan con la misma estructura de dos componentes y entran al mismo ranking, pero no son la misma prueba y la fila lo dice: su detalle empieza por «Modo rítmico táctil», también en el CSV. Y como el retardo de un panel táctil no es del jugador, al terminar la partida la app mide el sesgo y dice qué milisegundos poner en el ajuste de latencia del montaje.",
+      "icon": "🎉",
+      "version": "1.18.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias de Kimos FunPlai",
+        "fields": [
+          {
+            "key": "theme",
+            "label": "Temática",
+            "type": "select",
+            "options": [
+              {
+                "value": "fiestas-patrias",
+                "label": "Fiestas Patrias de Chile"
+              },
+              {
+                "value": "neutro",
+                "label": "Neutro Kimos"
+              },
+              {
+                "value": "verano",
+                "label": "Verano / playa"
+              }
+            ],
+            "help": "Cambia colores y adornos de todas las pantallas."
+          },
+          {
+            "key": "accent",
+            "label": "Color de acento",
+            "type": "color",
+            "help": "Color de marca del cliente; vacío usa el del tema."
+          },
+          {
+            "key": "idleSeconds",
+            "label": "Volver al inicio tras inactividad (s)",
+            "type": "number",
+            "min": 0,
+            "max": 900,
+            "help": "0 = nunca. Modo kiosco para ferias y eventos."
+          },
+          {
+            "key": "camaraHabilitada",
+            "label": "Permitir juegos con cámara",
+            "type": "boolean",
+            "help": "Desactívalo en tótems sin cámara o donde no se permita su uso."
+          }
+        ]
+      },
+      "defaultConfig": {
+        "theme": "fiestas-patrias",
+        "accent": "#D52B1E",
+        "idleSeconds": 120,
+        "camaraHabilitada": true
+      }
+    },
+    {
+      "id": "anfitrion-aiep",
+      "name": "ANFITRION AIEP",
+      "description": "Anfitrión para el totem del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, organizado con los Centros de Negocios SERCOTEC: programa en vivo de nueve bloques, expositores con reseña desplegable y QR a su perfil, contexto, consulta guiada, tablón de preguntas y QR para el teléfono del asistente. Chrome de vitrina: barra de secciones bajo el header, pie con el logo de Kimos y franja reservada para el widget de chat; el agente consultivo muestra en pantalla la ficha de la que habla.",
+      "icon": "🤖",
+      "version": "1.5.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Preferencias del totem",
+        "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          },
+          {
+            "key": "mostrarContexto",
+            "label": "Mostrar la sección Contexto (material complementario)",
+            "type": "boolean"
+          },
+          {
+            "key": "mostrarFotos",
+            "label": "Mostrar las fotos de los expositores",
+            "type": "boolean"
+          }
+        ]
+      },
+      "defaultConfig": {
+        "modo": "auto",
+        "segundosInactividad": 90,
+        "mostrarContexto": true,
+        "mostrarFotos": true
+      }
+    },
+    {
+      "id": "aiep.inscripcion",
+      "name": "AIEP INSCRIPCIÓN",
+      "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, para vitrina: se abre y ya manda: trae puesto el código de la instancia de AIEP GESTIÓN, así que el asistente marca su RUT, confirma sus datos y su acreditación llega en segundos. Solo se acredita quien está en el padrón. Cola local a prueba de cortes de red. Mismo sistema visual que ANFITRIÓN AIEP.",
+      "icon": "🪪",
+      "version": "3.2.1",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "agent.control"
+      ],
+      "configSchema": {
+        "title": "Aspecto del totem",
+        "fields": [
+          {
+            "key": "modo",
+            "label": "Disposición",
+            "type": "select",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Automática (totem si la pantalla es vertical y grande)"
+              },
+              {
+                "value": "totem",
+                "label": "Forzar totem (tipografía y botones XL)"
+              },
+              {
+                "value": "escritorio",
+                "label": "Forzar escritorio"
+              }
+            ]
+          },
+          {
+            "key": "segundosInactividad",
+            "label": "Segundos sin tocar antes de volver al inicio",
+            "type": "number",
+            "min": 15,
+            "max": 600
+          }
+        ]
+      },
+      "defaultConfig": {
+        "modo": "auto",
+        "segundosInactividad": 60
+      }
+    },
+    {
+      "id": "aiep.gestion",
+      "name": "AIEP GESTIÓN",
+      "description": "Asistencia del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín: quién llegó y quién falta en vivo, cruzando el padrón de 112 inscritos con lo que acreditan los totem de AIEP INSCRIPCIÓN en la vitrina. Abre sola la recepción y guarda en su sección «Conectar totem» el código que hay que pegar en la URL de la vitrina. Búsqueda por nombre o RUT, avance por Centro de Negocios SERCOTEC, marcado manual reversible y export CSV.",
+      "icon": "📋",
+      "version": "3.2.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": true,
+      "permissions": [
+        "instance.read",
+        "instance.write",
+        "public.submit",
         "agent.control"
       ]
     }

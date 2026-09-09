@@ -8,13 +8,20 @@ Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y 
 > este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
 > descargable desde la Tienda de KIMOS o regenerable con
 > `node tools/build-creator-pack.mjs`.
+>
+> **Creator Pack 2.0** — el kit ahora cubre dos formas de aportar contenido:
+> una **app** instalable (`.kapp`, para quien programa) y un **pack de rubro**
+> para LiDARia (`.krub`, sin programar: es un JSON con el conocimiento de una
+> industria). La guía del segundo camino es
+> **[`CREA-TU-RUBRO.md`](CREA-TU-RUBRO.md)** y su empaquetador,
+> `tools/pack-rubro.mjs`.
 
 ## Modelo de apps (v0.22)
 
 | Nivel | Distribución | Ejemplos |
 |---|---|---|
 | **Sistema** | Incluidas siempre (shell) | Archivos, Configuración, Tienda, Apariencia, Vitrina |
-| **Oficial** | Instalable desde esta Tienda. Las `runtime: "native"` viven en el producto y al instalarlas solo se HABILITAN (sin descarga de bundle); las demás descargan su `dist/`. **Desinstaladas por defecto.** | Kanban, Planificación, Panel HTML, Productos, Pedidos, Clientes (nativas) · Formularios de Contacto, Agentes Web, Notas, FossFLOW (bundle) |
+| **Oficial** | Instalable desde esta Tienda. Las `runtime: "native"` viven en el producto y al instalarlas solo se HABILITAN (sin descarga de bundle); las demás descargan su `dist/`. **Desinstaladas por defecto.** | Kanban, Planificación, Panel HTML, Productos, Pedidos, Clientes (nativas) · Cotizaciones, Formularios de Contacto, Agentes Web, Notas, FossFLOW (bundle) |
 | **Externa** | Archivo `.kapp` (Tienda → Instalar desde archivo) con el creator pack | miorg.encuestas, miorg.buzon |
 
 ## Estructura
@@ -54,7 +61,9 @@ Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
 | id              | descripción breve |
 |-----------------|-------------------|
 | `productlab` 🧪 | **Laboratorio de productos personalizables**: componentes/costos, pasos con dependencias y cantidades, previsualizador, builder de descripción, visualizador 3D/AR y publicación del configurador (Jumpseller). Ver [`apps/productlab/`](apps/productlab/). |
+| `lidaria` 🛰️ | **Consola de captura 3D**: qué puede escanear cada equipo (LiDAR, ToF, profundidad por movimiento), qué módulos cubre el parque de la organización, qué significa para cada rubro (base de conocimiento ampliable con packs `.krub`), preparación de visitas a prospectos y mapa honesto de vinculación con el resto del ecosistema. Ver [`apps/lidaria/`](apps/lidaria/). |
 | `estudio-mercado` 🎯 | **Estudios de mercado competitivo** como tablero interactivo, con modo dashboard, compacto y tema de KIMOS, adaptado de móvil a tótem. Trae hecho el de KIMOS —25 líneas contra 170 planes de precio de la competencia, con gráficos en vivo, precios editables, configurador de suscripción, mercado por país, unit economics y diagnóstico— y sirve para hacer el de **cualquier otra empresa**: nueve plantillas de rubro, editores de líneas y precios con fuente obligatoria, importar y exportar el estudio como JSON, control de vigencia de la evidencia y un protocolo de investigación que el agente IA puede ejecutar solo. Ver [`apps/estudio-mercado/`](apps/estudio-mercado/). |
+| `cotizaciones` 🧾 | **Cotizaciones y propuestas comerciales de punta a punta**: líneas escritas a mano, del banco propio de ítems y servicios prefijados, o traídas del catálogo de la app Productos y de los productos configurables de ProductLab (eligiendo su combinación de pasos, con el precio resuelto y congelado en la línea); cotizaciones tipo, duplicación y revisiones enlazadas; editor visual de bloques en cuadrícula que es el mismo maquetador del PDF; envío por correo con el SMTP del tenant desde plantillas con variables; y tablero de seguimiento del embudo. Ver [`apps/cotizaciones/`](apps/cotizaciones/). |
 | `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla

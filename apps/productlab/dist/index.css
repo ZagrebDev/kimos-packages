@@ -92,10 +92,11 @@
   box-shadow: var(--gp-shadow-sm);
 }
 .kimos-productlab .gp-hd-acciones { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.kimos-productlab .gp-hd-pub { min-height: 44px; padding: 0 22px; font-size: 13px; border-radius: var(--gp-radius); }
-/* Aplicar a la tienda como icono: compacto, con el acento y tooltip. */
-.kimos-productlab .gp-hd-aplicar {
-  width: 44px; min-height: 44px; padding: 0;
+/* Acciones del header SOLO CON ICONO (Guardar, Precios, Rearmar, Rearmar
+   tienda): con texto eran demasiado anchas y se peleaban el espacio con la
+   miga y las pestañas. Cuadradas, con el acento y el nombre en el tooltip. */
+.kimos-productlab .gp-btn-ico {
+  width: 44px; min-height: 44px; padding: 0; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
 }
 /* Precio vivo + acciones del detalle abierto (reemplazan a la barra inferior). */
@@ -125,8 +126,7 @@
   .kimos-productlab .gp-bigtabs::-webkit-scrollbar { display: none; }
   .kimos-productlab .gp-bigtab { padding: 8px 14px; min-height: 38px; font-size: 13.5px; }
   .kimos-productlab .gp-hd-ico { width: 38px; height: 38px; }
-  .kimos-productlab .gp-hd-pub { min-height: 38px; padding: 0 14px; font-size: 12.5px; }
-  .kimos-productlab .gp-hd-aplicar { width: 38px; min-height: 38px; }
+  .kimos-productlab .gp-btn-ico { width: 38px; min-height: 38px; }
   .kimos-productlab .gp-hd-extra { gap: 6px; }
   .kimos-productlab .gp-hd-extra .gp-btn { padding: 7px 10px; font-size: 12.5px; min-height: 38px; }
   .kimos-productlab .gp-hd-precio-s { display: none; }

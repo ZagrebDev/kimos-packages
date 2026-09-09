@@ -1,0 +1,51 @@
+{
+  "formato": "kimos-funplai-pack",
+  "version": 1,
+  "id": "verano",
+  "nombre": "Verano / playa",
+  "descripcion": "Atardecer en la costa: arena caliente y cielo naranja.",
+  "tema": {
+    "accent": "#FF7A1A",
+    "accent2": "#00B4D8",
+    "bg": "#123A4C",
+    "bg2": "#07202C",
+    "surface": "#FFF6E8",
+    "ink": "#123",
+    "decor": "banderines",
+    "emoji": "🏖️",
+    "decorColores": [
+      "#FF7A1A",
+      "#00B4D8",
+      "#FFD166"
+    ],
+    "decorEstrella": false,
+    "cielo": "#FF9E45",
+    "cieloBajo": "#FFE7C2",
+    "suelo": "#E8C77A",
+    "cerros": "#C4643C",
+    "sol": "#FFF3C4"
+  },
+  "branding": {
+    "appName": "Kimos FunPlai",
+    "tagline": "Juegos de verano",
+    "logo": "🏖️",
+    "heroTitle": "¡A la playa!",
+    "heroSubtitle": "Elige un juego y a jugar"
+  },
+  "juegos": {
+    "laser": {
+      "name": "Tiro al blanco playero",
+      "blurb": "Dispara a sandías, helados y quitasoles. Esquiva los erizos y las medusas."
+    },
+    "rayuela": {
+      "name": "Rayuela en la arena"
+    }
+  },
+  "blancos": {
+    "volantin": "Quitasol",
+    "empanada": "Sandía",
+    "choripan": "Helado",
+    "aji": "Erizo",
+    "schop": "Medusa"
+  }
+}

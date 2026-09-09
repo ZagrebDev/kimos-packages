@@ -1,0 +1,46 @@
+{
+  "id": "totem-productos",
+  "name": "Totem de Productos",
+  "version": "1.0.0",
+  "description": "Vitrina táctil vertical (9:16) del catálogo para tótems de atención al cliente: toma los productos de las apps Productos y ProductLab (incluidos los personalizables, con paso a paso, recargos por opción y fotos por valor), fichas touch con galería, especificaciones y configurador informativo con resumen para el equipo, pestaña Estilos para editar la visualización (colores, bordes rectos o redondeados, columnas, tipografía, precios), publicación del catálogo curado para usarla con la app Vitrinas (reserva la franja del dock de voz) y agente IA cuyas respuestas actúan en pantalla (mostrar producto, filtrar, personalizar paso a paso).",
+  "icon": "🛍️",
+  "author": "Kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control",
+    "public.read",
+    "data.read:products",
+    "data.read:productlab"
+  ],
+  "configSchema": {
+    "title": "Preferencias del totem",
+    "fields": [
+      {
+        "key": "modo",
+        "label": "Disposición",
+        "type": "select",
+        "options": [
+          { "value": "auto", "label": "Automática (totem si la ventana es vertical y grande)" },
+          { "value": "totem", "label": "Forzar totem (tipografía y botones XL)" },
+          { "value": "escritorio", "label": "Forzar escritorio" }
+        ]
+      },
+      {
+        "key": "segundosInactividad",
+        "label": "Segundos sin tocar antes de volver al inicio",
+        "type": "number",
+        "min": 15,
+        "max": 600
+      }
+    ]
+  },
+  "defaultConfig": {
+    "modo": "auto",
+    "segundosInactividad": 90
+  }
+}
