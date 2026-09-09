@@ -376,7 +376,7 @@
       "name": "Clientes",
       "description": "Directorio de clientes: contacto, ubicación y notas. Sincronizable desde Jumpseller.",
       "icon": "👥",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -384,7 +384,57 @@
       "permissions": [
         "instance.read",
         "instance.write"
-      ]
+      ],
+      "dataSchema": {
+        "recordType": "account",
+        "naturalKeys": [
+          "taxId",
+          "email"
+        ],
+        "fields": [
+          {
+            "key": "name",
+            "label": "Nombre o razón social",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "taxId",
+            "label": "RUT",
+            "type": "string"
+          },
+          {
+            "key": "email",
+            "label": "Correo",
+            "type": "email"
+          },
+          {
+            "key": "phone",
+            "label": "Teléfono",
+            "type": "string"
+          },
+          {
+            "key": "city",
+            "label": "Ciudad",
+            "type": "string"
+          },
+          {
+            "key": "region",
+            "label": "Región",
+            "type": "string"
+          },
+          {
+            "key": "country",
+            "label": "País",
+            "type": "string"
+          },
+          {
+            "key": "notes",
+            "label": "Notas internas",
+            "type": "text"
+          }
+        ]
+      }
     },
     {
       "id": "cotizaciones",

@@ -35,6 +35,8 @@
 .kimos-customers .kc-search:focus { border-color: var(--ko-accent); }
 .kimos-customers .kc-spacer { flex: 1; }
 .kimos-customers .kc-count { font-size: 11px; color: var(--ko-muted); }
+/* La versión, siempre a la vista: sin esto no se sabe qué build quedó instalado (APP-SPEC §7.a). */
+.kimos-customers .kc-version { font-size: 10.5px; color: var(--ko-muted); opacity: .7; font-variant-numeric: tabular-nums; }
 .kimos-customers .kc-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .kimos-customers .kc-filter {
   border: 1px solid var(--ko-border); background: transparent; color: var(--ko-muted);
