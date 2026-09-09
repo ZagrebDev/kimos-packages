@@ -144,7 +144,10 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.documents.onSerialize/onLoad` | Integrarse con Guardar versión / Historial del menú 🗂️. |
 | `shell.agent.register({...})` | Exponer herramientas al agente IA (ver §5). |
 | `shell.assetUrl('ruta')` | URL pública de un archivo de tu carpeta `assets/`. |
-| `shell.data.listInstances/listItems` | Leer datos de otras apps (ver §7). |
+| `shell.data.listInstances/listItems` | Leer datos de otras apps (ver §7.1). |
+| `shell.data.create/update` | Escribir en otra app, si esa app publica su contrato (§7.2). |
+| `shell.records` | Clientes, contactos y proyectos compartidos con el resto de KIMOS (§7.3). |
+| `shell.files.upload/list/remove` | Subir archivos; la ruta la gestiona el host (§7.4). |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -261,9 +264,14 @@ postee a `/submit/{canal}`. Quien quiera incrustar tu widget solo pega:
 
 ---
 
-## 7. Conecta tu app con datos de otras apps
+## 7. Conecta tu app con el resto de KIMOS
 
-Declara qué apps quieres leer (el instalador lo verá y aprobará):
+Tu app no vive sola. Hay tres cosas que **no deberías reinventar**: los datos
+de otras apps, la identidad de los clientes y el almacenamiento de archivos.
+Cada una se pide como permiso en el manifest, y el instalador lo ve y lo
+aprueba.
+
+### 7.1 Leer datos de otra app
 
 ```jsonc
 "permissions": ["instance.read", "instance.write", "data.read:contact-forms"]
@@ -274,10 +282,102 @@ const formularios = await shell.data.listInstances('contact-forms');
 const mensajes    = await shell.data.listItems(formularios[0].id);
 ```
 
-Reglas: un `data.read:{app}` por cada app que leas (`data.read:*` existe, pero
-pide solo lo que necesites); **el acceso del usuario es siempre el techo** — tu
-app solo ve instancias de equipos a los que el usuario ya pertenece; y es solo
-lectura.
+Un `data.read:{app}` por cada app que leas (`data.read:*` existe, pero pide
+solo lo que necesites). **El acceso del usuario es siempre el techo**: tu app
+solo ve instancias de equipos a los que el usuario ya pertenece.
+
+### 7.2 Escribir en otra app
+
+```jsonc
+"permissions": ["data.write:customers"]
+```
+
+```js
+const cliente = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '77.718.188-2' });
+await shell.data.update(instanciaClientes, cliente.id, { phone: '+56 9 1234 5678' });
+```
+
+Solo funciona si **la app dueña publica un `dataSchema`** diciendo qué acepta.
+Si no lo publica, la escritura se rechaza: nadie escribe en una app que no ha
+dicho qué admite. Solo pasan los campos declarados, y nunca objetos ni listas.
+
+Para que **otras** apps puedan escribir en la tuya, declara tú el contrato:
+
+```jsonc
+"dataSchema": {
+  "recordType": "account",
+  "naturalKeys": ["taxId", "email"],
+  "fields": [
+    { "key": "name",  "label": "Razón social", "type": "string", "required": true },
+    { "key": "taxId", "label": "RUT",          "type": "string" },
+    { "key": "email", "label": "Correo",       "type": "email"  }
+  ]
+}
+```
+
+### 7.3 Clientes, contactos y proyectos compartidos (`shell.records`)
+
+Si tu app maneja clientes, **no crees tu propia base de clientes**. Si lo
+haces, el sistema acaba con un «Acme SpA» en Clientes, otro en Cotizaciones y
+otro en Prospección, y ninguna vista completa del cliente.
+
+La plataforma guarda solo la **identidad** (quién es); los **datos** siguen
+siendo tuyos. Tú guardas la referencia más una instantánea de lo que pintas.
+
+```jsonc
+"permissions": ["records.link"]
+```
+
+```js
+if (shell.records) {
+  const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
+    keys:  { taxId: '77.718.188-2' },
+    label: 'Acme SpA',
+  });
+  if (warning) shell.notify({ level: 'warn', text: warning });
+
+  mi.recordRef = ref;                                  // la referencia
+  mi.cliente   = { nombre: record.label };             // la instantánea
+
+  await shell.records.link(ref, { instanceId, itemId: mi.id, kind: 'cotizacion' });
+}
+```
+
+- `findOrCreate` **reutiliza** si ya existe: eso es lo que mantiene una sola
+  base. Da igual si el RUT venía escrito `77.718.188-2` o `777181882`.
+- `search({ type: 'account', q })` alimenta tu selector de cliente.
+- `links(ref)` responde «dame todo lo de Acme», en todas las apps.
+- Tipos: `account`, `contact`, `product`, `opportunity`, `project`. No hay
+  «cliente» y «prospecto» aparte: la misma empresa puede ser las dos cosas, y
+  el rol es un dato tuyo.
+
+### 7.4 Archivos (`shell.files`)
+
+Para fotos, logos o adjuntos. La **ruta la decide el host**; tú eliges la
+carpeta lógica.
+
+```jsonc
+"permissions": ["files.write"]
+```
+
+```js
+const url = await shell.files.upload(archivo, { folder: 'portadas', maxMB: 8 });
+bloque.imagen = url;              // URL pública: sirve en <img src> y en un correo
+await shell.files.remove(url);    // solo borra dentro del espacio de tu app
+```
+
+No subas ahí nada que no pueda ser público de lectura.
+
+### Compruébalo antes de usarlo
+
+`shell.records` y `shell.files` pueden no existir en un host anterior. Tu app
+no debe romperse por eso:
+
+```js
+if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }
+```
+
+Detalle completo de las cuatro cosas: **APP-SPEC.md §7.c, §7.d y §7.e**.
 
 ---
 
@@ -316,6 +416,10 @@ pestaña Resultados.
 - [ ] Si hay agente: inputs validados y `getSnapshot` útil.
 - [ ] Si hay endpoints públicos: `public.enabled` es opt-in por instancia y el
       widget funciona desde una página externa.
+- [ ] Si manejas clientes: usas `shell.records` en vez de tu propia base, y tu
+      app sigue funcionando si `shell.records` no existe.
+- [ ] Si guardas archivos: `shell.files`, no un bucket propio ni base64 dentro
+      del documento.
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.
 
 ## 10. Preguntas frecuentes

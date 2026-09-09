@@ -63,6 +63,11 @@ Flujo: copia un ejemplo → renómbralo con tu namespace (tuorg.mi-app) → edit
 manifest.json y dist/index.js → node tools/pack.mjs tuorg.mi-app → en KIMOS,
 Tienda → "Instalar desde archivo" (lo hace un superadmin).
 
+Lo que NO tienes que reinventar (CREA-TU-APP.md §7): la base de clientes
+(\`shell.records\`), el almacenamiento de archivos (\`shell.files\`) y los datos
+de otras apps (\`shell.data\`). Si tu app se crea su propia lista de clientes o
+su propio bucket, el sistema acaba con tres verdades y ninguna completa.
+
 ## B. Crear CONOCIMIENTO para LiDARia (.krub) — sin programar
 
 LiDARia es la app de captura 3D (LiDAR, ToF, profundidad por movimiento). Un

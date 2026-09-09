@@ -43,9 +43,10 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`. |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e). |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
+| `dataSchema` | object | – | Qué campos acepta tu app de OTRAS apps, y qué identidad representa. Sin esto, nadie escribe en la tuya. Ver §7.c. |
 
 **Persistencia y permisos:** `saveData/loadData` y `shell.items` requieren
 `teamId`+`instanceId`, que **solo existen en apps `multiInstance`**. Una app
@@ -140,7 +141,13 @@ export default function mount(shell) {
 | `shell.loadData(scope?)` | Carga la config guardada. |
 | `shell.items` | CRUD de subcolección por instancia: `list/create/update/remove`. |
 | `shell.agent.register({...})` | Control por agente autorizado (ver §6). |
-| 🔭 `shell.config` / `shell.documents` / `shell.files` | Capacidades v2 (ver plan). |
+| `shell.config` / `shell.documents` | Parámetros y documentos de la instancia (AppShell v2, §3.1). |
+| `shell.data` | Leer y escribir datos de OTRAS apps, con permiso declarado (§7.c). |
+| `shell.records` | Identidades compartidas entre apps: clientes, contactos, proyectos (§7.d). |
+| `shell.files` | Subir/listar/borrar archivos con ruta gestionada por el host (§7.e). |
+
+Los tres últimos dependen de permisos declarados en el manifest y, en hosts
+anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
 
 ### Reglas de oro
 
@@ -161,7 +168,9 @@ export default function mount(shell) {
 |------------|-----|----------------|
 | Un documento JSON (estado completo) | `saveData({ ... })` / `loadData()` | blob GCS por instancia |
 | Listas/colecciones (tarjetas, filas) | `shell.items` CRUD | subcolección Firestore de la instancia |
-| Parámetros de la app | `defaultConfig` + 🔭 `shell.config` | `config` de la instancia |
+| Parámetros de la app | `defaultConfig` + `shell.config` | `config` de la instancia |
+| Archivos (fotos, adjuntos) | `shell.files.upload()` | bucket del tenant, bajo la carpeta de tu app |
+| A quién pertenece un item (cliente, proyecto) | `shell.records` + `recordRef` | identidad en la plataforma, datos en tu app |
 
 Patrón recomendado (FossFLOW/Kanban): **un objeto modelo** en el closure,
 `loadData()` al montar, y `saveData()` con *debounce* tras cada mutación. UI del
@@ -372,24 +381,17 @@ backend propio, para apps oficiales curadas): `contact-forms` y `web-agents`.
 
 ---
 
-## 7.c Leer datos de OTRAS apps (`shell.data`)
+## 7.c Datos de OTRAS apps (`shell.data`)
 
-> ⚠️ **En revisión.** Esta sección describe el contrato **vigente** (solo
-> lectura) y sigue siendo válida. Está en curso una ampliación que añade
-> escritura gobernada, un registro de identidades compartidas entre apps
-> (`shell.records`), almacenamiento de archivos (`shell.files`) y marca global
-> (`shell.brand`). Antes de construir sobre lo que aquí se llama «evoluciones
-> futuras», lee el plan:
-> `kimos-enterprice/docs/plan-datos-entre-apps.md`.
-
-Tu app puede leer datos de otras apps (oficiales o de terceros) declarando el
-permiso en su manifest — el superadmin lo ve y aprueba al instalar:
+Cada app es **dueña de sus datos**. Otra app no entra en su Firestore: pasa
+por una pasarela que exige un permiso declarado en el manifest, que el
+superadmin ve y aprueba al instalar.
 
 ```jsonc
 "permissions": ["instance.read", "instance.write", "data.read:contact-forms"]
 ```
 
-En el bundle:
+### Leer
 
 ```js
 if (shell.data) {
@@ -398,13 +400,175 @@ if (shell.data) {
 }
 ```
 
-Reglas:
 - `data.read:{templateId}` por cada template que leas (o `data.read:*` — pide
   solo lo que necesites: el instalador lo verá).
 - El **RBAC del usuario es siempre el techo**: solo ves instancias de equipos
   a los que el usuario ya tiene acceso. El permiso de la app nunca lo supera.
-- Solo lectura (los denegados quedan auditados). Escritura y suscripción a
-  cambios: evoluciones futuras del contrato.
+
+### Escribir
+
+Escribir en la app de otro es más delicado que leer, así que hay dos
+condiciones y ninguna es opcional:
+
+1. Tu app declara `data.write:{templateId}`.
+2. **La app dueña publica un `dataSchema`** en su manifest. Si no lo publica,
+   la escritura se rechaza (falla cerrado). Nadie escribe en una app que no
+   ha dicho qué acepta.
+
+```js
+const nuevo = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '77.718.188-2' });
+await shell.data.update(instanciaClientes, nuevo.id, { phone: '+56 9 1234 5678' });
+```
+
+Reglas que aplica la pasarela, no tu código:
+
+- Solo pasan los campos **declarados** en el `dataSchema`; el resto se ignora
+  y se te devuelve la lista de ignorados.
+- **Nunca** se aceptan objetos ni listas. Reemplazar un array desde fuera
+  rompería la fusión sin pérdida que la app dueña hace entre sus usuarios
+  (§5.1).
+- Al crear se exigen los `required`; al parchear no, porque es un parche.
+- Todo lo escrito queda marcado con quién y desde qué app
+  (`createdByApp` / `updatedByApp`), y auditado.
+
+### Publicar tu contrato (`dataSchema`)
+
+Si quieres que otras apps puedan escribir en la tuya, declara **qué aceptas**:
+
+```jsonc
+"dataSchema": {
+  "recordType": "account",              // opcional, ver §7.d
+  "naturalKeys": ["taxId", "email"],    // opcional, ver §7.d
+  "fields": [
+    { "key": "name",  "label": "Razón social", "type": "string", "required": true },
+    { "key": "taxId", "label": "RUT",          "type": "string" },
+    { "key": "email", "label": "Correo",       "type": "email"  }
+  ]
+}
+```
+
+Lo que **no** declares, no se puede escribir desde fuera. Los campos que
+gestiona la plataforma (`id`, `createdAt`, `updatedAt`, `createdBy`,
+`updatedBy`, `createdByApp`, `updatedByApp`, `recordRef`) no se habilitan
+aunque los declares por error.
+
+---
+
+## 7.d Identidades compartidas (`shell.records`)
+
+El problema que resuelve: si Clientes, Cotizaciones y Prospección guardan
+cada una su propio «Acme SpA», el sistema tiene tres Acmes y ninguna vista
+del cliente completo.
+
+La solución **no** es mover los datos a un sitio central. Es separar
+**identidad** de **datos**:
+
+- La **identidad** («esta empresa es esta») vive en la plataforma: un id
+  estable, una etiqueta y sus claves naturales (RUT, correo, dominio).
+- Los **datos** siguen en la app dueña: la ficha comercial en Clientes, la
+  oportunidad en Prospección, la propuesta en Cotizaciones.
+
+Cada app guarda la **referencia** más una **instantánea** de lo que necesita
+mostrar. Si el registro cambia de nombre, tu app puede refrescar; si
+desaparece, tu app sigue pintando lo que guardó. Nunca te quedas con un
+hueco.
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "records.link"]
+```
+
+```js
+if (shell.records) {
+  // Devuelve la identidad existente o la crea. Esto es lo que mantiene
+  // unitaria la base: si «Acme» ya existe con ese RUT, no se crea otra.
+  const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
+    keys:  { taxId: '77.718.188-2', email: 'compras@acme.cl' },
+    label: 'Acme SpA',
+  });
+
+  // Guarda la referencia + una instantánea en TU item.
+  cotizacion.recordRef = ref;
+  cotizacion.cliente   = { nombre: record.label, rut: record.keys.taxid || '' };
+
+  // Anota que este item apunta a esa identidad (alimenta «todo lo de Acme»).
+  await shell.records.link(ref, { instanceId, itemId: cotizacion.id, kind: 'cotizacion', label: cotizacion.numero });
+}
+```
+
+El resto de la superficie:
+
+| Método | Para qué |
+|--------|----------|
+| `types()` | Tipos que entiende la plataforma. |
+| `findOrCreate(type, {keys, label})` | La operación central: reutiliza o crea. |
+| `resolve(refs)` | Valores actuales de varias referencias de golpe. |
+| `search({type, q, limit})` | Alimenta un selector de cliente. |
+| `update(ref, {label, keys})` | Cambia la etiqueta o **añade** claves (nunca las quita). |
+| `link` / `unlink` / `links(ref)` | Índice inverso: qué apunta a esa identidad, en todas las apps. |
+
+Detalles que conviene saber antes de construir encima:
+
+- **Tipos**: `account`, `contact`, `product`, `opportunity`, `project`. Un
+  tipo es tipo solo si **más de una app** toca esa identidad; si solo la usa
+  tu app, no es un tipo, es un item tuyo.
+- No hay `cliente` y `prospecto` por separado: **`account` es uno solo**,
+  porque la misma empresa puede ser cliente, prospecto y proveedor a la vez.
+  El rol y la etapa son datos de la app a la que le importan.
+- **Las claves se normalizan** antes de comparar: `77.718.188-2`,
+  `77718188-2` y `777181882` son la misma; `rut`, `taxId` y `documentNumber`
+  son el mismo nombre de clave. De eso depende que la deduplicación funcione.
+- `findOrCreate` puede devolver `warning` (claves que apuntaban a registros
+  distintos, o un registro sin ninguna clave natural). **Muéstralo**: es la
+  única señal temprana de un duplicado.
+- Si la referencia que guardaste apuntaba a un registro que luego se fusionó
+  con otro, `resolve` te devuelve el bueno con `replaces`. Actualiza tu
+  referencia cuando lo veas.
+
+### Cómo lo declara la app dueña
+
+Una app que es **fuente** de una identidad (Clientes lo es de `account`) lo
+dice en su `dataSchema` con `recordType` y `naturalKeys` (§7.c). Con eso, la
+plataforma sabe qué campos de sus items son claves naturales y puede
+enlazarlos con el registro.
+
+---
+
+## 7.e Archivos (`shell.files`)
+
+Para fotos, logos, adjuntos o cualquier cosa que el usuario suba. Antes cada
+app se inventaba dónde guardarlos; ahora la **ruta la decide el host**.
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "files.write"]
+```
+
+```js
+if (shell.files) {
+  const url = await shell.files.upload(archivo, { folder: 'portadas', maxMB: 8 });
+  bloque.imagen = url;                       // URL pública, sirve en <img src>
+
+  const subidos = await shell.files.list({ folder: 'portadas' });
+  await shell.files.remove(url);
+}
+```
+
+- Tú eliges la **carpeta lógica** (`folder`), no la ruta real: el host guarda
+  bajo `imagenes/{appId}/{instanceId}/{folder}/`. Eso da aislamiento por app,
+  cuota atribuible y limpieza al desinstalar.
+- La URL devuelta es **pública de lectura** (funciona en `<img src>`, en CSS
+  y en un correo). No subas ahí nada que no pueda serlo.
+- `remove` solo borra dentro del espacio de tu app.
+- `upload` acota el tamaño (`maxMB`, 10 MB por defecto). Valida el tipo tú:
+  la plataforma no adivina qué es aceptable para tu app.
+
+### Antes de usar cualquiera de las tres
+
+`shell.records` y `shell.files` son **opcionales en el contrato** para que tu
+app siga funcionando en un host anterior. Comprueba siempre:
+
+```js
+if (!shell.records) { /* pide el cliente a mano y sigue */ }
+```
 
 ---
 
@@ -419,6 +583,8 @@ Reglas:
 - [ ] Persistencia probada (`multiInstance` si guardas datos).
 - [ ] Si hay agente: `getSnapshot` útil + validación de inputs + dedupe.
 - [ ] Carga sin red en runtime (recursos embebidos o por URL explícita del usuario).
+- [ ] Si usas `shell.records` o `shell.files`: comprobado `if (shell.records)` para no romper en un host anterior.
+- [ ] Si otras apps deben escribir en la tuya: `dataSchema` declarado (§7.c).
 - [ ] Verificación: `node --input-type=module -e "import('./apps/{id}/dist/index.js')…"`.
 
 ---
