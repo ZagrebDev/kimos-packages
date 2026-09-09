@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -289,6 +289,7 @@ export default function mount(shell) {
     currency: 'CLP', budget: 0, manualProgress: null,
     blackouts: [], phases: [], tasks: [], milestones: [], risks: [],
     documents: [], budgetLines: [], log: [], questions: [], links: [],
+    centers: [], baseline: null, pricing: null, service: null,
     createdAt: stamp(), updatedAt: stamp(),
   }, patch || {});
 
@@ -325,6 +326,85 @@ export default function mount(shell) {
     id: uid('log'), kind: 'note', text: '', author: '', at: stamp(), updatedAt: stamp(),
   }, patch || {});
 
+  /** Centro de costo / sede: la unidad por la que se separa la oferta. Cada
+   *  uno tiene su moneda local y su tipo de cambio contra la moneda de
+   *  gestión del proyecto, porque el precio se presenta donde se firma. */
+  const newCenter = (patch) => Object.assign({
+    id: uid('ctr'), name: '', code: '', country: '', currency: 'CLP',
+    fx: 1, fxNote: '', units: 0, notes: '', colorIndex: 0, updatedAt: stamp(),
+  }, patch || {});
+
+  /** Partida de costeo. `kind` separa la inversión del servicio recurrente:
+   *  en CAPEX, unitCost es el costo unitario y qty la cantidad; en OPEX,
+   *  unitCost es el costo MENSUAL y qty los meses de servicio. */
+  const newLine = (patch) => Object.assign({
+    id: uid('bl'), item: '', kind: 'capex', category: 'equipamiento',
+    centerId: 'shared', qty: 1, unitCost: 0, note: '', baselineRef: '',
+    updatedAt: stamp(),
+  }, patch || {});
+
+  const LINE_KINDS = [['capex', 'CAPEX · inversión'], ['opex', 'OPEX · servicio recurrente']];
+  const LINE_CATEGORIES = [
+    ['equipamiento', 'Equipamiento'], ['instalacion', 'Instalación y terreno'],
+    ['software', 'Software y plataformas'], ['logistica', 'Logística y repuestos'],
+    ['administrativo', 'Garantías, pólizas y administración'], ['contingencia', 'Contingencia'],
+    ['servicio', 'Servicio post-venta'], ['otros', 'Otros'],
+  ];
+  const ALLOC_RULES = [['units', 'Por unidades del centro'], ['cost', 'Por costo directo'], ['equal', 'Partes iguales']];
+  const ESCALATION_INDEX = [['ninguno', 'Sin reajuste'], ['UF', 'UF (Chile)'], ['IPC', 'IPC'], ['USD', 'Indexado a USD']];
+  const MARGIN_MODES = [['sale', 'Margen sobre venta'], ['cost', 'Margen sobre costo']];
+
+  /** Política de precio: cómo se pasa del costo al precio ofertable. */
+  const defaultPricing = () => ({
+    marginMode: 'sale',
+    capexMarginPct: null,      // null = usar la recomendación del motor
+    opexMarginPct: null,
+    allocation: 'units',       // cómo se reparten las partidas compartidas
+    contractType: 'llave_en_mano',
+    autoPenalties: true,
+    fxBufferPct: 0,
+    notes: '',
+    updatedAt: stamp(),
+  });
+
+  /** Modelo de costeo del servicio post-venta. Todos los valores unitarios
+   *  son supuestos de modelación editables: la app deja a la vista de dónde
+   *  sale cada peso para que se reemplacen por cotizaciones reales. */
+  const defaultService = () => ({
+    termMonths: 12,
+    escalationIndex: 'ninguno',
+    escalationPct: 0,
+    slaOnSiteHours: 4,
+    slaCoverage: '24x7',
+    availabilityPct: 99.5,
+    availabilityScope: 'unit',      // 'unit' | 'fleet'
+    monthHours: 720,
+    levels: [],                     // [{name, availabilityPct, onSiteHours}]
+    penalties: [],                  // [{label, pctOfFee}]
+    techMonthlyCost: [],            // [{centerId, cost}]
+    guardPremiumPct: 50,
+    partnerPerUnit: [],             // [{centerId, usd}]
+    partnerNightFactor: 0.75,
+    nocMonthly: 500,
+    platformCapexLineId: '',        // partida de CAPEX que se amortiza en el fee
+    sparesAnnualPct: 2.9,
+    preventivesPerYear: 2,
+    hoursPerPreventive: 4,
+    hoursPerFte: 1800,
+    crewBreakevenMin: 150,
+    crewBreakevenMax: 400,
+    updatedAt: stamp(),
+  });
+
+  const normalizeService = (raw) => {
+    const svc = Object.assign(defaultService(), raw || {});
+    svc.levels = arr(svc.levels).filter(Boolean);
+    svc.penalties = arr(svc.penalties).filter(Boolean);
+    svc.techMonthlyCost = arr(svc.techMonthlyCost).filter(Boolean);
+    svc.partnerPerUnit = arr(svc.partnerPerUnit).filter(Boolean);
+    return svc;
+  };
+
   /** Rellena lo que falte al leer un documento guardado por una versión
    *  anterior de la app (o escrito por el agente). */
   function normalizeModel(raw) {
@@ -342,7 +422,15 @@ export default function mount(shell) {
       proj.milestones = arr(p.milestones).filter(Boolean).map((x) => newMilestone(x));
       proj.risks = arr(p.risks).filter(Boolean).map((x) => newRisk(x));
       proj.documents = arr(p.documents).filter(Boolean).map((x) => newDoc(x));
-      proj.budgetLines = arr(p.budgetLines).filter(Boolean).map((x) => Object.assign({ id: uid('bl'), item: '', qty: 1, unitCost: 0, note: '', updatedAt: stamp() }, x));
+      proj.budgetLines = arr(p.budgetLines).filter(Boolean).map((x) => newLine(x));
+      proj.centers = arr(p.centers).filter(Boolean).map((x) => newCenter(x));
+      proj.pricing = Object.assign(defaultPricing(), p.pricing || {});
+      proj.service = normalizeService(p.service);
+      proj.baseline = p.baseline && arr(p.baseline.lines).length
+        ? Object.assign({ label: 'Presupuesto de referencia', capturedAt: stamp() }, p.baseline, {
+          lines: arr(p.baseline.lines).filter(Boolean).map((x) => newLine(x)),
+        })
+        : null;
       proj.log = arr(p.log).filter(Boolean).map((x) => newLog(x));
       proj.questions = arr(p.questions).filter(Boolean).map((x) => Object.assign({ id: uid('qst'), text: '', answer: '', status: 'open', owner: '', updatedAt: stamp() }, x));
       proj.links = arr(p.links).filter(Boolean).map((x) => Object.assign({ id: uid('lnk'), app: '', instanceId: '', label: '', updatedAt: stamp() }, x));
@@ -469,24 +557,91 @@ export default function mount(shell) {
       D('11', 'Informe Consolidado de Licitación — Directorios PAK y PLC (KIMOS, sep-2026).pdf', 'pdf', 'Informe que consolida las Bases, las 113 respuestas oficiales y la documentación de terreno. Fuente de este proyecto.'),
     ];
 
-    const BL = (id, item, qty, unitCost, note) => ({ id: 'bl-pa-' + id, item, qty, unitCost, note, updatedAt: stamp() });
-    const budgetLines = [
-      BL('01', 'Hardware PAK (Chile) — tótems indoor interactivos', 12, 5500, 'Consistente con el alcance de 12 unidades.'),
-      BL('02', 'Hardware PLC (Colombia) — tótems indoor interactivos', 15, 5500, 'Sujeto a la discrepancia 15 vs. 17-19 unidades.'),
-      BL('03', 'Cómputo — Nano PC N100 + SSD', 27, 438, 'La licencia Porteus la adquiere Parque Arauco (resp. 63): descontados USD 42 por unidad.'),
-      BL('04', 'Integración analítica (CPM) — cámaras y enrolamiento', 27, 350, 'Solo hardware de captura y configuración: la plataforma la provee PA (resp. 62).'),
-      BL('05', 'Montaje, anclaje, conectorización y puesta en marcha', 27, 900, 'Reformulada: obras civiles y puntos eléctricos/de red salen del alcance (resp. 77 y 78).'),
-      BL('06', 'Certificación de puntos de red y electricidad (PLC §3.6 y PAK resp. 101)', 27, 180, 'Partida separada exigida por las Bases; incluye recableado si un punto no aprueba.'),
-      BL('07', 'Energía y respaldo — UPS con tarjeta SNMP', 10, 300, 'Las Bases permiten centralizar hasta 3 tótems por UPS.'),
-      BL('08', 'Plataforma de health check y monitoreo remoto (licenciamiento y operación)', 1, 24000, 'PARTIDA AUSENTE en el costeo original: "el oferente debe suministrar la solución completa" (resp. 64).'),
-      BL('09', 'Tótem de laboratorio completo', 1, 6400, 'PARTIDA AUSENTE: exigido por la resp. 56, con su cómputo, pantallas y cámaras.'),
-      BL('10', 'Stock inicial de repuestos críticos en Chile y Colombia', 1, 18000, 'Condición necesaria para sostener el SLA comprometido.'),
-      BL('11', 'Desmontaje y disposición de los tótems existentes en PLC', 15, 220, 'A cargo del oferente.'),
-      BL('12', 'Gastos administrativos — pólizas y garantías', 1, 15000, 'Revisar contra el costo real de TRC/CAR al 100% del contrato y RC por USD 300.000.'),
-      BL('13', 'Provisión por garantía de 3 años (pantallas, touch, NUC, cámaras y UPS)', 1, 14000, 'PARTIDA AUSENTE en el costeo original.'),
-      BL('14', 'Reserva de contingencia', 1, 16000, 'Elevada por el riesgo de condiciones ocultas aún no asignado (resp. 75).'),
-      BL('15', 'OPEX anual de servicio post-venta (12 meses)', 12, 3200, 'USD 118 por tótem/mes en dos países con SLA de 4 h en sitio 24x7: es el punto más frágil del presupuesto y debe recalcularse.'),
+    // ── Centros: la oferta se firma por centro comercial y en su moneda ──
+    const centers = [
+      newCenter({
+        id: 'ctr-pak', name: 'Parque Arauco Kennedy', code: 'PAK', country: 'Chile',
+        currency: 'CLP', fx: 950, units: 12, colorIndex: 0,
+        fxNote: 'Supuesto de modelación: 950 CLP por USD. Actualízalo con el tipo de cambio del día de la oferta.',
+        notes: 'Av. Presidente Kennedy 5413, Santiago. Zonas C y D: instalación desde cero de 12 tótems indoor.',
+      }),
+      newCenter({
+        id: 'ctr-plc', name: 'Parque La Colina', code: 'PLC', country: 'Colombia',
+        currency: 'COP', fx: 4100, units: 15, colorIndex: 1,
+        fxNote: 'Supuesto de modelación: 4.100 COP por USD. Actualízalo con el tipo de cambio del día de la oferta.',
+        notes: 'Carrera 58D # 146-51, Bogotá. Recambio completo de los tótems existentes; trabajos solo nocturnos con el centro cerrado.',
+      }),
     ];
+
+    // ── Línea base: el presupuesto de referencia del análisis interno ────
+    const BB = (id, item, qty, unitCost, kind) => newLine({
+      id: 'blb-pa-' + id, item, qty, unitCost, kind: kind || 'capex', centerId: 'shared',
+    });
+    const baseline = {
+      label: 'Presupuesto de referencia (Análisis Parque Arauco, interno)',
+      capturedAt: '2026-09-01T12:00:00.000Z',
+      note: 'Costeo previo en USD, presentado como base de negociación antes de leer las 113 respuestas oficiales del Anexo BA-06.',
+      lines: [
+        BB('1', 'Hardware PAK (Chile) — tótems indoor interactivos', 12, 5500),
+        BB('2', 'Hardware PLC (Colombia) — tótems indoor interactivos', 15, 5500),
+        BB('3', 'Cómputo y software — Nano PC N100 + SSD + licencia', 27, 480),
+        BB('4', 'Integración analítica (CPM) — cámaras y setup', 27, 350),
+        BB('5', 'Instalación y obras (PAK+PLC) — redes y certificaciones', 27, 1500),
+        BB('6', 'Energía y respaldo — UPS con tarjeta SNMP', 27, 300),
+        BB('7', 'Gastos administrativos — pólizas y garantías', 1, 15000),
+        BB('8', 'Reserva de contingencia (8% sobre equipos)', 1, 11840),
+        BB('9', 'OPEX anual (servicio post venta) — soporte y mantenimiento', 12, 3200, 'opex'),
+      ],
+    };
+
+    // ── Costeo vivo: corregido con las respuestas oficiales ─────────────
+    const BL = (id, item, qty, unitCost, opts) => newLine(Object.assign({
+      id: 'bl-pa-' + id, item, qty, unitCost,
+    }, opts || {}));
+    const budgetLines = [
+      BL('01', 'Hardware PAK (Chile) — tótems indoor interactivos', 12, 5500, { centerId: 'ctr-pak', category: 'equipamiento', baselineRef: 'blb-pa-1', note: 'Consistente con el alcance de 12 unidades.' }),
+      BL('02', 'Hardware PLC (Colombia) — tótems indoor interactivos', 15, 5500, { centerId: 'ctr-plc', category: 'equipamiento', baselineRef: 'blb-pa-2', note: 'Sujeto a la discrepancia 15 vs. 17-19 unidades.' }),
+      BL('03', 'Cómputo — Nano PC N100 + SSD', 27, 438, { category: 'equipamiento', baselineRef: 'blb-pa-3', note: 'La licencia Porteus la adquiere Parque Arauco (resp. 63): descontados USD 42 por unidad.' }),
+      BL('04', 'Integración analítica (CPM) — cámaras y enrolamiento', 27, 350, { category: 'equipamiento', baselineRef: 'blb-pa-4', note: 'Solo hardware de captura y configuración: la plataforma la provee PA (resp. 62).' }),
+      BL('05', 'Montaje, anclaje, conectorización y puesta en marcha', 27, 900, { category: 'instalacion', baselineRef: 'blb-pa-5', note: 'Reformulada: obras civiles y puntos eléctricos/de red salen del alcance (resp. 77 y 78).' }),
+      BL('06', 'Certificación de puntos de red y electricidad (PLC §3.6 y PAK resp. 101)', 27, 180, { category: 'instalacion', baselineRef: 'blb-pa-5', note: 'Partida separada exigida por las Bases; incluye recableado si un punto no aprueba.' }),
+      BL('07', 'Energía y respaldo — UPS con tarjeta SNMP', 10, 300, { category: 'equipamiento', baselineRef: 'blb-pa-6', note: 'Las Bases permiten centralizar hasta 3 tótems por UPS.' }),
+      BL('08', 'Plataforma de health check y monitoreo remoto (licenciamiento y operación)', 1, 24000, { category: 'software', note: 'PARTIDA AUSENTE en el costeo original: "el oferente debe suministrar la solución completa" (resp. 64).' }),
+      BL('09', 'Tótem de laboratorio completo', 1, 6400, { category: 'equipamiento', note: 'PARTIDA AUSENTE: exigido por la resp. 56, con su cómputo, pantallas y cámaras.' }),
+      BL('10', 'Stock inicial de repuestos críticos en Chile y Colombia', 1, 18000, { category: 'logistica', note: 'Condición necesaria para sostener el SLA comprometido.' }),
+      BL('11', 'Desmontaje y disposición de los tótems existentes en PLC', 15, 220, { centerId: 'ctr-plc', category: 'instalacion', note: 'A cargo del oferente; no estaba en el costeo de referencia.' }),
+      BL('12', 'Gastos administrativos — pólizas y garantías', 1, 15000, { category: 'administrativo', baselineRef: 'blb-pa-7', note: 'Revisar contra el costo real de TRC/CAR al 100% del contrato y RC por USD 300.000.' }),
+      BL('13', 'Provisión por garantía de 3 años (pantallas, touch, NUC, cámaras y UPS)', 1, 14000, { category: 'administrativo', note: 'PARTIDA AUSENTE en el costeo original.' }),
+      BL('14', 'Reserva de contingencia', 1, 16000, { category: 'contingencia', baselineRef: 'blb-pa-8', note: 'Elevada por el riesgo de condiciones ocultas aún no asignado (resp. 75).' }),
+      BL('15', 'Servicio post-venta: monitoreo 24/7, preventivos y correctivo con repuestos', 12, 3200, { kind: 'opex', category: 'servicio', baselineRef: 'blb-pa-9', note: 'USD 118 por tótem/mes en dos países con SLA de 4 h en sitio 24x7: es el punto más frágil del presupuesto y debe recalcularse.' }),
+    ];
+
+    // ── Modelo de costeo del servicio y política de precio ───────────────
+    const service = normalizeService({
+      termMonths: 12,
+      escalationIndex: 'ninguno', escalationPct: 0,
+      slaOnSiteHours: 4, slaCoverage: '24x7', availabilityPct: 99.5, availabilityScope: 'unit', monthHours: 720,
+      levels: [
+        { name: 'Crítico — falla masiva o de acceso principal', availabilityPct: 99.5, onSiteHours: 4 },
+        { name: 'Alto — falla de un tótem o del táctil', availabilityPct: 99.0, onSiteHours: 8 },
+        { name: 'Medio — falla parcial (sensor o cámara)', availabilityPct: 98.0, onSiteHours: 24 },
+      ],
+      penalties: [
+        { label: 'Disponibilidad de equipos bajo el SLA comprometido', pctOfFee: 2.5 },
+        { label: 'Incumplimiento de la programación de mantenimientos preventivos', pctOfFee: 5 },
+      ],
+      techMonthlyCost: [{ centerId: 'ctr-pak', cost: 1700 }, { centerId: 'ctr-plc', cost: 1150 }],
+      partnerPerUnit: [{ centerId: 'ctr-pak', usd: 110 }, { centerId: 'ctr-plc', usd: 85 }],
+      platformCapexLineId: 'bl-pa-08',
+      guardPremiumPct: 50, partnerNightFactor: 0.75, nocMonthly: 500,
+      sparesAnnualPct: 2.9, preventivesPerYear: 2, hoursPerPreventive: 4, hoursPerFte: 1800,
+      crewBreakevenMin: 150, crewBreakevenMax: 400,
+    });
+
+    const pricing = Object.assign(defaultPricing(), {
+      contractType: 'llave_en_mano', marginMode: 'sale', allocation: 'units',
+      notes: 'La oferta se presenta en moneda local por centro comercial, a valor neto y con los impuestos cuantificados por separado (§8.1 de las Bases).',
+    });
 
     const Q = (id, text, owner) => ({ id: 'qst-pa-' + id, text, answer: '', status: 'open', owner, updatedAt: stamp() });
     const questions = [
@@ -530,6 +685,7 @@ export default function mount(shell) {
       budget: 285000,
       blackouts: [{ id: 'blk-pa-dic', from: '2026-12-01', to: '2026-12-31', label: 'Diciembre bloqueado en PAK (resp. 107): no se pueden realizar trabajos en los centros comerciales' }],
       phases, tasks, milestones, risks, documents, budgetLines, questions, log,
+      centers, baseline, service, pricing,
     });
 
     return { client: cli, project };
@@ -596,6 +752,7 @@ export default function mount(shell) {
         risks: mergeList(a.risks, b.risks, tombs),
         documents: mergeList(a.documents, b.documents, tombs),
         budgetLines: mergeList(a.budgetLines, b.budgetLines, tombs),
+        centers: mergeList(a.centers, b.centers, tombs),
         questions: mergeList(a.questions, b.questions, tombs),
         links: mergeList(a.links, b.links, tombs),
         log: mergeList(a.log, b.log, tombs),
@@ -796,6 +953,17 @@ export default function mount(shell) {
     const budgetLines = arr(p.budgetLines);
     const budgetPlanned = sum(budgetLines, (b) => n(b.qty, 0) * n(b.unitCost, 0));
     const budget = n(p.budget, 0) || budgetPlanned;
+    // Desvío del costeo contra el presupuesto declarado a mano. El umbral lo
+    // fija la configuración de la app: por debajo se vigila, por encima se
+    // marca en rojo, porque a esa altura ya no es ruido.
+    const declared = n(p.budget, 0);
+    const alertPct = n((cfg || {}).budgetAlertPct, 10) || 10;
+    const overrun = declared > 0 ? budgetPlanned - declared : null;
+    const overrunPct = declared > 0 ? (overrun / declared) * 100 : null;
+    const budgetState = declared <= 0 || !budgetLines.length ? 'none'
+      : overrunPct > alertPct ? 'over'
+        : overrunPct > 0 ? 'watch'
+          : 'ok';
 
     const openQuestions = arr(p.questions).filter((q) => q.status !== 'closed');
     const daysLeft = p.endDate ? daysFromToday(p.endDate) : null;
@@ -825,6 +993,7 @@ export default function mount(shell) {
       topRisks, nextMilestone, lateMilestones: lateMilestones.length,
       milestonesTotal: milestones.length, milestonesDone: milestones.filter((mm) => mm.status === 'done').length,
       milestones, budget, budgetPlanned, docs: docs.length,
+      overrun, overrunPct, budgetState, budgetAlertPct: alertPct,
       docsReviewed: docs.filter((d) => d.reviewed).length,
       openQuestions: openQuestions.length, daysLeft,
       isOpen: OPEN_STATUS.includes(p.status),
@@ -889,6 +1058,12 @@ export default function mount(shell) {
       if (st.openQuestions >= 5) {
         alerts.push({ level: 'warn', project: p, text: st.openQuestions + ' consultas abiertas sin respuesta del cliente', at: '' });
       }
+      if (st.budgetState === 'over') {
+        alerts.push({
+          level: 'err', project: p, at: '',
+          text: 'El costeo supera el presupuesto en ' + fmtNum(st.overrunPct, 1) + '% (' + fmtMoney(st.overrun, p.currency) + ')',
+        });
+      }
     }
     alerts.sort((a, b) => (a.level === b.level ? 0 : a.level === 'err' ? -1 : 1));
 
@@ -917,9 +1092,336 @@ export default function mount(shell) {
       risksCritical: sum(open, (p) => stats.get(p.id).risksCritical),
       risksOpen: sum(open, (p) => stats.get(p.id).risksOpen),
       docsTotal: sum(projects, (p) => arr(p.documents).length),
+      budgetOver: open.filter((p) => stats.get(p.id).budgetState === 'over').length,
+      budgetWatch: open.filter((p) => stats.get(p.id).budgetState === 'watch').length,
       openQuestions: sum(open, (p) => stats.get(p.id).openQuestions),
       activity: activity.slice(0, 40),
     };
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 3.b ECONOMÍA: CAPEX, OPEX, CENTROS, MARGEN Y PRECIO
+  // ════════════════════════════════════════════════════════════════════════
+  /* Un proyecto tiene DOS números que la gente confunde y que aquí nunca se
+   * suman a ciegas: el CAPEX es un desembolso único (un stock) y el OPEX un
+   * flujo mensual con plazo y reajuste. Y tiene TRES cifras distintas que
+   * conviven: el presupuesto escrito a mano en la ficha, la línea base con
+   * la que se partió, y el costeo vivo que suman las partidas. La app las
+   * mantiene separadas, las compara y explica la diferencia. */
+
+  const lineTotal = (b) => n(b.qty, 0) * n(b.unitCost, 0);
+  const isOpex = (b) => s(b.kind) === 'opex';
+  const centerOf = (p, id) => arr(p.centers).find((c) => c.id === id) || null;
+
+  /** Reparte una partida compartida entre los centros según la regla del
+   *  proyecto: por unidades instaladas, por costo directo o en partes
+   *  iguales. Sin centros declarados, todo queda en un único bloque. */
+  function allocationWeights(p, rule, directByCenter) {
+    const centers = arr(p.centers);
+    if (!centers.length) return new Map();
+    const w = new Map();
+    if (rule === 'equal') {
+      centers.forEach((c) => w.set(c.id, 1));
+    } else if (rule === 'cost') {
+      centers.forEach((c) => w.set(c.id, Math.max(0, n((directByCenter || new Map()).get(c.id), 0))));
+    } else {
+      centers.forEach((c) => w.set(c.id, Math.max(0, n(c.units, 0))));
+    }
+    const total = sum([...w.values()]);
+    if (total <= 0) { centers.forEach((c) => w.set(c.id, 1 / centers.length)); return w; }
+    centers.forEach((c) => w.set(c.id, n(w.get(c.id), 0) / total));
+    return w;
+  }
+
+  /** Margen recomendado: sale de la envergadura del proyecto y de los
+   *  riesgos que el propio proyecto ya declara. Cada sumando lleva su razón
+   *  a la vista para poder defenderlo (o bajarlo) frente al cliente. */
+  function recommendMargin(p, capexCost, opexMonthly) {
+    const size = capexCost + opexMonthly * 12;
+    const base = size < 100000 ? 18 : size < 500000 ? 14 : size < 2000000 ? 11 : 9;
+    const parts = [{ label: 'Base por envergadura (' + fmtMoney(size, p.currency) + ' a 12 meses)', pts: base }];
+
+    const contract = s((p.pricing || {}).contractType);
+    if (contract === 'llave_en_mano' || contract === 'suma_alzada') {
+      parts.push({ label: 'Llave en mano a suma alzada: el desvío de alcance lo absorbe el oferente', pts: 3 });
+    }
+    const offerCurrencies = uniq(arr(p.centers).map((c) => s(c.currency)).filter(Boolean));
+    const fxMismatch = offerCurrencies.filter((c) => c !== s(p.currency));
+    if (fxMismatch.length) {
+      parts.push({ label: 'Exposición cambiaria: se costea en ' + p.currency + ' y se oferta en ' + fxMismatch.join(' y '), pts: 3 });
+    }
+    if (arr((p.service || {}).penalties).length) {
+      parts.push({ label: 'Multas de descuento automático sobre las facturas', pts: 2 });
+    }
+    const months = n(daysBetween(p.startDate, p.endDate), 0) / 30;
+    if (months > 12) parts.push({ label: 'Plazo de ejecución mayor a 12 meses', pts: 1 });
+    const criticals = arr(p.risks).filter((r) => r.status !== 'closed' && r.status !== 'mitigated' && riskScore(r) >= 15);
+    if (criticals.length) {
+      parts.push({ label: criticals.length + ' riesgo(s) crítico(s) abiertos en la matriz', pts: Math.min(3, criticals.length) });
+    }
+    const openScope = arr(p.risks).some((r) => r.status !== 'closed' && canon(r.title + ' ' + r.mitigation).includes('condicion oculta'));
+    if (openScope) parts.push({ label: 'Adicionales por condiciones ocultas sin mecanismo de pago cerrado', pts: 2 });
+
+    const capexPct = clamp(sum(parts, (x) => x.pts), 6, 45);
+    // El servicio carga la guardia, el stock y el riesgo de SLA: siempre pide
+    // más margen que la inversión, y no menos de 20 puntos en términos absolutos.
+    const opexPct = clamp(capexPct + 7, 20, 55);
+    return {
+      capexPct, opexPct, parts,
+      range: [Math.max(6, capexPct - 5), Math.min(50, capexPct + 5)],
+    };
+  }
+
+  /** Del costo al precio. `sale` = margen sobre venta (precio = costo / (1-m));
+   *  `cost` = margen sobre costo (precio = costo × (1+m)). */
+  const priceFrom = (cost, pct, mode) => {
+    const m = clamp(n(pct, 0), 0, 95) / 100;
+    if (mode === 'cost') return cost * (1 + m);
+    return m >= 1 ? cost : cost / (1 - m);
+  };
+
+  /** El modelo de costeo del servicio: tres escenarios construidos de abajo
+   *  hacia arriba, con cada componente a la vista. */
+  function serviceModel(p, econ) {
+    const svc = normalizeService(p.service);
+    const centers = arr(p.centers);
+    const units = centers.length ? sum(centers, (c) => n(c.units, 0)) : n(econ.unitCount, 0);
+    const techCost = (centerId) => n((arr(svc.techMonthlyCost).find((x) => x.centerId === centerId) || {}).cost, 0);
+    const partnerRate = (centerId) => n((arr(svc.partnerPerUnit).find((x) => x.centerId === centerId) || {}).usd, 0);
+    const techBase = sum(centers, (c) => techCost(c.id));
+    const partnerFull = sum(centers, (c) => partnerRate(c.id) * n(c.units, 0));
+    const platformCapex = svc.platformCapexLineId
+      ? lineTotal(arr(p.budgetLines).find((b) => b.id === svc.platformCapexLineId) || {})
+      : 0;
+    const term = Math.max(1, n(svc.termMonths, 12));
+    const platform = platformCapex / term;
+    const equipment = n(econ.equipmentCost, 0);
+    const spares = (equipment * (n(svc.sparesAnnualPct, 0) / 100)) / 12;
+    const noc = n(svc.nocMonthly, 0);
+    const premium = 1 + n(svc.guardPremiumPct, 0) / 100;
+
+    const comp = (label, value, note) => ({ label, value, note });
+    const scenarios = [
+      {
+        id: 'A', name: 'SLA literal con cuadrilla propia',
+        summary: 'Dos técnicos por centro en rotación de guardia para sostener ' + n(svc.slaOnSiteHours, 4) + ' h en sitio ' + s(svc.slaCoverage) + '.',
+        components: [
+          comp('Técnicos propios (2 por centro, con recargo de guardia del ' + fmtNum(svc.guardPremiumPct) + '%)', techBase * 2 * premium, 'costo empresa mensual por técnico, editable por centro'),
+          comp('NOC / monitoreo proactivo', noc, 'prorrateo de un centro de monitoreo compartido'),
+          comp('Amortización de la plataforma de monitoreo', platform, platformCapex ? 'ya pagada en CAPEX, se recupera en ' + term + ' meses' : 'sin partida de plataforma enlazada'),
+          comp('Reposición de repuestos', spares, fmtNum(svc.sparesAnnualPct, 1) + '% anual sobre el equipamiento'),
+        ],
+      },
+      {
+        id: 'B', name: 'Híbrido: propio en horario, partner en guardia',
+        summary: 'Un técnico propio por centro en horario de operación y un partner local para la noche y el fin de semana.',
+        components: [
+          comp('Técnicos propios (1 por centro)', techBase, 'sin recargo de guardia permanente'),
+          comp('Partner local para guardia nocturna y fin de semana', partnerFull * clamp(n(svc.partnerNightFactor, 0.75), 0, 2), 'fracción del tarifario por unidad'),
+          comp('NOC / monitoreo proactivo', noc, ''),
+          comp('Amortización de la plataforma de monitoreo', platform, ''),
+          comp('Reposición de repuestos', spares, ''),
+        ],
+      },
+      {
+        id: 'C', name: 'Servicio subcontratado por unidad',
+        summary: 'Field service local por centro, con supervisión propia parcial. El más barato y el que más riesgo de cumplimiento traslada.',
+        components: [
+          comp('Partner de field service por unidad', partnerFull, 'tarifa mensual por equipo, por centro'),
+          comp('Supervisión propia (0,25 FTE)', techBase * 0.25, 'alguien tiene que responder por el SLA ante el cliente'),
+          comp('NOC / monitoreo proactivo', noc, ''),
+          comp('Amortización de la plataforma de monitoreo', platform, ''),
+          comp('Reposición de repuestos', spares, ''),
+        ],
+      },
+    ].map((sc) => {
+      const monthly = sum(sc.components, (c) => c.value);
+      return Object.assign(sc, {
+        monthly,
+        perUnit: units ? monthly / units : 0,
+        vsCurrent: econ.opexMonthly ? monthly / econ.opexMonthly : null,
+      });
+    });
+
+    // Trabajo efectivo del preventivo: lo que de verdad se ejecuta al año.
+    const preventiveHours = n(svc.preventivesPerYear, 0) * units * n(svc.hoursPerPreventive, 0);
+    const fte = n(svc.hoursPerFte, 1800) > 0 ? preventiveHours / n(svc.hoursPerFte, 1800) : 0;
+
+    // El chequeo top-down que engaña: % anual del fee sobre el equipamiento.
+    const annualOpex = econ.opexMonthly * 12;
+    const pctOfEquipment = equipment ? (annualOpex / equipment) * 100 : null;
+
+    // Densidad: una guardia 24x7 se amortiza a partir de cierto parque por ciudad.
+    const density = centers.map((c) => ({
+      center: c, units: n(c.units, 0),
+      ratio: n(c.units, 0) / Math.max(1, n(svc.crewBreakevenMin, 150)),
+    }));
+
+    // Aritmética del SLA: dónde se contradice el contrato consigo mismo.
+    const monthHours = Math.max(1, n(svc.monthHours, 720));
+    const levels = (arr(svc.levels).length ? svc.levels : [{ name: 'Comprometido', availabilityPct: n(svc.availabilityPct, 99), onSiteHours: n(svc.slaOnSiteHours, 4) }])
+      .map((lv) => {
+        const allowedUnit = monthHours * (1 - clamp(n(lv.availabilityPct, 99), 0, 100) / 100);
+        const allowedFleet = allowedUnit * Math.max(1, units);
+        const hours = n(lv.onSiteHours, n(svc.slaOnSiteHours, 4));
+        return {
+          name: lv.name, availabilityPct: n(lv.availabilityPct, 99), onSiteHours: hours,
+          allowedUnit, allowedFleet,
+          survives: hours <= allowedUnit,
+          incidentsFleet: hours > 0 ? Math.floor(allowedFleet / hours) : 0,
+        };
+      });
+    const contradiction = levels.find((lv) => !lv.survives) || null;
+
+    const penalties = arr(svc.penalties).map((pn) => ({
+      label: pn.label, pctOfFee: n(pn.pctOfFee, 0),
+      amount: econ.opexMonthly * (n(pn.pctOfFee, 0) / 100),
+    }));
+
+    return {
+      svc, units, scenarios, platform, platformCapex, spares, noc, term,
+      preventiveHours, fte, pctOfEquipment, annualOpex, density, levels, contradiction, penalties,
+      cheapest: scenarios.slice().sort((a, b) => a.monthly - b.monthly)[0],
+      recommended: scenarios.find((x) => x.id === 'B') || scenarios[0],
+      gapVsCurrent: econ.opexMonthly ? (scenarios.find((x) => x.id === 'B') || scenarios[0]).monthly - econ.opexMonthly : null,
+    };
+  }
+
+  /** Puente entre la línea base y el costeo vivo: qué bajó, qué subió y por
+   *  qué el total terminó donde terminó. Es la respuesta a "explícame esta
+   *  diferencia" sin que nadie tenga que rehacer la planilla. */
+  function costBridge(p) {
+    const baseline = p.baseline && arr(p.baseline.lines).length ? p.baseline : null;
+    if (!baseline) return null;
+    const lines = arr(p.budgetLines);
+    const baseTotal = sum(baseline.lines, lineTotal);
+    const currentTotal = sum(lines, lineTotal);
+    const rows = [];
+    for (const bl of baseline.lines) {
+      const matched = lines.filter((x) => x.baselineRef === bl.id);
+      const now = sum(matched, lineTotal);
+      rows.push({
+        id: bl.id, label: bl.item, before: lineTotal(bl), after: now,
+        delta: now - lineTotal(bl), lines: matched,
+        gone: !matched.length,
+      });
+    }
+    const added = lines.filter((x) => !s(x.baselineRef)).map((x) => ({
+      id: x.id, label: x.item, before: 0, after: lineTotal(x), delta: lineTotal(x), lines: [x], isNew: true,
+    }));
+    const all = rows.concat(added);
+    const down = all.filter((r) => r.delta < -0.5).sort((a, b) => a.delta - b.delta);
+    const up = all.filter((r) => r.delta > 0.5).sort((a, b) => b.delta - a.delta);
+    const flat = all.filter((r) => Math.abs(r.delta) <= 0.5);
+    return {
+      baseline, baseTotal, currentTotal,
+      delta: currentTotal - baseTotal,
+      deltaPct: baseTotal ? ((currentTotal - baseTotal) / baseTotal) * 100 : null,
+      down, up, flat,
+      downTotal: Math.abs(sum(down, (r) => r.delta)),
+      upTotal: sum(up, (r) => r.delta),
+    };
+  }
+
+  /** Todo el cuadro económico del proyecto en una pasada. */
+  function computeEconomics(p, cfg) {
+    const lines = arr(p.budgetLines);
+    const capexLines = lines.filter((b) => !isOpex(b));
+    const opexLines = lines.filter(isOpex);
+    const capexCost = sum(capexLines, lineTotal);
+    const opexMonthly = sum(opexLines, (b) => n(b.unitCost, 0));
+    const svc = normalizeService(p.service);
+    const term = Math.max(1, n(svc.termMonths, 12));
+    // El OPEX del costeo vive con los meses que declara cada línea; el del
+    // contrato, con el plazo del servicio. Si difieren, hay que decirlo.
+    const opexMonthsDeclared = opexLines.length ? Math.max.apply(null, opexLines.map((b) => n(b.qty, 0))) : 0;
+    const opexCostDeclared = sum(opexLines, lineTotal);
+    const opexCostTerm = opexMonthly * term;
+    const costingTotal = capexCost + opexCostDeclared;
+
+    const equipmentCost = sum(capexLines.filter((b) => s(b.category) === 'equipamiento'), lineTotal);
+    const byCategory = LINE_CATEGORIES.map(([key, label]) => ({
+      key, label,
+      capex: sum(capexLines.filter((b) => s(b.category) === key), lineTotal),
+      opex: sum(opexLines.filter((b) => s(b.category) === key), (b) => n(b.unitCost, 0)),
+    })).filter((x) => x.capex || x.opex);
+
+    const centers = arr(p.centers);
+    const unitCount = centers.length ? sum(centers, (c) => n(c.units, 0)) : 0;
+
+    // Directo por centro y prorrateo de lo compartido.
+    const directCapex = new Map();
+    const directOpex = new Map();
+    centers.forEach((c) => { directCapex.set(c.id, 0); directOpex.set(c.id, 0); });
+    let sharedCapex = 0, sharedOpex = 0;
+    for (const b of lines) {
+      const target = centerOf(p, b.centerId);
+      if (!target) {
+        if (isOpex(b)) sharedOpex += n(b.unitCost, 0); else sharedCapex += lineTotal(b);
+        continue;
+      }
+      if (isOpex(b)) directOpex.set(target.id, n(directOpex.get(target.id), 0) + n(b.unitCost, 0));
+      else directCapex.set(target.id, n(directCapex.get(target.id), 0) + lineTotal(b));
+    }
+    const rule = s((p.pricing || {}).allocation) || 'units';
+    const weights = allocationWeights(p, rule, directCapex);
+
+    const pricing = Object.assign(defaultPricing(), p.pricing || {});
+    const recommendation = recommendMargin(p, capexCost, opexMonthly);
+    const capexMarginPct = pricing.capexMarginPct == null ? recommendation.capexPct : n(pricing.capexMarginPct, 0);
+    const opexMarginPct = pricing.opexMarginPct == null ? recommendation.opexPct : n(pricing.opexMarginPct, 0);
+    const mode = s(pricing.marginMode) === 'cost' ? 'cost' : 'sale';
+
+    const byCenter = centers.map((c) => {
+      const w = n(weights.get(c.id), 0);
+      const capex = n(directCapex.get(c.id), 0) + sharedCapex * w;
+      const opex = n(directOpex.get(c.id), 0) + sharedOpex * w;
+      const capexPrice = priceFrom(capex, capexMarginPct, mode);
+      const opexPrice = priceFrom(opex, opexMarginPct, mode);
+      const fx = n(c.fx, 0) || 1;
+      return {
+        center: c, units: n(c.units, 0), share: w,
+        capexCost: capex, opexCost: opex,
+        capexPrice, opexPrice,
+        capexLocal: capexPrice * fx, opexLocal: opexPrice * fx,
+        contractCost: capex + opex * term,
+        contractPrice: capexPrice + opexPrice * term,
+        contractLocal: (capexPrice + opexPrice * term) * fx,
+        perUnit: n(c.units, 0) ? capexPrice / n(c.units, 0) : null,
+      };
+    });
+
+    const capexPrice = priceFrom(capexCost, capexMarginPct, mode);
+    const opexPrice = priceFrom(opexMonthly, opexMarginPct, mode);
+    const contractCost = capexCost + opexMonthly * term;
+    const contractPrice = capexPrice + opexPrice * term;
+
+    const budget = n(p.budget, 0);
+    const alertPct = n((cfg || {}).budgetAlertPct, 10) || 10;
+    const overrun = budget > 0 ? costingTotal - budget : null;
+    const overrunPct = budget > 0 ? (overrun / budget) * 100 : null;
+    const budgetState = budget <= 0 ? 'none'
+      : overrunPct > alertPct ? 'over'
+        : overrunPct > 0 ? 'watch'
+          : 'ok';
+
+    const econ = {
+      lines, capexLines, opexLines,
+      capexCost, opexMonthly, opexCostDeclared, opexCostTerm, opexMonthsDeclared,
+      costingTotal, equipmentCost, byCategory, byCenter, centers, unitCount,
+      sharedCapex, sharedOpex, allocationRule: rule,
+      pricing, recommendation, capexMarginPct, opexMarginPct, marginMode: mode,
+      capexPrice, opexPrice, contractCost, contractPrice, term,
+      capexMarginAmount: capexPrice - capexCost,
+      opexMarginAmount: (opexPrice - opexMonthly) * term,
+      budget, overrun, overrunPct, budgetState, alertPct,
+      currency: s(p.currency) || 'USD',
+      escalation: { index: s(svc.escalationIndex), pct: n(svc.escalationPct, 0) },
+    };
+    econ.bridge = costBridge(p);
+    econ.service = serviceModel(p, econ);
+    return econ;
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -1374,6 +1876,594 @@ export default function mount(shell) {
       proposal.phases.length + ' fases, ' + proposal.tasks.length + ' tareas, ' +
       proposal.milestones.length + ' hitos y ' + proposal.risks.length + ' riesgos tipo.', 'Analista');
     return true;
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 4.b ANALISTA: PREGUNTAS SOBRE EL PROYECTO
+  // ════════════════════════════════════════════════════════════════════════
+  /* El analista responde preguntas sobre el proyecto con los números del
+   * proyecto. No inventa: cada cifra de cada respuesta sale de las partidas,
+   * las tareas, los riesgos o los parámetros del modelo de servicio, y las
+   * conclusiones son reglas explícitas sobre esas cifras. Las respuestas se
+   * arman con bloques que se pintan en pantalla y también se serializan a
+   * texto plano, para que el agente IA de KIMOS entregue exactamente el
+   * mismo análisis cuando le preguntan por chat. */
+
+  const B = {
+    h: (text) => ({ t: 'h', text }),
+    p: (text) => ({ t: 'p', text }),
+    note: (text, tone) => ({ t: 'note', text, tone }),
+    list: (items, ordered) => ({ t: 'list', items: arr(items).filter(Boolean), ordered }),
+    kv: (items) => ({ t: 'kv', items: arr(items).filter(Boolean) }),
+    table: (head, rows, opts) => Object.assign({ t: 'table', head, rows: arr(rows).filter(Boolean) }, opts || {}),
+    concl: (text) => ({ t: 'concl', text }),
+    bars: (items, opts) => Object.assign({ t: 'bars', items: arr(items).filter(Boolean) }, opts || {}),
+  };
+
+  /** Serializa una respuesta a texto plano (lo que recibe el agente IA). */
+  function blocksToText(blocks) {
+    const out = [];
+    for (const b of arr(blocks)) {
+      if (!b) continue;
+      if (b.t === 'h') out.push('\n## ' + b.text);
+      else if (b.t === 'p') out.push(b.text);
+      else if (b.t === 'note') out.push('> ' + b.text);
+      else if (b.t === 'concl') out.push('\nLO QUE ESTO SIGNIFICA\n' + b.text);
+      else if (b.t === 'list') out.push(b.items.map((x, i) => (b.ordered ? (i + 1) + '. ' : '- ') + x).join('\n'));
+      else if (b.t === 'kv') out.push(b.items.map((x) => x.k + ': ' + x.v).join('\n'));
+      else if (b.t === 'table') {
+        out.push([b.head.join(' | ')].concat(b.rows.map((r) => r.map((c) => s(c && c.v != null ? c.v : c)).join(' | '))).join('\n'));
+      } else if (b.t === 'bars') {
+        out.push(b.items.map((x) => x.label + ': ' + (x.display || fmtNum(x.value))).join('\n'));
+      }
+    }
+    return out.join('\n\n').trim();
+  }
+
+  const money0 = (v, cur) => fmtNum(Math.round(n(v, 0))) + (cur ? ' ' + cur : '');
+  const signed = (v) => (n(v, 0) >= 0 ? '+' : '−') + fmtNum(Math.abs(Math.round(n(v, 0))));
+
+  // ── Análisis 1: presupuesto vs. costeo por líneas ───────────────────────
+  function analysisBudgetVsCosting(p, ctx) {
+    const e = ctx.econ;
+    const cur = e.currency;
+    const out = [];
+    const budget = e.budget;
+    const bridge = e.bridge;
+
+    out.push(B.h('Qué es cada uno'));
+    out.push(B.p('**Presupuesto (' + money0(budget) + ')**: es un campo manual que se escribe en la ficha del proyecto. ' +
+      (bridge
+        ? 'Quedó cargado con el presupuesto de referencia de «' + bridge.baseline.label + '» — ' + money0(bridge.baseTotal) + ' ' + cur +
+          (Math.abs(budget - bridge.baseTotal) > 0.5 ? ', redondeado a ' + money0(budget) + '.' : '.')
+        : 'No hay línea base guardada contra la cual contrastarlo.')));
+    out.push(B.p('**Costeo por líneas (' + money0(e.costingTotal) + ')**: es la suma automática de las ' + e.lines.length +
+      ' partidas de la tabla de costeo: Σ (cantidad × costo unitario). Ese total es el costeo vivo, el que se mueve cada vez que se corrige una partida.'));
+    out.push(B.note('En el modelo son variables independientes: el presupuesto solo se reemplaza por el costeo cuando el campo está vacío. ' +
+      'Con un valor cargado a mano, la app nunca lo sobrescribe — la leyenda bajo el campo es un comparador, no una validación. Por eso conviven.'));
+
+    const diff = e.costingTotal - budget;
+    if (budget > 0) {
+      out.push(B.kv([
+        { k: 'Presupuesto declarado', v: money0(budget, cur) },
+        { k: 'Costeo por líneas', v: money0(e.costingTotal, cur) },
+        { k: 'Diferencia', v: signed(diff) + ' ' + cur + (e.overrunPct == null ? '' : ' (' + (e.overrunPct >= 0 ? '+' : '') + fmtNum(e.overrunPct, 1) + '%)') },
+      ]));
+    }
+
+    if (bridge) {
+      out.push(B.h('De dónde sale la diferencia'));
+      if (bridge.down.length) {
+        out.push(B.p('**Bajan ' + bridge.down.length + ' partida(s), por ' + money0(bridge.downTotal, cur) + ':**'));
+        out.push(B.table(['Ajuste', 'Antes', 'Ahora', 'Δ'],
+          bridge.down.map((r) => [
+            r.gone ? r.label + ' (eliminada)' : r.label + (r.lines.length > 1 ? ' → ' + r.lines.map((x) => x.item.split(' — ')[0]).join(' + ') : ''),
+            { v: money0(r.before), num: true },
+            { v: money0(r.after), num: true },
+            { v: signed(r.delta), num: true, tone: 'ok' },
+          ]),
+          { footer: ['Total que baja', '', '', { v: '−' + money0(bridge.downTotal), num: true, tone: 'ok' }] }));
+      }
+      if (bridge.up.length) {
+        out.push(B.p('**Suben ' + bridge.up.length + ' partida(s), por ' + money0(bridge.upTotal, cur) + ':**'));
+        out.push(B.table(['Partida', 'Monto', 'Origen'],
+          bridge.up.map((r) => [
+            r.isNew ? r.label + ' (nueva)' : r.label,
+            { v: signed(r.delta), num: true, tone: 'err' },
+            (r.lines[0] && r.lines[0].note) || (r.isNew ? 'partida ausente en la línea base' : 'ajuste sobre la línea base'),
+          ]),
+          { footer: ['Total que sube', { v: '+' + money0(bridge.upTotal), num: true, tone: 'err' }, ''] }));
+      }
+      out.push(B.p(money0(bridge.baseTotal) + ' − ' + money0(bridge.downTotal) + ' + ' + money0(bridge.upTotal) + ' = **' + money0(bridge.currentTotal) + '**'));
+
+      out.push(B.bars([
+        { key: 'base', label: bridge.baseline.label, value: Math.round(bridge.baseTotal), display: money0(bridge.baseTotal), color: 'var(--kp-muted)' },
+        { key: 'now', label: 'Costeo vivo', value: Math.round(bridge.currentTotal), display: money0(bridge.currentTotal), color: 'var(--kp-s1)' },
+        budget > 0 ? { key: 'bud', label: 'Presupuesto en la ficha', value: Math.round(budget), display: money0(budget), color: 'var(--kp-s2)' } : null,
+      ]));
+
+      const ratio = bridge.downTotal > 0 ? bridge.upTotal / bridge.downTotal : null;
+      out.push(B.concl('Lo que se sacó del alcance ahorra ' + money0(bridge.downTotal, cur) + ', pero las partidas que faltaban cuestan ' +
+        money0(bridge.upTotal, cur) + '. El neto es ' + (bridge.deltaPct >= 0 ? '+' : '') + fmtNum(bridge.deltaPct, 0) + '% sobre la referencia. ' +
+        (ratio && ratio > 1.5
+          ? 'Dicho de otro modo: el costeo previo no estaba caro por lo que sobraba, estaba barato por lo que faltaba — y lo que faltaba pesa ' +
+            fmtNum(ratio, 1) + ' veces más que lo que sobraba.'
+          : 'Las correcciones en ambos sentidos son del mismo orden: la referencia estaba bien dimensionada y lo que cambió fue la composición.')));
+    } else {
+      out.push(B.note('Este proyecto todavía no tiene línea base guardada. Con el botón «Fijar línea base» de la pestaña Economía se congela el costeo actual como referencia; ' +
+        'desde ahí, cada corrección queda explicada partida por partida.', 'warn'));
+    }
+
+    if (e.opexLines.length) {
+      out.push(B.h('Un aviso sobre ese total'));
+      out.push(B.p('Los ' + money0(e.costingTotal, cur) + ' mezclan dos cosas que no se suman: **' + money0(e.capexCost, cur) +
+        ' de CAPEX** (un desembolso único) y **' + money0(e.opexCostDeclared, cur) + ' de OPEX** (' + fmtNum(e.opexMonthly) + ' al mes por ' +
+        fmtNum(e.opexMonthsDeclared) + ' meses). Es un stock más un flujo: sirve para dimensionar, no para decidir. La pregunta «¿cuánto cuesta el contrato?» se responde en la pestaña Economía, con el plazo de servicio real.'));
+    }
+    return out;
+  }
+
+  // ── Análisis 2: CAPEX, OPEX y el modelo de servicio ─────────────────────
+  function analysisCapexOpex(p, ctx) {
+    const e = ctx.econ;
+    const sm = e.service;
+    const cur = e.currency;
+    const out = [];
+
+    out.push(B.h('Costo no es precio'));
+    out.push(B.p('Las ' + e.lines.length + ' líneas suman ' + money0(e.costingTotal, cur) + ' de **costo**. Ahí no hay margen, ni utilidad, ni cobertura del riesgo cambiario, ni prima por el tipo de contrato. ' +
+      'Ofertar ese número es trabajar gratis en el mejor escenario y perder en el escenario probable. El precio se arma en «Precio final».'));
+    out.push(B.kv([
+      { k: 'CAPEX (desembolso único)', v: money0(e.capexCost, cur) },
+      { k: 'OPEX (flujo mensual)', v: money0(e.opexMonthly, cur) + ' / mes' },
+      { k: 'Plazo de servicio declarado', v: sm.term + ' meses' + (e.opexMonthsDeclared && e.opexMonthsDeclared !== sm.term ? ' · las líneas de OPEX están cargadas a ' + fmtNum(e.opexMonthsDeclared) + ' meses' : '') },
+      { k: 'Costo del contrato completo', v: money0(e.contractCost, cur) },
+    ]));
+    if (e.opexMonthsDeclared && sm.term && e.opexMonthsDeclared !== sm.term) {
+      out.push(B.note('El plazo del servicio (' + sm.term + ' meses) y los meses cargados en las líneas de OPEX (' + fmtNum(e.opexMonthsDeclared) +
+        ') no coinciden. Mientras difieran, el costeo y el contrato hablan de cosas distintas.', 'warn'));
+    }
+
+    if (!e.opexLines.length) {
+      out.push(B.note('Este proyecto no tiene líneas de OPEX declaradas: no hay servicio recurrente que analizar. Marca como OPEX las partidas de servicio en la pestaña Economía.', 'warn'));
+      return out;
+    }
+
+    out.push(B.h('Por qué el OPEX es la línea que menos resiste'));
+    if (sm.pctOfEquipment != null) {
+      const band = sm.pctOfEquipment >= 12 && sm.pctOfEquipment <= 20;
+      out.push(B.p('**El chequeo que engaña.** ' + money0(sm.annualOpex, cur) + ' al año sobre ' + money0(e.equipmentCost, cur) +
+        ' de equipamiento es ' + fmtNum(sm.pctOfEquipment, 1) + '% anual. En contratos de mantenimiento con repuestos incluidos, la banda normal va de 12% a 20%. ' +
+        (band || sm.pctOfEquipment > 20
+          ? 'A primera vista el número está dentro de rango —o incluso alto— y uno lo da por bueno. Ese chequeo de arriba hacia abajo no aplica acá, y esa es exactamente la trampa.'
+          : 'El número queda por debajo de la banda, lo que ya es una señal.')));
+    }
+    out.push(B.p('**El problema real es la densidad, no el volumen de trabajo.** La regla del porcentaje supone que el costo escala con la cantidad de equipos. ' +
+      'Con un SLA de ' + fmtNum(sm.svc.slaOnSiteHours) + ' horas en sitio ' + s(sm.svc.slaCoverage) + ', el costo no lo manda el trabajo: lo manda tener a alguien de guardia. ' +
+      'Y la guardia se paga igual con ' + fmtNum(sm.units) + ' equipos que con 200.'));
+    if (sm.density.length) {
+      out.push(B.table(['Centro', 'Equipos', 'Punto de equilibrio de una cuadrilla 24x7', 'Distancia'],
+        sm.density.map((d) => [
+          d.center.name + (d.center.country ? ' · ' + d.center.country : ''),
+          { v: fmtNum(d.units), num: true },
+          fmtNum(sm.svc.crewBreakevenMin) + '–' + fmtNum(sm.svc.crewBreakevenMax) + ' equipos por ciudad',
+          { v: d.units ? fmtNum(sm.svc.crewBreakevenMin / Math.max(1, d.units), 0) + '× por debajo' : '—', tone: 'err' },
+        ])));
+    }
+    out.push(B.p('El trabajo efectivo lo confirma: los ' + fmtNum(sm.svc.preventivesPerYear) + ' preventivos anuales sobre ' + fmtNum(sm.units) +
+      ' equipos son ' + fmtNum(sm.preventiveHours) + ' horas-hombre al año, es decir ' + fmtNum(sm.fte, 1) + ' FTE. ' +
+      'Pero para cumplir ' + fmtNum(sm.svc.slaOnSiteHours) + ' horas en sitio un domingo de madrugada hace falta gente disponible los 365 días. Se paga capacidad instalada, no horas trabajadas.'));
+
+    out.push(B.h('Modelo bottom-up'));
+    out.push(B.p('Tres formas de sostener el servicio. Los valores unitarios son **supuestos de modelación** editables en la pestaña Economía: hay que reemplazarlos por cotizaciones reales antes de ofertar.'));
+    out.push(B.table(['Escenario', 'Estructura', cur + '/mes', 'vs. fee actual', 'Por equipo/mes'],
+      sm.scenarios.map((sc) => [
+        sc.id + ' — ' + sc.name,
+        sc.summary,
+        { v: money0(sc.monthly), num: true, strong: true },
+        { v: sc.vsCurrent == null ? '—' : fmtNum(sc.vsCurrent, 1) + '×', num: true, tone: sc.vsCurrent > 1.1 ? 'err' : 'ok' },
+        { v: money0(sc.perUnit), num: true },
+      ])));
+    out.push(B.p('El fee cargado hoy en el costeo son ' + money0(e.opexMonthly, cur) + ' al mes, equivalentes a ' +
+      money0(sm.units ? e.opexMonthly / sm.units : 0, cur) + ' por equipo al mes. ' +
+      (sm.cheapest && sm.cheapest.monthly > e.opexMonthly
+        ? 'Ni siquiera el escenario más barato (' + sm.cheapest.id + ', ' + money0(sm.cheapest.monthly) + ') llega ahí — y ese escenario tiene su propio riesgo: a ese precio un partner rara vez honra de verdad el SLA de madrugada.'
+        : 'El fee cargado alcanza para el escenario más barato; conviene igual verificar que el partner honre el SLA comprometido.')));
+    return out;
+  }
+
+  // ── Análisis 3: la aritmética del SLA ───────────────────────────────────
+  function analysisSla(p, ctx) {
+    const e = ctx.econ;
+    const sm = e.service;
+    const out = [];
+    if (!sm.levels.length) {
+      out.push(B.note('Este proyecto no declara niveles de servicio. Cárgalos en el modelo de servicio de la pestaña Economía y la app calcula si el SLA se sostiene.', 'warn'));
+      return out;
+    }
+    out.push(B.h('La contradicción que nadie mira'));
+    out.push(B.p('En un mes de ' + fmtNum(sm.svc.monthHours) + ' horas, una disponibilidad comprometida deja un margen de caída muy chico. ' +
+      'Si el tiempo de resolución en sitio es mayor que ese margen, **un solo incidente resuelto exactamente en el plazo comprometido ya incumple el indicador de disponibilidad**: el SLA se contradice a sí mismo.'));
+    out.push(B.table(['Nivel', 'Disponibilidad', 'Caída permitida/mes', 'Resolución comprometida', '¿Sobrevive un incidente en plazo?'],
+      sm.levels.map((lv) => [
+        lv.name,
+        { v: fmtNum(lv.availabilityPct, 1) + '%', num: true },
+        { v: fmtNum(lv.allowedUnit, 1) + ' h', num: true },
+        { v: fmtNum(lv.onSiteHours, 1) + ' h', num: true },
+        { v: lv.survives ? 'Sí' : 'No — ' + fmtNum(lv.onSiteHours, 1) + ' h ya lo rompe', tone: lv.survives ? 'ok' : 'err' },
+      ])));
+    out.push(B.h('Por equipo o sobre la flota: el factor que lo decide todo'));
+    const lv0 = sm.contradiction || sm.levels[0];
+    out.push(B.p('Todo depende de una definición que las bases del contrato normalmente no dan: **¿la disponibilidad se mide por equipo o sobre la flota completa?**'));
+    out.push(B.list([
+      'Por equipo: ' + fmtNum(lv0.allowedUnit, 1) + ' h al mes. ' + (lv0.survives ? 'Alcanza para un incidente en plazo.' : 'Inalcanzable por construcción.'),
+      'Sobre la flota: ' + fmtNum(sm.units) + ' × ' + fmtNum(sm.svc.monthHours) + ' h = ' + fmtNum(sm.units * sm.svc.monthHours) +
+        ' equipo-hora, y el ' + fmtNum(100 - lv0.availabilityPct, 1) + '% son ' + fmtNum(lv0.allowedFleet, 0) +
+        ' horas al mes. Equivale a unos ' + fmtNum(lv0.incidentsFleet) + ' incidentes de ' + fmtNum(lv0.onSiteHours, 0) + ' horas. Holgado.',
+    ]));
+    out.push(B.p('Entre una lectura y la otra hay un factor de **' + fmtNum(sm.units) + '**. Es el punto más importante que cerrar por escrito, y va antes que cualquier discusión de precio.'));
+    if (sm.penalties.length) {
+      out.push(B.h('Y las multas, en perspectiva'));
+      out.push(B.table(['Multa', '% del fee mensual', 'Monto'],
+        sm.penalties.map((pn) => [pn.label, { v: fmtNum(pn.pctOfFee, 1) + '%', num: true }, { v: money0(pn.amount, e.currency), num: true }])));
+      const maxPen = Math.max.apply(null, sm.penalties.map((x) => x.amount));
+      const gap = sm.gapVsCurrent;
+      if (gap != null && gap > maxPen) {
+        out.push(B.concl('La multa más cara son ' + money0(maxPen, e.currency) + ' al mes. Sostener el SLA comprometido cuesta ' + money0(gap, e.currency) +
+          ' al mes más de lo que hay cargado. Lo caro nunca fue la multa: es el costo de cumplir. Y eso invierte la lógica — no se está comprando un seguro contra multas, se está vendiendo una capacidad operativa que hoy no está pagada.'));
+      }
+    }
+    return out;
+  }
+
+  // ── Análisis 4: palancas y vacíos del servicio ──────────────────────────
+  function analysisServiceLevers(p, ctx) {
+    const e = ctx.econ;
+    const sm = e.service;
+    const out = [];
+    out.push(B.h('Las palancas, en orden de rendimiento'));
+    const levers = [];
+    if (sm.contradiction) {
+      levers.push('**Definir la fórmula de disponibilidad a nivel de flota.** No cuesta nada y vale un factor ' + fmtNum(sm.units) + '.');
+    }
+    levers.push('**Renegociar la escala de SLA.** Contraoferta natural: el tiempo comprometido en horario de operación y una ventana mayor fuera de horario, ' +
+      'y distinguir *restauración de servicio* (vuelve a operar) de *reparación definitiva* (queda como nuevo). El SLA se mide contra la primera.');
+    levers.push('**Diseñar la redundancia en el CAPEX para bajar el OPEX.** Equipo de reemplazo en caliente, respaldo con bypass, unidades con dos reproductores independientes. ' +
+      'Una falla deja de ser caída total y pasa a ser degradación — que no computa igual, si el contrato lo dice.');
+    if (sm.platformCapex) {
+      levers.push('**Cobrar el retorno de los ' + money0(sm.platformCapex, e.currency) + ' de la plataforma de monitoreo.** Buena parte de los incidentes se resuelven en remoto, sin mover a nadie. ' +
+        'Esa plataforma ya está pagada en CAPEX y es lo que hace viable el correctivo: úsala como argumento técnico y como reductor de visitas.');
+    }
+    levers.push('**Comprar densidad prestada.** Un partner que ya tiene cuadrilla ' + s(sm.svc.slaCoverage) + ' para otros clientes en las mismas ciudades vende el margen de su densidad. ' +
+      'Es la única forma de acercarse al escenario subcontratado sin regalar el SLA.');
+    const stock = e.capexLines.find((b) => s(b.category) === 'logistica');
+    if (stock) {
+      levers.push('**Aprovechar el stock de repuestos que ya está en CAPEX** (' + money0(lineTotal(stock), e.currency) + '). Evita compras de urgencia y flete aéreo; ' +
+        'solo la reposición del consumo (≈' + money0(sm.spares, e.currency) + '/mes) es recurrente.');
+    }
+    out.push(B.list(levers, true));
+
+    out.push(B.h('Dos cosas que faltan definir'));
+    const gaps = [];
+    gaps.push('**El plazo del servicio.** Está en ' + sm.term + ' meses. Lo lógico es que sea coterminal con la garantía del equipamiento, para que garantía y servicio venzan juntos ' +
+      'y no se termine cubriendo con fee un período de garantía ya vencido. Si el plazo sube, la línea de OPEX del costeo deja de ser ' +
+      fmtNum(e.opexMonthsDeclared) + ' meses y pasa a ser ' + sm.term + '.');
+    gaps.push('**El reajuste.** ' + (s(sm.svc.escalationIndex) === 'ninguno' || !n(sm.svc.escalationPct, 0)
+      ? 'Hoy no hay cláusula de reajuste declarada. Un fee mensual en moneda local durante ' + sm.term + ' meses sin reajuste (UF o IPC) pierde valor real todos los meses: sin esa cláusula, el último año se presta a pérdida aunque el primero esté bien calculado.'
+      : 'Declarado: ' + s(sm.svc.escalationIndex) + ' al ' + fmtNum(sm.svc.escalationPct, 1) + '% anual. Verifica que el contrato lo recoja con la misma fórmula y periodicidad.'));
+    out.push(B.list(gaps));
+    return out;
+  }
+
+  // ── Análisis 5: precio final, margen y monedas ──────────────────────────
+  function analysisPrice(p, ctx) {
+    const e = ctx.econ;
+    const cur = e.currency;
+    const out = [];
+    const rec = e.recommendation;
+    const modeLabel = e.marginMode === 'cost' ? 'sobre costo' : 'sobre venta';
+
+    out.push(B.h('Del costo al precio'));
+    out.push(B.p('El costeo entrega ' + money0(e.costingTotal, cur) + '. El precio se construye aplicando margen **' + modeLabel +
+      '** por separado a la inversión y al servicio, porque no cargan el mismo riesgo: el CAPEX se ejecuta una vez y el fee se sostiene ' + e.term + ' meses.'));
+    out.push(B.table(['Concepto', 'Costo', 'Margen', 'Precio'],
+      [
+        ['CAPEX', { v: money0(e.capexCost, cur), num: true }, { v: fmtNum(e.capexMarginPct, 1) + '%', num: true }, { v: money0(e.capexPrice, cur), num: true, strong: true }],
+        ['Fee mensual', { v: money0(e.opexMonthly, cur), num: true }, { v: fmtNum(e.opexMarginPct, 1) + '%', num: true }, { v: money0(e.opexPrice, cur), num: true, strong: true }],
+        ['Fee anual', { v: money0(e.opexMonthly * 12, cur), num: true }, '', { v: money0(e.opexPrice * 12, cur), num: true }],
+        ['Contrato completo (' + e.term + ' meses)', { v: money0(e.contractCost, cur), num: true }, '', { v: money0(e.contractPrice, cur), num: true, strong: true }],
+      ],
+      { footer: ['Utilidad esperada del contrato', '', '', { v: money0(e.contractPrice - e.contractCost, cur), num: true, tone: 'ok', strong: true }] }));
+
+    out.push(B.h('Por qué ese margen y no otro'));
+    out.push(B.p('La app propone **' + fmtNum(rec.capexPct, 1) + '% para el CAPEX** y **' + fmtNum(rec.opexPct, 1) + '% para el servicio** ' +
+      '(rango razonable de negociación: ' + fmtNum(rec.range[0], 0) + '% a ' + fmtNum(rec.range[1], 0) + '%). Cada sumando sale de algo que el propio proyecto ya declara:'));
+    out.push(B.table(['Factor', 'Puntos'],
+      rec.parts.map((x) => [x.label, { v: '+' + fmtNum(x.pts, 1) + ' pts', num: true }]),
+      { footer: ['Margen recomendado para el CAPEX', { v: fmtNum(rec.capexPct, 1) + '%', num: true, strong: true }] }));
+    out.push(B.p('El servicio va ' + fmtNum(rec.opexPct - rec.capexPct, 0) + ' puntos por encima: carga la guardia, el stock local y el riesgo de incumplir el SLA, ' +
+      'que son costos de capacidad instalada y no de trabajo ejecutado.'));
+    if (n(e.pricing.capexMarginPct) !== null && e.pricing.capexMarginPct != null && Math.abs(n(e.pricing.capexMarginPct) - rec.capexPct) > 0.01) {
+      out.push(B.note('El proyecto tiene un margen fijado a mano (' + fmtNum(e.capexMarginPct, 1) + '%) distinto del recomendado (' + fmtNum(rec.capexPct, 1) + '%). Manda el fijado a mano.', 'warn'));
+    }
+
+    if (e.byCenter.length) {
+      out.push(B.h('El precio donde se firma: por centro y en su moneda'));
+      out.push(B.p('El proyecto se gestiona en ' + cur + ', pero la oferta se presenta por centro y en moneda local. ' +
+        'Las partidas compartidas se reparten ' + labelOf(ALLOC_RULES, e.allocationRule).toLowerCase() + '.'));
+      out.push(B.table(['Centro', 'Equipos', 'CAPEX ' + cur, 'Fee/mes ' + cur, 'Tipo de cambio', 'CAPEX local', 'Fee/mes local'],
+        e.byCenter.map((r) => [
+          r.center.name + (r.center.country ? ' · ' + r.center.country : ''),
+          { v: fmtNum(r.units), num: true },
+          { v: money0(r.capexPrice), num: true },
+          { v: money0(r.opexPrice), num: true },
+          { v: fmtNum(r.center.fx, 2) + ' ' + r.center.currency + '/' + cur, num: true },
+          { v: money0(r.capexLocal, r.center.currency), num: true, strong: true },
+          { v: money0(r.opexLocal, r.center.currency), num: true, strong: true },
+        ])));
+      const fxCur = uniq(e.byCenter.map((r) => r.center.currency).filter((c) => c !== cur));
+      if (fxCur.length) {
+        out.push(B.note('Exposición cambiaria real: el costo se compra en ' + cur + ' y el contrato se firma en ' + fxCur.join(' y ') +
+          '. A suma alzada, cada punto de devaluación del tipo de cambio sale del margen. Se cubre con cláusula de reajuste, con cobertura financiera o con prima en el precio — pero hay que elegir una.', 'warn'));
+      }
+    } else {
+      out.push(B.note('El proyecto no tiene centros declarados: el precio queda en una sola moneda. Si la oferta se presenta por sede y en moneda local, ' +
+        'declara los centros en la pestaña Economía y la app arma el precio de cada uno.', 'warn'));
+    }
+
+    const sm = e.service;
+    if (sm.gapVsCurrent != null && sm.gapVsCurrent > 0) {
+      out.push(B.concl('Ojo con el orden: el precio de arriba se construyó sobre el costo cargado hoy. El modelo de servicio dice que sostener el SLA comprometido cuesta ' +
+        money0(sm.recommended.monthly, cur) + ' al mes y no ' + money0(e.opexMonthly, cur) + '. Con ese costo corregido, el fee ofertable sube a ' +
+        money0(priceFrom(sm.recommended.monthly, e.opexMarginPct, e.marginMode), cur) + ' al mes. La conversación con el cliente no es «su SLA es caro»: es «este es el costo del SLA que pidieron, aquí está el desglose, y aquí una alternativa que da el mismo resultado operativo por menos».'));
+    }
+    return out;
+  }
+
+  // ── Análisis 6: estado general del proyecto ─────────────────────────────
+  function analysisStatus(p, ctx) {
+    const st = ctx.st;
+    const e = ctx.econ;
+    const out = [];
+    out.push(B.h('Cómo va ' + p.name));
+    out.push(B.kv([
+      { k: 'Estado', v: statusLabel(p.status) + ' · salud ' + (HEALTH_LABEL[st.health] || '—').toLowerCase() },
+      { k: 'Avance real', v: pct(st.progress) + (st.expected == null ? '' : ' · esperado a hoy ' + pct(st.expected)) },
+      { k: 'Desviación', v: st.deviation == null ? 'sin fechas suficientes' : (st.deviation >= 0 ? '+' : '') + fmtNum(st.deviation, 0) + ' puntos' },
+      { k: 'Ventana', v: fmtDay(p.startDate) + ' → ' + fmtDay(p.endDate) + (st.daysLeft == null ? '' : st.daysLeft < 0 ? ' · ' + Math.abs(st.daysLeft) + ' días vencido' : ' · ' + st.daysLeft + ' días restantes') },
+      { k: 'Tareas', v: st.tasksDone + ' de ' + st.tasksTotal + ' completadas · ' + st.tasksOverdue + ' vencidas · ' + st.tasksBlocked + ' bloqueadas' },
+      { k: 'Riesgos', v: st.risksOpen + ' abiertos · ' + st.risksCritical + ' críticos' },
+      e.costingTotal ? { k: 'Economía', v: 'CAPEX ' + money0(e.capexCost, e.currency) + ' · fee ' + money0(e.opexMonthly, e.currency) + '/mes · precio propuesto ' + money0(e.contractPrice, e.currency) } : null,
+    ]));
+    if (st.deviation != null && st.deviation < -8) {
+      out.push(B.note('El proyecto va ' + Math.abs(Math.round(st.deviation)) + ' puntos por debajo de lo esperado. Con ' + st.tasksOverdue +
+        ' tareas vencidas, la causa está en la ejecución, no en la planificación.', st.deviation < -20 ? 'err' : 'warn'));
+    }
+    if (st.overdue.length) {
+      out.push(B.h('Lo que está atrasado'));
+      out.push(B.table(['Tarea', 'Responsable', 'Vencía', 'Atraso', 'Avance'],
+        st.overdue.slice(0, 8).map((t) => [
+          t.name, t.owner || '—', fmtDayShort(t.endDate),
+          { v: Math.abs(daysFromToday(t.endDate)) + ' d', num: true, tone: 'err' },
+          { v: pct(taskProgress(t)), num: true },
+        ])));
+    }
+    if (st.nextMilestone) {
+      const d = daysFromToday(st.nextMilestone.date);
+      out.push(B.p('**Próximo hito:** ' + st.nextMilestone.name + ' — ' + fmtDay(st.nextMilestone.date) +
+        (d == null ? '' : d < 0 ? ' (vencido hace ' + Math.abs(d) + ' días)' : ' (en ' + d + ' días)') + '.'));
+    }
+    if (st.openQuestions) {
+      out.push(B.p('Hay **' + st.openQuestions + ' consulta(s) abiertas** con el cliente. Lo que el cliente no ha respondido es riesgo sin dueño: cada una debería tener responsable y fecha.'));
+    }
+    return out;
+  }
+
+  // ── Análisis 7: riesgos y qué negociar ──────────────────────────────────
+  function analysisRisks(p, ctx) {
+    const st = ctx.st;
+    const out = [];
+    if (!st.topRisks.length) {
+      out.push(B.note('No hay riesgos abiertos registrados en este proyecto. Un proyecto sin riesgos anotados no es un proyecto sin riesgos.', 'warn'));
+      return out;
+    }
+    out.push(B.h('Los riesgos que mandan'));
+    out.push(B.table(['Riesgo', 'Categoría', 'P', 'I', 'Severidad', 'Nivel'],
+      st.topRisks.slice(0, 10).map((r) => {
+        const lvl = riskLevel(r);
+        return [
+          r.title, r.category,
+          { v: n(r.probability, 3), num: true }, { v: n(r.impact, 3), num: true },
+          { v: riskScore(r) + '/25', num: true, strong: true },
+          { v: RISK_LEVEL_LABEL[lvl], tone: lvl === 'critical' ? 'err' : lvl === 'serious' ? 'warn' : 'ok' },
+        ];
+      })));
+    const crit = st.topRisks.filter((r) => riskScore(r) >= 15);
+    if (crit.length) {
+      out.push(B.h('Lo que hay que cerrar por escrito'));
+      out.push(B.list(crit.slice(0, 6).map((r) => '**' + r.title + '** — ' + (r.mitigation || 'sin mitigación definida todavía.'))));
+    }
+    const noMit = st.topRisks.filter((r) => !s(r.mitigation).trim());
+    if (noMit.length) {
+      out.push(B.note(noMit.length + ' riesgo(s) abiertos no tienen mitigación escrita. Un riesgo sin mitigación es una lista de deseos, no gestión.', 'warn'));
+    }
+    const openQ = arr(p.questions).filter((q) => q.status !== 'closed');
+    if (openQ.length) {
+      out.push(B.p('Además hay **' + openQ.length + ' consulta(s) sin respuesta del cliente**, que son riesgo de alcance puro mientras sigan abiertas.'));
+    }
+    return out;
+  }
+
+  // ── Análisis 8: plazo y cronograma ──────────────────────────────────────
+  function analysisSchedule(p, ctx) {
+    const st = ctx.st;
+    const out = [];
+    out.push(B.h('El plazo'));
+    out.push(B.kv([
+      { k: 'Ventana del proyecto', v: fmtDay(p.startDate) + ' → ' + fmtDay(p.endDate) },
+      { k: 'Transcurrido', v: st.elapsed == null ? '—' : pct(st.elapsed) + ' del calendario' },
+      { k: 'Avance del trabajo', v: pct(st.progress) },
+      { k: 'Días restantes', v: st.daysLeft == null ? '—' : st.daysLeft < 0 ? Math.abs(st.daysLeft) + ' días vencido' : st.daysLeft + ' días' },
+    ]));
+    if (st.elapsed != null && st.progress < st.elapsed - 8) {
+      out.push(B.note('Se consumió ' + pct(st.elapsed) + ' del calendario y se lleva ' + pct(st.progress) + ' del trabajo. La brecha se cierra recuperando ' +
+        fmtNum(st.elapsed - st.progress, 0) + ' puntos o moviendo la fecha de término: no hay una tercera opción.', 'warn'));
+    }
+    if (arr(p.blackouts).length) {
+      out.push(B.h('Ventanas en que no se puede trabajar'));
+      out.push(B.table(['Desde', 'Hasta', 'Días', 'Motivo'],
+        arr(p.blackouts).map((b) => [
+          fmtDay(b.from), fmtDay(b.to),
+          { v: fmtNum(n(daysBetween(b.from, b.to), 0) + 1), num: true },
+          b.label || 'sin motivo declarado',
+        ])));
+      out.push(B.p('Estas ventanas parten la ruta crítica: el plan las respeta al agendar, pero el contrato tiene que excluirlas del cómputo de atraso o se pagan multas por días en que el propio cliente impide trabajar.'));
+    }
+    const upcoming = arr(p.milestones).filter((m2) => m2.status !== 'done' && m2.date).sort((a, b) => s(a.date).localeCompare(s(b.date)));
+    if (upcoming.length) {
+      out.push(B.h('Hitos pendientes'));
+      out.push(B.table(['Hito', 'Fecha', 'Faltan'],
+        upcoming.slice(0, 8).map((m2) => {
+          const d = daysFromToday(m2.date);
+          return [m2.name, fmtDayShort(m2.date), { v: d == null ? '—' : d < 0 ? 'vencido hace ' + Math.abs(d) + ' d' : d + ' d', num: true, tone: d != null && d < 0 ? 'err' : d != null && d < 15 ? 'warn' : null }];
+        })));
+    }
+    return out;
+  }
+
+  // ── Análisis 9: documentación ───────────────────────────────────────────
+  function analysisDocs(p, ctx) {
+    const out = [];
+    const docs = arr(p.documents);
+    out.push(B.h('Con qué información se está trabajando'));
+    if (!docs.length) {
+      out.push(B.note('La biblioteca del proyecto está vacía. Conecta la carpeta del prospecto o carga los documentos: el analista los usa para proponer el plan y para responder con datos.', 'warn'));
+      return out;
+    }
+    const byKind = DOC_KINDS.map(([k, label]) => ({ k, label, count: docs.filter((d) => d.kind === k).length })).filter((x) => x.count);
+    out.push(B.kv([
+      { k: 'Documentos indexados', v: fmtNum(docs.length) },
+      { k: 'Revisados', v: fmtNum(docs.filter((d) => d.reviewed).length) + ' de ' + docs.length },
+      { k: 'Fuentes conectadas', v: fmtNum(arr(model.sources).filter((x) => x.projectId === p.id).length) },
+    ]));
+    out.push(B.bars(byKind.map((x, i) => ({ key: x.k, label: x.label, value: x.count, display: fmtNum(x.count), color: seriesColor(i) }))));
+    const proposal = proposePlan(p, {});
+    if (proposal.missing.length) {
+      out.push(B.h('Lo que falta para trabajar bien'));
+      out.push(B.list(proposal.missing.map((mm) => '**' + mm.label + '** — ' + mm.why)));
+      out.push(B.p('Pedir por escrito lo que falta, con responsable y fecha, es más barato que descubrir en ejecución que nunca estuvo.'));
+    } else {
+      out.push(B.p('Para un proyecto del tipo «' + proposal.templateName + '», la documentación esperada está cubierta.'));
+    }
+    const unreviewed = docs.filter((d) => !d.reviewed);
+    if (unreviewed.length > 3) {
+      out.push(B.note(unreviewed.length + ' documento(s) siguen sin marcarse como revisados.', 'warn'));
+    }
+    return out;
+  }
+
+  // ── Registro de análisis y enrutador de preguntas ───────────────────────
+  const ANALYSES = [
+    {
+      id: 'presupuesto-costeo', title: 'Presupuesto vs. costeo por líneas',
+      question: '¿Explícame la diferencia entre el presupuesto y el costeo por líneas?',
+      icon: 'money', build: analysisBudgetVsCosting,
+      keywords: ['presupuesto', 'costeo', 'diferencia', 'linea', 'lineas', 'partidas', 'por que no cuadra', 'descuadre', 'costo total', 'baseline', 'linea base', 'referencia'],
+    },
+    {
+      id: 'capex-opex', title: 'CAPEX, OPEX y el modelo de servicio',
+      question: '¿Explícame el OPEX y el CAPEX?',
+      icon: 'chart', build: (p, ctx) => analysisCapexOpex(p, ctx).concat(analysisSla(p, ctx), analysisServiceLevers(p, ctx)),
+      keywords: ['capex', 'opex', 'inversion', 'servicio', 'fee', 'mantenimiento', 'post venta', 'postventa', 'recurrente', 'mensual', 'soporte'],
+    },
+    {
+      id: 'sla', title: 'Aritmética del SLA y disponibilidad',
+      question: '¿El SLA que nos piden es alcanzable?',
+      icon: 'clock', build: (p, ctx) => analysisSla(p, ctx).concat(analysisServiceLevers(p, ctx)),
+      keywords: ['sla', 'disponibilidad', 'uptime', 'multa', 'multas', 'penalidad', 'tiempo de respuesta', 'guardia', 'nivel de servicio'],
+    },
+    {
+      id: 'precio', title: 'Precio final, margen y monedas',
+      question: '¿Cuál es el precio final que deberíamos ofertar?',
+      icon: 'target', build: analysisPrice,
+      keywords: ['precio', 'ofertar', 'oferta', 'margen', 'utilidad', 'ganancia', 'cuanto cobrar', 'cuanto cobramos', 'venta', 'moneda', 'cambiaria', 'clp', 'cop', 'usd', 'tipo de cambio', 'negociar'],
+    },
+    {
+      id: 'estado', title: 'Estado general del proyecto',
+      question: '¿Cómo va el proyecto?',
+      icon: 'dashboard', build: analysisStatus,
+      keywords: ['como va', 'estado', 'avance', 'salud', 'resumen', 'situacion', 'al dia', 'atrasado', 'desviacion'],
+    },
+    {
+      id: 'riesgos', title: 'Riesgos y qué negociar',
+      question: '¿Qué riesgos debo negociar antes de firmar?',
+      icon: 'risk', build: analysisRisks,
+      keywords: ['riesgo', 'riesgos', 'peligro', 'contrato', 'firmar', 'negociar', 'exposicion', 'mitigacion'],
+    },
+    {
+      id: 'plazo', title: 'Plazo, hitos y ventanas bloqueadas',
+      question: '¿Llegamos con el plazo?',
+      icon: 'clock', build: analysisSchedule,
+      keywords: ['plazo', 'cronograma', 'fecha', 'fechas', 'hito', 'hitos', 'gantt', 'calendario', 'llegamos', 'atraso', 'bloqueo', 'diciembre'],
+    },
+    {
+      id: 'documentos', title: 'Documentación disponible y faltante',
+      question: '¿Qué documentación tenemos y qué falta?',
+      icon: 'docs', build: analysisDocs,
+      keywords: ['documento', 'documentos', 'documentacion', 'informacion', 'antecedentes', 'falta', 'carpeta', 'archivos', 'planos'],
+    },
+  ];
+
+  /** Enruta una pregunta libre al análisis que mejor la cubre. Puntúa por
+   *  coincidencia de palabras clave y por el título del análisis. */
+  function routeQuestion(text) {
+    const q = canon(text);
+    if (!q) return { analysis: null, score: 0, ranking: [] };
+    const scored = ANALYSES.map((a) => {
+      let score = 0;
+      const hits = [];
+      for (const kw of a.keywords) {
+        const c = canon(kw);
+        if (c && q.includes(c)) { score += c.split(' ').length * 2 + Math.min(4, c.length / 4); hits.push(kw); }
+      }
+      if (q.includes(canon(a.title))) score += 6;
+      return { a, score, hits };
+    }).sort((x, y) => y.score - x.score);
+    return {
+      analysis: scored[0] && scored[0].score > 0 ? scored[0].a : null,
+      score: scored[0] ? scored[0].score : 0,
+      hits: scored[0] ? scored[0].hits : [],
+      ranking: scored.filter((x) => x.score > 0).slice(0, 3).map((x) => ({ id: x.a.id, title: x.a.title, score: x.score })),
+    };
+  }
+
+  /** Responde una pregunta sobre un proyecto. Devuelve bloques + texto. */
+  function answerQuestion(p, question, cfg, forcedId) {
+    const econ = computeEconomics(p, cfg);
+    const st = computeProject(p, cfg);
+    const ctx = { econ, st, cfg };
+    const routed = forcedId ? { analysis: ANALYSES.find((a) => a.id === forcedId) || null, hits: [], ranking: [] } : routeQuestion(question);
+    if (!routed.analysis) {
+      const blocks = [
+        B.h('No reconocí la pregunta'),
+        B.p('Puedo analizar este proyecto en profundidad sobre estos temas, con los números del propio proyecto:'),
+        B.list(ANALYSES.map((a) => '**' + a.title + '** — por ejemplo: «' + a.question + '»')),
+        B.p('También puedes preguntarle al agente IA de KIMOS en lenguaje natural: usa la misma máquina de análisis.'),
+      ];
+      return { ok: false, analysis: null, blocks, text: blocksToText(blocks), econ, st };
+    }
+    let blocks;
+    try {
+      blocks = routed.analysis.build(p, ctx);
+    } catch (err2) {
+      blocks = [B.note('No pude completar el análisis: ' + ((err2 && err2.message) || 'error inesperado'), 'err')];
+    }
+    return {
+      ok: true, analysis: routed.analysis, hits: routed.hits, ranking: routed.ranking,
+      blocks, text: blocksToText(blocks), econ, st,
+      title: routed.analysis.title, project: p.name,
+    };
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -2131,7 +3221,15 @@ export default function mount(shell) {
             money
               ? Kpi('Cartera', port.budgetByCurrency.length
                 ? port.budgetByCurrency.map((b) => fmtMoney(b.val, b.cur)).join(' · ')
-                : '—', { key: 'k6', icon: I.money(14), foot: 'presupuesto de los proyectos abiertos' })
+                : '—', {
+                key: 'k6', icon: I.money(14),
+                tone: port.budgetOver ? 'err' : port.budgetWatch ? 'warn' : undefined,
+                foot: port.budgetOver
+                  ? port.budgetOver + ' proyecto(s) con el costeo sobre el presupuesto'
+                  : port.budgetWatch
+                    ? port.budgetWatch + ' proyecto(s) rozando su presupuesto'
+                    : 'presupuesto de los proyectos abiertos',
+              })
               : Kpi('Documentos', fmtNum(port.docsTotal), { key: 'k6', icon: I.docs(14), foot: 'en la biblioteca de la cartera' })))),
 
       // Avance por proyecto + composición
@@ -2358,8 +3456,26 @@ export default function mount(shell) {
           Kpi('Riesgos abiertos', fmtNum(st.risksOpen), { key: 'p4', icon: I.risk(14), tone: st.risksCritical ? 'err' : st.risksSerious ? 'warn' : undefined, foot: st.risksCritical + ' críticos · ' + st.risksSerious + ' altos' }),
           Kpi('Documentos', fmtNum(st.docs), { key: 'p5', icon: I.docs(14), foot: st.docsReviewed + ' revisados' }),
           money
-            ? Kpi('Presupuesto', n(p.budget) ? fmtMoney(p.budget, p.currency) : '—', { key: 'p6', icon: I.money(14), foot: st.budgetPlanned ? 'costeo: ' + fmtMoney(st.budgetPlanned, p.currency) : 'sin líneas de costeo' })
+            ? Kpi('Presupuesto', n(p.budget) ? fmtMoney(p.budget, p.currency) : '—', {
+              key: 'p6', icon: I.money(14),
+              tone: st.budgetState === 'over' ? 'err' : st.budgetState === 'watch' ? 'warn' : undefined,
+              foot: st.budgetPlanned
+                ? 'costeo: ' + fmtMoney(st.budgetPlanned, p.currency) +
+                  (st.overrunPct == null ? '' : ' · ' + (st.overrunPct >= 0 ? '+' : '') + fmtNum(st.overrunPct, 1) + '%')
+                : 'sin líneas de costeo',
+            })
             : Kpi('Consultas', fmtNum(st.openQuestions), { key: 'p6', icon: I.alert(14), foot: 'abiertas con el cliente' }))),
+
+      st.budgetState === 'over' || st.budgetState === 'watch'
+        ? h('div', { className: 'kp-sec' },
+          Note(h('span', null,
+            h('strong', null, 'El costeo por líneas supera el presupuesto en ' + fmtMoney(st.overrun, p.currency) +
+              ' (' + fmtNum(st.overrunPct, 1) + '%).'),
+            ' ' + (st.budgetState === 'over'
+              ? 'Está por encima del umbral de alerta. Revisa el puente contra la línea base en la pestaña Economía: dice exactamente qué partidas lo movieron.'
+              : 'Todavía dentro del umbral de alerta, pero conviene mirarlo.')),
+          st.budgetState === 'over' ? 'err' : 'warn', I.alert(15)))
+        : null,
 
       p.objective ? h('div', { className: 'kp-sec kp-card kp-card-pad' },
         SectionHead('Objetivo'),
@@ -2735,8 +3851,491 @@ export default function mount(shell) {
               : 'Carga los documentos del prospecto o conecta su carpeta: el analista los lee para proponer el plan de trabajo.')));
   }
 
-  // ── Proyecto · Analista ─────────────────────────────────────────────────
-  function viewProjectAnalyst(ctx, p) {
+
+  // ── Render de una respuesta del analista ────────────────────────────────
+  /** Convierte **negritas** en elementos React sin meter HTML crudo. */
+  function richText(text) {
+    const parts = s(text).split(/(\*\*[^*]+\*\*)/g).filter((x) => x !== '');
+    return parts.map((chunk, i) => (chunk.startsWith('**') && chunk.endsWith('**')
+      ? h('strong', { key: i }, chunk.slice(2, -2))
+      : h('span', { key: i }, chunk)));
+  }
+
+  const cellOf = (c) => (c && typeof c === 'object' && !Array.isArray(c) ? c : { v: c });
+  const toneStyle = (tone) => (tone === 'ok' ? { color: 'var(--kp-ok)' } : tone === 'err' ? { color: 'var(--kp-err)' }
+    : tone === 'warn' ? { color: 'var(--kp-warn)' } : null);
+
+  function renderBlocks(blocks) {
+    return arr(blocks).map((b, i) => {
+      if (!b) return null;
+      if (b.t === 'h') return h('div', { key: i, className: 'kp-ans-h' }, b.text);
+      if (b.t === 'p') return h('p', { key: i, className: 'kp-ans-p' }, richText(b.text));
+      if (b.t === 'note') return h('div', { key: i, className: 'kp-ans-block' }, Note(richText(b.text), b.tone, b.tone === 'err' || b.tone === 'warn' ? I.alert(15) : I.info(15)));
+      if (b.t === 'concl') {
+        return h('div', { key: i, className: 'kp-ans-concl' },
+          h('div', { className: 'kp-ans-concl-hd' }, I.target(13), 'LO QUE ESTO SIGNIFICA'),
+          h('p', { className: 'kp-ans-p', style: { margin: 0 } }, richText(b.text)));
+      }
+      if (b.t === 'list') {
+        return h(b.ordered ? 'ol' : 'ul', { key: i, className: 'kp-ans-list' },
+          b.items.map((x, j) => h('li', { key: j }, richText(x))));
+      }
+      if (b.t === 'kv') {
+        return h('div', { key: i, className: 'kp-ans-kv' }, b.items.map((x, j) => h('div', { key: j, className: 'kp-ans-kv-it' },
+          h('span', { className: 'kp-ans-kv-k' }, x.k),
+          h('span', { className: 'kp-ans-kv-v' }, x.v))));
+      }
+      if (b.t === 'bars') {
+        return h('div', { key: i, className: 'kp-ans-block' }, BarsH({ items: b.items, labelW: 190 }));
+      }
+      if (b.t === 'table') {
+        return h('div', { key: i, className: 'kp-tablewrap kp-ans-block' },
+          h('table', { className: 'kp-table' },
+            h('thead', null, h('tr', null, b.head.map((hd, j) => h('th', { key: j, className: j ? 'kp-td-num' : '' }, hd)))),
+            h('tbody', null,
+              b.rows.map((r, j) => h('tr', { key: j }, r.map((c, k) => {
+                const cell = cellOf(c);
+                return h('td', {
+                  key: k,
+                  className: cell.num ? 'kp-td-num' : '',
+                  style: Object.assign({}, toneStyle(cell.tone), cell.strong ? { fontWeight: 600 } : null),
+                }, s(cell.v));
+              }))),
+              b.footer ? h('tr', { className: 'kp-ans-foot' }, b.footer.map((c, k) => {
+                const cell = cellOf(c);
+                return h('td', {
+                  key: k, className: cell.num ? 'kp-td-num' : '',
+                  style: Object.assign({ fontWeight: 600 }, toneStyle(cell.tone)),
+                }, s(cell.v));
+              })) : null)));
+      }
+      return null;
+    });
+  }
+
+  // ── Proyecto · Economía ─────────────────────────────────────────────────
+  function viewProjectEconomics(ctx, p) {
+    const { ui, setUi, cfg } = ctx;
+    const e = computeEconomics(p, cfg);
+    const cur = e.currency;
+    const set = (patch) => actions.saveProject(p.id, patch);
+    const setPricing = (patch) => set({ pricing: Object.assign({}, e.pricing, patch, { updatedAt: stamp() }) });
+    const svc = e.service.svc;
+    const setSvc = (patch) => set({ service: Object.assign({}, svc, patch, { updatedAt: stamp() }) });
+    const lines = arr(p.budgetLines);
+    const setLines = (next) => set({ budgetLines: next });
+    const sub = ui.econTab || 'costeo';
+    const setSub = (v) => setUi((u) => ({ ...u, econTab: v }));
+
+    const overTone = e.budgetState === 'over' ? 'err' : e.budgetState === 'watch' ? 'warn' : 'ok';
+    const kpis = h('div', { className: 'kp-grid kp-grid-4 kp-sec' },
+      Kpi('CAPEX · inversión', money0(e.capexCost, cur), { key: 'e1', icon: I.money(14), foot: e.capexLines.length + ' partidas · precio ' + money0(e.capexPrice, cur) }),
+      Kpi('OPEX · fee mensual', money0(e.opexMonthly, cur), { key: 'e2', icon: I.refresh(14), foot: e.term + ' meses · precio ' + money0(e.opexPrice, cur) + '/mes' }),
+      Kpi('Costeo total', money0(e.costingTotal, cur), {
+        key: 'e3', icon: I.chart(14), tone: e.budgetState === 'over' ? 'err' : e.budgetState === 'watch' ? 'warn' : undefined,
+        foot: e.budget > 0
+          ? 'presupuesto ' + money0(e.budget, cur) + ' · ' + (e.overrun >= 0 ? '+' : '') + fmtNum(e.overrunPct, 1) + '%'
+          : 'sin presupuesto declarado en la ficha',
+      }),
+      Kpi('Precio propuesto', money0(e.contractPrice, cur), { key: 'e4', icon: I.target(14), foot: 'contrato completo · utilidad ' + money0(e.contractPrice - e.contractCost, cur) }));
+
+    // Aviso de desvío: el punto en que el costeo se comió el presupuesto.
+    const overrunNote = e.budgetState === 'over'
+      ? Note(h('span', null, h('strong', null, 'El costeo supera el presupuesto en ' + money0(e.overrun, cur) + ' (' + fmtNum(e.overrunPct, 1) + '%)'),
+        ', por encima del umbral de alerta del ' + fmtNum(e.alertPct, 0) + '%. ',
+        e.bridge ? 'Revisa el puente contra la línea base para ver exactamente qué partidas lo movieron, y decide si sube el presupuesto o baja el alcance.' : 'Fija una línea base para poder explicar partida por partida de dónde viene la diferencia.'), 'err', I.alert(15))
+      : e.budgetState === 'watch'
+        ? Note('El costeo va ' + fmtNum(e.overrunPct, 1) + '% sobre el presupuesto, dentro del umbral de alerta (' + fmtNum(e.alertPct, 0) + '%). Vigílalo.', 'warn', I.alert(15))
+        : null;
+
+    const subTabs = [['costeo', 'Costeo'], ['centros', 'Centros y monedas'], ['servicio', 'Modelo de servicio'], ['precio', 'Precio final']];
+
+    // ── Costeo ────────────────────────────────────────────────────────────
+    const viewCosteo = () => {
+      const filtered = lines.filter((b) => (!ui.lineKind || s(b.kind) === ui.lineKind)
+        && (!ui.lineCenter || s(b.centerId) === ui.lineCenter));
+      const capexRows = filtered.filter((b) => !isOpex(b));
+      const opexRows = filtered.filter(isOpex);
+      const row = (b) => {
+        const upd = (patch) => setLines(lines.map((x) => (x.id === b.id ? touch(Object.assign({}, x, patch)) : x)));
+        return h('tr', { key: b.id },
+          h('td', { style: { minWidth: '240px' } },
+            h('input', { className: 'kp-cellinput', value: s(b.item), placeholder: 'Descripción de la partida', onChange: (ev) => upd({ item: ev.target.value }) }),
+            b.note ? h('div', { className: 'kp-sec-note' }, b.note) : null),
+          h('td', null, Select(b.category, LINE_CATEGORIES, (v) => upd({ category: v }), { className: 'kp-cellinput' })),
+          h('td', null, Select(b.centerId, [['shared', 'Compartida']].concat(arr(p.centers).map((c) => [c.id, c.code || c.name])), (v) => upd({ centerId: v }), { className: 'kp-cellinput' })),
+          h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.qty, 0), style: { textAlign: 'right', width: '70px' }, onChange: (ev) => upd({ qty: n(ev.target.value, 0) }) })),
+          h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.unitCost, 0), style: { textAlign: 'right', width: '96px' }, onChange: (ev) => upd({ unitCost: n(ev.target.value, 0) }) })),
+          h('td', { className: 'kp-td-num kp-strong' }, fmtNum(lineTotal(b))),
+          h('td', { className: 'kp-td-act' },
+            IconBtn(I.trash(13), 'Quitar la partida', () => setLines(lines.filter((x) => x.id !== b.id)), { ghost: true, tone: 'danger' })));
+      };
+      const table = (title, rows, note, isOpexTable) => h('div', { className: 'kp-sec' },
+        SectionHead(title, note,
+          h('button', {
+            className: 'kp-btn kp-btn-sm',
+            onClick: () => setLines(lines.concat([newLine({
+              kind: isOpexTable ? 'opex' : 'capex',
+              category: isOpexTable ? 'servicio' : 'equipamiento',
+              qty: isOpexTable ? e.term : 1,
+            })])),
+          }, I.plus(12), 'Partida')),
+        rows.length ? h('div', { className: 'kp-tablewrap' },
+          h('table', { className: 'kp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Partida'), h('th', null, 'Categoría'), h('th', null, 'Centro'),
+              h('th', { className: 'kp-td-num' }, isOpexTable ? 'Meses' : 'Cant.'),
+              h('th', { className: 'kp-td-num' }, isOpexTable ? 'Costo/mes' : 'Unitario'),
+              h('th', { className: 'kp-td-num' }, 'Total'), h('th', null, ''))),
+            h('tbody', null, rows.map(row),
+              h('tr', null,
+                h('td', { className: 'kp-strong' }, isOpexTable ? 'Fee mensual · costo del período' : 'Total CAPEX'),
+                h('td', null), h('td', null), h('td', null),
+                h('td', { className: 'kp-td-num kp-strong' }, isOpexTable ? fmtNum(sum(rows, (b) => n(b.unitCost, 0))) : ''),
+                h('td', { className: 'kp-td-num kp-strong' }, fmtNum(sum(rows, lineTotal))),
+                h('td', null)))))
+          : h('div', { className: 'kp-sec-note' }, 'Sin partidas en este bloque.'));
+
+      return h('div', null,
+        h('div', { className: 'kp-toolbar', style: { paddingLeft: 0, paddingRight: 0, borderBottom: 'none' } },
+          Select(ui.lineKind, [['', 'CAPEX y OPEX']].concat(LINE_KINDS), (v) => setUi((u) => ({ ...u, lineKind: v })), { style: { width: 'auto' } }),
+          arr(p.centers).length ? Select(ui.lineCenter, [['', 'Todos los centros'], ['shared', 'Solo compartidas']].concat(arr(p.centers).map((c) => [c.id, c.name])), (v) => setUi((u) => ({ ...u, lineCenter: v })), { style: { width: 'auto' } }) : null,
+          h('button', {
+            className: 'kp-btn kp-btn-sm',
+            onClick: () => setUi((u) => ({
+              ...u,
+              editor: {
+                type: 'confirm', title: 'Fijar la línea base',
+                text: 'Se guarda el costeo actual (' + money0(e.costingTotal, cur) + ') como presupuesto de referencia. Desde ahí, cada cambio de partida queda explicado en el puente. Reemplaza la línea base anterior si existe.',
+                onOk: () => {
+                  const snapshot = lines.map((b) => newLine(Object.assign({}, b, { id: 'blb-' + b.id })));
+                  set({
+                    baseline: { label: 'Línea base ' + fmtDay(today()), capturedAt: stamp(), note: 'Congelada desde el costeo vivo.', lines: snapshot },
+                    budgetLines: lines.map((b) => touch(Object.assign({}, b, { baselineRef: 'blb-' + b.id }))),
+                  });
+                },
+              },
+            })),
+          }, I.copy(13), p.baseline ? 'Refijar línea base' : 'Fijar línea base')),
+        table('CAPEX · inversión', capexRows, money0(sum(capexRows, lineTotal), cur), false),
+        table('OPEX · servicio recurrente', opexRows, e.opexMonthly ? money0(e.opexMonthly, cur) + '/mes durante ' + fmtNum(e.opexMonthsDeclared) + ' meses' : null, true),
+        e.byCategory.length ? h('div', { className: 'kp-sec kp-split' },
+          h('div', { className: 'kp-card kp-card-pad' },
+            SectionHead('CAPEX por categoría'),
+            BarsH({
+              items: e.byCategory.filter((c) => c.capex).sort((a, b) => b.capex - a.capex).map((c, i) => ({
+                key: c.key, label: c.label, value: Math.round(c.capex), display: money0(c.capex), color: seriesColor(i),
+              })),
+              labelW: 190,
+            })),
+          h('div', { className: 'kp-card kp-card-pad' },
+            SectionHead('Composición del costo'),
+            Donut({
+              caption: cur,
+              items: [
+                { key: 'capex', label: 'CAPEX (único)', value: Math.round(e.capexCost), color: 'var(--kp-s1)' },
+                { key: 'opex', label: 'OPEX (' + fmtNum(e.opexMonthsDeclared) + ' meses)', value: Math.round(e.opexCostDeclared), color: 'var(--kp-s2)' },
+              ],
+            }),
+            h('div', { className: 'kp-sec-note', style: { marginTop: '8px' } },
+              'Un stock más un flujo: sirve para dimensionar, no para decidir. El contrato completo se calcula en «Precio final».'))) : null,
+        e.bridge ? h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Puente contra la línea base', e.bridge.baseline.label,
+            h('button', {
+              className: 'kp-btn kp-btn-sm',
+              onClick: () => setUi((u) => ({ ...u, ptab: 'analista', analystMode: 'preguntas', question: '¿Explícame la diferencia entre el presupuesto y el costeo por líneas?', answer: null })),
+            }, I.sparkles(13), 'Explicación completa')),
+          h('div', { className: 'kp-ans-kv', style: { marginBottom: '10px' } },
+            h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Línea base'), h('span', { className: 'kp-ans-kv-v' }, money0(e.bridge.baseTotal, cur))),
+            h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Bajan'), h('span', { className: 'kp-ans-kv-v', style: { color: 'var(--kp-ok)' } }, '−' + money0(e.bridge.downTotal))),
+            h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Suben'), h('span', { className: 'kp-ans-kv-v', style: { color: 'var(--kp-err)' } }, '+' + money0(e.bridge.upTotal))),
+            h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Costeo vivo'), h('span', { className: 'kp-ans-kv-v' }, money0(e.bridge.currentTotal, cur)))),
+          BarsH({
+            labelW: 190,
+            items: e.bridge.down.concat(e.bridge.up).map((r) => ({
+              key: r.id, label: r.label, value: Math.abs(Math.round(r.delta)),
+              display: signed(r.delta), color: r.delta < 0 ? 'var(--kp-ok)' : 'var(--kp-err)',
+              note: money0(r.before) + ' → ' + money0(r.after),
+            })),
+          })) : null);
+    };
+
+    // ── Centros y monedas ─────────────────────────────────────────────────
+    const viewCentros = () => h('div', null,
+      h('div', { className: 'kp-sec' },
+        SectionHead('Centros de la oferta', 'El precio se presenta donde se firma: por centro y en su moneda',
+          h('button', {
+            className: 'kp-btn kp-btn-sm',
+            onClick: () => set({ centers: arr(p.centers).concat([newCenter({ currency: cur, fx: 1, colorIndex: arr(p.centers).length })]) }),
+          }, I.plus(12), 'Centro')),
+        arr(p.centers).length ? h('div', { className: 'kp-tablewrap' },
+          h('table', { className: 'kp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Centro'), h('th', null, 'Código'), h('th', null, 'País'), h('th', null, 'Moneda'),
+              h('th', { className: 'kp-td-num' }, 'Tipo de cambio'), h('th', { className: 'kp-td-num' }, 'Equipos'), h('th', null, ''))),
+            h('tbody', null, arr(p.centers).map((c) => {
+              const upd = (patch) => set({ centers: arr(p.centers).map((x) => (x.id === c.id ? touch(Object.assign({}, x, patch)) : x)) });
+              return h('tr', { key: c.id },
+                h('td', { style: { minWidth: '180px' } },
+                  h('input', { className: 'kp-cellinput', value: s(c.name), placeholder: 'Nombre del centro', onChange: (ev) => upd({ name: ev.target.value }) }),
+                  c.fxNote ? h('div', { className: 'kp-sec-note' }, c.fxNote) : null),
+                h('td', null, h('input', { className: 'kp-cellinput', value: s(c.code), style: { width: '70px' }, onChange: (ev) => upd({ code: ev.target.value }) })),
+                h('td', null, h('input', { className: 'kp-cellinput', value: s(c.country), style: { width: '110px' }, onChange: (ev) => upd({ country: ev.target.value }) })),
+                h('td', null, Select(c.currency, CURRENCIES.map((x) => [x, x]), (v) => upd({ currency: v }), { className: 'kp-cellinput' })),
+                h('td', { className: 'kp-td-num' },
+                  h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(c.fx, 1), style: { textAlign: 'right', width: '92px' }, onChange: (ev) => upd({ fx: n(ev.target.value, 1) }) }),
+                  h('div', { className: 'kp-sec-note' }, s(c.currency) + ' por 1 ' + cur)),
+                h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: n(c.units, 0), style: { textAlign: 'right', width: '64px' }, onChange: (ev) => upd({ units: n(ev.target.value, 0) }) })),
+                h('td', { className: 'kp-td-act' }, IconBtn(I.trash(13), 'Quitar el centro', () => set({
+                  centers: arr(p.centers).filter((x) => x.id !== c.id),
+                  budgetLines: lines.map((b) => (b.centerId === c.id ? touch(Object.assign({}, b, { centerId: 'shared' })) : b)),
+                }), { ghost: true, tone: 'danger' })));
+            }))))
+          : Empty(I.money(28), 'Sin centros declarados',
+            'Si la oferta se presenta por sede y en moneda local —un centro comercial en Chile en CLP y otro en Colombia en COP—, declara aquí cada uno con su tipo de cambio y sus equipos. La app arma el precio de cada centro por separado.')),
+
+      arr(p.centers).length ? h('div', { className: 'kp-sec kp-card kp-card-pad' },
+        SectionHead('Reparto de las partidas compartidas', 'Regla aplicada a las ' + lines.filter((b) => !centerOf(p, b.centerId)).length + ' partidas sin centro asignado'),
+        h('div', { className: 'kp-row' },
+          Field('Regla de prorrateo', Select(e.allocationRule, ALLOC_RULES, (v) => setPricing({ allocation: v })),
+            'Por unidades reparte según los equipos de cada centro; por costo directo, según lo que ya carga cada uno.'),
+          Field('Moneda de gestión del proyecto', Select(p.currency, CURRENCIES.map((c) => [c, c]), (v) => set({ currency: v })),
+            'Es la moneda en que se costea. La oferta se convierte a la moneda de cada centro.')),
+        h('div', { className: 'kp-tablewrap', style: { marginTop: '12px' } },
+          h('table', { className: 'kp-table' },
+            h('thead', null, h('tr', null,
+              h('th', null, 'Centro'), h('th', { className: 'kp-td-num' }, 'Equipos'), h('th', { className: 'kp-td-num' }, 'Reparto'),
+              h('th', { className: 'kp-td-num' }, 'CAPEX ' + cur), h('th', { className: 'kp-td-num' }, 'Fee/mes ' + cur),
+              h('th', { className: 'kp-td-num' }, 'Costo del contrato'))),
+            h('tbody', null, e.byCenter.map((r) => h('tr', { key: r.center.id },
+              h('td', null, h('span', { className: 'kp-chip', style: { borderColor: seriesColor(n(r.center.colorIndex, 0)) } },
+                h('span', { className: 'kp-chip-dot', style: { background: seriesColor(n(r.center.colorIndex, 0)) } }), r.center.name)),
+              h('td', { className: 'kp-td-num' }, fmtNum(r.units)),
+              h('td', { className: 'kp-td-num' }, pct(r.share * 100)),
+              h('td', { className: 'kp-td-num' }, money0(r.capexCost)),
+              h('td', { className: 'kp-td-num' }, money0(r.opexCost)),
+              h('td', { className: 'kp-td-num kp-strong' }, money0(r.contractCost)))),
+              h('tr', null,
+                h('td', { className: 'kp-strong' }, 'Total'),
+                h('td', { className: 'kp-td-num kp-strong' }, fmtNum(e.unitCount)),
+                h('td', null),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(e.capexCost)),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(e.opexMonthly)),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(e.contractCost))))))) : null);
+
+    // ── Modelo de costeo del servicio ─────────────────────────────────────
+    const viewServicio = () => {
+      const sm = e.service;
+      return h('div', null,
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Contrato de servicio', 'Plazo, reajuste y nivel comprometido'),
+          h('div', { className: 'kp-row-3' },
+            Field('Plazo del servicio (meses)', Input(svc.termMonths, (v) => setSvc({ termMonths: clamp(n(v, 12), 1, 240) }), { type: 'number', min: 1, max: 240 }),
+              'Lo lógico es que termine junto con la garantía del equipamiento.'),
+            Field('Índice de reajuste', Select(svc.escalationIndex, ESCALATION_INDEX, (v) => setSvc({ escalationIndex: v })),
+              'Sin reajuste, el fee pierde valor real todos los meses.'),
+            Field('Reajuste anual (%)', Input(svc.escalationPct, (v) => setSvc({ escalationPct: n(v, 0) }), { type: 'number', min: 0, max: 50, step: 0.5 }))),
+          h('div', { className: 'kp-row-3', style: { marginTop: '12px' } },
+            Field('Resolución en sitio (horas)', Input(svc.slaOnSiteHours, (v) => setSvc({ slaOnSiteHours: n(v, 4) }), { type: 'number', min: 0, step: 0.5 })),
+            Field('Cobertura', Input(svc.slaCoverage, (v) => setSvc({ slaCoverage: v }), { placeholder: '24x7, horario de operación…' })),
+            Field('Disponibilidad comprometida (%)', Input(svc.availabilityPct, (v) => setSvc({ availabilityPct: clamp(n(v, 99), 0, 100) }), { type: 'number', min: 0, max: 100, step: 0.1 }))),
+          n(svc.escalationPct, 0) <= 0 && n(svc.termMonths, 0) > 12
+            ? h('div', { style: { marginTop: '12px' } }, Note('Un fee de ' + fmtNum(svc.termMonths) + ' meses sin cláusula de reajuste pierde valor real cada mes. En moneda local, el último año se presta a pérdida aunque el primero esté bien calculado.', 'warn', I.alert(15)))
+            : null),
+
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Supuestos de modelación', 'Reemplázalos por cotizaciones reales antes de ofertar'),
+          h('div', { className: 'kp-row-3' },
+            Field('NOC / monitoreo mensual (' + cur + ')', Input(svc.nocMonthly, (v) => setSvc({ nocMonthly: n(v, 0) }), { type: 'number', min: 0 })),
+            Field('Recargo por guardia 24x7 (%)', Input(svc.guardPremiumPct, (v) => setSvc({ guardPremiumPct: n(v, 0) }), { type: 'number', min: 0, max: 200 })),
+            Field('Repuestos: % anual del equipamiento', Input(svc.sparesAnnualPct, (v) => setSvc({ sparesAnnualPct: n(v, 0) }), { type: 'number', min: 0, step: 0.1 }))),
+          h('div', { className: 'kp-row-3', style: { marginTop: '12px' } },
+            Field('Preventivos al año', Input(svc.preventivesPerYear, (v) => setSvc({ preventivesPerYear: n(v, 0) }), { type: 'number', min: 0 })),
+            Field('Horas por preventivo y equipo', Input(svc.hoursPerPreventive, (v) => setSvc({ hoursPerPreventive: n(v, 0) }), { type: 'number', min: 0, step: 0.5 })),
+            Field('Partida de plataforma que se amortiza',
+              Select(svc.platformCapexLineId, [['', 'Ninguna']].concat(e.capexLines.map((b) => [b.id, b.item.slice(0, 46)])), (v) => setSvc({ platformCapexLineId: v })),
+              sm.platformCapex ? money0(sm.platformCapex, cur) + ' en ' + sm.term + ' meses = ' + money0(sm.platform, cur) + '/mes' : '')),
+          arr(p.centers).length ? h('div', { className: 'kp-tablewrap', style: { marginTop: '12px' } },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Centro'),
+                h('th', { className: 'kp-td-num' }, 'Costo empresa de un técnico (' + cur + '/mes)'),
+                h('th', { className: 'kp-td-num' }, 'Partner de field service (' + cur + '/equipo/mes)'))),
+              h('tbody', null, arr(p.centers).map((c) => {
+                const tech = n((arr(svc.techMonthlyCost).find((x) => x.centerId === c.id) || {}).cost, 0);
+                const partner = n((arr(svc.partnerPerUnit).find((x) => x.centerId === c.id) || {}).usd, 0);
+                const setTech = (v) => setSvc({ techMonthlyCost: arr(p.centers).map((cc) => ({ centerId: cc.id, cost: cc.id === c.id ? n(v, 0) : n((arr(svc.techMonthlyCost).find((x) => x.centerId === cc.id) || {}).cost, 0) })) });
+                const setPartner = (v) => setSvc({ partnerPerUnit: arr(p.centers).map((cc) => ({ centerId: cc.id, usd: cc.id === c.id ? n(v, 0) : n((arr(svc.partnerPerUnit).find((x) => x.centerId === cc.id) || {}).usd, 0) })) });
+                return h('tr', { key: c.id },
+                  h('td', null, c.name + (c.country ? ' · ' + c.country : '')),
+                  h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: tech, style: { textAlign: 'right', width: '100px' }, onChange: (ev) => setTech(ev.target.value) })),
+                  h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, value: partner, style: { textAlign: 'right', width: '100px' }, onChange: (ev) => setPartner(ev.target.value) })));
+              })))) : null),
+
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Escenarios de servicio', 'Construidos de abajo hacia arriba, con cada componente a la vista',
+            h('button', {
+              className: 'kp-btn kp-btn-sm',
+              onClick: () => setUi((u) => ({ ...u, ptab: 'analista', analystMode: 'preguntas', question: '¿Explícame el OPEX y el CAPEX?', answer: null })),
+            }, I.sparkles(13), 'Análisis completo')),
+          h('div', { className: 'kp-tablewrap' },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Escenario'), h('th', null, 'Estructura'),
+                h('th', { className: 'kp-td-num' }, cur + '/mes'), h('th', { className: 'kp-td-num' }, 'vs. fee actual'), h('th', { className: 'kp-td-num' }, 'Por equipo/mes'))),
+              h('tbody', null, sm.scenarios.map((sc) => h('tr', { key: sc.id },
+                h('td', { className: 'kp-strong' }, sc.id + ' — ' + sc.name),
+                h('td', { className: 'kp-muted', style: { maxWidth: '320px' } }, sc.summary),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(sc.monthly)),
+                h('td', { className: 'kp-td-num', style: sc.vsCurrent > 1.1 ? { color: 'var(--kp-err)' } : { color: 'var(--kp-ok)' } }, sc.vsCurrent == null ? '—' : fmtNum(sc.vsCurrent, 1) + '×'),
+                h('td', { className: 'kp-td-num' }, money0(sc.perUnit)))),
+                h('tr', null,
+                  h('td', { className: 'kp-strong' }, 'Fee cargado hoy en el costeo'),
+                  h('td', null), h('td', { className: 'kp-td-num kp-strong' }, money0(e.opexMonthly)),
+                  h('td', { className: 'kp-td-num' }, '1,0×'),
+                  h('td', { className: 'kp-td-num' }, money0(sm.units ? e.opexMonthly / sm.units : 0)))))),
+          h('div', { className: 'kp-grid kp-grid-3', style: { marginTop: '12px' } },
+            sm.scenarios.map((sc) => h('div', { key: sc.id, className: 'kp-card kp-card-pad' },
+              h('div', { className: 'kp-strong', style: { marginBottom: '6px' } }, sc.id + ' · ' + money0(sc.monthly, cur) + '/mes'),
+              sc.components.map((c2, i2) => h('div', { key: i2, className: 'kp-sec-note', style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } },
+                h('span', null, c2.label), h('span', { className: 'kp-strong kp-nowrap' }, money0(c2.value))))))),
+          h('div', { style: { marginTop: '12px' } },
+            Note('Trabajo efectivo del preventivo: ' + fmtNum(sm.preventiveHours) + ' horas-hombre al año (' + fmtNum(sm.fte, 1) +
+              ' FTE). Lo que se paga no son esas horas: es la capacidad de tener a alguien disponible ' + s(svc.slaCoverage) + '.' +
+              (sm.pctOfEquipment != null ? ' El fee actual equivale al ' + fmtNum(sm.pctOfEquipment, 1) + '% anual del equipamiento.' : ''), 'accent', I.info(15)))),
+
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Aritmética del SLA', 'Disponibilidad comprometida contra tiempo de resolución'),
+          h('div', { className: 'kp-tablewrap' },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Nivel'), h('th', { className: 'kp-td-num' }, 'Disponib.'),
+                h('th', { className: 'kp-td-num' }, 'Caída permitida/mes'), h('th', { className: 'kp-td-num' }, 'Resolución'),
+                h('th', null, '¿Sobrevive un incidente en plazo?'), h('th', { className: 'kp-td-num' }, 'Incidentes si se mide por flota'))),
+              h('tbody', null, sm.levels.map((lv, i2) => h('tr', { key: i2 },
+                h('td', null, lv.name),
+                h('td', { className: 'kp-td-num' }, fmtNum(lv.availabilityPct, 1) + '%'),
+                h('td', { className: 'kp-td-num' }, fmtNum(lv.allowedUnit, 1) + ' h'),
+                h('td', { className: 'kp-td-num' }, fmtNum(lv.onSiteHours, 1) + ' h'),
+                h('td', { style: lv.survives ? { color: 'var(--kp-ok)' } : { color: 'var(--kp-err)' } },
+                  lv.survives ? 'Sí' : 'No — ' + fmtNum(lv.onSiteHours, 1) + ' h ya lo rompe'),
+                h('td', { className: 'kp-td-num' }, fmtNum(lv.incidentsFleet))))))),
+          sm.contradiction ? h('div', { style: { marginTop: '10px' } },
+            Note(h('span', null, h('strong', null, 'El SLA se contradice a sí mismo en el nivel «' + sm.contradiction.name + '».'),
+              ' Un solo incidente resuelto exactamente en el plazo comprometido (' + fmtNum(sm.contradiction.onSiteHours, 1) +
+              ' h) ya rompe la disponibilidad del ' + fmtNum(sm.contradiction.availabilityPct, 1) + '% (permite ' +
+              fmtNum(sm.contradiction.allowedUnit, 1) + ' h al mes). Medido sobre la flota, en cambio, caben ' +
+              fmtNum(sm.contradiction.incidentsFleet) + ' incidentes: entre una lectura y otra hay un factor de ' + fmtNum(sm.units) + '.'), 'err', I.alert(15))) : null,
+          sm.penalties.length ? h('div', { className: 'kp-chips', style: { marginTop: '10px' } },
+            sm.penalties.map((pn, i2) => Chip(pn.label + ': ' + fmtNum(pn.pctOfFee, 1) + '% = ' + money0(pn.amount, cur), { key: i2 }))) : null));
+    };
+
+    // ── Precio final ──────────────────────────────────────────────────────
+    const viewPrecio = () => {
+      const rec = e.recommendation;
+      return h('div', null,
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Política de margen', 'Del costo al precio ofertable'),
+          h('div', { className: 'kp-row-3' },
+            Field('Modo de margen', Select(e.marginMode, MARGIN_MODES, (v) => setPricing({ marginMode: v })),
+              e.marginMode === 'sale' ? 'Precio = costo ÷ (1 − margen).' : 'Precio = costo × (1 + margen).'),
+            Field('Tipo de contrato', Select(e.pricing.contractType, [
+              ['llave_en_mano', 'Llave en mano / suma alzada'], ['precio_unitario', 'Precios unitarios'],
+              ['tiempo_materiales', 'Tiempo y materiales'], ['otro', 'Otro'],
+            ], (v) => setPricing({ contractType: v })), 'Cambia el margen recomendado: a suma alzada el desvío lo absorbe el oferente.'),
+            Field('Margen del CAPEX (%)',
+              Input(e.pricing.capexMarginPct == null ? '' : e.pricing.capexMarginPct,
+                (v) => setPricing({ capexMarginPct: s(v).trim() === '' ? null : clamp(n(v, 0), 0, 90) }),
+                { type: 'number', min: 0, max: 90, step: 0.5, placeholder: 'Recomendado: ' + fmtNum(rec.capexPct, 1) }),
+              e.pricing.capexMarginPct == null ? 'Vacío = se usa la recomendación (' + fmtNum(rec.capexPct, 1) + '%).' : 'Fijado a mano.')),
+          h('div', { className: 'kp-row-3', style: { marginTop: '12px' } },
+            Field('Margen del servicio (%)',
+              Input(e.pricing.opexMarginPct == null ? '' : e.pricing.opexMarginPct,
+                (v) => setPricing({ opexMarginPct: s(v).trim() === '' ? null : clamp(n(v, 0), 0, 90) }),
+                { type: 'number', min: 0, max: 90, step: 0.5, placeholder: 'Recomendado: ' + fmtNum(rec.opexPct, 1) }),
+              'El servicio carga guardia, stock y riesgo de SLA: siempre pide más margen que la inversión.'),
+            Field('Margen recomendado', h('div', { className: 'kp-chips', style: { paddingTop: '4px' } },
+              Chip('CAPEX ' + fmtNum(rec.capexPct, 1) + '%', { tone: 'on' }),
+              Chip('Servicio ' + fmtNum(rec.opexPct, 1) + '%', { tone: 'on' }),
+              Chip('Rango ' + fmtNum(rec.range[0], 0) + '–' + fmtNum(rec.range[1], 0) + '%', {})),
+              'Calculado desde la envergadura y los riesgos que declara el proyecto.'),
+            Field('Aplicar la recomendación',
+              h('button', { className: 'kp-btn', onClick: () => setPricing({ capexMarginPct: null, opexMarginPct: null }) }, I.refresh(14), 'Volver al recomendado'),
+              e.pricing.capexMarginPct != null || e.pricing.opexMarginPct != null ? 'Hay margen fijado a mano.' : 'Se está usando la recomendación.')),
+          h('div', { className: 'kp-tablewrap', style: { marginTop: '12px' } },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Factor del margen recomendado'), h('th', { className: 'kp-td-num' }, 'Puntos'))),
+              h('tbody', null, rec.parts.map((x, i2) => h('tr', { key: i2 },
+                h('td', null, x.label), h('td', { className: 'kp-td-num' }, '+' + fmtNum(x.pts, 1)))),
+                h('tr', null, h('td', { className: 'kp-strong' }, 'Margen recomendado para el CAPEX'),
+                  h('td', { className: 'kp-td-num kp-strong' }, fmtNum(rec.capexPct, 1) + '%')))))),
+
+        h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('Precio propuesto', 'Costo + margen, separando la inversión del servicio'),
+          h('div', { className: 'kp-tablewrap' },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Concepto'), h('th', { className: 'kp-td-num' }, 'Costo'),
+                h('th', { className: 'kp-td-num' }, 'Margen'), h('th', { className: 'kp-td-num' }, 'Precio'), h('th', { className: 'kp-td-num' }, 'Utilidad'))),
+              h('tbody', null,
+                h('tr', null, h('td', null, 'CAPEX · inversión'),
+                  h('td', { className: 'kp-td-num' }, money0(e.capexCost)),
+                  h('td', { className: 'kp-td-num' }, fmtNum(e.capexMarginPct, 1) + '%'),
+                  h('td', { className: 'kp-td-num kp-strong' }, money0(e.capexPrice)),
+                  h('td', { className: 'kp-td-num', style: { color: 'var(--kp-ok)' } }, money0(e.capexMarginAmount))),
+                h('tr', null, h('td', null, 'Fee mensual · servicio'),
+                  h('td', { className: 'kp-td-num' }, money0(e.opexMonthly)),
+                  h('td', { className: 'kp-td-num' }, fmtNum(e.opexMarginPct, 1) + '%'),
+                  h('td', { className: 'kp-td-num kp-strong' }, money0(e.opexPrice)),
+                  h('td', { className: 'kp-td-num', style: { color: 'var(--kp-ok)' } }, money0(e.opexPrice - e.opexMonthly))),
+                h('tr', null, h('td', null, 'Servicio completo (' + e.term + ' meses)'),
+                  h('td', { className: 'kp-td-num' }, money0(e.opexMonthly * e.term)),
+                  h('td', { className: 'kp-td-num' }, ''),
+                  h('td', { className: 'kp-td-num' }, money0(e.opexPrice * e.term)),
+                  h('td', { className: 'kp-td-num', style: { color: 'var(--kp-ok)' } }, money0(e.opexMarginAmount))),
+                h('tr', null, h('td', { className: 'kp-strong' }, 'Contrato completo'),
+                  h('td', { className: 'kp-td-num kp-strong' }, money0(e.contractCost)),
+                  h('td', { className: 'kp-td-num' }, ''),
+                  h('td', { className: 'kp-td-num kp-strong' }, money0(e.contractPrice, cur)),
+                  h('td', { className: 'kp-td-num kp-strong', style: { color: 'var(--kp-ok)' } }, money0(e.contractPrice - e.contractCost)))))),
+          e.service.gapVsCurrent != null && e.service.gapVsCurrent > 0
+            ? h('div', { style: { marginTop: '10px' } }, Note('Este precio se construyó sobre el fee cargado hoy (' + money0(e.opexMonthly, cur) +
+              '/mes). El modelo de servicio dice que sostener el SLA comprometido cuesta ' + money0(e.service.recommended.monthly, cur) +
+              '/mes: con ese costo corregido, el fee ofertable sube a ' + money0(priceFrom(e.service.recommended.monthly, e.opexMarginPct, e.marginMode), cur) + '/mes.', 'warn', I.alert(15)))
+            : null),
+
+        e.byCenter.length ? h('div', { className: 'kp-sec kp-card kp-card-pad' },
+          SectionHead('La oferta, por centro y en su moneda', 'Valores netos, sin impuestos'),
+          h('div', { className: 'kp-tablewrap' },
+            h('table', { className: 'kp-table' },
+              h('thead', null, h('tr', null, h('th', null, 'Centro'), h('th', null, 'Moneda'),
+                h('th', { className: 'kp-td-num' }, 'CAPEX'), h('th', { className: 'kp-td-num' }, 'Fee mensual'),
+                h('th', { className: 'kp-td-num' }, 'Contrato ' + e.term + ' meses'), h('th', { className: 'kp-td-num' }, 'Por equipo'))),
+              h('tbody', null, e.byCenter.map((r) => h('tr', { key: r.center.id },
+                h('td', { className: 'kp-strong' }, r.center.name),
+                h('td', null, r.center.currency),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(r.capexLocal, r.center.currency)),
+                h('td', { className: 'kp-td-num kp-strong' }, money0(r.opexLocal, r.center.currency)),
+                h('td', { className: 'kp-td-num' }, money0(r.contractLocal, r.center.currency)),
+                h('td', { className: 'kp-td-num' }, r.perUnit ? money0(r.perUnit * n(r.center.fx, 1), r.center.currency) : '—')))))),
+          h('div', { className: 'kp-grid kp-grid-2', style: { marginTop: '12px' } },
+            e.byCenter.map((r) => h('div', { key: r.center.id, className: 'kp-card kp-card-pad' },
+              h('div', { className: 'kp-kpi-label', style: { marginBottom: '4px' } }, r.center.name + ' · ' + r.center.currency),
+              h('div', { className: 'kp-kpi-value' }, money0(r.capexLocal, r.center.currency)),
+              h('div', { className: 'kp-kpi-foot' }, 'más ' + money0(r.opexLocal, r.center.currency) + ' al mes de servicio · ' +
+                fmtNum(r.units) + ' equipos · tipo de cambio ' + fmtNum(r.center.fx, 2))))),
+          h('div', { style: { marginTop: '10px' } },
+            Note('Los importes locales salen del tipo de cambio declarado en cada centro. A suma alzada, la devaluación entre la oferta y la entrega sale del margen: cúbrela con cláusula de reajuste, con cobertura financiera o con prima en el precio.', 'accent', I.money(15)))) : null);
+    };
+
+    return h('div', { className: cx('kp-scroll', cfg.denseTables && 'kp-dense') },
+      kpis,
+      overrunNote ? h('div', { className: 'kp-sec' }, overrunNote) : null,
+      h('div', { className: 'kp-sec' },
+        h('div', { className: 'kp-tabs' }, subTabs.map(([key, label]) => h('button', {
+          key, className: cx('kp-tab', sub === key && 'kp-tab-on'), onClick: () => setSub(key),
+        }, label)))),
+      sub === 'centros' ? viewCentros() : sub === 'servicio' ? viewServicio() : sub === 'precio' ? viewPrecio() : viewCosteo());
+  }
+
+  // ── Proyecto · Analista: modo plan de trabajo ───────────────────────────
+  function viewAnalystPlan(ctx, p) {
     const { ui, setUi, setPTab } = ctx;
     const proposal = ui.proposal && ui.proposal.projectId === p.id ? ui.proposal.data : null;
     const opts = ui.proposalOpts || { templateId: '', scale: 1, startDate: '' };
@@ -2827,6 +4426,77 @@ export default function mount(shell) {
                 })),
               }, I.refresh(15), 'Reemplazar el plan actual'),
               h('button', { className: 'kp-btn kp-btn-ghost', onClick: () => setUi((u) => ({ ...u, proposal: null })) }, 'Descartar propuesta')))));
+  }
+
+
+  // ── Proyecto · Analista: modo preguntas ─────────────────────────────────
+  function viewAnalystQuestions(ctx, p) {
+    const { ui, setUi, cfg } = ctx;
+    const answer = ui.answer && ui.answer.projectId === p.id ? ui.answer.data : null;
+    const ask = (text, forcedId) => {
+      const q = s(text).trim();
+      if (!q && !forcedId) return;
+      const res = answerQuestion(p, q, cfg, forcedId);
+      setUi((u) => ({ ...u, question: q || (res.analysis ? res.analysis.question : ''), answer: { projectId: p.id, data: res } }));
+    };
+
+    return h('div', { className: 'kp-scroll' },
+      h('div', { className: 'kp-sec kp-card kp-card-pad' },
+        SectionHead('Pregúntale al analista', 'Responde con los números de este proyecto: partidas, tareas, riesgos y parámetros del modelo de servicio.'),
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' } },
+          h('div', { className: 'kp-toolbar-grow', style: { minWidth: '240px' } },
+            TextArea(ui.question, (v) => setUi((u) => ({ ...u, question: v })), {
+              placeholder: '¿Explícame la diferencia entre el presupuesto y el costeo por líneas?',
+              style: { minHeight: '58px' },
+              onKeyDown: (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ask(ui.question); } },
+            })),
+          h('button', { className: 'kp-btn kp-btn-primary', onClick: () => ask(ui.question), disabled: !s(ui.question).trim() }, I.sparkles(15), 'Analizar')),
+        h('div', { className: 'kp-sec-note', style: { margin: '8px 0 6px' } }, 'O parte por una de estas:'),
+        h('div', { className: 'kp-chips' }, ANALYSES.map((a) => Chip(a.question, {
+          key: a.id, icon: (I[a.icon] || I.sparkles)(12),
+          on: answer && answer.analysis && answer.analysis.id === a.id,
+          onClick: () => ask(a.question, a.id),
+        })))),
+
+      !answer
+        ? Empty(I.sparkles(30), 'Pregunta lo que necesites decidir',
+          'El analista cruza el costeo, el plan, los riesgos y el modelo de servicio del proyecto, y responde con las cifras del propio proyecto: de dónde sale cada número, qué significa y qué conviene hacer. Nada de lo que responde es invento: si un dato no está cargado, lo dice.')
+        : h('div', { className: 'kp-sec kp-card kp-card-pad kp-answer' },
+          h('div', { className: 'kp-ans-hd' },
+            h('span', { className: 'kp-hd-mark' }, (answer.analysis && I[answer.analysis.icon] ? I[answer.analysis.icon](15) : I.sparkles(15))),
+            h('div', { style: { minWidth: 0, flex: 1 } },
+              h('div', { className: 'kp-ans-title' }, answer.analysis ? answer.analysis.title : 'Sin coincidencia'),
+              h('div', { className: 'kp-sec-note' }, s(ui.question) ? '«' + s(ui.question) + '»' : '')),
+            IconBtn(I.copy(14), 'Copiar la respuesta como texto', () => {
+              try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(answer.text);
+                  shell.notify && shell.notify({ level: 'success', text: 'Respuesta copiada al portapapeles.' });
+                }
+              } catch (err3) { /* el navegador puede bloquearlo */ }
+            }, { ghost: true })),
+          h('div', { className: 'kp-ans-body' }, renderBlocks(answer.blocks)),
+          answer.ranking && answer.ranking.length > 1
+            ? h('div', { className: 'kp-chips', style: { marginTop: '14px' } },
+              h('span', { className: 'kp-sec-note' }, 'También puede interesarte:'),
+              answer.ranking.slice(1).map((r) => Chip(r.title, { key: r.id, onClick: () => ask('', r.id) })))
+            : null));
+  }
+
+  function viewProjectAnalyst(ctx, p) {
+    const { ui, setUi } = ctx;
+    const mode = ui.analystMode || 'plan';
+    return h('div', { className: 'kp-body' },
+      h('div', { className: 'kp-toolbar' },
+        h('div', { className: 'kp-tabs' },
+          [['plan', 'Plan de trabajo', 'plan'], ['preguntas', 'Preguntas y análisis', 'sparkles']].map(([key, label, ic]) => h('button', {
+            key, className: cx('kp-tab', mode === key && 'kp-tab-on'),
+            onClick: () => setUi((u) => ({ ...u, analystMode: key })),
+          }, (I[ic] || I.grid)(14), label))),
+        h('span', { className: 'kp-sec-note' }, mode === 'plan'
+          ? 'Propone fases, tareas, hitos y riesgos a partir de la documentación.'
+          : 'Explica el proyecto con sus propios números.')),
+      mode === 'preguntas' ? viewAnalystQuestions(ctx, p) : viewAnalystPlan(ctx, p));
   }
 
   // ── Proyecto · Bitácora ─────────────────────────────────────────────────
@@ -2937,28 +4607,21 @@ export default function mount(shell) {
           : h('div', { className: 'kp-sec-note' }, 'Ninguna. Si el cliente cierra la operación en alguna fecha, decláralo aquí y el plan lo respeta.')),
 
       cfg.showFinance !== false ? h('div', { className: 'kp-sec kp-card kp-card-pad' },
-        SectionHead('Costeo por partidas', linesTotal ? 'Total: ' + fmtMoney(linesTotal, p.currency) : 'Sin líneas todavía',
-          h('button', {
-            className: 'kp-btn kp-btn-sm',
-            onClick: () => set({ budgetLines: lines.concat([{ id: uid('bl'), item: '', qty: 1, unitCost: 0, note: '', updatedAt: stamp() }]) }),
-          }, I.plus(13), 'Línea')),
-        lines.length ? h('div', { className: 'kp-tablewrap' },
-          h('table', { className: 'kp-table' },
-            h('thead', null, h('tr', null, h('th', null, 'Partida'), h('th', { className: 'kp-td-num' }, 'Cant.'),
-              h('th', { className: 'kp-td-num' }, 'Unitario'), h('th', { className: 'kp-td-num' }, 'Total'), h('th', null, 'Observación'), h('th', null, ''))),
-            h('tbody', null, lines.map((b, i) => {
-              const upd = (patch) => set({ budgetLines: lines.map((x, j) => (j === i ? touch(Object.assign({}, x, patch)) : x)) });
-              return h('tr', { key: b.id },
-                h('td', { style: { minWidth: '220px' } }, h('input', { className: 'kp-cellinput', value: s(b.item), placeholder: 'Descripción de la partida', onChange: (e) => upd({ item: e.target.value }) })),
-                h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.qty, 0), style: { textAlign: 'right', width: '72px' }, onChange: (e) => upd({ qty: n(e.target.value, 0) }) })),
-                h('td', { className: 'kp-td-num' }, h('input', { className: 'kp-cellinput', type: 'number', min: 0, step: 'any', value: n(b.unitCost, 0), style: { textAlign: 'right', width: '100px' }, onChange: (e) => upd({ unitCost: n(e.target.value, 0) }) })),
-                h('td', { className: 'kp-td-num kp-strong' }, fmtNum(n(b.qty, 0) * n(b.unitCost, 0))),
-                h('td', { style: { minWidth: '200px' } }, h('input', { className: 'kp-cellinput', value: s(b.note), onChange: (e) => upd({ note: e.target.value }) })),
-                h('td', { className: 'kp-td-act' }, IconBtn(I.trash(13), 'Quitar la línea', () => set({ budgetLines: lines.filter((x, j) => j !== i) }), { ghost: true, tone: 'danger' })));
-            }),
-            h('tr', null, h('td', { className: 'kp-strong' }, 'Total del costeo'), h('td', null), h('td', null),
-              h('td', { className: 'kp-td-num kp-strong' }, fmtNum(linesTotal)), h('td', { className: 'kp-muted' }, s(p.currency)), h('td', null)))))
-          : h('div', { className: 'kp-sec-note' }, 'Agrega las partidas para que el presupuesto sea trazable y no un número suelto.')) : null,
+        SectionHead('Economía del proyecto', 'El costeo, los centros, el modelo de servicio y el precio viven en su propia pestaña',
+          h('button', { className: 'kp-btn kp-btn-sm', onClick: () => ctx.setPTab('economia') }, I.money(13), 'Abrir Economía')),
+        (() => {
+          const e2 = computeEconomics(p, cfg);
+          return h('div', null,
+            h('div', { className: 'kp-ans-kv' },
+              h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'CAPEX'), h('span', { className: 'kp-ans-kv-v' }, fmtMoney(e2.capexCost, e2.currency))),
+              h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Fee mensual'), h('span', { className: 'kp-ans-kv-v' }, fmtMoney(e2.opexMonthly, e2.currency))),
+              h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Costeo total'),
+                h('span', { className: 'kp-ans-kv-v', style: e2.budgetState === 'over' ? { color: 'var(--kp-err)' } : null }, fmtMoney(e2.costingTotal, e2.currency))),
+              h('div', { className: 'kp-ans-kv-it' }, h('span', { className: 'kp-ans-kv-k' }, 'Precio propuesto'), h('span', { className: 'kp-ans-kv-v' }, fmtMoney(e2.contractPrice, e2.currency)))),
+            e2.budgetState === 'over'
+              ? h('div', { style: { marginTop: '10px' } }, Note('El costeo supera el presupuesto declarado arriba en ' + fmtNum(e2.overrunPct, 1) + '%.', 'err', I.alert(15)))
+              : null);
+        })()) : null,
 
       h('div', { className: 'kp-sec kp-card kp-card-pad' },
         SectionHead('Consultas abiertas con el cliente', questions.filter((q) => q.status !== 'closed').length + ' sin cerrar',
@@ -3262,6 +4925,7 @@ export default function mount(shell) {
     ['plan', 'Plan', 'plan'],
     ['riesgos', 'Riesgos', 'risk'],
     ['documentos', 'Documentos', 'docs'],
+    ['economia', 'Economía', 'money'],
     ['analista', 'Analista', 'sparkles'],
     ['bitacora', 'Bitácora', 'book'],
     ['ficha', 'Ficha', 'pencil'],
@@ -3272,6 +4936,8 @@ export default function mount(shell) {
     filterClient: '', filterStatus: '', filterHealth: '',
     planStatus: '', planOwner: '', riskCell: '', riskStatus: '',
     docKind: '', docSource: '', dropOn: false,
+    econTab: 'costeo', lineKind: '', lineCenter: '',
+    analystMode: 'plan', question: '', answer: null,
     editor: null, proposal: null, proposalOpts: { templateId: '', scale: 1, startDate: '' },
     logDraft: null,
   });
@@ -3282,7 +4948,7 @@ export default function mount(shell) {
     const [snap, setSnap] = useState({ model, loaded, loadError, saving, lastSync });
     const [ui, setUi] = useState(initialUi);
     const [, setTick] = useState(0);
-    const [cfg, setCfg] = useState(() => Object.assign({ accent: '', defaultCurrency: 'CLP', alertDays: 7, denseTables: false, showFinance: true }, liveConfig));
+    const [cfg, setCfg] = useState(() => Object.assign({ accent: '', defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true }, liveConfig));
     const uiRef = useRef(ui);
     uiRef.current = ui;
 
@@ -3316,7 +4982,7 @@ export default function mount(shell) {
       let off = null;
       const apply = (settings) => {
         liveConfig = Object.assign({}, settings || {});
-        setCfg(Object.assign({ defaultCurrency: 'CLP', alertDays: 7, denseTables: false, showFinance: true }, liveConfig));
+        setCfg(Object.assign({ defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true }, liveConfig));
       };
       if (shell.config && shell.config.get) {
         Promise.resolve(shell.config.get()).then(apply).catch(() => {});
@@ -3362,6 +5028,7 @@ export default function mount(shell) {
         if (key === 'plan') return arr(project.tasks).length;
         if (key === 'riesgos') return arr(project.risks).filter((r) => r.status !== 'closed' && r.status !== 'mitigated').length;
         if (key === 'documentos') return arr(project.documents).length;
+        if (key === 'economia') return arr(project.budgetLines).length;
         if (key === 'bitacora') return arr(project.log).length;
         return 0;
       }
@@ -3375,10 +5042,11 @@ export default function mount(shell) {
       body = activeTab === 'plan' ? viewProjectPlan(ctx, project, st)
         : activeTab === 'riesgos' ? viewProjectRisks(ctx, project)
           : activeTab === 'documentos' ? viewProjectDocs(ctx, project)
-            : activeTab === 'analista' ? viewProjectAnalyst(ctx, project)
-              : activeTab === 'bitacora' ? viewProjectLog(ctx, project)
-                : activeTab === 'ficha' ? viewProjectSheet(ctx, project, st)
-                  : viewProjectSummary(ctx, project, st);
+            : activeTab === 'economia' ? viewProjectEconomics(ctx, project)
+              : activeTab === 'analista' ? viewProjectAnalyst(ctx, project)
+                : activeTab === 'bitacora' ? viewProjectLog(ctx, project)
+                  : activeTab === 'ficha' ? viewProjectSheet(ctx, project, st)
+                    : viewProjectSummary(ctx, project, st);
     } else {
       body = ui.tab === 'clientes' ? viewClients(ctx)
         : ui.tab === 'proyectos' ? viewProjects(ctx)
@@ -3490,12 +5158,22 @@ export default function mount(shell) {
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, templateId: { type: 'string' }, startDate: { type: 'string' }, scale: { type: 'number' } }, required: ['project'] } },
     { name: 'APPLY_PLAN', description: 'Aplica al proyecto la última propuesta generada. mode: append (por defecto) o replace.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string' } }, required: ['project'] } },
-    { name: 'OPEN_VIEW', description: 'Cambia lo que se ve en pantalla. tab: panel, clientes, proyectos. ptab: resumen, plan, riesgos, documentos, analista, bitacora, ficha.',
+    { name: 'OPEN_VIEW', description: 'Cambia lo que se ve en pantalla. tab: panel, clientes, proyectos. ptab: resumen, plan, riesgos, documentos, economia, analista, bitacora, ficha.',
       inputSchema: { type: 'object', properties: { tab: { type: 'string' }, project: { type: 'string' }, ptab: { type: 'string' } } } },
+    { name: 'ASK', description: 'Analiza el proyecto y responde una pregunta con SUS PROPIOS NÚMEROS: diferencia entre presupuesto y costeo por líneas, CAPEX vs OPEX y modelo de costeo del servicio, aritmética del SLA y la disponibilidad, precio final y margen por centro y moneda, estado y desviación, riesgos a negociar, plazo y ventanas bloqueadas, y documentación faltante. Devuelve el análisis completo en texto para relatarlo o ampliarlo. Úsala SIEMPRE antes de responder cualquier pregunta económica o de estado sobre un proyecto: los números salen del proyecto, no de una estimación.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, question: { type: 'string' }, analysisId: { type: 'string', description: 'Opcional: fuerza un análisis concreto (presupuesto-costeo, capex-opex, sla, precio, estado, riesgos, plazo, documentos).' } }, required: ['project'] } },
+    { name: 'ADD_BUDGET_LINE', description: 'Añade una partida al costeo. kind: capex (unitCost = costo unitario, qty = cantidad) u opex (unitCost = costo MENSUAL, qty = meses). center acepta el nombre o código de un centro, o "shared" para compartida.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, item: { type: 'string' }, kind: { type: 'string' }, category: { type: 'string' }, center: { type: 'string' }, qty: { type: 'number' }, unitCost: { type: 'number' }, note: { type: 'string' } }, required: ['project', 'item', 'unitCost'] } },
+    { name: 'ADD_CENTER', description: 'Declara un centro de la oferta con su moneda local, su tipo de cambio contra la moneda de gestión y sus equipos, para que el precio se calcule por sede.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, name: { type: 'string' }, code: { type: 'string' }, country: { type: 'string' }, currency: { type: 'string' }, fx: { type: 'number' }, units: { type: 'number' } }, required: ['project', 'name'] } },
+    { name: 'UPDATE_COSTING', description: 'Ajusta la política de precio y el modelo de servicio: margen del CAPEX y del servicio, modo de margen (sale/cost), regla de prorrateo, plazo del servicio, reajuste, horas de SLA y disponibilidad comprometida.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, capexMarginPct: { type: 'number' }, opexMarginPct: { type: 'number' }, marginMode: { type: 'string' }, allocation: { type: 'string' }, contractType: { type: 'string' }, termMonths: { type: 'number' }, escalationIndex: { type: 'string' }, escalationPct: { type: 'number' }, slaOnSiteHours: { type: 'number' }, availabilityPct: { type: 'number' }, nocMonthly: { type: 'number' } }, required: ['project'] } },
+    { name: 'SET_BASELINE', description: 'Congela el costeo actual como línea base (presupuesto de referencia). Desde ahí, cada cambio de partida queda explicado en el puente presupuesto vs. costeo.',
+      inputSchema: { type: 'object', properties: { project: { type: 'string' }, label: { type: 'string' } }, required: ['project'] } },
   ];
 
   function agentSnapshot() {
-    const cfg = Object.assign({ alertDays: 7 }, liveConfig);
+    const cfg = Object.assign({ alertDays: 7, budgetAlertPct: 10 }, liveConfig);
     const port = computePortfolio(model, cfg);
     return {
       app: 'Gestor de Proyectos', version: APP_VERSION,
@@ -3521,6 +5199,35 @@ export default function mount(shell) {
           hitoProximo: st.nextMilestone ? { nombre: st.nextMilestone.name, fecha: st.nextMilestone.date } : null,
           documentos: st.docs, consultasAbiertas: st.openQuestions,
           presupuesto: n(p.budget) ? n(p.budget) + ' ' + p.currency : null,
+          economia: (() => {
+            const e2 = computeEconomics(p, cfg);
+            return {
+              moneda: e2.currency,
+              capex: Math.round(e2.capexCost),
+              feeMensual: Math.round(e2.opexMonthly),
+              plazoServicioMeses: e2.term,
+              costeoTotal: Math.round(e2.costingTotal),
+              presupuestoDeclarado: Math.round(e2.budget),
+              desvio: e2.overrun == null ? null : Math.round(e2.overrun),
+              desvioPct: e2.overrunPct == null ? null : Math.round(e2.overrunPct * 10) / 10,
+              estadoPresupuesto: e2.budgetState,
+              margenCapexPct: Math.round(e2.capexMarginPct * 10) / 10,
+              margenServicioPct: Math.round(e2.opexMarginPct * 10) / 10,
+              precioContrato: Math.round(e2.contractPrice),
+              centros: e2.byCenter.map((r) => ({
+                nombre: r.center.name, moneda: r.center.currency, equipos: r.units,
+                tipoCambio: n(r.center.fx, 1),
+                capexLocal: Math.round(r.capexLocal), feeMensualLocal: Math.round(r.opexLocal),
+              })),
+              servicio: {
+                slaHorasEnSitio: n(e2.service.svc.slaOnSiteHours, 0),
+                disponibilidadPct: n(e2.service.svc.availabilityPct, 0),
+                contradiccionSla: !!e2.service.contradiction,
+                escenarios: e2.service.scenarios.map((sc) => ({ id: sc.id, nombre: sc.name, mensual: Math.round(sc.monthly), vsFeeActual: sc.vsCurrent == null ? null : Math.round(sc.vsCurrent * 10) / 10 })),
+              },
+              lineaBase: e2.bridge ? { total: Math.round(e2.bridge.baseTotal), suben: Math.round(e2.bridge.upTotal), bajan: Math.round(e2.bridge.downTotal) } : null,
+            };
+          })(),
           fases: arr(p.phases).slice().sort((a, b) => n(a.order) - n(b.order)).map((f) => ({ id: f.id, nombre: f.name })),
           tareasDetalle: arr(p.tasks).slice(0, 60).map((t) => ({
             id: t.id, nombre: t.name, estado: t.status, avance: taskProgress(t),
@@ -3563,7 +5270,7 @@ export default function mount(shell) {
         if (s(pl.client) && !client) return ok('Proyecto "' + p.name + '" creado, pero no encontré al cliente "' + pl.client + '": quedó sin cliente asignado.', { projectId: p.id });
         return ok('Proyecto "' + p.name + '" creado.', { projectId: p.id });
       }
-      const needsProject = ['UPDATE_PROJECT', 'ADD_TASK', 'UPDATE_TASK', 'ADD_MILESTONE', 'ADD_RISK', 'UPDATE_RISK', 'ADD_DOCUMENT', 'ADD_LOG', 'PROPOSE_PLAN', 'APPLY_PLAN'];
+      const needsProject = ['UPDATE_PROJECT', 'ADD_TASK', 'UPDATE_TASK', 'ADD_MILESTONE', 'ADD_RISK', 'UPDATE_RISK', 'ADD_DOCUMENT', 'ADD_LOG', 'PROPOSE_PLAN', 'APPLY_PLAN', 'ASK', 'ADD_BUDGET_LINE', 'ADD_CENTER', 'UPDATE_COSTING', 'SET_BASELINE'];
       const p = needsProject.includes(type) ? resolveProject(pl.project) : null;
       if (needsProject.includes(type) && !p) return err('No encontré el proyecto "' + s(pl.project) + '". Usa su id, su código o su nombre exacto.');
 
@@ -3688,6 +5395,88 @@ export default function mount(shell) {
         navRequest = { projectId: p.id, ptab: 'plan', proposal: null };
         return ok('Plan ' + (mode === 'replace' ? 'reemplazado' : 'añadido') + ' en "' + p.name + '": ' +
           proposal.phases.length + ' fases y ' + proposal.tasks.length + ' tareas.');
+      }
+      if (type === 'ASK') {
+        const cfgNow = Object.assign({ alertDays: 7, budgetAlertPct: 10 }, liveConfig);
+        const res = answerQuestion(p, s(pl.question), cfgNow, s(pl.analysisId) || '');
+        navRequest = {
+          projectId: p.id, ptab: 'analista', analystMode: 'preguntas',
+          question: s(pl.question) || (res.analysis ? res.analysis.question : ''),
+          answer: { projectId: p.id, data: res },
+        };
+        if (!res.ok) {
+          return ok('No reconocí la pregunta para "' + p.name + '".', {
+            analisisDisponibles: ANALYSES.map((a) => ({ id: a.id, titulo: a.title, ejemplo: a.question })),
+            respuesta: res.text,
+          });
+        }
+        return ok('Análisis «' + res.analysis.title + '» de "' + p.name + '".', {
+          analisis: res.analysis.id, titulo: res.analysis.title,
+          respuesta: res.text,
+          nota: 'Las cifras salen del costeo, el plan y los riesgos de este proyecto. Relátalas tal cual o amplíalas, pero no las recalcules por tu cuenta.',
+        });
+      }
+      if (type === 'ADD_BUDGET_LINE') {
+        if (!s(pl.item).trim()) return err('La partida necesita una descripción.');
+        const center = s(pl.center) && s(pl.center) !== 'shared'
+          ? arr(p.centers).find((c) => c.id === pl.center || canon(c.name) === canon(pl.center) || canon(c.code) === canon(pl.center))
+          : null;
+        const line = newLine({
+          item: s(pl.item).trim(),
+          kind: s(pl.kind) === 'opex' ? 'opex' : 'capex',
+          category: LINE_CATEGORIES.some((c) => c[0] === pl.category) ? pl.category : (s(pl.kind) === 'opex' ? 'servicio' : 'equipamiento'),
+          centerId: center ? center.id : 'shared',
+          qty: n(pl.qty, s(pl.kind) === 'opex' ? n(normalizeService(p.service).termMonths, 12) : 1),
+          unitCost: n(pl.unitCost, 0), note: s(pl.note),
+        });
+        actions.upsert(p.id, 'budgetLines', line);
+        const e2 = computeEconomics(findProject(p.id), Object.assign({ budgetAlertPct: 10 }, liveConfig));
+        return ok('Partida añadida (' + labelOf(LINE_KINDS, line.kind) + '): ' + money0(lineTotal(line), p.currency) + '. ' +
+          'CAPEX ahora ' + money0(e2.capexCost, p.currency) + ' y fee ' + money0(e2.opexMonthly, p.currency) + '/mes.', { lineId: line.id });
+      }
+      if (type === 'ADD_CENTER') {
+        if (!s(pl.name).trim()) return err('El centro necesita un nombre.');
+        const c = newCenter({
+          name: s(pl.name).trim(), code: s(pl.code), country: s(pl.country),
+          currency: s(pl.currency) || s(p.currency) || 'CLP',
+          fx: n(pl.fx, 1) || 1, units: n(pl.units, 0),
+          colorIndex: arr(p.centers).length,
+        });
+        actions.saveProject(p.id, { centers: arr(p.centers).concat([c]) });
+        return ok('Centro "' + c.name + '" declarado en ' + c.currency + ' (tipo de cambio ' + fmtNum(c.fx, 2) + ') con ' + fmtNum(c.units) + ' equipos.', { centerId: c.id });
+      }
+      if (type === 'UPDATE_COSTING') {
+        const pricePatch = {};
+        if (pl.capexMarginPct != null) pricePatch.capexMarginPct = clamp(n(pl.capexMarginPct, 0), 0, 90);
+        if (pl.opexMarginPct != null) pricePatch.opexMarginPct = clamp(n(pl.opexMarginPct, 0), 0, 90);
+        if (pl.marginMode != null && MARGIN_MODES.some((x) => x[0] === pl.marginMode)) pricePatch.marginMode = pl.marginMode;
+        if (pl.allocation != null && ALLOC_RULES.some((x) => x[0] === pl.allocation)) pricePatch.allocation = pl.allocation;
+        if (pl.contractType != null) pricePatch.contractType = s(pl.contractType);
+        const svcPatch = {};
+        if (pl.termMonths != null) svcPatch.termMonths = clamp(n(pl.termMonths, 12), 1, 240);
+        if (pl.escalationIndex != null && ESCALATION_INDEX.some((x) => x[0] === pl.escalationIndex)) svcPatch.escalationIndex = pl.escalationIndex;
+        if (pl.escalationPct != null) svcPatch.escalationPct = clamp(n(pl.escalationPct, 0), 0, 50);
+        if (pl.slaOnSiteHours != null) svcPatch.slaOnSiteHours = Math.max(0, n(pl.slaOnSiteHours, 4));
+        if (pl.availabilityPct != null) svcPatch.availabilityPct = clamp(n(pl.availabilityPct, 99), 0, 100);
+        if (pl.nocMonthly != null) svcPatch.nocMonthly = Math.max(0, n(pl.nocMonthly, 0));
+        if (!Object.keys(pricePatch).length && !Object.keys(svcPatch).length) return err('No indicaste ningún parámetro válido que actualizar.');
+        const patch = {};
+        if (Object.keys(pricePatch).length) patch.pricing = Object.assign(defaultPricing(), p.pricing || {}, pricePatch, { updatedAt: stamp() });
+        if (Object.keys(svcPatch).length) patch.service = Object.assign(normalizeService(p.service), svcPatch, { updatedAt: stamp() });
+        actions.saveProject(p.id, patch);
+        const e2 = computeEconomics(findProject(p.id), Object.assign({ budgetAlertPct: 10 }, liveConfig));
+        return ok('Costeo actualizado. Precio del contrato: ' + money0(e2.contractPrice, p.currency) +
+          ' (margen CAPEX ' + fmtNum(e2.capexMarginPct, 1) + '%, servicio ' + fmtNum(e2.opexMarginPct, 1) + '%, plazo ' + e2.term + ' meses).');
+      }
+      if (type === 'SET_BASELINE') {
+        const lines = arr(p.budgetLines);
+        if (!lines.length) return err('No hay partidas de costeo que congelar.');
+        const snapshot = lines.map((b) => newLine(Object.assign({}, b, { id: 'blb-' + b.id })));
+        actions.saveProject(p.id, {
+          baseline: { label: s(pl.label) || 'Línea base ' + fmtDay(today()), capturedAt: stamp(), note: 'Congelada por el agente.', lines: snapshot },
+          budgetLines: lines.map((b) => touch(Object.assign({}, b, { baselineRef: 'blb-' + b.id }))),
+        });
+        return ok('Línea base fijada con ' + snapshot.length + ' partidas por ' + money0(sum(snapshot, lineTotal), p.currency) + '.');
       }
       if (type === 'OPEN_VIEW') {
         const target = s(pl.project) ? resolveProject(pl.project) : null;

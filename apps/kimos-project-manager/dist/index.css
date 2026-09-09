@@ -489,3 +489,49 @@
   .kimos-pm .kp-grid-4, .kimos-pm .kp-grid-3, .kimos-pm .kp-grid-2 { grid-template-columns: minmax(0, 1fr); }
   .kimos-pm .kp-scroll { padding: 12px; }
 }
+
+/* ══ Respuestas del analista ════════════════════════════════════════════ */
+.kimos-pm .kp-answer { padding: 16px 18px; }
+.kimos-pm .kp-ans-hd {
+  display: flex; align-items: flex-start; gap: 10px; padding-bottom: 12px;
+  margin-bottom: 14px; border-bottom: 1px solid var(--kp-soft);
+}
+.kimos-pm .kp-ans-title { font: 650 15px/1.3 'Inter', sans-serif; letter-spacing: -0.015em; }
+.kimos-pm .kp-ans-body { max-width: 78ch; }
+.kimos-pm .kp-ans-h {
+  font: 650 13.5px/1.3 'Inter', sans-serif; letter-spacing: -0.01em;
+  margin: 20px 0 8px; padding-left: 10px; border-left: 2.5px solid var(--kp-accent);
+}
+.kimos-pm .kp-ans-h:first-child { margin-top: 0; }
+.kimos-pm .kp-ans-p { font: 400 13px/1.65 'Inter', sans-serif; margin: 0 0 10px; }
+.kimos-pm .kp-ans-p strong, .kimos-pm .kp-ans-list strong { font-weight: 600; color: var(--kp-fg); }
+.kimos-pm .kp-ans-block { margin: 10px 0 14px; }
+.kimos-pm .kp-ans-list { margin: 0 0 12px; padding-left: 20px; font: 400 13px/1.65 'Inter', sans-serif; }
+.kimos-pm .kp-ans-list li { margin-bottom: 6px; }
+.kimos-pm .kp-ans-list li::marker { color: var(--kp-muted); font-weight: 600; }
+.kimos-pm .kp-ans-kv {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px; margin: 10px 0 14px; background: var(--kp-soft);
+  border: 1px solid var(--kp-soft); border-radius: var(--kp-radius-lg); overflow: hidden;
+}
+.kimos-pm .kp-ans-kv-it {
+  display: flex; flex-direction: column; gap: 2px; padding: 9px 12px;
+  background: var(--kp-glass-solid); min-width: 0;
+}
+.kimos-pm .kp-ans-kv-k {
+  font: 500 10.5px/1.2 'Inter', sans-serif; color: var(--kp-muted);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.kimos-pm .kp-ans-kv-v {
+  font: 600 14px/1.3 'Inter', sans-serif; font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+.kimos-pm .kp-ans-concl {
+  margin: 16px 0 10px; padding: 13px 15px; border-radius: var(--kp-radius-lg);
+  background: var(--kp-accent-soft); border: 1px solid var(--kp-accent-line);
+}
+.kimos-pm .kp-ans-concl-hd {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+  font: 700 10.5px/1 'Inter', sans-serif; letter-spacing: 0.09em; color: var(--kp-accent);
+}
+.kimos-pm .kp-ans-foot td { border-top: 1px solid var(--kp-line); background: var(--kp-silver-soft); }

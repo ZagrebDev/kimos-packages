@@ -1,10 +1,10 @@
 {
   "id": "kimos-project-manager",
   "name": "Gestor de Proyectos",
-  "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, analista que propone un plan de trabajo estructurado a partir de la documentación cargada, bitácora, evaluación de desempeño del proyecto y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
+  "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa: costeo separado en CAPEX y OPEX, partidas por centro y por moneda, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
   "icon": "🧭",
   "author": "KIMOS",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "entry": "dist/index.js",
   "css": "dist/index.css",
   "appShellApi": "1.x",
@@ -20,18 +20,72 @@
   "configSchema": {
     "title": "Preferencias del Gestor de Proyectos",
     "fields": [
-      { "key": "accent", "label": "Color de acento", "type": "color", "help": "Se usa en gráficos de avance, chips y estados activos." },
-      { "key": "defaultCurrency", "label": "Moneda por defecto", "type": "select", "options": [
-        { "value": "CLP", "label": "CLP — Peso chileno" },
-        { "value": "COP", "label": "COP — Peso colombiano" },
-        { "value": "USD", "label": "USD — Dólar" },
-        { "value": "PEN", "label": "PEN — Sol peruano" },
-        { "value": "MXN", "label": "MXN — Peso mexicano" },
-        { "value": "EUR", "label": "EUR — Euro" }
-      ], "help": "Moneda con la que se crean los proyectos y las líneas de presupuesto nuevas." },
-      { "key": "alertDays", "label": "Días de anticipación para alertas", "type": "number", "min": 1, "max": 90, "help": "Una tarea o hito se marca 'por vencer' dentro de esta ventana." },
-      { "key": "denseTables", "label": "Tablas compactas", "type": "boolean", "help": "Más filas visibles por pantalla en planes, riesgos y documentos." },
-      { "key": "showFinance", "label": "Mostrar presupuesto", "type": "boolean", "help": "Muestra las cifras económicas en los tableros y la ficha del proyecto." }
+      {
+        "key": "accent",
+        "label": "Color de acento",
+        "type": "color",
+        "help": "Se usa en gráficos de avance, chips y estados activos."
+      },
+      {
+        "key": "defaultCurrency",
+        "label": "Moneda por defecto",
+        "type": "select",
+        "options": [
+          {
+            "value": "CLP",
+            "label": "CLP — Peso chileno"
+          },
+          {
+            "value": "COP",
+            "label": "COP — Peso colombiano"
+          },
+          {
+            "value": "USD",
+            "label": "USD — Dólar"
+          },
+          {
+            "value": "PEN",
+            "label": "PEN — Sol peruano"
+          },
+          {
+            "value": "MXN",
+            "label": "MXN — Peso mexicano"
+          },
+          {
+            "value": "EUR",
+            "label": "EUR — Euro"
+          }
+        ],
+        "help": "Moneda con la que se crean los proyectos y las líneas de presupuesto nuevas."
+      },
+      {
+        "key": "alertDays",
+        "label": "Días de anticipación para alertas",
+        "type": "number",
+        "min": 1,
+        "max": 90,
+        "help": "Una tarea o hito se marca 'por vencer' dentro de esta ventana."
+      },
+      {
+        "key": "budgetAlertPct",
+        "label": "Umbral de desvío del costeo (%)",
+        "type": "number",
+        "min": 1,
+        "max": 100,
+        "help": "Cuando el costeo por líneas supera el presupuesto del proyecto en más de este porcentaje, el indicador se marca en rojo y aparece la alerta en el panel."
+      },
+      {
+        "key": "denseTables",
+        "label": "Tablas compactas",
+        "type": "boolean",
+        "help": "Más filas visibles por pantalla en planes, riesgos y documentos."
+      },
+      {
+        "key": "showFinance",
+        "label": "Mostrar presupuesto",
+        "type": "boolean",
+        "help": "Muestra las cifras económicas en los tableros y la ficha del proyecto."
+      }
     ]
   },
   "defaultConfig": {
@@ -39,6 +93,7 @@
     "defaultCurrency": "CLP",
     "alertDays": 7,
     "denseTables": false,
-    "showFinance": true
+    "showFinance": true,
+    "budgetAlertPct": 10
   }
 }

@@ -4,7 +4,7 @@ App instalable de KIMOS para **dirigir proyectos de punta a punta, separados por
 cliente**: planificar, ejecutar, controlar y cerrar, con un tablero global de la
 cartera en la portada y un tablero propio dentro de cada proyecto.
 
-**Versión actual: 1.0.0**
+**Versión actual: 1.1.0**
 
 ---
 
@@ -19,12 +19,46 @@ cartera en la portada y un tablero propio dentro de cada proyecto.
 | Gestionar el riesgo | Matriz 5×5 de probabilidad × impacto, con severidad, mitigación, responsable y estado. |
 | Trabajar con la documentación | Biblioteca de imágenes, videos, PDF, planos y planillas, alimentada desde el disco, desde una carpeta conectada, desde Google Drive o desde cualquier enlace. |
 | Proponer el plan de trabajo | El **analista** lee esa documentación y arma fases, tareas fechadas, hitos, riesgos típicos y el checklist de lo que falta. |
-| Dejar memoria del proyecto | Bitácora de decisiones, reuniones, problemas e hitos; consultas abiertas con el cliente; costeo por partidas. |
+| Dejar memoria del proyecto | Bitácora de decisiones, reuniones, problemas e hitos; consultas abiertas con el cliente. |
+| Saber cuánto cuesta y a qué precio se oferta | Economía completa: CAPEX y OPEX separados, partidas por centro y por moneda, línea base con el puente que explica cada desvío, modelo de costeo del servicio y margen recomendado. |
+| Responder preguntas sobre el proyecto | El analista contesta con los números del proyecto: de dónde sale cada cifra, qué significa y qué conviene hacer. |
 
 ## Pestañas
 
 **Cartera** — `Panel` · `Clientes` · `Proyectos`
-**Dentro de un proyecto** — `Resumen` · `Plan` · `Riesgos` · `Documentos` · `Analista` · `Bitácora` · `Ficha`
+**Dentro de un proyecto** — `Resumen` · `Plan` · `Riesgos` · `Documentos` · `Economía` · `Analista` · `Bitácora` · `Ficha`
+
+## Economía: del costo al precio
+
+La pestaña **Economía** tiene cuatro bloques:
+
+**Costeo.** Partidas separadas en **CAPEX** (inversión: cantidad × costo unitario)
+y **OPEX** (servicio recurrente: costo mensual × meses), cada una con su categoría
+y su centro. Un stock y un flujo nunca se suman a ciegas. Con una **línea base**
+fijada, el **puente** muestra partida por partida qué bajó, qué subió y por qué el
+total terminó donde terminó.
+
+**Centros y monedas.** El proyecto se gestiona en una moneda, pero la oferta se
+firma por sede: cada centro declara su moneda local, su tipo de cambio y sus
+equipos, y las partidas compartidas se prorratean por unidades, por costo directo
+o en partes iguales.
+
+**Modelo de servicio.** Plazo, reajuste, horas de SLA y disponibilidad
+comprometida, más los supuestos de costo del servicio. Con eso la app construye
+tres escenarios de abajo hacia arriba —cuadrilla propia, híbrido y
+subcontratado—, los compara con el fee cargado y calcula la **aritmética del
+SLA**: cuánta caída permite la disponibilidad prometida y si el tiempo de
+resolución comprometido cabe dentro de ese margen, por equipo y sobre la flota.
+
+**Precio final.** Un motor de margen propone el porcentaje a partir de la
+envergadura y de los riesgos que el propio proyecto declara —tipo de contrato,
+exposición cambiaria, multas, plazo, riesgos críticos abiertos—, con cada sumando
+a la vista. El precio se calcula por separado para la inversión y el servicio, y
+se presenta en la moneda de cada centro.
+
+Cuando el costeo supera el presupuesto declarado por encima del umbral
+configurado, el indicador se marca en rojo en la ficha, en el tablero del
+proyecto y en el panel global.
 
 ## El analista
 
@@ -39,6 +73,29 @@ desarrollo de software, estudio o consultoría, campaña comercial y proyecto
 general en cinco fases. Las fechas evitan fines de semana y las **ventanas
 bloqueadas** que declares en la ficha del proyecto (por ejemplo, un mes en que el
 cliente no permite trabajos).
+
+### Modo preguntas
+
+El segundo modo del analista responde preguntas sobre el proyecto **con los
+números del proyecto**. Ocho análisis, cada uno con sus tablas, sus gráficos y su
+conclusión:
+
+| Análisis | Responde a |
+|---|---|
+| Presupuesto vs. costeo por líneas | «¿Explícame la diferencia entre el presupuesto y el costeo?» — qué es cada cifra, y el puente partida por partida contra la línea base. |
+| CAPEX, OPEX y modelo de servicio | «¿Explícame el OPEX y el CAPEX?» — por qué no se suman, por qué el chequeo del % anual engaña, la densidad frente al SLA y los tres escenarios de costo. |
+| Aritmética del SLA | «¿El SLA que nos piden es alcanzable?» — caída permitida contra tiempo de resolución, por equipo y por flota, y las multas en perspectiva. |
+| Precio final, margen y monedas | «¿Cuánto deberíamos ofertar?» — costo, margen razonado y precio por centro en su moneda. |
+| Estado del proyecto | «¿Cómo va?» — avance real contra esperado, lo atrasado y el próximo hito. |
+| Riesgos y qué negociar | «¿Qué debo cerrar antes de firmar?» |
+| Plazo, hitos y ventanas bloqueadas | «¿Llegamos con el plazo?» |
+| Documentación disponible y faltante | «¿Qué tenemos y qué falta?» |
+
+Ninguna respuesta se inventa: cada cifra sale de las partidas, las tareas, los
+riesgos o los parámetros del modelo de servicio, y las conclusiones son reglas
+explícitas sobre esas cifras. Si un dato no está cargado, la respuesta lo dice en
+vez de rellenarlo. El agente IA de KIMOS usa la misma máquina con la herramienta
+`ASK`, de modo que por chat se obtiene exactamente el mismo análisis.
 
 ## Documentos y carpetas
 
@@ -65,9 +122,12 @@ qué tablero, qué plan y qué cotización corresponden a cada trabajo.
 Al abrirse por primera vez, la app se siembra con el cliente **Parque Arauco** y
 su proyecto **Licitación Directorios Digitales PAK y PLC** (proceso
 PA-128-2026-DCL), cargado desde el informe consolidado del proceso: 8 fases, 31
-tareas, 9 hitos, 13 riesgos priorizados, 11 documentos del proceso, 15 partidas
-de costeo, 10 consultas abiertas y la ventana bloqueada de diciembre en Kennedy.
-Sirve de proyecto real y de ejemplo completo de lo que la app sabe llevar.
+tareas, 9 hitos, 13 riesgos priorizados, 11 documentos, 10 consultas abiertas y
+la ventana bloqueada de diciembre en Kennedy. En economía trae los dos centros
+—Kennedy en CLP y La Colina en COP—, las 15 partidas del costeo v2 separadas en
+CAPEX y OPEX, la línea base de 9 partidas del análisis interno previo y el modelo
+de servicio con sus tres niveles de SLA y sus multas. Sirve de proyecto real y de
+ejemplo completo de lo que la app sabe llevar.
 
 ## Control por agente IA
 
@@ -75,7 +135,8 @@ Sirve de proyecto real y de ejemplo completo de lo que la app sabe llevar.
 
 `CREATE_CLIENT` · `CREATE_PROJECT` · `UPDATE_PROJECT` · `ADD_TASK` ·
 `UPDATE_TASK` · `ADD_MILESTONE` · `ADD_RISK` · `UPDATE_RISK` · `ADD_DOCUMENT` ·
-`ADD_LOG` · `PROPOSE_PLAN` · `APPLY_PLAN` · `OPEN_VIEW`
+`ADD_LOG` · `PROPOSE_PLAN` · `APPLY_PLAN` · `OPEN_VIEW` · **`ASK`** ·
+`ADD_BUDGET_LINE` · `ADD_CENTER` · `UPDATE_COSTING` · `SET_BASELINE`
 
 `getSnapshot()` devuelve la cartera completa con métricas por proyecto, tareas,
 riesgos y fuentes, para que el agente sepa sobre qué actuar antes de despachar.
@@ -92,7 +153,8 @@ riesgos y fuentes, para que el agente sepa sobre qué actuar antes de despachar.
 ## Preferencias (⚙️ Configurar)
 
 Color de acento · moneda por defecto · días de anticipación para las alertas ·
-tablas compactas · mostrar u ocultar las cifras de presupuesto.
+**umbral de desvío del costeo** · tablas compactas · mostrar u ocultar las cifras
+de presupuesto.
 
 ## Aspecto
 
@@ -106,4 +168,5 @@ visión normal ΔE ≥ 15 en ambos modos), con su juego de pasos para fondo oscu
 
 | Versión | Qué trae |
 |---|---|
+| **1.1.0** | Pestaña **Economía**: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con prorrateo de lo compartido, línea base y puente que explica cada desvío, modelo de costeo del servicio post-venta con tres escenarios y aritmética del SLA, y motor de margen que lleva del costo al precio ofertable en la moneda de cada sede. El indicador de presupuesto se marca en rojo cuando el costeo lo supera por encima del umbral configurado, en la ficha, en el tablero del proyecto y en el panel global. **Modo preguntas del analista** con ocho análisis que responden con los números del proyecto, disponibles también para el agente IA con la herramienta `ASK`. Cinco herramientas nuevas de agente para la economía. El proyecto semilla de Parque Arauco trae sus centros, su línea base y su modelo de servicio. |
 | **1.0.0** | Primera publicación. Cartera por cliente; tablero global y por proyecto en vivo; plan con fases, tareas, hitos y línea temporal; matriz de riesgos 5×5; biblioteca de documentos con carpetas locales, Drive y enlaces; analista que propone planes de trabajo con seis plantillas; bitácora; costeo por partidas; consultas abiertas; ventanas bloqueadas; enlace con Planificación, Kanban y Cotizaciones; agente IA con 13 herramientas; colaboración multiusuario con fusión por entidad; proyecto semilla de Parque Arauco. |
