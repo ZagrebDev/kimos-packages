@@ -633,6 +633,9 @@ sigue: por eso guardas siempre tu propia instantánea.
 
 ## 8. Checklist antes de publicar
 
+- [ ] **`node tools/check-app.mjs apps/{id}` sin errores.** Revisa el contrato
+      y, además, si la app se está resolviendo por su cuenta algo que la
+      plataforma ya resuelve (clientes, archivos, marca, colores).
 - [ ] **Versión subida en los cuatro lugares** (§7.a) y `node tools/check-versions.mjs` en verde.
 - [ ] La app **muestra su versión** en pantalla (`APP_VERSION` en la cabecera).
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
@@ -682,6 +685,25 @@ alineadas. Copia su hoja de estilos como plantilla. Reglas:
    estilo shadcn (outline por defecto, `--primary` para la acción principal).
 5. **Angosto**: a `max-width: 860px` el header pasa a dos filas y las pestañas
    ocupan el ancho completo con scroll horizontal.
+
+---
+
+## 9.a ¿Vienes con una app ya hecha?
+
+Si la app existe y toca entrarla al repositorio oficial, el orden es al revés
+que en esta especificación: primero mira qué le falta, luego lee la sección
+que corresponda.
+
+```bash
+node tools/check-app.mjs apps/tu-app
+```
+
+**`ALINEA-TU-APP.md`** explica qué hacer con cada aviso, con el antes y el
+después. Cubre lo que una app hecha aparte casi siempre resuelve por su
+cuenta: su propia base de clientes (§7.d), su propio almacenamiento de
+archivos (§7.e), sus propios datos de marca (§7.f) y los colores cableados
+(§9), que son los que impiden que la app se re-marque con la marca del
+tenant.
 
 ---
 

@@ -72,7 +72,10 @@
 .kimos-customers .kc-toggle-on { background: var(--ko-accent); }
 .kimos-customers .kc-toggle-dot {
   position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-  background: #fff; transition: transform 120ms ease;
+  /* El puntito del interruptor va sobre el acento cuando está encendido:
+     su color es el del texto que se lee encima de ese acento, no un blanco
+     fijo — si la marca del tenant es clara, un blanco fijo no se ve. */
+  background: var(--ko-accent-fg); transition: transform 120ms ease;
 }
 .kimos-customers .kc-toggle-on .kc-toggle-dot { transform: translateX(16px); }
 

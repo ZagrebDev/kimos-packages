@@ -10,6 +10,11 @@ persistentes, agentes IA y hasta endpoints públicos, **sin escribir backend**.
 
 ---
 
+> **¿Ya tienes una app hecha?** Esta guía es para escribir una desde cero. Si
+> lo que traes es un `.kapp` que ya funciona y toca entrarlo al repositorio
+> oficial, empieza por **`ALINEA-TU-APP.md`** y por
+> `node tools/check-app.mjs apps/tu-app`.
+
 ## 1. Qué es una app de KIMOS
 
 Una app de KIMOS es un **único archivo JavaScript** (bundle ESM) más un
@@ -451,6 +456,8 @@ pestaña Resultados.
       del documento.
 - [ ] Si tu app muestra logo, razón social o colores de la empresa: vienen de
       `shell.brand`, no de un formulario propio.
+- [ ] `node tools/check-app.mjs <carpeta>` sin errores (los avisos, leídos:
+      los que descartes, escríbelo en tu README y por qué).
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.
 
 ## 10. Preguntas frecuentes

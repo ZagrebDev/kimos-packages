@@ -12,32 +12,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// El contrato (permisos, dataSchema, formato del id y de la versión) vive en
+// un solo sitio, compartido con `check-app.mjs`: si el empaquetador y el
+// revisor no deciden lo mismo, quien escribe una app recibe dos respuestas
+// distintas a la misma pregunta.
+import { PERMISSIONS_HELP, validateManifest } from './app-contract.mjs';
 
-const ALLOWED_PERMISSIONS = new Set([
-  'instance.read', 'instance.write', 'agent.control', 'public.read', 'public.submit',
-  // Recursos compartidos de plataforma (APP-SPEC §7.d y §7.e).
-  'records.link',   // identidades compartidas entre apps (shell.records)
-  'files.write',    // subir archivos con ruta gestionada por el host (shell.files)
-  'brand.read',     // marca del tenant: logos, razón social, colores (shell.brand)
-]);
-// Permisos parametrizados: data.read:{templateId} / data.write:{templateId},
-// o `*`. Lecturas y escrituras en datos de OTRA app vía shell.data,
-// consentidas por el superadmin al instalar. La escritura además exige que la
-// app dueña publique un `dataSchema` (APP-SPEC §7.c): eso lo comprueba el
-// backend en cada llamada, no aquí.
-const PARAM_PERMISSION_RE = /^data\.(read|write):(\*|[a-z0-9][a-z0-9.\-]{0,60})$/;
-const permissionAllowed = (p) => ALLOWED_PERMISSIONS.has(p) || PARAM_PERMISSION_RE.test(p);
-const APP_ID_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/;
-const VERSION_RE = /^\d+(\.\d+){0,2}([-.][0-9A-Za-z-]+)*$/;
 const INCLUDE_TOP = new Set(['manifest.json', 'dist', 'assets', 'README.md']);
-// Campos que gestiona la plataforma: declararlos en un `dataSchema` no los
-// habilita, así que declararlos es señal de un malentendido.
-const RESERVED_FIELDS = new Set([
-  'id', 'createdAt', 'updatedAt', 'createdBy', 'updatedBy',
-  'createdByApp', 'updatedByApp', 'recordRef',
-]);
-// Identidades que la plataforma reconoce (APP-SPEC §7.d).
-const RECORD_TYPES = new Set(['account', 'contact', 'product', 'opportunity', 'project']);
 
 function fail(msg) { console.error('✖ ' + msg); process.exit(1); }
 
@@ -118,40 +99,17 @@ catch (e) { fail('manifest.json no es JSON válido: ' + e.message); }
 
 const id = String(manifest.id || '').trim();
 const version = String(manifest.version || '').trim();
-if (!APP_ID_RE.test(id)) fail("`id` inválido (minúsculas/dígitos/. _ -; recomendado namespacing 'org.app').");
-if (!VERSION_RE.test(version)) fail('`version` inválida (usa SemVer, p.ej. 1.0.0).');
-const perms = manifest.permissions || [];
-if (!Array.isArray(perms) || perms.some((p) => !permissionAllowed(p)))
-  fail(`\`permissions\` inválidos. Permitidos: ${[...ALLOWED_PERMISSIONS].join(', ')} o data.read:{templateId} / data.write:{templateId}.`);
-// `dataSchema`: lo que tu app acepta de OTRAS apps. Se valida aquí porque un
-// contrato mal escrito no falla al instalar, falla el día que otra app intenta
-// escribir — y entonces el error aparece lejos de su causa.
-const schema = manifest.dataSchema;
-if (schema !== undefined) {
-  if (!schema || typeof schema !== 'object' || Array.isArray(schema))
-    fail('`dataSchema` debe ser un objeto (ver APP-SPEC §7.c).');
-  const fields = schema.fields;
-  if (!Array.isArray(fields) || fields.length === 0)
-    fail('`dataSchema.fields` debe ser una lista con al menos un campo.');
-  const claves = new Set();
-  for (const f of fields) {
-    const key = f && typeof f === 'object' ? String(f.key || '').trim() : '';
-    if (!key) fail('Cada campo de `dataSchema.fields` necesita una `key`.');
-    if (RESERVED_FIELDS.has(key))
-      fail(`\`dataSchema\` declara '${key}', que gestiona la plataforma: no se puede escribir desde otra app.`);
-    if (claves.has(key)) fail(`\`dataSchema\` declara '${key}' dos veces.`);
-    claves.add(key);
-  }
-  const rt = String(schema.recordType || '').trim();
-  if (rt && !RECORD_TYPES.has(rt))
-    fail(`\`dataSchema.recordType\` = '${rt}' no existe. Tipos: ${[...RECORD_TYPES].join(', ')} (APP-SPEC §7.d).`);
-  const nk = schema.naturalKeys;
-  if (nk !== undefined && !Array.isArray(nk)) fail('`dataSchema.naturalKeys` debe ser una lista.');
-  for (const k of nk || []) {
-    if (!claves.has(String(k)))
-      fail(`\`dataSchema.naturalKeys\` menciona '${k}', que no está entre los campos declarados.`);
-  }
+// El `dataSchema` se valida aquí y no al instalar porque un contrato mal
+// escrito no falla al instalar: falla el día que otra app intenta escribir, y
+// entonces el error aparece lejos de su causa.
+const problemas = validateManifest(manifest);
+if (problemas.length) {
+  for (const msg of problemas) console.error('✖ ' + msg);
+  console.error(`  (${PERMISSIONS_HELP})`);
+  console.error('  Revisa la app completa con: node tools/check-app.mjs ' + appDir);
+  process.exit(1);
 }
+const perms = manifest.permissions || [];
 
 const entry = String(manifest.entry || 'dist/index.js');
 if (!fs.existsSync(path.join(appDir, entry))) fail(`No existe el bundle '${entry}'.`);

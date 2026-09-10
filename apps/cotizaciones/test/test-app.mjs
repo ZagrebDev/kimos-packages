@@ -213,6 +213,9 @@ const ESCRITURA = { creados: [], ignorados: [], seq: 100, falla: '' };
 // La marca activa del tenant. Empieza sin configurar a propósito: es el
 // estado de un KIMOS recién instalado.
 const MARCA = { actual: null };
+// Almacenamiento del host (APP-SPEC §7.e). Guarda la CARPETA que pidió la app
+// para poder comprobar que la app elige la carpeta lógica y no la ruta real.
+const ARCHIVOS = { subidos: [], falla: '' };
 let agentReg = null;
 
 const shell = {
@@ -269,6 +272,21 @@ const shell = {
   // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
   // configurada, que es un caso normal y no un error.
   brand: { current: async () => MARCA.actual },
+  // Archivos con ruta gestionada por el host: la app pasa un `folder` lógico
+  // y el host devuelve una URL que la app no compone.
+  files: {
+    upload: async (file, opts) => {
+      if (ARCHIVOS.falla) throw new Error(ARCHIVOS.falla);
+      const carpeta = (opts && opts.folder) || 'general';
+      const nombre = String((file && file.name) || 'archivo');
+      const url = 'http://kimos.local/api/public/files/imagenes/cotizaciones/inst-1/'
+        + carpeta + '/abc123-' + nombre;
+      ARCHIVOS.subidos.push({ carpeta, nombre, url, maxMB: opts && opts.maxMB });
+      return url;
+    },
+    list: async () => ARCHIVOS.subidos.map((a) => ({ name: a.nombre, url: a.url })),
+    remove: async (url) => { ARCHIVOS.subidos = ARCHIVOS.subidos.filter((a) => a.url !== url); },
+  },
   config: { get: async () => ({}), set: async () => {}, onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
   authFetch: async (url, init) => {
@@ -294,6 +312,12 @@ const shell = {
       return json(store.get(items[1]));
     }
     if (items && items[1] && method === 'DELETE') { store.delete(items[1]); return json({ deleted: true }); }
+    // El camino antiguo (la app elige la ruta). Se conserva solo como
+    // respaldo para un host sin `shell.files`, y por eso se prueba.
+    if (url.endsWith('/api/v2/files') && method === 'POST') {
+      ARCHIVOS.aMano = (ARCHIVOS.aMano || 0) + 1;
+      return json({ ok: true });
+    }
     if (url.match(/\/api\/app-instances\/[^/]+$/)) return json({ id: 'inst-1', name: 'Cotizador de prueba', config: {} });
     return json({}, 404);
   },
@@ -730,6 +754,55 @@ seccion('Identidad del cliente compartida con el resto de KIMOS');
     'y el motivo se le dice a quien está cotizando, no se traga');
 }
 
+seccion('Archivos por el almacenamiento del host');
+{
+  const T = mounted.__test;
+  const antesAMano = ARCHIVOS.aMano || 0;
+
+  // El logo del emisor: la app pasa una CARPETA lógica, no una ruta.
+  const url = await T.uploadImage(new File(['x'], 'Logo Metakut.png', { type: 'image/png' }), 'logos');
+  ok(/\/api\/public\/files\//.test(url), 'la subida devuelve una URL pública', url);
+  eq(ARCHIVOS.subidos.length, 1, 'y pasó por `shell.files`, no a mano');
+  eq(ARCHIVOS.subidos[0].carpeta, 'logos', 'con la carpeta lógica que pidió la app');
+  eq(ARCHIVOS.aMano || 0, antesAMano, 'sin tocar `/api/v2/files` a mano');
+  ok(url.indexOf('imagenes/cotizaciones/inst-1/') !== -1,
+    'la RUTA la decidió el host: aislada por app e instancia', url);
+
+  // Los límites los sigue poniendo la app: la plataforma no adivina qué
+  // formato es aceptable para una propuesta comercial.
+  let err = '';
+  try { await T.uploadImage(new File(['x'], 'virus.exe', { type: 'application/x-msdownload' }), 'logos'); }
+  catch (e) { err = e.message; }
+  ok(err.indexOf('Formato no admitido') !== -1, 'un formato que no es imagen se rechaza antes de subir', err);
+
+  err = '';
+  const grande = new File([new Uint8Array(9 * 1024 * 1024)], 'enorme.png', { type: 'image/png' });
+  try { await T.uploadImage(grande, 'logos'); } catch (e) { err = e.message; }
+  ok(err.indexOf('MB') !== -1, 'y una imagen desmesurada también', err);
+
+  // El error del host llega a quien está subiendo.
+  ARCHIVOS.falla = 'Sin cuota de almacenamiento.';
+  err = '';
+  try { await T.uploadImage(new File(['x'], 'otra.png', { type: 'image/png' }), 'items'); }
+  catch (e) { err = e.message; }
+  ARCHIVOS.falla = '';
+  ok(err.indexOf('cuota') !== -1, 'un fallo del almacenamiento no se traga', err);
+
+  // Publicar la propuesta (`actPublishQuote`) usa este mismo camino, pero no
+  // se prueba aquí: para construir la hoja necesita un iframe real con su
+  // `contentDocument` y ReactDOM pintando dentro, y el DOM simulado de este
+  // banco no llega ahí. Lo que sí se prueba es que un fallo al publicar no
+  // rompe la app: devuelve '' y avisa.
+  const q = T.actNewQuote({ title: 'Propuesta publicable' });
+  T.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
+  const antesAvisos = notices.length;
+  const enlace = await T.actPublishQuote(q.id);
+  eq(enlace, '', 'si la hoja no se puede construir, publicar devuelve cadena vacía');
+  ok(notices.slice(antesAvisos).some((n) => n.indexOf('error') === 0),
+    'y lo dice en pantalla en vez de fallar en silencio', notices.slice(antesAvisos));
+  eq(T.docById(q.id).publicUrl, '', 'sin dejar un enlace a medias en la cotización');
+}
+
 seccion('La marca del sistema rellena el emisor');
 {
   const T = mounted.__test;
@@ -790,6 +863,7 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
   });
   delete viejo.records;
   delete viejo.brand;
+  delete viejo.files;
 
   const app2 = mod.default(viejo);
   const V = app2.__test;
@@ -806,6 +880,15 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
     'y se explica por qué, en vez de fallar en silencio');
   eq(V.estadoVinculo(V.docById(q.id)).estado, 'suelto', 'la cotización queda suelta, que es lo correcto');
   ok(V.marcaNoDisponible() !== '', 'y tampoco hay marca del sistema, sin que eso rompa nada');
+
+  // El respaldo de subida: sin `shell.files`, la app vuelve al camino antiguo
+  // (elige ella la ruta). Se conserva para no dejar sin logo a un tenant que
+  // no haya actualizado el shell.
+  const antesAMano = ARCHIVOS.aMano || 0;
+  const urlVieja = await V.uploadImage(new File(['x'], 'logo.png', { type: 'image/png' }), 'logos');
+  ok((ARCHIVOS.aMano || 0) === antesAMano + 1, 'sin `shell.files` se sube por el camino antiguo');
+  ok(urlVieja.indexOf('imagenes/cotizaciones/logos/') !== -1,
+    'y entonces la ruta la elige la app, que es justo lo que shell.files vino a quitarle', urlVieja);
   eq(V.docById(q.id).client.name, 'Cliente de Siempre', 'pero el cliente se guarda igual');
   V.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
   eq(V.computeTotals(V.docById(q.id), V.rulesOf()).total > 0, true, 'y la cotización se calcula igual');

@@ -29,8 +29,13 @@ const OUT = join(ROOT, 'kimos-creator-pack.zip');
 const INCLUDE = [
   // --- crear una app ---
   ['CREA-TU-APP.md', 'CREA-TU-APP.md'],
+  ['ALINEA-TU-APP.md', 'ALINEA-TU-APP.md'],
   ['APP-SPEC.md', 'APP-SPEC.md'],
   ['tools/pack.mjs', 'tools/pack.mjs'],
+  ['tools/check-app.mjs', 'tools/check-app.mjs'],
+  // El contrato (permisos, dataSchema) que comparten el empaquetador y el
+  // revisor. Sin este archivo, ninguno de los dos arranca.
+  ['tools/app-contract.mjs', 'tools/app-contract.mjs'],
   ['apps/miorg.encuestas', 'ejemplos/miorg.encuestas'],
   ['apps/miorg.buzon', 'ejemplos/miorg.buzon'],
   // --- crear conocimiento para LiDARia (2.0) ---
@@ -51,8 +56,14 @@ que quieras aportar:
 
 ## A. Crear una APP (.kapp) — si vas a programar
 
-- CREA-TU-APP.md      → EMPIEZA AQUÍ: guía paso a paso (quickstart de 10 min).
+- CREA-TU-APP.md      → EMPIEZA AQUÍ si partes de cero: guía paso a paso.
+- ALINEA-TU-APP.md    → EMPIEZA AQUÍ si YA tienes una app hecha y toca
+                        entrarla al repositorio oficial: qué resuelve KIMOS
+                        por ti y cómo dejar de resolverlo por tu cuenta.
 - APP-SPEC.md         → referencia técnica del contrato AppShell.
+- tools/check-app.mjs → revisor: node tools/check-app.mjs <carpeta-de-tu-app>
+                        separa errores (hay que corregirlos) de avisos de
+                        alineación (señales para revisar).
 - tools/pack.mjs      → empaquetador: node tools/pack.mjs <carpeta-de-tu-app>
                         genera el archivo .kapp listo para instalar.
 - ejemplos/           → dos apps de terceros completas y comentadas:
@@ -64,9 +75,12 @@ manifest.json y dist/index.js → node tools/pack.mjs tuorg.mi-app → en KIMOS,
 Tienda → "Instalar desde archivo" (lo hace un superadmin).
 
 Lo que NO tienes que reinventar (CREA-TU-APP.md §7): la base de clientes
-(\`shell.records\`), el almacenamiento de archivos (\`shell.files\`) y los datos
-de otras apps (\`shell.data\`). Si tu app se crea su propia lista de clientes o
-su propio bucket, el sistema acaba con tres verdades y ninguna completa.
+(\`shell.records\`), el almacenamiento de archivos (\`shell.files\`), la marca de
+la empresa (\`shell.brand\`) y los datos de otras apps (\`shell.data\`). Si tu app
+se crea su propia lista de clientes o su propio bucket, el sistema acaba con
+tres verdades y ninguna completa.
+
+Antes de entregar: node tools/check-app.mjs <carpeta-de-tu-app>
 
 ## B. Crear CONOCIMIENTO para LiDARia (.krub) — sin programar
 
@@ -131,5 +145,5 @@ rmSync(OUT, { force: true });
 execFileSync('zip', ['-rq', OUT, '.'], { cwd: stage });
 rmSync(stage, { recursive: true, force: true });
 console.log(`✔ kimos-creator-pack.zip 2.0 generado (${entries.length} archivos, ${(statSync(OUT).size / 1024).toFixed(0)} KB)`);
-console.log('  · apps .kapp: CREA-TU-APP.md + APP-SPEC.md + tools/pack.mjs + 2 ejemplos');
+console.log('  · apps .kapp: CREA-TU-APP.md + ALINEA-TU-APP.md + APP-SPEC.md + pack/check + 2 ejemplos');
 console.log('  · rubros .krub: CREA-TU-RUBRO.md + tools/pack-rubro.mjs + validador + 1 ejemplo');

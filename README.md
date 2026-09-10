@@ -4,7 +4,12 @@ Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y 
 
 > **¿Quieres crear tu propia app?** Empieza por **[`CREA-TU-APP.md`](CREA-TU-APP.md)**
 > (guía paso a paso, sin necesidad de backend). La referencia técnica completa
-> del contrato está en [`APP-SPEC.md`](APP-SPEC.md). Para terceros SIN acceso a
+> del contrato está en [`APP-SPEC.md`](APP-SPEC.md).
+>
+> **¿Traes una app YA HECHA?** Entonces el orden es otro:
+> **[`ALINEA-TU-APP.md`](ALINEA-TU-APP.md)** y `node tools/check-app.mjs apps/tu-app`.
+> Dice qué está resolviendo tu app por su cuenta que la plataforma ya resuelve
+> para todas —clientes, archivos, marca, colores— y cómo dejar de hacerlo. Para terceros SIN acceso a
 > este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
 > descargable desde la Tienda de KIMOS o regenerable con
 > `node tools/build-creator-pack.mjs`.
@@ -100,6 +105,18 @@ Antes de commitear, verificar (falla con código 1 si algo quedó desalineado):
 node tools/check-versions.mjs                # todas las apps
 node tools/check-versions.mjs notas-equipo   # una sola
 ```
+
+Y la revisión del contrato completo —incluida la alineación con los recursos
+compartidos de la plataforma— con:
+
+```bash
+node tools/check-app.mjs                     # todas las apps
+node tools/check-app.mjs apps/cotizaciones   # una sola
+```
+
+Separa **errores** (verificables, hay que corregirlos) de **avisos** (señales
+que se detectan leyendo el bundle como texto y pueden equivocarse). Solo los
+errores hacen que salga con código 1.
 
 Semver: parche para arreglos, menor para funciones nuevas compatibles, mayor si
 cambia el formato de datos o el contrato del agente. **Nunca reutilizar un
