@@ -685,6 +685,22 @@ export default function mount(shell) {
       kinectUsarPiso: true,    // medir alturas contra el plano del piso
       kinectUsarLean: true,    // usar la inclinación que mide el sensor
       kinectUsarManos: true,   // exigir puño / mano abierta en los juegos
+      // ── La cámara de color del sensor, como una webcam RGB ───────────
+      // El Kinect v2 trae una cámara de color de 1080p a 30 fps (84,1° ×
+      // 53,8°). Por el puente llega reducida —mandar 1920×1080 sin comprimir
+      // treinta veces por segundo sería absurdo— y estos son sus mandos.
+      // Antes solo se podían tocar con banderas al arrancar el puente desde
+      // una consola, que en la práctica quería decir que no se tocaban.
+      kinectImagen: true,      // transmitir la imagen de color
+      kinectImagenAncho: 320,  // px de ancho; el alto sale del 16:9 del sensor
+      kinectImagenFps: 12,     // cuadros por segundo pedidos al puente
+      // Ajustes de imagen, los mismos que trae el panel de cualquier webcam.
+      // Se aplican como filtro de pantalla y NO tocan los píxeles que llegan
+      // del sensor: el fotómetro de luz tiene que seguir midiendo la escena
+      // real, no una escena maquillada.
+      kinectBrillo: 100,       // %
+      kinectContraste: 100,    // %
+      kinectSaturacion: 100,   // %
       poseModuleUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs',
       poseWasmUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
       poseModelUrl: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
@@ -1986,6 +2002,13 @@ export default function mount(shell) {
 
   let motorActivo = null;
   /**
+   * El proveedor Kinect vivo, si lo hay. Se guarda aparte de `motorActivo`
+   * —que es solo una etiqueta para el chrome— porque hay un caso que lo pide:
+   * el operador cambia la imagen en el editor mientras el sensor está andando
+   * y tiene que verlo al momento, no después de reiniciar el juego.
+   */
+  let kinectActivo = null;
+  /**
    * El enlace del sensor remoto que está en uso, si lo hay.
    *
    * Con el teléfono de cámara, la partida depende de un equipo que no está en
@@ -2751,10 +2774,28 @@ export default function mount(shell) {
     const tuberia = tuberiaPose(Object.assign({}, hw, { recorteZona: false }), espacio);
     let ws = null, ultima = null, vivo = false, reintento = null, cerrado = false;
     let ultimoCuadro = 0, cuadros = 0, estado = 'conectando', fueraDeRango = 0;
+    // Cuántos cuadros de CUERPO llegan por segundo. Es el equivalente de los
+    // fps de pose de la webcam, y es lo que la prueba de campo necesita saber
+    // para decir si este montaje da o no da.
+    let hzCuerpos = 0; const ventanaCuerpos = [];
     // Imagen de color del sensor. Es lo que permite que el Kinect REEMPLACE a
     // la webcam en vez de convivir con ella: sin esto habría que encender una
     // cámara solo para que el jugador se vea, con el sensor al lado sin usar.
     let imagen = null, imagenes = 0, ultimaImagen = 0;
+    // Cómo quiere el operador la imagen, y qué contestó el puente que pudo
+    // hacer. Son dos cosas distintas y la app enseña la SEGUNDA: marcar una
+    // casilla no crea un lector de color donde el módulo nativo no lo tiene.
+    const imagenPedida = {
+      activa: (hw && hw.kinectImagen) !== false,
+      ancho: clamp(Math.round(num(hw && hw.kinectImagenAncho, 320)), 80, 960),
+      fps: clamp(Math.round(num(hw && hw.kinectImagenFps, 12)), 1, 30),
+    };
+    let imagenPuente = null;      // último `estadoImagen` recibido
+    let hzImagen = 0, ventanaImg = [];
+    const mandarConfig = () => {
+      if (!ws || ws.readyState !== 1) return false;
+      try { ws.send(JSON.stringify({ tipo: 'config', imagen: imagenPedida })); return true; } catch (e) { return false; }
+    };
 
     /**
      * Desempaqueta un cuadro: 'KF', versión, formato, ancho, alto y píxeles
@@ -2774,6 +2815,13 @@ export default function mount(shell) {
       }
       try { imagen = new ImageData(rgba, ancho, alto); } catch (e) { return; }
       imagenes++; ultimaImagen = nowMs();
+      // fps REALES de la imagen, no los pedidos: en un Celeron con el juego
+      // corriendo, 12 pedidos pueden ser 5 servidos, y esa diferencia es
+      // exactamente lo que hay que poder ver antes de una feria.
+      ventanaImg.push(ultimaImagen);
+      while (ventanaImg.length > 1 && ultimaImagen - ventanaImg[0] > 3000) ventanaImg.shift();
+      hzImagen = ventanaImg.length > 1
+        ? ((ventanaImg.length - 1) * 1000) / (ultimaImagen - ventanaImg[0]) : 0;
     };
 
     /**
@@ -2809,15 +2857,26 @@ export default function mount(shell) {
       let resuelto = false;
       try { ws = new WebSocket(url); } catch (e) { reject(e); return; }
       ws.binaryType = 'arraybuffer';
-      ws.onopen = () => { vivo = true; estado = 'conectado'; resuelto = true; resolve(true); };
+      ws.onopen = () => {
+        vivo = true; estado = 'conectado'; resuelto = true;
+        // Lo primero que se dice al puente es cómo se quiere la imagen: si no,
+        // se queda con lo que le pusieron por línea de comandos hace meses.
+        mandarConfig();
+        resolve(true);
+      };
       ws.onmessage = (ev) => {
         // Los cuadros de imagen vienen en binario, aparte del JSON del cuerpo.
         if (ev.data instanceof ArrayBuffer) { recibirImagen(ev.data); return; }
         let m = null;
         try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m && m.tipo === 'imagen') { imagenPuente = m; return; }
         if (!m || m.tipo !== 'cuerpos') return;
         cuadros++;
         ultimoCuadro = nowMs();
+        ventanaCuerpos.push(ultimoCuadro);
+        while (ventanaCuerpos.length > 1 && ultimoCuadro - ventanaCuerpos[0] > 3000) ventanaCuerpos.shift();
+        hzCuerpos = ventanaCuerpos.length > 1
+          ? ((ventanaCuerpos.length - 1) * 1000) / (ultimoCuadro - ventanaCuerpos[0]) : 0;
         const todos = Array.isArray(m.cuerpos) ? m.cuerpos.filter((c) => c && c.joints) : [];
         // Fuera del rango de juego no se considera a nadie: en una feria el
         // público de atrás entra en cuadro y, sin esto, el juego se lo lleva.
@@ -2883,7 +2942,15 @@ export default function mount(shell) {
       },
       /** Estado del puente, para el Diagnóstico. */
       salud() {
-        return {
+        // La forma es la MISMA que la del proveedor de webcam —`hz`, `ms`,
+        // `recorte` y lo de la tubería arriba del todo— para que la prueba de
+        // campo lea los dos motores sin preguntar cuál está detrás. Sin esto,
+        // un tótem solo con Kinect no podía correr su propia prueba de campo.
+        return Object.assign({
+          hz: Math.round(hzCuerpos * 10) / 10,
+          ms: ultimoCuadro && ventanaCuerpos.length > 1 ? Math.round(1000 / Math.max(0.1, hzCuerpos)) : 0,
+          recorte: false,
+        }, tuberia.salud(), {
           url, estado, vivo, cuadros,
           desdeUltimoCuadro: ultimoCuadro ? nowMs() - ultimoCuadro : null,
           cuerpos: ultima && ultima.kinect ? ultima.kinect.cuerposEnEscena : 0,
@@ -2893,8 +2960,35 @@ export default function mount(shell) {
           tuberia: tuberia.salud(),
           imagenes,
           imagenViva: !!(ultimaImagen && nowMs() - ultimaImagen < 1500),
+          // La imagen de color, con las dos versiones de la verdad: lo que se
+          // pidió y lo que el puente dijo que pudo hacer. Cuando no coinciden
+          // hay algo que contarle al operador.
+          imagen: {
+            pedida: Object.assign({}, imagenPedida),
+            puente: imagenPuente ? {
+              activa: !!imagenPuente.activa, pedida: !!imagenPuente.pedida,
+              ancho: num(imagenPuente.ancho, null), fps: num(imagenPuente.fps, null),
+              motivo: s(imagenPuente.motivo) || null,
+            } : null,
+            // Lo que de verdad está llegando, medido acá.
+            tamano: imagen ? imagen.width + '×' + imagen.height : null,
+            fpsReales: Math.round(hzImagen * 10) / 10,
+          },
           propiedades: { cuerpoModo, minCm, maxCm, suave, usarPiso, usarLean, usarManos },
-        };
+        });
+      },
+      /**
+       * Cambia la configuración de imagen en caliente. Se usa cuando el
+       * operador toca los campos del editor mientras el sensor está andando:
+       * reiniciar el juego para ver el efecto sería absurdo.
+       */
+      configurarImagen(cfg) {
+        const c = cfg || {};
+        if (typeof c.activa === 'boolean') imagenPedida.activa = c.activa;
+        if (c.ancho != null) imagenPedida.ancho = clamp(Math.round(num(c.ancho, 320)), 80, 960);
+        if (c.fps != null) imagenPedida.fps = clamp(Math.round(num(c.fps, 12)), 1, 30);
+        if (!imagenPedida.activa) { imagen = null; ventanaImg = []; hzImagen = 0; }
+        return mandarConfig();
       },
       /**
        * Último cuadro de color del sensor, o null. Se entrega como ImageData
@@ -2963,6 +3057,9 @@ export default function mount(shell) {
         await k.iniciar();
         puenteAusente = null;
         motorActivo = { tipo: 'kinect', etiqueta: '🦴 Kinect', detalle: 'Esqueleto del Kinect v2 por el puente local' };
+        // Se guarda el proveedor vivo, no solo su etiqueta: el editor necesita
+        // hablarle para cambiar la imagen sin reiniciar el juego.
+        kinectActivo = k;
         return k;
       } catch (e) {
         try { k.detener(); } catch (e2) { /* noop */ }
@@ -3021,7 +3118,7 @@ export default function mount(shell) {
   }
 
   /** Se llama al soltar el motor: fuera de una partida no hay nada que mostrar. */
-  function olvidarMotor() { motorActivo = null; enlaceActivo = null; }
+  function olvidarMotor() { motorActivo = null; enlaceActivo = null; kinectActivo = null; }
 
   /**
    * Último cuadro de imagen del proveedor, si lo entrega. Solo el Kinect lo
@@ -3031,6 +3128,38 @@ export default function mount(shell) {
   function imagenDe(ref) {
     const p = ref && ref.current;
     return p && typeof p.imagen === 'function' ? p.imagen() : null;
+  }
+
+  /**
+   * Filtro de pantalla para la imagen del sensor, con los mismos mandos que
+   * trae el panel de cualquier webcam. Es CSS a propósito: lo aplica la GPU
+   * sin coste, y sobre todo NO toca los píxeles que llegan del Kinect, así que
+   * el fotómetro de luz sigue midiendo la sala y no una imagen maquillada.
+   * Devuelve null cuando está todo en 100: sin filtro es una capa menos.
+   */
+  function filtroImagen(hw) {
+    const b = clamp(Math.round(num(hw && hw.kinectBrillo, 100)), 40, 200);
+    const c = clamp(Math.round(num(hw && hw.kinectContraste, 100)), 40, 200);
+    const sat = clamp(Math.round(num(hw && hw.kinectSaturacion, 100)), 0, 200);
+    if (b === 100 && c === 100 && sat === 100) return null;
+    return 'brightness(' + b + '%) contrast(' + c + '%) saturate(' + sat + '%)';
+  }
+
+  /**
+   * Cambia la imagen del Kinect en el modelo Y en el sensor que esté andando.
+   * Si solo se guardara en el modelo, el operador movería el control y no
+   * pasaría nada hasta el siguiente juego, que es la peor forma de descubrir
+   * que un ajuste sí funcionaba.
+   */
+  function patchImagenKinect(m, cambio) {
+    patch({ hardware: cambio });
+    if (!kinectActivo || typeof kinectActivo.configurarImagen !== 'function') return;
+    const hw = Object.assign({}, m.hardware, cambio);
+    kinectActivo.configurarImagen({
+      activa: hw.kinectImagen !== false,
+      ancho: num(hw.kinectImagenAncho, 320),
+      fps: num(hw.kinectImagenFps, 12),
+    });
   }
 
   function proveedorMediaPipe(hw, espacio) {
@@ -4955,7 +5084,7 @@ export default function mount(shell) {
    * contra el manifest de la app, el catálogo raíz y el README. Con un nombre
    * propio el chequeo pasaba, pero pasaba sin mirar nada.
    */
-  const APP_VERSION = '1.18.0';
+  const APP_VERSION = '1.19.0';
 
   /**
    * Identificador de esta sesión de la app: desde que se abrió hasta que se
@@ -5576,16 +5705,30 @@ export default function mount(shell) {
       nota: 'Sigue a la persona moviendo el lente. Encuadra muy bien para mostrar en pantalla, pero al girar cambia la geometría y la app no puede medir estatura ni distancia mientras se mueve.',
     },
     {
-      // El campo que importa es el del sensor de PROFUNDIDAD (70° × 60°), que
-      // es de donde sale el esqueleto; la cámara de color abre más (84,1° ×
-      // 53,8°) pero no es la que sigue el cuerpo. Y su relación de aspecto es
-      // 512×424, no 16:9: sin declararla, el cálculo vertical subestima casi
-      // 17° y diría que no ve la cabeza cuando sí la ve.
-      id: 'kinect-v2', nombre: 'Kinect for Xbox One (v2) + puente', fovH: 70, fovV: 60,
-      aspecto: 512 / 424, res: '1080p color + 512×424 profundidad', fps: 30,
+      // El Kinect v2 tiene DOS lentes y hay que declarar el correcto.
+      //
+      // La versión anterior declaraba el de PROFUNDIDAD (70° × 60°, 512×424)
+      // razonando que es de donde sale el esqueleto. Es cierto que de ahí sale,
+      // pero NO es en esas coordenadas que llega: el puente traduce cada
+      // articulación a `colorX`/`colorY`, que son 0..1 sobre el cuadro de COLOR
+      // de 1920×1080 —el mismo que se pinta en pantalla—. Todo lo que la app
+      // mide en centímetros parte de esos x/y, así que la geometría tiene que
+      // ser la del lente de color: 84,1° × 53,8°, 16:9.
+      //
+      // El error no era teórico. Con una persona sintética proyectada por el
+      // lente de color a 220 cm, medida con los 70° de profundidad: 275 cm.
+      // 55 cm de más, por encima de los 45 cm de tolerancia con que el
+      // vigilante de concurso invalida una partida por moverse de la marca.
+      //
+      // El cono de profundidad sigue existiendo y sigue importando, pero para
+      // otra cosa: es lo que limita DÓNDE hay esqueleto. Va declarado aparte
+      // en `profundidadFov` para poder avisarlo sin volver a mezclarlos.
+      id: 'kinect-v2', nombre: 'Kinect for Xbox One (v2) + puente', fovH: 84.1, fovV: 53.8,
+      aspecto: 16 / 9, res: '1080p color + 512×424 profundidad', fps: 30,
+      profundidadFov: { h: 70, v: 60, aspecto: 512 / 424 },
       seguimiento: 'ninguno', profundidad: true, esqueleto: true,
       rango: { min: 50, max: 450 }, montaje: 'soporte propio, altura libre',
-      nota: 'El único del catálogo que entrega ESQUELETO en metros: 25 articulaciones, estado de las manos, inclinación del torso y plano del piso. No aparece en la lista de cámaras del sistema porque no es una webcam: llega por el puente local. Ve de 0,5 a 4,5 m.',
+      nota: 'El único del catálogo que entrega ESQUELETO en metros: 25 articulaciones, estado de las manos, inclinación del torso y plano del piso. Su imagen de color (1080p, 84,1° × 53,8°) llega por el puente y reemplaza a la webcam en pantalla; el esqueleto, en cambio, solo existe dentro del cono más angosto del sensor de profundidad (70° × 60°), así que alguien puede salir en la imagen y no tener esqueleto. Ve de 0,5 a 4,5 m.',
     },
     {
       // La única del catálogo, además del Kinect, que trae esqueleto propio:
@@ -5657,6 +5800,18 @@ export default function mount(shell) {
     if (!cob.alcanza) razones.push('Necesita ' + Math.round(cob.distanciaMinima) + ' cm de profundidad y hay ' + Math.round(cob.profundidad) + '.');
     if (c.seguimiento === 'mecanico') razones.push('Al mover el lente se pierde la referencia para medir en centímetros.');
     if (c.fovH >= 110) razones.push('El lente ultra ancho distorsiona los bordes: conviene calibrarlo antes de confiar en la estatura.');
+    // Sensores con dos lentes: la imagen la da uno y el esqueleto el otro. Si
+    // el de profundidad abre menos, hay una franja donde la persona SALE en
+    // pantalla y no tiene esqueleto, que es de las cosas más desconcertantes
+    // que le pueden pasar a un operador. Se dice con el número.
+    if (c.profundidadFov && c.profundidadFov.h < c.fovH) {
+      const anchoColor = 2 * zona * cob.geometria.tanH;
+      const anchoProf = 2 * zona * Math.tan(rad(c.profundidadFov.h / 2));
+      razones.push('La imagen abre ' + c.fovH + '° y el sensor de esqueleto solo ' + c.profundidadFov.h +
+        '°: a ' + Math.round(zona) + ' cm eso son ' + Math.round(anchoColor) + ' cm de imagen contra ' +
+        Math.round(anchoProf) + ' cm con esqueleto. Quien se corra más de ' +
+        Math.round((anchoProf / 2)) + ' cm del centro sale en pantalla pero deja de ser detectado.');
+    }
     return {
       camara: c, fovH: cob.geometria.fovH, fovV: cob.geometria.fovV,
       coberturaLente: cob, montaje: mont, pisoZona, techoZona,
@@ -5850,6 +6005,7 @@ export default function mount(shell) {
     // igual y no hace falta encender una webcam al lado del sensor.
     const lienzoRef = useRef(null);
     const img = props.imagenKinect || null;
+    const filtro = img ? filtroImagen(model.hardware) : null;
     useEffect(() => {
       const c = lienzoRef.current;
       if (!c || !img) return;
@@ -5866,6 +6022,9 @@ export default function mount(shell) {
       img ? h('canvas', {
         ref: lienzoRef,
         className: 'fp-video' + (props.espejo ? ' is-mirror' : '') + (props.mini ? ' fp-video--mini' : ''),
+        // Brillo, contraste y saturación del sensor: filtro de pantalla, sin
+        // tocar los píxeles que llegan (ver `filtroImagen`).
+        style: filtro ? { filter: filtro } : null,
       }) : null,
       props.children);
   }
@@ -11644,7 +11803,7 @@ export default function mount(shell) {
     const calRef = useRef({ parar: null, prov: null, stream: null, cal: null });
     // Prueba de campo: el veredicto de 20 segundos.
     const [campo, setCampo] = useState(null);
-    const campoRef = useRef({ parar: null, prov: null, stream: null, luz: null });
+    const campoRef = useRef({ parar: null, prov: null, stream: null, luz: null, lienzoLuz: null, ctxLuz: null });
     // Emparejamiento del teléfono como sensor.
     const [sensor, setSensor] = useState(null);
     const [oyendoSensor, setOyendoSensor] = useState(false);
@@ -11720,6 +11879,7 @@ export default function mount(shell) {
       try { F.prov && F.prov.detener(); } catch (e) { /* noop */ }
       if (F.stream) { try { F.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } }
       F.parar = null; F.prov = null; F.stream = null; F.luz = null;
+      F.lienzoLuz = null; F.ctxLuz = null;
       if (videoRef.current) { try { videoRef.current.srcObject = null; } catch (e) { /* noop */ } }
     };
 
@@ -11729,13 +11889,32 @@ export default function mount(shell) {
       setCargando('campo'); setCampo(null);
       let v = null;
       try {
-        F.stream = await abrirCamara(model.hardware);
-        v = videoRef.current;
-        v.srcObject = F.stream;
-        await v.play().catch(() => {});
-        const prov = proveedorMediaPipe(model.hardware, model.espacio);
-        await prov.iniciar(v);
-        F.prov = prov;
+        // Con el Kinect puesto, la prueba se corre CON EL KINECT. Antes abría
+        // siempre una webcam, así que en un tótem que solo tiene el sensor la
+        // prueba de campo —que es el permiso de salida antes de una feria— no
+        // se podía correr, o peor: medía otra cámara distinta de la que iban a
+        // usar los juegos, y el veredicto no valía para nada.
+        const conKinect = s(model.hardware.motorPose) === 'kinect';
+        if (conKinect) {
+          const prov = proveedorKinect(model.hardware, model.espacio);
+          await prov.iniciar();
+          F.prov = prov;
+          // El fotómetro necesita una fuente con píxeles. La webcam trae su
+          // <video>; acá se pinta el cuadro del sensor en un lienzo aparte, que
+          // NO lleva los filtros de brillo y contraste de pantalla: se mide la
+          // luz de la sala, no la imagen maquillada.
+          F.lienzoLuz = document.createElement('canvas');
+          F.ctxLuz = F.lienzoLuz.getContext('2d', { willReadFrequently: true });
+          v = F.lienzoLuz;
+        } else {
+          F.stream = await abrirCamara(model.hardware);
+          v = videoRef.current;
+          v.srcObject = F.stream;
+          await v.play().catch(() => {});
+          const prov = proveedorMediaPipe(model.hardware, model.espacio);
+          await prov.iniciar(v);
+          F.prov = prov;
+        }
         F.luz = medidorDeLuz();
       } catch (e) {
         soltarCampo();
@@ -11759,6 +11938,17 @@ export default function mount(shell) {
           // Con alguien delante se mide sobre su caja; mientras no llega nadie,
           // sobre la zona de juego, que es donde va a estar.
           const caja = cajaDePose(L) || (sal.zona && sal.zona.valida ? sal.zona : null);
+          // Con Kinect hay que volcar el último cuadro del sensor al lienzo
+          // antes de medirlo: no hay un <video> que se pinte solo.
+          if (F.ctxLuz) {
+            const img = typeof F.prov.imagen === 'function' ? F.prov.imagen() : null;
+            if (img) {
+              if (F.lienzoLuz.width !== img.width || F.lienzoLuz.height !== img.height) {
+                F.lienzoLuz.width = img.width; F.lienzoLuz.height = img.height;
+              }
+              F.ctxLuz.putImageData(img, 0, 0);
+            }
+          }
           const lz = F.luz.medir(v, caja);
           // Se anota si la caja venía de un CUERPO o de la zona vacía: no es lo
           // mismo medir la luz sobre una persona que sobre el piso donde estará.
@@ -12229,6 +12419,35 @@ export default function mount(shell) {
                     ' · piso ' + (kin.salud.propiedades.usarPiso ? 'sí' : 'no') +
                     ' · inclinación ' + (kin.salud.propiedades.usarLean ? 'sí' : 'no') +
                     ' · manos ' + (kin.salud.propiedades.usarManos ? 'sí' : 'no') + '.'),
+                  // ── La cámara de color, que es lo que reemplaza a la webcam ──
+                  // `salud().imagen` se calculaba desde hace versiones y NO lo
+                  // mostraba nadie: con la imagen caída el operador veía un
+                  // cuadro negro y no tenía dónde enterarse de por qué.
+                  kin.salud.imagen ? h('li', null,
+                    (kin.salud.imagenViva ? '✅' : '❌') + ' Imagen de color: ' +
+                    (kin.salud.imagenViva
+                      ? kin.salud.imagen.tamano + ' · ' + kin.salud.imagen.fpsReales + ' fps reales de ' +
+                        kin.salud.imagen.pedida.fps + ' pedidos · ' + kin.salud.imagenes + ' cuadros'
+                      : 'no está llegando')) : null,
+                  // Lo pedido y lo aplicado son dos cosas distintas: marcar la
+                  // casilla no crea un lector de color donde el módulo nativo
+                  // no lo tiene, y eso hay que poder leerlo.
+                  kin.salud.imagen && kin.salud.imagen.puente && kin.salud.imagen.puente.motivo
+                    ? h('li', { className: 'fp-error' }, '⚠ ' + kin.salud.imagen.puente.motivo)
+                    : null,
+                  kin.salud.imagen && !kin.salud.imagenViva && !(kin.salud.imagen.puente && kin.salud.imagen.puente.motivo)
+                    ? h('li', { className: 'fp-note' },
+                        'Sin imagen el sensor sigue dando esqueleto, pero el jugador no se ve y haría falta ' +
+                        'una webcam al lado. Revisa que el puente no se haya arrancado con --sin-imagen y que ' +
+                        '«Transmitir la imagen de color» esté activada en ⚙️ Editor → 🔌 Hardware.')
+                    : null,
+                  kin.salud.imagen && kin.salud.imagenViva &&
+                    kin.salud.imagen.fpsReales < kin.salud.imagen.pedida.fps * 0.6
+                    ? h('li', { className: 'fp-note' },
+                        '⚠️ Llegan bastantes menos cuadros de los pedidos: este equipo no da para ' +
+                        kin.salud.imagen.pedida.ancho + ' px a ' + kin.salud.imagen.pedida.fps +
+                        ' fps con el juego corriendo. Baja el ancho o los fps en 🔌 Hardware.')
+                    : null,
                   h('li', { className: 'fp-note' }, 'El Kinect v2 no entrega esqueleto de dedos: la mano son muñeca, punta y pulgar más el estado abierta/cerrada/señalando.')))
               : null),
           h('div', { className: 'fp-diag-card' },
@@ -12816,6 +13035,56 @@ export default function mount(shell) {
             help: 'Puño en el boxeo, soltar el tejo en la rayuela, disparar en el LaserGun. Desactívalo si el montaje está lejos y el sensor no distingue puño de mano abierta.',
             onChange: (v) => patch({ hardware: { kinectUsarManos: v } }),
           }),
+
+          // ── La cámara de color, como una webcam ─────────────────────
+          h('h4', { className: 'fp-h4 fp-form-ancho' }, '🎨 La imagen de color del Kinect'),
+          h('p', { className: 'fp-note fp-form-ancho' },
+            'El Kinect v2 trae una cámara de color de 1080p a 30 fps (84,1° × 53,8°) y es la que se ve ' +
+            'en pantalla: con ella encendida el sensor REEMPLAZA a la webcam y no hace falta ninguna otra. ' +
+            'Por el puente llega reducida, porque mandar 1920×1080 sin comprimir treinta veces por segundo ' +
+            'sería gastar el procesador que necesitan los juegos. Estos mandos se aplican al momento, sin ' +
+            'reiniciar el puente ni el juego.'),
+          h(Campo, {
+            label: 'Transmitir la imagen de color', type: 'boolean', value: m.hardware.kinectImagen !== false,
+            help: 'Apagada, el sensor sigue dando esqueleto pero el jugador no se ve: habría que encender una webcam al lado. Apágala solo en tótems muy justos de CPU.',
+            onChange: (v) => patchImagenKinect(m, { kinectImagen: v }),
+          }),
+          h(Campo, {
+            label: 'Ancho de la imagen (px)', type: 'select', value: String(num(m.hardware.kinectImagenAncho, 320)),
+            options: [
+              { value: '240', label: '240 px — lo más liviano' },
+              { value: '320', label: '320 px — recomendado' },
+              { value: '480', label: '480 px' },
+              { value: '640', label: '640 px — se nota en un tótem grande' },
+              { value: '960', label: '960 px — solo con equipo holgado' },
+            ],
+            help: 'El alto sale solo del 16:9 del sensor. A 320 px son 173 KB por cuadro; a 960 px son 1,5 MB, y a 12 por segundo eso son 18 MB/s por el socket local.',
+            onChange: (v) => patchImagenKinect(m, { kinectImagenAncho: Number(v) }),
+          }),
+          h(Campo, {
+            label: 'Cuadros por segundo de la imagen', type: 'range', min: 1, max: 30, step: 1,
+            value: num(m.hardware.kinectImagenFps, 12),
+            help: 'Los que se le PIDEN al puente. Los que llegan de verdad se miden y se ven en 🎥 Diagnóstico: en un equipo justo no son los mismos.',
+            onChange: (v) => patchImagenKinect(m, { kinectImagenFps: v }),
+          }),
+          h('p', { className: 'fp-note fp-form-ancho' },
+            'Los tres ajustes de abajo son de pantalla, como el panel de una webcam: cambian cómo se VE ' +
+            'la imagen y no lo que llega del sensor. El fotómetro de 🎥 Diagnóstico sigue midiendo la luz ' +
+            'real de la sala, no una imagen maquillada, que es lo que tiene que hacer.'),
+          h(Campo, {
+            label: 'Brillo (%)', type: 'range', min: 40, max: 200, step: 5, value: num(m.hardware.kinectBrillo, 100),
+            onChange: (v) => patch({ hardware: { kinectBrillo: v } }),
+          }),
+          h(Campo, {
+            label: 'Contraste (%)', type: 'range', min: 40, max: 200, step: 5, value: num(m.hardware.kinectContraste, 100),
+            onChange: (v) => patch({ hardware: { kinectContraste: v } }),
+          }),
+          h(Campo, {
+            label: 'Saturación (%)', type: 'range', min: 0, max: 200, step: 5, value: num(m.hardware.kinectSaturacion, 100),
+            help: '0 % deja la imagen en blanco y negro.',
+            onChange: (v) => patch({ hardware: { kinectSaturacion: v } }),
+          }),
+
           // ── Robustez del pipeline ───────────────────────────────────
           h('h4', { className: 'fp-h4 fp-form-ancho' }, '🎯 Robustez de la pose'),
           h('p', { className: 'fp-note fp-form-ancho' },
