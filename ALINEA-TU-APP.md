@@ -102,6 +102,13 @@ app es un destino natural (un gestor de proyectos al que Cotizaciones debería
 poder abrirle un proyecto cuando se acepta una propuesta), sin contrato ese
 puente no existe.
 
+**Antes de declararlo, una condición.** La pasarela escribe en los **items**
+de una instancia (`shell.items`). Si tu app guarda su modelo entero en un solo
+documento con `shell.saveData`, publicar un `dataSchema` sería prometer una
+puerta que no existe: primero hay que mover a items lo que otras apps deban
+poder alimentar. El revisor solo hace esta pregunta a las apps que ya usan
+`shell.items`.
+
 **Qué hacer.** Declara **qué aceptas**, campo por campo:
 
 ```jsonc

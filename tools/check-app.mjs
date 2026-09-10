@@ -227,10 +227,16 @@ function revisarApp(dir, catalogo) {
   if (escribeEnOtras && !/shell\.data\.(create|update)\b/.test(bundle)) {
     avisos.push('Declara `data.write:` pero no se ve `shell.data.create/update`.');
   }
-  // Solo se pregunta a las apps que YA están en el grafo compartido: a una
-  // app aislada, «¿deberían otras poder escribirte?» es ruido.
+  // Dos condiciones, y las dos son necesarias:
+  //   · La app guarda en `shell.items`. La pasarela de escritura entre apps
+  //     opera sobre los items de una instancia, NO sobre el documento de
+  //     `saveData`; a una app que guarda su modelo en un blob, publicar un
+  //     `dataSchema` sería prometer una puerta que no existe.
+  //   · Ya está en el grafo compartido. A una app aislada, «¿deberían otras
+  //     poder escribirte?» es ruido.
+  const guardaItems = /shell\.items\b/.test(bundle);
   const enElGrafo = /shell\.data\b/.test(bundle) || tiene('records.link');
-  if (persiste && enElGrafo && !manifest.dataSchema) {
+  if (guardaItems && enElGrafo && !manifest.dataSchema) {
     avisos.push('¿Debería otra app poder alimentarla? Sin `dataSchema` publicado, no puede (falla cerrado). Si sus datos son solo suyos, está bien así (APP-SPEC §7.c).');
   }
 
