@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -282,11 +282,24 @@ export default function mount(shell) {
     updatedAt: stamp(),
   });
 
+  /** Cliente de la cartera. Los campos `name`, `email`, `phone`, `city`,
+   *  `region`, `country` y `customerSince` tienen el MISMO nombre y el mismo
+   *  significado que en la app Clientes de KIMOS: así un cliente importado
+   *  del directorio y uno creado aquí son la misma ficha, y la
+   *  re-sincronización es una copia campo a campo sin traducción.
+   *  `link` guarda de qué instancia del directorio vino. */
   const newClient = (patch) => Object.assign({
-    id: uid('cli'), name: '', code: '', industry: '', country: '',
+    id: uid('cli'), name: '', code: '', industry: '',
+    email: '', phone: '', city: '', region: '', country: '', customerSince: '',
     contactName: '', contactEmail: '', contactPhone: '', notes: '',
-    colorIndex: 0, createdAt: stamp(), updatedAt: stamp(),
+    link: null, colorIndex: 0, createdAt: stamp(), updatedAt: stamp(),
   }, patch || {});
+
+  /** Campos que manda el directorio: al re-sincronizar se copian tal cual y
+   *  el resto de la ficha (código, rubro, color, notas propias) no se toca. */
+  const DIRECTORY_FIELDS = ['name', 'email', 'phone', 'city', 'region', 'country', 'customerSince'];
+  const DIRECTORY_APP = 'customers';
+  const DIRECTORY_LABEL = 'Clientes';
 
   const newProject = (patch) => Object.assign({
     id: uid('prj'), clientId: '', name: '', code: '', status: 'planning',
@@ -418,7 +431,15 @@ export default function mount(shell) {
     const base = emptyModel();
     if (!raw || typeof raw !== 'object') return base;
     const m = Object.assign(base, raw);
-    m.clients = arr(raw.clients).filter(Boolean).map((c) => newClient(c));
+    m.clients = arr(raw.clients).filter(Boolean).map((c) => {
+      const cli = newClient(c);
+      // Fichas escritas antes de la unificación: el correo y el teléfono de
+      // contacto pasan a los campos que comparte el directorio.
+      if (!s(cli.email) && s(cli.contactEmail)) cli.email = s(cli.contactEmail);
+      if (!s(cli.phone) && s(cli.contactPhone)) cli.phone = s(cli.contactPhone);
+      if (cli.link && !s(cli.link.instanceId)) cli.link = null;
+      return cli;
+    });
     m.sources = arr(raw.sources).filter(Boolean).map((x) => newSource(x));
     m.deleted = arr(raw.deleted).filter((d) => d && d.id);
     m.settings = Object.assign({ workspace: 'Cartera de proyectos' }, raw.settings || {});
@@ -3216,6 +3237,201 @@ export default function mount(shell) {
     );
   }
 
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 6.b DIRECTORIO DE CLIENTES: UNIFICACIÓN CON LA APP CLIENTES
+  // ════════════════════════════════════════════════════════════════════════
+  /* La app Clientes de KIMOS es el registro de origen del directorio: ahí
+   * vive la ficha de cada cliente y ahí se sincroniza con las integraciones.
+   * Esta app NO duplica ese registro: lo lee con `shell.data` —permiso
+   * `data.read:customers`, que el superadmin aprueba al instalar— y guarda
+   * en cada cliente de la cartera un enlace a su ficha de origen.
+   *
+   * Los campos que comparten ambas apps se llaman igual, así que sincronizar
+   * es copiar campo a campo. Lo que es propio de la gestión de proyectos
+   * —código, rubro, color en los gráficos y las notas del equipo de
+   * proyecto— nunca se pisa, porque el directorio no lo conoce.
+   *
+   * El contrato `shell.data` es de solo lectura: lo que se corrija aquí no
+   * viaja de vuelta al directorio. La app lo dice donde corresponde en vez
+   * de simular una sincronización de ida y vuelta que no existe. */
+
+  let directory = { state: 'idle', error: '', instances: [], items: [], loadedAt: '' };
+
+  const directoryAvailable = () => !!(shell.data && shell.data.listInstances && shell.data.listItems);
+
+  /** Normaliza un item del directorio a la forma de ficha de la cartera. */
+  const fromDirectoryItem = (it, inst) => ({
+    itemId: s(it.id),
+    instanceId: s(inst.id),
+    instanceName: s(inst.name || inst.title || DIRECTORY_LABEL),
+    name: s(it.name) || s(it.email) || s(it.id),
+    email: s(it.email),
+    phone: s(it.phone),
+    city: s(it.city),
+    region: s(it.region),
+    country: s(it.country),
+    customerSince: s(it.customerSince),
+    notes: s(it.notes),
+    synced: arr(it.sourceLinks).some((l) => l && s(l.integration)),
+    raw: it,
+  });
+
+  /** Lee el directorio completo (todas las instancias visibles de Clientes). */
+  async function loadDirectory(force) {
+    if (directory.state === 'loading') return directory;
+    if (!force && directory.state === 'ready' && directory.loadedAt
+      && Date.now() - Date.parse(directory.loadedAt) < 60000) return directory;
+    if (!directoryAvailable()) {
+      directory = {
+        state: 'unavailable', instances: [], items: [], loadedAt: stamp(),
+        error: 'Este host no expone shell.data, así que no se puede leer el directorio de la app ' + DIRECTORY_LABEL + '.',
+      };
+      emit();
+      return directory;
+    }
+    directory = Object.assign({}, directory, { state: 'loading', error: '' });
+    emit();
+    try {
+      const instances = arr(await shell.data.listInstances(DIRECTORY_APP));
+      const items = [];
+      for (const inst of instances) {
+        try {
+          const list = arr(await shell.data.listItems(inst.id));
+          for (const it of list) {
+            if (!it || it.kind === 'definition') continue;
+            if (!s(it.name) && !s(it.email)) continue;
+            items.push(fromDirectoryItem(it, inst));
+          }
+        } catch (e) { /* una instancia sin acceso no bloquea al resto */ }
+      }
+      directory = {
+        state: 'ready', instances, items, loadedAt: stamp(),
+        error: instances.length ? '' : 'No hay instancias de la app ' + DIRECTORY_LABEL + ' visibles para este usuario. Instálala o pide acceso al equipo que la administra.',
+      };
+    } catch (e) {
+      directory = {
+        state: 'error', instances: [], items: [], loadedAt: stamp(),
+        error: (e && e.message) || 'No se pudo leer el directorio de clientes.',
+      };
+    }
+    emit();
+    return directory;
+  }
+
+  const linkedItemIds = () => new Set(model.clients.filter((c) => c.link && c.link.itemId).map((c) => s(c.link.itemId)));
+
+  /** Busca en la cartera un cliente que ya sea, sin duda, el mismo del
+   *  directorio: mismo correo o mismo nombre normalizado. Evita crear el
+   *  duplicado que rompe la unificación. */
+  function matchLocalClient(entry) {
+    const byLink = model.clients.find((c) => c.link && s(c.link.itemId) === s(entry.itemId));
+    if (byLink) return { client: byLink, reason: 'link' };
+    const email = canon(entry.email);
+    if (email) {
+      const byEmail = model.clients.find((c) => canon(c.email) === email || canon(c.contactEmail) === email);
+      if (byEmail) return { client: byEmail, reason: 'email' };
+    }
+    const name = canon(entry.name);
+    if (name) {
+      const byName = model.clients.find((c) => canon(c.name) === name);
+      if (byName) return { client: byName, reason: 'name' };
+    }
+    return null;
+  }
+
+  const directoryPatch = (entry) => {
+    const patch = {};
+    for (const f of DIRECTORY_FIELDS) {
+      const v = s(entry[f]);
+      if (v) patch[f] = v;
+    }
+    return patch;
+  };
+  const linkOf = (entry) => ({
+    source: DIRECTORY_APP, instanceId: s(entry.instanceId), instanceName: s(entry.instanceName),
+    itemId: s(entry.itemId), syncedAt: stamp(),
+  });
+
+  /** Vincula una ficha existente de la cartera con la del directorio y copia
+   *  los campos compartidos. */
+  function linkClientToDirectory(clientId, entry, opts) {
+    const c = findClient(clientId);
+    if (!c || !entry) return null;
+    const o = Object.assign({ overwrite: true }, opts || {});
+    const patch = Object.assign({}, o.overwrite ? directoryPatch(entry) : {}, { link: linkOf(entry) });
+    if (!o.overwrite) {
+      // solo rellena lo que esté vacío
+      for (const f of DIRECTORY_FIELDS) if (!s(c[f]) && s(entry[f])) patch[f] = s(entry[f]);
+    }
+    commit((m) => { m.clients = upsertIn(m.clients, Object.assign({}, c, patch, { id: clientId })); return m; });
+    return findClient(clientId);
+  }
+
+  /** Trae un cliente del directorio a la cartera: lo vincula si ya existe o
+   *  crea la ficha si es nuevo. */
+  function importDirectoryClient(entry) {
+    const match = matchLocalClient(entry);
+    if (match) {
+      const updated = linkClientToDirectory(match.client.id, entry, { overwrite: match.reason === 'link' });
+      return { client: updated, created: false, reason: match.reason };
+    }
+    const c = newClient(Object.assign({
+      colorIndex: model.clients.length % SERIES.length,
+      notes: s(entry.notes),
+      contactEmail: s(entry.email),
+      contactPhone: s(entry.phone),
+      link: linkOf(entry),
+    }, directoryPatch(entry)));
+    commit((m) => { m.clients = arr(m.clients).concat([c]); return m; });
+    return { client: c, created: true, reason: 'new' };
+  }
+
+  /** Vuelve a copiar los campos del directorio en los clientes vinculados.
+   *  Devuelve qué cambió, qué quedó igual y qué enlaces se rompieron. */
+  async function syncLinkedClients(opts) {
+    const dir = await loadDirectory(true);
+    if (dir.state !== 'ready') return { ok: false, error: dir.error, updated: [], unchanged: [], orphan: [] };
+    const byItem = new Map(dir.items.map((e) => [s(e.itemId), e]));
+    const updated = [];
+    const unchanged = [];
+    const orphan = [];
+    for (const c of model.clients.slice()) {
+      if (!c.link || !s(c.link.itemId)) continue;
+      const entry = byItem.get(s(c.link.itemId));
+      if (!entry) { orphan.push(c); continue; }
+      const patch = directoryPatch(entry);
+      const changed = DIRECTORY_FIELDS.filter((f) => s(patch[f]) && s(patch[f]) !== s(c[f]));
+      if (!changed.length) {
+        commit((m) => {
+          m.clients = upsertIn(m.clients, Object.assign({}, c, { link: Object.assign({}, c.link, { syncedAt: stamp() }) }));
+          return m;
+        }, { silent: true });
+        unchanged.push(c);
+        continue;
+      }
+      commit((m) => {
+        m.clients = upsertIn(m.clients, Object.assign({}, c, patch, { link: linkOf(entry) }));
+        return m;
+      });
+      updated.push({ client: c, changed });
+    }
+    if (updated.length && !(opts && opts.silent)) {
+      shell.notify && shell.notify({
+        level: 'success',
+        text: updated.length + ' cliente(s) actualizados desde el directorio de ' + DIRECTORY_LABEL + '.',
+      });
+    }
+    commit((m) => m);
+    return { ok: true, updated, unchanged, orphan };
+  }
+
+  function unlinkClient(clientId) {
+    const c = findClient(clientId);
+    if (!c) return;
+    commit((m) => { m.clients = upsertIn(m.clients, Object.assign({}, c, { link: null })); return m; });
+  }
+
   // ════════════════════════════════════════════════════════════════════════
   // 7. ACCIONES (las mismas que usan la interfaz y el agente)
   // ════════════════════════════════════════════════════════════════════════
@@ -3604,9 +3820,48 @@ export default function mount(shell) {
   function viewClients(ctx) {
     const { m, port, ui, setUi, go } = ctx;
     const q = canon(ui.q);
-    const clients = m.clients.filter((c) => !q || canon(c.name + ' ' + c.industry + ' ' + c.code + ' ' + c.country).includes(q));
+    const clients = m.clients.filter((c) => !q || canon([c.name, c.industry, c.code, c.country, c.city, c.email].join(' ')).includes(q));
+    const linked = m.clients.filter((c) => c.link && c.link.itemId);
+    const dirBusy = ui.dirBusy === 'sync';
+
+    const openDirectory = async () => {
+      setUi((u) => ({ ...u, editor: { type: 'directory', data: { q: '' } } }));
+      await loadDirectory(true);
+      setUi((u) => (u.editor && u.editor.type === 'directory' ? { ...u, editor: Object.assign({}, u.editor) } : u));
+    };
+    const syncNowClients = async () => {
+      setUi((u) => ({ ...u, dirBusy: 'sync' }));
+      const res = await syncLinkedClients();
+      setUi((u) => ({ ...u, dirBusy: '' }));
+      if (!res.ok) {
+        shell.notify && shell.notify({ level: 'error', text: res.error });
+      } else if (!res.updated.length) {
+        shell.notify && shell.notify({
+          level: 'info',
+          text: res.orphan.length
+            ? 'Sin cambios. ' + res.orphan.length + ' cliente(s) ya no existen en el directorio.'
+            : 'Los ' + res.unchanged.length + ' cliente(s) vinculados ya estaban al día.',
+        });
+      }
+    };
 
     return h('div', { className: 'kp-scroll' },
+      h('div', { className: 'kp-sec kp-fxbar' },
+        h('div', { className: 'kp-fxbar-main' },
+          h('span', { className: 'kp-hd-mark' }, I.users(15)),
+          h('div', null,
+            h('div', { className: 'kp-fxbar-rate' }, 'Directorio de ' + DIRECTORY_LABEL),
+            h('div', { className: 'kp-fxbar-src' },
+              linked.length
+                ? linked.length + ' de ' + m.clients.length + ' cliente(s) vinculados con la app ' + DIRECTORY_LABEL +
+                  (linked[0].link && linked[0].link.syncedAt ? ' · última sincronización ' + fmtWhen(
+                    linked.map((c) => s(c.link.syncedAt)).sort().pop()) : '')
+                : 'Ningún cliente vinculado todavía: el directorio de KIMOS es el registro de origen de la ficha.'))),
+        h('div', { className: 'kp-fxbar-actions' },
+          linked.length ? h('button', { className: 'kp-btn kp-btn-sm', onClick: syncNowClients, disabled: dirBusy },
+            dirBusy ? I.clock(13) : I.refresh(13), dirBusy ? 'Sincronizando…' : 'Sincronizar') : null,
+          h('button', { className: 'kp-btn kp-btn-sm kp-btn-primary', onClick: openDirectory },
+            I.users(13), 'Traer del directorio'))),
       !m.clients.length
         ? Empty(I.users(34), 'Sin clientes todavía',
           'Cada proyecto vive bajo un cliente: así la cartera se lee por cuenta y los tableros suman por cliente.',
@@ -3623,10 +3878,17 @@ export default function mount(shell) {
               ClientDot(c),
               h('div', { style: { minWidth: 0, flex: 1 } },
                 h('div', { className: 'kp-proj-name' }, c.name),
-                h('div', { className: 'kp-proj-client' }, [c.industry, c.country].filter(Boolean).join(' · ') || 'Sin rubro declarado')),
+                h('div', { className: 'kp-proj-client' }, [c.industry, c.city, c.country].filter(Boolean).join(' · ') || 'Sin rubro declarado')),
               IconBtn(I.pencil(14), 'Editar cliente', () => setUi((u) => ({ ...u, editor: { type: 'client', data: Object.assign({}, c) } })), { ghost: true })),
+            c.link && c.link.itemId
+              ? h('div', { className: 'kp-chips' }, Chip('Vinculado con ' + DIRECTORY_LABEL, {
+                tone: 'ok', icon: I.link(11),
+                title: 'Ficha de origen en «' + s(c.link.instanceName || DIRECTORY_LABEL) + '»' +
+                  (c.link.syncedAt ? ' · sincronizado ' + fmtWhen(c.link.syncedAt) : ''),
+              }))
+              : null,
             c.contactName ? h('div', { className: 'kp-sec-note' }, c.contactName) : null,
-            c.contactEmail ? h('div', { className: 'kp-sec-note kp-mono' }, c.contactEmail) : null,
+            s(c.email || c.contactEmail) ? h('div', { className: 'kp-sec-note kp-mono' }, s(c.email || c.contactEmail)) : null,
             h('div', { className: 'kp-chips' },
               Chip(list.length + ' proyecto' + (list.length === 1 ? '' : 's'), { icon: I.briefcase(12) }),
               open.length ? Chip(open.length + ' abierto' + (open.length === 1 ? '' : 's'), { tone: 'on' }) : null,
@@ -4948,6 +5210,7 @@ export default function mount(shell) {
 
   // ── Ecosistema KIMOS: leer datos de otras apps con shell.data ───────────
   const ECO_APPS = [
+    ['customers', 'Clientes', 'users'],
     ['gantt', 'Planificación', 'plan'],
     ['kanban', 'Kanban', 'grid'],
     ['cotizaciones', 'Cotizaciones', 'money'],
@@ -5120,22 +5383,109 @@ export default function mount(shell) {
       ], close, { center: true });
     }
 
+    if (ed.type === 'directory') {
+      const dq = canon(data.q);
+      const entries = arr(directory.items).filter((e) => !dq || canon([e.name, e.email, e.city, e.country, e.instanceName].join(' ')).includes(dq));
+      const linkedIds = linkedItemIds();
+      const busy = directory.state === 'loading';
+      const body = [
+        Note(h('span', null,
+          'La app ', h('strong', null, DIRECTORY_LABEL), ' es el registro de origen de la ficha de cada cliente. ' +
+          'Aquí se leen sus datos y se guarda un enlace a la ficha original: el nombre, el correo, el teléfono y la ubicación quedan iguales en las dos apps. ' +
+          'El código, el rubro, el color y las notas de proyecto son propios de esta cartera y no se tocan.'), 'accent', I.users(15)),
+        h('div', { className: 'kp-search' }, I.search(14),
+          Input(data.q, (v) => upd({ q: v }), { placeholder: 'Buscar en el directorio…', autoFocus: true })),
+        busy ? h('div', { className: 'kp-sec-note' }, 'Leyendo el directorio…') : null,
+        !busy && directory.error ? Note(directory.error, directory.state === 'unavailable' ? 'warn' : 'err', I.alert(15)) : null,
+        !busy && directory.state === 'ready' && !directory.items.length
+          ? h('div', { className: 'kp-sec-note' }, 'Las instancias visibles de ' + DIRECTORY_LABEL + ' no tienen fichas cargadas.')
+          : null,
+      ];
+      if (!busy && entries.length) {
+        body.push(h('div', { className: 'kp-sec-note' },
+          entries.length + ' ficha(s) en ' + directory.instances.length + ' instancia(s) · ' + linkedIds.size + ' ya vinculada(s)'));
+        body.push(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+          entries.slice(0, 200).map((e) => {
+            const already = linkedIds.has(s(e.itemId));
+            const match = already ? null : matchLocalClient(e);
+            return h('div', { key: e.itemId, className: 'kp-doc' },
+              h('div', { className: 'kp-doc-thumb' }, I.users(18)),
+              h('div', { className: 'kp-doc-main' },
+                h('div', { className: 'kp-doc-name' }, e.name),
+                h('div', { className: 'kp-doc-meta' },
+                  [e.email, e.phone, [e.city, e.country].filter(Boolean).join(', ')].filter(Boolean).join(' · ') || 'Sin datos de contacto'),
+                h('div', { className: 'kp-chips' },
+                  Chip(e.instanceName, { icon: I.folders(11) }),
+                  e.synced ? Chip('Sincronizado con integración', { icon: I.cloud(11) }) : null,
+                  already ? Chip('Ya está en la cartera', { tone: 'ok', icon: I.check(11) }) : null,
+                  match ? Chip('Coincide con «' + match.client.name + '» por ' + (match.reason === 'email' ? 'el correo' : 'el nombre'), { tone: 'warn' }) : null)),
+              h('div', { style: { display: 'flex', alignItems: 'center' } },
+                already
+                  ? IconBtn(I.check(14), 'Ya vinculado', () => {}, { ghost: true })
+                  : h('button', {
+                    className: 'kp-btn kp-btn-sm' + (match ? '' : ' kp-btn-primary'),
+                    onClick: () => {
+                      const res = importDirectoryClient(e);
+                      shell.notify && shell.notify({
+                        level: 'success',
+                        text: res.created
+                          ? 'Cliente "' + res.client.name + '" traído del directorio.'
+                          : 'Ficha "' + res.client.name + '" vinculada con el directorio' + (res.reason === 'email' ? ' (coincidía por correo).' : res.reason === 'name' ? ' (coincidía por nombre).' : '.'),
+                      });
+                    },
+                  }, match ? I.link(13) : I.plus(13), match ? 'Vincular' : 'Traer')));
+          })));
+      }
+      return Panel('Directorio de ' + DIRECTORY_LABEL, body, [
+        h('button', { key: 'r', className: 'kp-btn kp-panel-foot-l', onClick: () => { void loadDirectory(true); }, disabled: busy },
+          I.refresh(14), 'Releer'),
+        !busy && entries.length ? h('button', {
+          key: 'all', className: 'kp-btn',
+          onClick: () => {
+            let created = 0, linkedCount = 0;
+            for (const e of entries) {
+              if (linkedItemIds().has(s(e.itemId))) continue;
+              const res = importDirectoryClient(e);
+              if (res.created) created++; else linkedCount++;
+            }
+            shell.notify && shell.notify({
+              level: 'success',
+              text: created + ' cliente(s) creados y ' + linkedCount + ' vinculado(s) desde el directorio.',
+            });
+          },
+        }, 'Traer todos los visibles') : null,
+        h('button', { key: 'c', className: 'kp-btn kp-btn-primary', onClick: close }, 'Cerrar'),
+      ], close);
+    }
+
     if (ed.type === 'client') {
       const save = () => {
         if (!s(data.name).trim()) return;
         if (ed.isNew) actions.createClient(data); else actions.saveClient(data.id, data);
         close();
       };
+      const isLinked = !!(data.link && data.link.itemId);
       return Panel(ed.isNew ? 'Nuevo cliente' : 'Cliente', [
-        Field('Nombre', Input(data.name, (v) => upd({ name: v }), { placeholder: 'Razón social o nombre comercial', autoFocus: true })),
+        isLinked
+          ? Note(h('span', null,
+            h('strong', null, 'Ficha vinculada con la app ' + DIRECTORY_LABEL),
+            ' («' + s(data.link.instanceName || DIRECTORY_LABEL) + '»' +
+            (data.link.syncedAt ? ', sincronizada ' + fmtWhen(data.link.syncedAt) : '') + '). ' +
+            'Los campos marcados los manda el directorio y se sobrescriben al sincronizar; lo que edites aquí no viaja de vuelta, porque la lectura entre apps es de una sola dirección.'), 'accent', I.link(15))
+          : null,
+        Field('Nombre' + (isLinked ? ' · del directorio' : ''), Input(data.name, (v) => upd({ name: v }), { placeholder: 'Razón social o nombre comercial', autoFocus: !isLinked })),
         h('div', { className: 'kp-row' },
-          Field('Código', Input(data.code, (v) => upd({ code: v }))),
-          Field('País / mercado', Input(data.country, (v) => upd({ country: v })))),
-        Field('Rubro', Input(data.industry, (v) => upd({ industry: v }), { placeholder: 'Retail, minería, educación…' })),
-        Field('Contraparte', Input(data.contactName, (v) => upd({ contactName: v }), { placeholder: 'Nombre y cargo' })),
+          Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera'),
+          Field('Rubro', Input(data.industry, (v) => upd({ industry: v }), { placeholder: 'Retail, minería, educación…' }), 'Propio de la cartera')),
         h('div', { className: 'kp-row' },
-          Field('Correo', Input(data.contactEmail, (v) => upd({ contactEmail: v }), { type: 'email' })),
-          Field('Teléfono / notas de contacto', Input(data.contactPhone, (v) => upd({ contactPhone: v })))),
+          Field('Correo' + (isLinked ? ' · del directorio' : ''), Input(data.email, (v) => upd({ email: v, contactEmail: v }), { type: 'email', placeholder: 'contacto@empresa.com' })),
+          Field('Teléfono' + (isLinked ? ' · del directorio' : ''), Input(data.phone, (v) => upd({ phone: v, contactPhone: v })))),
+        h('div', { className: 'kp-row-3' },
+          Field('Ciudad' + (isLinked ? ' ·' : ''), Input(data.city, (v) => upd({ city: v }))),
+          Field('Región' + (isLinked ? ' ·' : ''), Input(data.region, (v) => upd({ region: v }))),
+          Field('País' + (isLinked ? ' ·' : ''), Input(data.country, (v) => upd({ country: v })))),
+        Field('Cliente desde' + (isLinked ? ' · del directorio' : ''), Input(s(data.customerSince).slice(0, 10), (v) => upd({ customerSince: v }), { type: 'date' })),
+        Field('Contraparte', Input(data.contactName, (v) => upd({ contactName: v }), { placeholder: 'Nombre y cargo de la persona con la que se trabaja' }), 'Propio de la cartera'),
         Field('Color en los gráficos', Select(String(n(data.colorIndex, 0)), SERIES.map((_, i) => [String(i), 'Serie ' + (i + 1)]), (v) => upd({ colorIndex: n(v, 0) }))),
         Field('Notas', TextArea(data.notes, (v) => upd({ notes: v }), { placeholder: 'Contexto de la cuenta, condiciones, canal oficial…' })),
       ], [
@@ -5145,11 +5495,21 @@ export default function mount(shell) {
             ...u,
             editor: {
               type: 'confirm', title: 'Eliminar el cliente',
-              text: 'Se elimina "' + data.name + '". Sus proyectos quedan sin cliente asignado.',
+              text: 'Se elimina "' + data.name + '" de esta cartera. Sus proyectos quedan sin cliente asignado. ' +
+                (isLinked ? 'La ficha del directorio de ' + DIRECTORY_LABEL + ' no se toca.' : ''),
               onOk: () => actions.deleteClient(data.id, ''),
             },
           })),
         }, I.trash(14), 'Eliminar') : null,
+        !ed.isNew && isLinked ? h('button', {
+          key: 'unlink', className: 'kp-btn',
+          title: 'La ficha deja de actualizarse desde el directorio y queda solo en esta cartera',
+          onClick: () => { unlinkClient(data.id); upd({ link: null }); },
+        }, 'Desvincular') : null,
+        !ed.isNew && !isLinked ? h('button', {
+          key: 'link', className: 'kp-btn',
+          onClick: async () => { setUi((u) => ({ ...u, editor: { type: 'directory', data: { q: s(data.name) } } })); await loadDirectory(true); setUi((u) => (u.editor && u.editor.type === 'directory' ? { ...u, editor: Object.assign({}, u.editor) } : u)); },
+        }, I.link(14), 'Vincular con el directorio') : null,
         h('button', { key: 'c', className: 'kp-btn', onClick: close }, 'Cancelar'),
         h('button', { key: 's', className: 'kp-btn kp-btn-primary', onClick: save, disabled: !s(data.name).trim() }, ed.isNew ? 'Crear cliente' : 'Guardar'),
       ], close);
@@ -5595,8 +5955,8 @@ export default function mount(shell) {
   const err = (error) => ({ success: false, error });
 
   const AGENT_TOOLS = [
-    { name: 'CREATE_CLIENT', description: 'Crea un cliente en la cartera.',
-      inputSchema: { type: 'object', properties: { name: { type: 'string' }, industry: { type: 'string' }, country: { type: 'string' }, contactName: { type: 'string' }, contactEmail: { type: 'string' }, notes: { type: 'string' } }, required: ['name'] } },
+    { name: 'CREATE_CLIENT', description: 'Crea un cliente en la cartera. Los campos name, email, phone, city, region, country y customerSince son los mismos que usa la app Clientes de KIMOS: si el cliente ya existe en ese directorio, es mejor traerlo con IMPORT_CLIENTS que crearlo aquí.',
+      inputSchema: { type: 'object', properties: { name: { type: 'string' }, industry: { type: 'string' }, code: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, city: { type: 'string' }, region: { type: 'string' }, country: { type: 'string' }, customerSince: { type: 'string' }, contactName: { type: 'string' }, notes: { type: 'string' } }, required: ['name'] } },
     { name: 'CREATE_PROJECT', description: 'Crea un proyecto bajo un cliente. client acepta id o nombre. type acepta: licitacion, implementacion, software, estudio, campana, generico.',
       inputSchema: { type: 'object', properties: { name: { type: 'string' }, client: { type: 'string' }, code: { type: 'string' }, status: { type: 'string' }, priority: { type: 'string' }, startDate: { type: 'string' }, endDate: { type: 'string' }, objective: { type: 'string' }, scope: { type: 'string' }, budget: { type: 'number' }, currency: { type: 'string' }, type: { type: 'string' }, manager: { type: 'string' } }, required: ['name'] } },
     { name: 'UPDATE_PROJECT', description: 'Edita campos de un proyecto (project = id, código o nombre).',
@@ -5629,6 +5989,14 @@ export default function mount(shell) {
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, name: { type: 'string' }, code: { type: 'string' }, country: { type: 'string' }, currency: { type: 'string' }, fx: { type: 'number' }, units: { type: 'number' } }, required: ['project', 'name'] } },
     { name: 'UPDATE_COSTING', description: 'Ajusta la política de precio y el modelo de servicio: margen del CAPEX y del servicio, modo de margen (sale/cost), regla de prorrateo, plazo del servicio, reajuste, horas de SLA y disponibilidad comprometida.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, capexMarginPct: { type: 'number' }, opexMarginPct: { type: 'number' }, marginMode: { type: 'string' }, allocation: { type: 'string' }, contractType: { type: 'string' }, termMonths: { type: 'number' }, escalationIndex: { type: 'string' }, escalationPct: { type: 'number' }, slaOnSiteHours: { type: 'number' }, availabilityPct: { type: 'number' }, nocMonthly: { type: 'number' } }, required: ['project'] } },
+    { name: 'LIST_DIRECTORY_CLIENTS', description: 'Lee el directorio de la app Clientes de KIMOS (todas las instancias visibles) y devuelve sus fichas, indicando cuáles ya están en la cartera y cuáles coinciden con un cliente local por correo o por nombre. Úsala antes de crear un cliente a mano, para no duplicar la ficha.',
+      inputSchema: { type: 'object', properties: { search: { type: 'string' } } } },
+    { name: 'IMPORT_CLIENTS', description: 'Trae clientes del directorio de la app Clientes a la cartera: crea la ficha si no existe y la vincula si ya existe (coincidencia por correo o por nombre). Sin `names`, trae todas las fichas del directorio.',
+      inputSchema: { type: 'object', properties: { names: { type: 'array', items: { type: 'string' }, description: 'Nombres, correos o ids de las fichas del directorio a traer.' } } } },
+    { name: 'LINK_CLIENT', description: 'Vincula un cliente que ya está en la cartera con su ficha del directorio de la app Clientes, y copia los campos compartidos.',
+      inputSchema: { type: 'object', properties: { client: { type: 'string' }, directoryClient: { type: 'string' } }, required: ['client'] } },
+    { name: 'SYNC_CLIENTS', description: 'Vuelve a copiar desde el directorio de la app Clientes los datos de todos los clientes vinculados. Informa qué cambió y qué enlaces quedaron huérfanos.',
+      inputSchema: { type: 'object', properties: {} } },
     { name: 'UPDATE_FX', description: 'Conversor de moneda del proyecto. Con refresh=true consulta el tipo de cambio del día en un proveedor público y actualiza la tabla; con rates escribe valores a mano (unidades por 1 USD, p. ej. {"CLP": 947.5}); con currency cambia la moneda de gestión, y convert=true reexpresa además todos los importes al nuevo tipo de cambio.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, refresh: { type: 'boolean' }, rates: { type: 'object' }, currency: { type: 'string' }, convert: { type: 'boolean' } }, required: ['project'] } },
     { name: 'SET_BASELINE', description: 'Congela el costeo actual como línea base (presupuesto de referencia). Desde ahí, cada cambio de partida queda explicado en el puente presupuesto vs. costeo.',
@@ -5649,7 +6017,19 @@ export default function mount(shell) {
         riesgosAbiertos: port.risksOpen, riesgosCriticos: port.risksCritical,
         consultasAbiertas: port.openQuestions, documentos: port.docsTotal,
       },
-      clientes: model.clients.map((c) => ({ id: c.id, nombre: c.name, rubro: c.industry, proyectos: model.projects.filter((p) => p.clientId === c.id).length })),
+      clientes: model.clients.map((c) => ({
+        id: c.id, nombre: c.name, rubro: c.industry,
+        correo: c.email, telefono: c.phone, ciudad: c.city, pais: c.country,
+        proyectos: model.projects.filter((p) => p.clientId === c.id).length,
+        vinculadoAlDirectorio: !!(c.link && c.link.itemId),
+        directorio: c.link && c.link.itemId ? { instancia: c.link.instanceName, ficha: c.link.itemId, sincronizado: c.link.syncedAt } : null,
+      })),
+      directorioDeClientes: {
+        app: DIRECTORY_APP, nombre: DIRECTORY_LABEL, estado: directory.state,
+        fichasLeidas: arr(directory.items).length,
+        vinculados: model.clients.filter((c) => c.link && c.link.itemId).length,
+        nota: 'La app ' + DIRECTORY_LABEL + ' es el registro de origen. Antes de crear un cliente a mano, usa LIST_DIRECTORY_CLIENTS para ver si su ficha ya existe.',
+      },
       proyectos: model.projects.map((p) => {
         const st = port.stats.get(p.id);
         return {
@@ -5713,10 +6093,87 @@ export default function mount(shell) {
     try {
       if (type === 'CREATE_CLIENT') {
         const c = actions.createClient({
-          name: s(pl.name).trim(), industry: s(pl.industry), country: s(pl.country),
-          contactName: s(pl.contactName), contactEmail: s(pl.contactEmail), notes: s(pl.notes),
+          name: s(pl.name).trim(), industry: s(pl.industry), code: s(pl.code),
+          email: s(pl.email) || s(pl.contactEmail), phone: s(pl.phone),
+          city: s(pl.city), region: s(pl.region), country: s(pl.country),
+          customerSince: s(pl.customerSince),
+          contactName: s(pl.contactName), contactEmail: s(pl.email) || s(pl.contactEmail),
+          contactPhone: s(pl.phone), notes: s(pl.notes),
         });
-        return c ? ok('Cliente "' + c.name + '" creado.', { clientId: c.id }) : err('El cliente necesita un nombre.');
+        if (!c) return err('El cliente necesita un nombre.');
+        // Si esa ficha ya vive en el directorio, avisarlo: duplicarla es
+        // exactamente lo que la unificación viene a evitar.
+        const twin = directory.state === 'ready'
+          ? arr(directory.items).find((e) => canon(e.name) === canon(c.name) || (s(c.email) && canon(e.email) === canon(c.email)))
+          : null;
+        return ok('Cliente "' + c.name + '" creado.' + (twin ? ' Ojo: el directorio de ' + DIRECTORY_LABEL + ' ya tiene una ficha con ese nombre; conviene vincularla con LINK_CLIENT.' : ''), { clientId: c.id });
+      }
+      if (type === 'LIST_DIRECTORY_CLIENTS') {
+        const dir = await loadDirectory(true);
+        if (dir.state !== 'ready') return err(dir.error || 'No se pudo leer el directorio.');
+        const dq = canon(pl.search);
+        const linkedIds = linkedItemIds();
+        const list = arr(dir.items)
+          .filter((e) => !dq || canon([e.name, e.email, e.city, e.country].join(' ')).includes(dq))
+          .slice(0, 200)
+          .map((e) => {
+            const match = linkedIds.has(s(e.itemId)) ? null : matchLocalClient(e);
+            return {
+              id: e.itemId, nombre: e.name, correo: e.email, telefono: e.phone,
+              ciudad: e.city, pais: e.country, instancia: e.instanceName,
+              enLaCartera: linkedIds.has(s(e.itemId)),
+              coincideCon: match ? { cliente: match.client.name, por: match.reason } : null,
+            };
+          });
+        return ok(list.length + ' ficha(s) en el directorio de ' + DIRECTORY_LABEL + ' (' + dir.instances.length + ' instancia(s)).', {
+          fichas: list,
+          yaVinculados: linkedIds.size,
+        });
+      }
+      if (type === 'IMPORT_CLIENTS') {
+        const dir = await loadDirectory(true);
+        if (dir.state !== 'ready') return err(dir.error || 'No se pudo leer el directorio.');
+        const wanted = arr(pl.names).map(s).filter(Boolean);
+        const targets = wanted.length
+          ? arr(dir.items).filter((e) => wanted.some((w) => s(e.itemId) === w || canon(e.name) === canon(w) || (s(e.email) && canon(e.email) === canon(w))))
+          : arr(dir.items);
+        if (!targets.length) return err('Ninguna ficha del directorio coincide con ' + (wanted.length ? wanted.join(', ') : 'la búsqueda') + '.');
+        const created = [];
+        const linkedNow = [];
+        for (const e of targets) {
+          if (linkedItemIds().has(s(e.itemId))) continue;
+          const res = importDirectoryClient(e);
+          (res.created ? created : linkedNow).push(res.client.name);
+        }
+        if (!created.length && !linkedNow.length) return ok('Todas esas fichas ya estaban en la cartera.');
+        return ok(created.length + ' cliente(s) creados y ' + linkedNow.length + ' vinculado(s) desde el directorio de ' + DIRECTORY_LABEL + '.', {
+          creados: created, vinculados: linkedNow,
+        });
+      }
+      if (type === 'LINK_CLIENT') {
+        const c = resolveClient(pl.client);
+        if (!c) return err('No encontré el cliente "' + s(pl.client) + '" en la cartera.');
+        const dir = await loadDirectory(true);
+        if (dir.state !== 'ready') return err(dir.error || 'No se pudo leer el directorio.');
+        const ref = s(pl.directoryClient) || s(c.name);
+        const entry = arr(dir.items).find((e) => s(e.itemId) === ref || canon(e.name) === canon(ref) || (s(e.email) && canon(e.email) === canon(ref)))
+          || arr(dir.items).find((e) => canon(e.name).includes(canon(ref)));
+        if (!entry) return err('No encontré "' + ref + '" en el directorio de ' + DIRECTORY_LABEL + '.');
+        const updated = linkClientToDirectory(c.id, entry, { overwrite: true });
+        return ok('Cliente "' + (updated ? updated.name : c.name) + '" vinculado con su ficha del directorio y actualizado con sus datos.');
+      }
+      if (type === 'SYNC_CLIENTS') {
+        const res = await syncLinkedClients({ silent: true });
+        if (!res.ok) return err(res.error);
+        if (!res.updated.length && !res.orphan.length) {
+          return ok('Los ' + res.unchanged.length + ' cliente(s) vinculados ya estaban al día.');
+        }
+        return ok(res.updated.length + ' cliente(s) actualizados desde el directorio' +
+          (res.orphan.length ? ' · ' + res.orphan.length + ' enlace(s) huérfanos: su ficha ya no está en el directorio' : '') + '.', {
+          actualizados: res.updated.map((u) => ({ cliente: u.client.name, campos: u.changed })),
+          huerfanos: res.orphan.map((c) => c.name),
+          sinCambios: res.unchanged.length,
+        });
       }
       if (type === 'CREATE_PROJECT') {
         const client = resolveClient(pl.client);
