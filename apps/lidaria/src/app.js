@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -36,6 +36,8 @@ const TABS = [
   ['equipos', 'Equipos', '📱'],
   ['componentes', 'Componentes', '🔌'],
   ['montaje', 'Montaje', '🎥'],
+  ['laboratorio', 'Laboratorio', '🔬'],
+  ['gratuito', 'Gratuito', '🆓'],
   ['prospeccion', 'Prospección', '🎯'],
   ['vision', 'Visión', '👁️'],
   ['extensiones', 'Extensiones', '🧩'],
@@ -121,6 +123,12 @@ function estadoInicial() {
     // Equipo sobre el que se evalúan los componentes: por defecto el detectado.
     equipoComp: null,
     runtimeComp: 'web',
+    // Laboratorio: qué bancos se tienen y qué se midió en cada ensayo.
+    bancoSel: null,
+    equiposLab: [],
+    ensayos: {},
+    subidas: [],
+    subiendo: null,
     manualSel: null,
     expediente: {},
     accesorios: [],
@@ -158,10 +166,12 @@ export default function mount(shell) {
     timer = setTimeout(() => {
       timer = null;
       const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
-        expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp } = estado;
+        expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp,
+        bancoSel, equiposLab, ensayos, subidas } = estado;
       Promise.resolve(shell.saveData({
         v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
         expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp,
+        bancoSel, equiposLab, ensayos, subidas,
       })).catch(() => {});
     }, 800);
   }
@@ -200,6 +210,10 @@ export default function mount(shell) {
       if (d.montaje && typeof d.montaje === 'object') patch.montaje = Object.assign({}, estado.montaje, d.montaje);
       if (typeof d.equipoComp === 'string' && equipoPorId(d.equipoComp)) patch.equipoComp = d.equipoComp;
       if (d.runtimeComp === 'web' || d.runtimeComp === 'nativo') patch.runtimeComp = d.runtimeComp;
+      if (typeof d.bancoSel === 'string') patch.bancoSel = d.bancoSel;
+      if (Array.isArray(d.equiposLab)) patch.equiposLab = d.equiposLab.filter((x) => bancoPorId(DATOS.laboratorio, x));
+      if (d.ensayos && typeof d.ensayos === 'object') patch.ensayos = d.ensayos;
+      if (Array.isArray(d.subidas)) patch.subidas = d.subidas.slice(-50);
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
     } catch (e) { /* primera apertura */ }
@@ -494,6 +508,260 @@ export default function mount(shell) {
               ? h('div', { className: 'ld-mini' }, 'Sumando ', h('b', null, rec[0].equipo.nombre), ' quedaría completo (y ' + rec[0].cubre + ' módulos en total).')
               : h('div', { className: 'ld-mini' }, 'Ningún equipo del catálogo lo deja completo: es trabajo de plataforma, no de compra.'));
         }))) : null);
+  }
+
+  /* ------------------------------ laboratorio ------------------------------ */
+
+  /**
+   * Sube un objeto JSON al Cloud Storage que ya viene con la cuenta de KIMOS.
+   *
+   * `prepararSubida()` del núcleo decide ANTES de tocar la red si esto puede
+   * subir: el área compartida de KIMOS se lee sin iniciar sesión, así que un
+   * informe con personas dentro no va ahí. Cuando dice que no, se descarga.
+   */
+  function apiBase() {
+    try {
+      const raw = shell.assetUrl ? shell.assetUrl('x').split('/api/apps/')[0] : '';
+      return new URL(raw || '/', window.location.href).toString().replace(/\/$/, '');
+    } catch (e) { return (typeof window !== 'undefined' && window.location) ? window.location.origin : ''; }
+  }
+
+  function descargar(descarga) {
+    try {
+      const blob = new Blob([descarga.contenido], { type: descarga.tipo });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = descarga.nombre;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  async function subirAKimos(contenido, meta) {
+    const ctx = {
+      appId: 'lidaria',
+      teamId: shell.app && shell.app.teamId,
+      responsable: estado.responsable || null,
+      maxMB: 20,
+    };
+    const texto = typeof contenido === 'string' ? contenido : JSON.stringify(contenido, null, 2);
+    const archivo = { name: meta.nombre, size: texto.length };
+    const plan = prepararSubida(archivo, meta, ctx);
+
+    if (!plan.ok) {
+      // Un "no" siempre viene con salida: se descarga al equipo.
+      const bajo = descargar(comoDescarga(texto, meta.nombre));
+      shell.notify({ level: plan.legal ? 'warn' : 'info', text: plan.motivo + (bajo ? ' Se descargó al equipo.' : '') });
+      return { ok: false, motivo: plan.motivo, alternativa: plan.alternativa, descargado: bajo };
+    }
+    if (!shell.authFetch) {
+      const bajo = descargar(comoDescarga(texto, meta.nombre));
+      shell.notify({ level: 'info', text: 'Este host no expone authFetch: el archivo se descargó al equipo.' });
+      return { ok: false, motivo: 'Sin authFetch en este host.', descargado: bajo };
+    }
+    try {
+      const blob = new Blob([texto], { type: 'application/json' });
+      const fd = cuerpoDeSubida(plan, new File([blob], plan.path.split('/').pop(), { type: 'application/json' }));
+      const res = await shell.authFetch(apiBase() + plan.endpoint, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d && d.detail) || ('HTTP ' + res.status));
+      }
+      const reg = registroDeSubida(plan, meta, ctx);
+      commit({ subidas: estado.subidas.concat([reg]).slice(-50) });
+      shell.notify({ level: 'success', text: 'Subido a KIMOS. ' + plan.aviso });
+      return { ok: true, url: apiBase() + plan.urlPublica, registro: reg };
+    } catch (e) {
+      const bajo = descargar(comoDescarga(texto, meta.nombre));
+      shell.notify({ level: 'error', text: 'No se pudo subir (' + e.message + ').' + (bajo ? ' Se descargó al equipo.' : '') });
+      return { ok: false, motivo: e.message, descargado: bajo };
+    }
+  }
+
+  function ctxLaboratorio(st) {
+    return {
+      costos: DATOS.costos,
+      equipos: st.equiposLab,
+      ensayos: st.ensayos,
+      expedienteCompleto: evaluarExpediente(DATOS.legal, st.nivelLegal, st.expediente).puedeActivarse,
+    };
+  }
+
+  function setEnsayo(bancoId, pruebaId, patch) {
+    const porBanco = Object.assign({}, estado.ensayos);
+    const delBanco = Object.assign({}, porBanco[bancoId]);
+    delBanco[pruebaId] = Object.assign({}, delBanco[pruebaId], patch);
+    porBanco[bancoId] = delBanco;
+    commit({ ensayos: porBanco });
+  }
+
+  function vistaLaboratorio(st) {
+    const plan = planDeLaboratorio(DATOS.laboratorio, ctxLaboratorio(st));
+    const sel = st.bancoSel ? plan.bancos.find((b) => b.banco === st.bancoSel) : null;
+    const banco = sel ? bancoPorId(DATOS.laboratorio, sel.banco) : null;
+    const icoEstado = (id) => (DATOS.laboratorio.estados.filter((e) => e.id === id)[0] || {}).icon || '';
+    const lblEstado = (id) => (DATOS.laboratorio.estados.filter((e) => e.id === id)[0] || {}).label || id;
+
+    const tarjetas = h('div', { className: 'ld-grid' }, plan.bancos.map((b) => h('article', {
+      key: b.banco,
+      className: 'ld-mod' + (st.bancoSel === b.banco ? ' ld-e-completo' : ''),
+      onClick: () => commit({ bancoSel: st.bancoSel === b.banco ? null : b.banco }),
+      style: { cursor: 'pointer' },
+    },
+      h('header', null,
+        h('span', { className: 'ld-mod-ico' }, b.icon),
+        h('div', null,
+          h('h3', null, b.nombre),
+          h('p', { className: 'ld-mini' }, icoEstado(b.estado) + ' ' + lblEstado(b.estado) + ' · ' + b.cumplen + '/' + b.total + ' pruebas · ' + b.precioAprox))),
+      h('p', null, b.porQue),
+      h('p', { className: 'ld-mini' },
+        b.requisitos.puedeCorrerse ? '✅ Se puede correr ahora'
+          : b.requisitos.puedeCorrerseParcial ? '🟡 Corre salvo las pruebas con dato personal'
+          : '⬜ Falta: ' + b.requisitos.faltas.map((f) => f.que).join(', ')),
+      h('label', { className: 'ld-mini', onClick: (e) => e.stopPropagation() },
+        h('input', {
+          type: 'checkbox', checked: st.equiposLab.indexOf(b.banco) >= 0,
+          onChange: () => commit({
+            equiposLab: st.equiposLab.indexOf(b.banco) >= 0
+              ? st.equiposLab.filter((x) => x !== b.banco)
+              : st.equiposLab.concat([b.banco]),
+          }),
+        }), ' Tengo este equipo'))));
+
+    const detalle = !banco ? null : h('div', null,
+      card('🔬 ' + banco.nombre,
+        h('div', null,
+          h('p', null, banco.veredictoPrevio),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Equipo'), h('b', null, banco.equipo)),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Precio aproximado'), h('b', null, banco.precioAprox)),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Software libre que lo corre'), h('b', null, banco.arquitecturaLibre)),
+          h('h4', null, 'Requisitos'),
+          h('ul', { className: 'ld-lista ld-mini' }, (banco.requisitos || []).map((r, i) => h('li', { key: i }, r))),
+          sel.requisitos.faltas.length
+            ? h('div', null, h('h4', null, 'Qué falta'),
+                h('ul', { className: 'ld-lista ld-mini' }, sel.requisitos.faltas.map((f, i) =>
+                  h('li', { key: i }, h('b', null, f.tipo + ': '), f.que, ' — ', f.comoSeResuelve))))
+            : null,
+          h('h4', null, 'Software'),
+          h('ul', { className: 'ld-lista ld-mini' }, sel.requisitos.piezas.map((p) => h('li', { key: p.pieza },
+            h('b', null, p.nombre), ' — ', p.para,
+            p.noDa && p.noDa.length ? h('span', null, ' · ', h('b', null, 'NO entrega: '), p.noDa.join(', ')) : null,
+            p.veredicto.admitido ? null : h('span', { className: 'ld-aviso' }, ' · excluida: ' + p.veredicto.porque + (p.alternativa ? ' Alternativa: ' + p.alternativa : ''))))))));
+
+    const pruebas = !banco ? null : banco.pruebas.map((p) => {
+      const r = sel.pruebas.filter((x) => x.prueba === p.id)[0] || {};
+      const guardado = ((st.ensayos[banco.id] || {})[p.id]) || {};
+      return card(icoEstado(r.estado) + ' ' + p.nombre,
+        h('div', null,
+          p.requiereExpedienteLegal
+            ? h('p', { className: 'ld-aviso' }, '⚖️ Dato personal sensible: exige expediente de la Ley 21.719 con responsable designado antes de capturar a nadie.')
+            : null,
+          p.aviso ? h('p', { className: 'ld-mini' }, p.aviso) : null,
+          h('h4', null, 'Protocolo'),
+          h('ol', { className: 'ld-lista ld-mini' }, p.protocolo.map((x, i) => h('li', { key: i }, x))),
+          h('h4', null, 'Criterio de aceptación'),
+          h('p', { className: 'ld-mini' }, p.criterio),
+          h('h4', null, 'Mediciones'),
+          h('div', { className: 'ld-form' }, p.mide.map((m) => h('label', { className: 'ld-campo', key: m.id },
+            h('span', null, m.nombre + ' (' + m.unidad + ')'),
+            h('input', {
+              type: 'number', step: 'any',
+              value: (guardado.mediciones || {})[m.id] == null ? '' : (guardado.mediciones || {})[m.id],
+              onChange: (e) => setEnsayo(banco.id, p.id, {
+                mediciones: Object.assign({}, guardado.mediciones, { [m.id]: e.target.value === '' ? null : Number(e.target.value) }),
+              }),
+            })))),
+          h('label', { className: 'ld-campo' }, h('span', null, 'Observaciones'),
+            h('input', {
+              type: 'text', value: guardado.observaciones || '',
+              onChange: (e) => setEnsayo(banco.id, p.id, { observaciones: e.target.value }),
+            })),
+          h('div', { className: 'ld-chips' },
+            h('button', {
+              className: 'ld-btn' + (guardado.cumpleCriterio === true ? ' ld-pri' : ''),
+              onClick: () => setEnsayo(banco.id, p.id, { cumpleCriterio: guardado.cumpleCriterio === true ? null : true, responsable: st.responsable || null, fecha: new Date().toISOString().slice(0, 10) }),
+            }, '✅ Cumple'),
+            h('button', {
+              className: 'ld-btn' + (guardado.cumpleCriterio === false ? ' ld-pri' : ''),
+              onClick: () => setEnsayo(banco.id, p.id, { cumpleCriterio: guardado.cumpleCriterio === false ? null : false, responsable: st.responsable || null, fecha: new Date().toISOString().slice(0, 10) }),
+            }, '❌ No cumple')),
+          h('p', { className: 'ld-mini' }, r.porque),
+          r.estado === 'no-cumple' ? h('p', { className: 'ld-mini' }, h('b', null, 'Qué significa: '), p.siFalla) : null));
+    });
+
+    const informe = !banco ? null : card('📄 Informe del banco',
+      h('div', null,
+        h('p', { className: 'ld-mini' }, 'Lleva el protocolo, el criterio que estaba declarado antes del ensayo, los números medidos y quién lo firmó. Sin esto, un ensayo se convierte en un recuerdo.'),
+        h('button', {
+          className: 'ld-btn ld-pri',
+          onClick: async () => {
+            const inf = informeDeBanco(banco, st.ensayos[banco.id] || {}, { responsable: st.responsable, organizacion: shell.app && shell.app.teamId });
+            const r = await subirAKimos(inf, { tipo: 'informe', nombre: 'lidaria-laboratorio-' + banco.id + '.json', carpeta: 'laboratorio' });
+            commit({ subiendo: r });
+          },
+        }, '☁️ Generar y subir a KIMOS'),
+        st.subiendo && st.subiendo.ok
+          ? h('p', { className: 'ld-mini' }, '✅ Subido. URL: ', h('code', null, st.subiendo.url))
+          : st.subiendo ? h('p', { className: 'ld-aviso' }, st.subiendo.motivo, st.subiendo.alternativa ? ' — ' + st.subiendo.alternativa : '') : null));
+
+    return h('div', null,
+      card('🔬 Laboratorio de pruebas',
+        h('div', null,
+          h('p', null, DATOS.laboratorio.principio),
+          h('p', { className: 'ld-mini' }, 'Marca los equipos que tengas y el plan se reordena: primero lo que puede correrse hoy.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Bancos listos', plan.listos.length, 'se pueden correr ahora'),
+            kpi('Bloqueados', plan.bloqueados.length, 'les falta equipo, software o permiso'),
+            kpi('Pruebas totales', DATOS.laboratorio.bancos.reduce((n, b) => n + b.pruebas.length, 0), 'cada una con su criterio')))),
+      tarjetas, detalle,
+      pruebas ? h('div', null, pruebas) : null,
+      informe,
+      st.subidas.length ? card('☁️ Subido a KIMOS',
+        tabla([
+          { k: 'f', l: 'Fecha', cell: (r) => r.fecha.slice(0, 16).replace('T', ' ') },
+          { k: 'c', l: 'Clase', cell: (r) => r.clase },
+          { k: 'p', l: 'Ruta', cell: (r) => h('code', { className: 'ld-mini' }, r.path) },
+          { k: 'l', l: 'Lectura', cell: (r) => (r.lecturaPublica ? '🌐 pública' : '🔒 privada') },
+        ], st.subidas.slice().reverse(), { key: (r) => r.path })) : null);
+  }
+
+  /* -------------------------------- gratuito -------------------------------- */
+
+  function vistaGratuito(st) {
+    const ruta = rutaGratuita(
+      Object.assign({}, DATOS.costos, { accesorios: DATOS.accesorios.accesorios }),
+      { yaTengo: st.accesorios },
+    );
+    const pol = ruta.politica || {};
+    return h('div', null,
+      card('🆓 Habilitarlo todo sin licencias ni suscripciones',
+        h('div', null,
+          h('p', null, pol.regla),
+          h('p', { className: 'ld-mini' }, pol.porque),
+          h('p', { className: 'ld-mini' }, h('b', null, 'La excepción: '), pol.excepcion))),
+
+      ruta.tramos.map((t) => card(
+        (t.id === 'hoy' ? '1 · ' : t.id === 'cuenta' ? '2 · ' : '3 · ') + t.titulo,
+        t.id === 'compra'
+          ? tabla([
+              { k: 'n', l: 'Accesorio', cell: (p) => h('div', null, h('b', null, (p.icon || '') + ' ' + p.nombre), h('div', { className: 'ld-mini' }, 'Habilita: ' + (p.habilita.length ? p.habilita.join(', ') : '—'))) },
+              { k: 'p', l: 'Precio', cell: (p) => p.precio },
+              { k: 's', l: 'Sin comprarlo', cell: (p) => h('div', { className: 'ld-mini' }, p.sinComprarlo) },
+            ], t.piezas, { key: (p) => p.id })
+          : t.piezas.length
+            ? tabla([
+                { k: 'n', l: 'Pieza', cell: (p) => h('b', null, p.nombre) },
+                { k: 'l', l: 'Licencia', cell: (p) => h('span', { className: 'ld-mini' }, p.licencia) },
+                { k: 'x', l: 'Qué aporta y su límite', cell: (p) => h('div', { className: 'ld-mini' }, p.nota) },
+              ], t.piezas, { key: (p) => p.id })
+            : h('p', { className: 'ld-mini' }, 'Nada en este tramo.'))),
+
+      card('🚫 Lo que queda fuera, y con qué se reemplaza',
+        h('ul', { className: 'ld-lista' }, ruta.fuera.map((f) => h('li', { key: f.id },
+          h('b', null, (f.grave ? '⛔ ' : '↔️ ') + f.nombre),
+          h('div', { className: 'ld-mini' }, f.porque),
+          h('div', { className: 'ld-mini' }, h('b', null, 'En su lugar: '), f.alternativa || 'sin reemplazo libre conocido — esto es un agujero de producto, no una decisión')))))); 
   }
 
   /* ------------------------- componentes del equipo ------------------------ */
@@ -1471,6 +1739,8 @@ export default function mount(shell) {
       : st.tab === 'equipos' ? vistaEquipos()
       : st.tab === 'componentes' ? vistaComponentes(st)
       : st.tab === 'montaje' ? vistaMontaje(st)
+      : st.tab === 'laboratorio' ? vistaLaboratorio(st)
+      : st.tab === 'gratuito' ? vistaGratuito(st)
       : st.tab === 'negocio' ? vistaNegocio(eco)
       : st.tab === 'plan' ? vistaPlan(eco)
       : st.tab === 'licencias' ? vistaLicencias()
@@ -1619,6 +1889,30 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
         },
         {
+          name: 'PLAN_LABORATORIO',
+          description: 'Dice qué bancos de prueba se pueden correr hoy y qué le falta a cada uno, separando falta de equipo, de software y de permiso legal. Con `banco` entra al detalle de uno y muestra su protocolo y su criterio.',
+          inputSchema: { type: 'object', properties: { banco: { type: 'string', description: 'Id del banco: kinect-v2, webcam-montaje, esp32-sensores.' } } },
+        },
+        {
+          name: 'REGISTRAR_ENSAYO',
+          description: 'Anota las mediciones de una prueba del laboratorio y, opcionalmente, declara si el criterio se cumple. Sin declararlo, la prueba queda "en curso": tener números no es haber concluido.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              prueba: { type: 'string', description: 'Id de la prueba, p.ej. kv2.profundidad.' },
+              mediciones: { type: 'object', description: 'Pares {idDeMetrica: numero}.' },
+              cumple: { type: 'boolean', description: 'Si el criterio declarado se cumple. Omítelo si todavía no hay conclusión.' },
+              observaciones: { type: 'string' },
+            },
+            required: ['prueba'],
+          },
+        },
+        {
+          name: 'RUTA_GRATUITA',
+          description: 'Qué se puede habilitar sin pagar licencias ni suscripciones, en tres tramos: hoy mismo, con una cuenta gratuita, y con una compra de hardware de un solo pago. Incluye lo que la política deja fuera y con qué se reemplaza.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'VER_COMPONENTES',
           description: 'Lista todo lo que un equipo trae —cámaras, micrófono, altavoz, radios, sensores— y en qué estado está cada componente en el navegador o en un contenedor nativo. Responde a "¿qué le puedo sacar a este teléfono?".',
           inputSchema: {
@@ -1675,6 +1969,20 @@ export default function mount(shell) {
             return { equipo: eq.id, entorno: estado.runtimeComp, resumen: inv.resumenComponentes };
           })(),
           noDerivables: DATOS.cuerpo.noDerivables.map((n) => n.que),
+          laboratorio: (() => {
+            const plan = planDeLaboratorio(DATOS.laboratorio, ctxLaboratorio(estado));
+            return {
+              bancos: plan.bancos.map((b) => ({ id: b.banco, nombre: b.nombre, estado: b.estado, cumplen: b.cumplen, total: b.total, puedeCorrerse: b.requisitos.puedeCorrerse })),
+              listos: plan.listos,
+            };
+          })(),
+          politicaDeCosto: {
+            regla: DATOS.costos.politica.regla,
+            permitido: DATOS.costos.politica.permitido,
+            excluido: DATOS.costos.politica.excluido,
+            piezasExcluidas: DATOS.costos.piezas.filter((x) => ['suscripcion', 'licencia', 'por-uso'].indexOf(x.costo) >= 0).map((x) => x.nombre),
+          },
+          subidas: estado.subidas.length,
           nivelEquipoActual: estado.diag && estado.diag.nivel ? estado.diag.nivel.label : null,
           inventario: estado.inventario.map((i) => ({ equipo: i.equipo, etiqueta: i.etiqueta, cantidad: i.cantidad || 1 })),
           cobertura: cob.resumen,
@@ -1788,6 +2096,67 @@ export default function mount(shell) {
             if (!rec.length) return { success: true, message: 'Ningún equipo del catálogo deja ' + m.nombre + ' completo: es trabajo de plataforma, no de compra.' };
             commit({ tab: 'modulos', moduloSel: m.id });
             return { success: true, message: 'Para ' + m.nombre + ': ' + rec.map((r) => r.equipo.nombre + ' (cubre ' + r.cubre + ' módulos)').join('; ') };
+          }
+          if (t === 'PLAN_LABORATORIO') {
+            const plan = planDeLaboratorio(DATOS.laboratorio, ctxLaboratorio(estado));
+            if (p.banco) {
+              const b = bancoPorId(DATOS.laboratorio, p.banco);
+              if (!b) return { success: false, error: 'Banco desconocido: ' + p.banco + '. Disponibles: ' + DATOS.laboratorio.bancos.map((x) => x.id).join(', ') };
+              const est = plan.bancos.filter((x) => x.banco === b.id)[0];
+              commit({ tab: 'laboratorio', bancoSel: b.id });
+              return {
+                success: true,
+                message: b.nombre + ': ' + est.cumplen + '/' + est.total + ' pruebas cumplen. '
+                  + (est.requisitos.puedeCorrerse ? 'Se puede correr ahora. ' : 'Falta: ' + est.requisitos.faltas.map((f) => f.tipo + ' — ' + f.que).join('; ') + '. ')
+                  + 'Arquitectura libre: ' + b.arquitecturaLibre + ' Pruebas: '
+                  + b.pruebas.map((x) => x.nombre + ' (criterio: ' + x.criterio + ')').join(' | '),
+              };
+            }
+            commit({ tab: 'laboratorio' });
+            return {
+              success: true,
+              message: 'Bancos listos para correr: ' + (plan.listos.join(', ') || 'ninguno') + '. '
+                + 'Bloqueados: ' + (plan.bloqueados.map((b) => b.banco + ' (' + b.faltas.map((f) => f.tipo).join('/') + ')').join(', ') || 'ninguno') + '. '
+                + plan.bancos.map((b) => b.nombre + ': ' + b.estado).join(' | '),
+            };
+          }
+          if (t === 'REGISTRAR_ENSAYO') {
+            const hallado = pruebaPorId(DATOS.laboratorio, p.prueba);
+            if (!hallado) return { success: false, error: 'Prueba desconocida: ' + p.prueba };
+            const { banco, prueba } = hallado;
+            const previo = ((estado.ensayos[banco.id] || {})[prueba.id]) || {};
+            const meds = Object.assign({}, previo.mediciones);
+            const desconocidas = [];
+            for (const k of Object.keys(p.mediciones || {})) {
+              if (!prueba.mide.some((m) => m.id === k)) { desconocidas.push(k); continue; }
+              const v = Number(p.mediciones[k]);
+              if (Number.isFinite(v)) meds[k] = v;
+            }
+            if (desconocidas.length) {
+              return { success: false, error: 'Métricas que esta prueba no mide: ' + desconocidas.join(', ') + '. Mide: ' + prueba.mide.map((m) => m.id + ' (' + m.unidad + ')').join(', ') };
+            }
+            setEnsayo(banco.id, prueba.id, {
+              mediciones: meds,
+              cumpleCriterio: typeof p.cumple === 'boolean' ? p.cumple : previo.cumpleCriterio,
+              observaciones: p.observaciones == null ? previo.observaciones : String(p.observaciones),
+              responsable: estado.responsable || null,
+              fecha: new Date().toISOString().slice(0, 10),
+            });
+            commit({ tab: 'laboratorio', bancoSel: banco.id });
+            const r = evaluarEnsayo(prueba, { mediciones: meds, cumpleCriterio: typeof p.cumple === 'boolean' ? p.cumple : previo.cumpleCriterio });
+            return { success: true, message: prueba.nombre + ' → ' + r.estado + '. ' + r.porque };
+          }
+          if (t === 'RUTA_GRATUITA') {
+            const ruta = rutaGratuita(Object.assign({}, DATOS.costos, { accesorios: DATOS.accesorios.accesorios }), { yaTengo: estado.accesorios });
+            commit({ tab: 'gratuito' });
+            const tramo = (id) => ruta.tramos.filter((t2) => t2.id === id)[0];
+            return {
+              success: true,
+              message: 'Hoy sin gastar nada: ' + tramo('hoy').piezas.map((x) => x.nombre).join(', ') + '. '
+                + 'Gratis con cuenta: ' + (tramo('cuenta').piezas.map((x) => x.nombre).join(', ') || 'nada') + '. '
+                + 'Hardware de un pago (lo que más desbloquea primero): ' + tramo('compra').piezas.slice(0, 4).map((x) => x.nombre + ' ' + x.precio).join(', ') + '. '
+                + 'Fuera por política: ' + ruta.fuera.map((f) => f.nombre + ' → ' + f.alternativa).join('; ') + '.',
+            };
           }
           if (t === 'VER_COMPONENTES') {
             const eqId = p.equipo || (estado.diag && estado.diag.equipo && estado.diag.equipo.id) || null;

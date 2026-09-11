@@ -13,6 +13,7 @@
  * kimos-LiDARia (`node tools/build-kimos-payload.mjs`). No se editan aquí.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,6 +31,20 @@ const declarada = (app.match(/APP_VERSION\s*=\s*'([^']+)'/) || [])[1];
 if (declarada !== manifest.version) {
   console.error(`APP_VERSION (${declarada}) != manifest.version (${manifest.version}). Sube ambas.`);
   process.exit(1);
+}
+
+// `node --check` sin --input-type=module parsea como CommonJS y da por bueno
+// un archivo con los paréntesis descuadrados. Aquí se valida como MÓDULO, que
+// es como el host lo va a cargar: un desbalance se ve ahora y no en la ventana
+// del usuario. (Este build nació sin esta comprobación y dejó pasar un
+// paréntesis de menos hasta el bundle.)
+for (const [nombre, texto] of [['src/app.js', app], ['src/nucleo.mjs', nucleoBruto]]) {
+  const r = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: texto, encoding: 'utf8' });
+  if (r.status !== 0) {
+    console.error('Error de sintaxis en ' + nombre + ':');
+    console.error((r.stderr || '').split('\n').slice(0, 6).join('\n'));
+    process.exit(1);
+  }
 }
 
 const MARCA = 'const DATOS = /* DATOS_INLINE */ null;';

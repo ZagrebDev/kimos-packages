@@ -50,13 +50,13 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
-ok(agente && agente.tools.length === 17, 'diecisiete herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
+ok(agente && agente.tools.length === 20, 'veinte herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
 ok(snap0.version === manifest.version, 'APP_VERSION coincide con el manifest', snap0.version);
 ok(snap0.catalogoEquipos.length >= 15, 'catálogo de equipos embebido', snap0.catalogoEquipos.length + ' equipos');
-ok(snap0.modulos.length === 16, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
+ok(snap0.modulos.length === 17, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
 ok(!!snap0.nucleo, 'versión del núcleo a la vista', snap0.nucleo);
 
 // La lista sale del propio esquema de la herramienta del agente: una pestaña
@@ -246,6 +246,63 @@ for (const t of ['componentes', 'montaje']) {
   let arbol = null;
   try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' con equipo elegido lanza: ' + e.message); continue; }
   ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con equipo elegido');
+}
+
+/* ------------- 1.5.0: laboratorio, gratuidad y almacenamiento ------------- */
+
+console.log('\nLaboratorio');
+
+const rPlan = await agente.dispatchAction({ type: 'PLAN_LABORATORIO', payload: {} });
+ok(rPlan.success && /kinect-v2|webcam-montaje/.test(rPlan.message), 'el agente lista los bancos y su estado', rPlan.message.slice(0, 130));
+
+const rKinect = await agente.dispatchAction({ type: 'PLAN_LABORATORIO', payload: { banco: 'kinect-v2' } });
+ok(rKinect.success && /criterio:/.test(rKinect.message), 'y entra al detalle con el criterio de cada prueba');
+ok(/MediaPipe/.test(rKinect.message) && /Cero licencias/i.test(rKinect.message), 'la arquitectura libre del banco viaja en la respuesta');
+
+const rMalBanco = await agente.dispatchAction({ type: 'PLAN_LABORATORIO', payload: { banco: 'inventado' } });
+ok(!rMalBanco.success, 'un banco que no existe se rechaza', rMalBanco.error);
+
+const rEnsayo = await agente.dispatchAction({
+  type: 'REGISTRAR_ENSAYO',
+  payload: { prueba: 'kv2.profundidad', mediciones: { errorMedio: 1.4, ruido: 0.6, rangoUtil: 3.5 }, cumple: true },
+});
+ok(rEnsayo.success && /cumple/.test(rEnsayo.message), 'registra un ensayo completo y aprobado', rEnsayo.message);
+
+const rParcial = await agente.dispatchAction({
+  type: 'REGISTRAR_ENSAYO',
+  payload: { prueba: 'kv2.oscuridad', mediciones: { errorOscuridad: 1.2 }, cumple: true },
+});
+ok(rParcial.success && /parcial/.test(rParcial.message), 'un ensayo a medias NO se declara aprobado', rParcial.message);
+
+const rSinConcluir = await agente.dispatchAction({
+  type: 'REGISTRAR_ENSAYO',
+  payload: { prueba: 'wc.calibracion', mediciones: { difFov: 1.8 } },
+});
+ok(rSinConcluir.success && /en-curso/.test(rSinConcluir.message), 'tener números no es haber concluido', rSinConcluir.message);
+
+const rMetricaMala = await agente.dispatchAction({
+  type: 'REGISTRAR_ENSAYO',
+  payload: { prueba: 'kv2.profundidad', mediciones: { inventada: 1 } },
+});
+ok(!rMetricaMala.success && /no mide/.test(rMetricaMala.error), 'una métrica que la prueba no mide se rechaza', rMetricaMala.error);
+
+console.log('\nGratuidad');
+
+const rGratis = await agente.dispatchAction({ type: 'RUTA_GRATUITA', payload: {} });
+ok(rGratis.success && /Hoy sin gastar nada/.test(rGratis.message), 'el agente entrega la ruta gratuita en tres tramos');
+ok(/MediaPipe/.test(rGratis.message), 'y el motor de pose está en el tramo de hoy');
+ok(/Fuera por política/.test(rGratis.message) && /→/.test(rGratis.message), 'lo excluido viaja con su reemplazo, no se oculta');
+
+const snapLab = agente.getSnapshot();
+ok(snapLab.laboratorio && snapLab.laboratorio.bancos.length === 3, 'el snapshot lleva los bancos', JSON.stringify(snapLab.laboratorio.listos));
+ok(snapLab.politicaDeCosto && snapLab.politicaDeCosto.excluido.indexOf('suscripcion') >= 0, 'y la política de costo, con lo excluido');
+ok(snapLab.politicaDeCosto.piezasExcluidas.length > 0, 'nombrando las piezas que quedan fuera', snapLab.politicaDeCosto.piezasExcluidas.join(', '));
+
+for (const t of ['laboratorio', 'gratuito']) {
+  await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
+  let arbol = null;
+  try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' con datos lanza: ' + e.message); continue; }
+  ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con ensayos cargados');
 }
 
 console.log('');
