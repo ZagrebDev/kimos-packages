@@ -5,7 +5,7 @@ cobra la competencia por lo mismo que hace cada línea de producto, qué precio 
 sugiere en consecuencia, cuánto mercado hay país por país y qué economía por
 cliente resulta de todo eso.
 
-**Versión actual: 2.0.0**
+**Versión actual: 2.1.0**
 
 Trae hecho el estudio de KIMOS —25 líneas contra 170 planes de precio de la
 competencia— y sirve para hacer el de **cualquier otra empresa**: se elige la
@@ -32,7 +32,7 @@ rehacer la planilla.
 | **Clientes** | Los seis perfiles de cliente ideal, la segmentación por tamaño y la evidencia de demanda con su fuente. |
 | **Pros y contras** | Una tarjeta por módulo con lo que KIMOS tiene a favor y en contra frente a la competencia real de esa categoría. Donde la posición es mala, lo dice. |
 | **Diagnóstico** | Ocho dimensiones evaluadas de 0 a 10, la concentración del valor por módulo, ocho movimientos concretos, las ocho decisiones que cruzan oferta y demanda, la matriz de cartera, la conclusión y las advertencias metodológicas. |
-| **Este estudio** | La identidad del estudio (empresa, rubro, moneda, fecha, autor), el estado de la evidencia con alerta de vencimiento, las nueve plantillas de rubro para empezar el estudio de otra empresa, importar y exportar el estudio como JSON, los editores de líneas y de precios, y el protocolo de investigación en nueve pasos. |
+| **Este estudio** | La identidad del estudio (empresa, rubro, moneda, fecha, autor), el estado de la evidencia con alerta de vencimiento, las nueve plantillas de rubro para empezar el estudio de otra empresa, los **documentos de respaldo** guardados en el almacenamiento del equipo, importar y exportar el estudio como JSON, los editores de líneas y de precios, y el protocolo de investigación en nueve pasos. |
 
 ## Aspecto: tres modos, un solo tablero
 
@@ -69,8 +69,32 @@ pueden estar analizando dos empresas distintas al mismo tiempo.
 | **Nueve plantillas de rubro** | Software B2B, comercio y e-commerce, servicios profesionales, salud, educación, manufactura, hotelería y turismo, logística, y una en blanco. Una plantilla trae la estructura de comparación del sector y **de dónde se sacan los datos ahí** —en software una página de precios, en salud un arancel, en industria un catálogo del canal—, nunca cifras. |
 | **Fuente obligatoria** | Un precio sin fuente no se puede cargar, ni desde el formulario ni desde el agente. *Verificado* es solo el precio publicado por el proveedor; lo que se reconstruye desde contratos reportados por terceros es *Estimado* y lleva el rango en la nota. |
 | **Control de vigencia** | La app calcula la edad del levantamiento y avisa: a los seis meses toca revisarlo, a los doce ya no sirve para decidir. También lista los huecos concretos (líneas sin competencia, precios sin fuente, mercados vacíos). |
-| **Importar y exportar** | El estudio completo es un JSON: se versiona, se le entrega al cliente y se vuelve a cargar en cualquier ventana. Al importar se valida la estructura y, si falta algo, dice exactamente qué. |
+| **Documentos de respaldo** | Una URL prueba el precio mientras la página siga en pie; a los seis meses la tarifa cambió y el enlace ya no prueba nada. Por eso el archivo mismo —la captura de la página de precios, el arancel en PDF, la propuesta recibida, la planilla del proveedor— se sube al **almacenamiento del equipo** y se ata a la fila que prueba. Ver más abajo. |
+| **Importar y exportar** | El estudio completo es un JSON: se versiona, se le entrega al cliente y se vuelve a cargar en cualquier ventana. Al importar se valida la estructura y, si falta algo, dice exactamente qué. También se puede dejar la copia en el almacenamiento del equipo en vez de descargarla. |
 | **Protocolo de investigación** | Los nueve pasos del método con que se levantó el de KIMOS —cliente tipo, categoría por línea, precio de lista primero, estimar y declararlo, excluir Enterprise de la mediana, mediana × factor, demanda con dos fuentes, cerrar con unit economics, fechar y volver a levantar—, a la vista en pantalla y disponible para el agente. |
+
+## Los documentos viven en el almacenamiento del equipo
+
+La app usa `shell.files` (APP-SPEC §7.e) con el permiso `files.write`: **la ruta
+la decide el host**, no la app. Los respaldos van a la carpeta `evidencia` y las
+copias del estudio a `estudios`, ambas dentro del espacio que el host reserva a
+esta app —aislamiento, cuota atribuible y limpieza al desinstalar—.
+
+| Qué | Dónde y cómo |
+|---|---|
+| **Subir** | Varios archivos de una vez desde la pestaña *Este estudio*. Se aceptan PDF, imágenes, planillas, documentos, texto, CSV, JSON y correos, hasta 10 MB cada uno. El formato y el tamaño **los valida la app**: la plataforma no adivina qué sirve como respaldo de un precio. |
+| **Atar al precio** | Cada fila de precio puede citar un documento. En las tablas de competencia la fuente aparece con un chip 📎 enlazado al archivo, y el CSV exportado se lleva su URL en una columna nueva. |
+| **Traer del equipo** | Lo que ya esté en la carpeta del estudio —subido desde el gestor de Archivos de KIMOS, por ejemplo— se registra sin duplicar lo conocido. |
+| **Borrar** | Saca el archivo del almacenamiento y suelta los precios que lo citaban, para que ninguna fila quede apuntando a un enlace muerto. |
+| **Copia del estudio** | Un botón deja el JSON completo en la carpeta `estudios` y el estudio recuerda dónde quedó. |
+
+Los enlaces que devuelve el host son **públicos de lectura**: sirven en un
+correo o en el PDF del estudio, y por eso mismo ahí no va nada confidencial. La
+app lo dice en pantalla antes de que alguien suba el primer archivo.
+
+`shell.files` es opcional en el contrato: en un host que todavía no lo exponga
+la app **no se rompe**, el panel explica por qué no está y la fuente de cada
+precio se sigue guardando como URL.
 
 ## De dónde salen los datos
 
@@ -106,7 +130,7 @@ ida y vuelta a JSON.
 
 ## Control por agente IA
 
-Registra diecisiete herramientas. Nueve mueven el modelo: `SET_SUPUESTO`,
+Registra veinte herramientas. Nueve mueven el modelo: `SET_SUPUESTO`,
 `SET_DESCUENTO_PLAN`, `SET_PRECIO_COMPETIDOR`, `COTIZAR`, `SET_ALCANCE`,
 `VER_PESTANA`, `VER_MODULO`, `SET_TEMA` y `RESTAURAR_SUPUESTOS`. El snapshot se
 recalcula al vuelo desde el estado actual, así que el agente responde con las
@@ -123,17 +147,23 @@ dental en Santiago"* es una secuencia de herramientas: crear con la plantilla de
 salud, investigar los aranceles publicados, cargarlos con su fuente y leer el
 precio sugerido, el mercado y la economía por paciente que devuelve el modelo.
 
+Y tres para los documentos: `LISTAR_DOCUMENTOS` dice qué hay en el
+almacenamiento y qué precios lo citan, `VINCULAR_DOCUMENTO` ata un archivo ya
+subido a la fila que prueba, y `GUARDAR_EN_LA_NUBE` deja la copia del estudio y
+devuelve su enlace. Subir archivos no está entre ellas a propósito: el agente no
+tiene un archivo que subir, eso lo hace la persona.
+
 ## Desarrollo
 
 ```bash
 node apps/estudio-mercado/build.mjs        # src/app.js + src/data.json → dist/index.js
 node apps/estudio-mercado/test/smoke.mjs   # contrato, cifras y render de las 10 pestañas
 node tools/check-versions.mjs estudio-mercado
-node tools/pack.mjs apps/estudio-mercado apps/estudio-mercado/estudio-mercado-2.0.0.kapp
+node tools/pack.mjs apps/estudio-mercado apps/estudio-mercado/estudio-mercado-2.1.0.kapp
 ```
 
 El `.kapp` de la versión publicada vive en esta misma carpeta
-(`estudio-mercado-2.0.0.kapp`), para instalarlo desde la Tienda → *Instalar
+(`estudio-mercado-2.1.0.kapp`), para instalarlo desde la Tienda → *Instalar
 desde archivo* sin tener que empaquetarlo. Al subir de versión, regenerarlo con
 el nombre nuevo y borrar el anterior.
 
@@ -144,6 +174,7 @@ Para actualizar los datos del estudio: regenerar `src/data.json` con
 
 | Versión | Cambios |
 |---|---|
+| 2.1.0 | **Los documentos de respaldo van al almacenamiento del equipo** (`shell.files`, permiso `files.write`): se suben varios a la vez desde la pestaña *Este estudio*, se atan a la fila de precio que prueban —con chip 📎 enlazado en las tablas de competencia y una columna nueva en el CSV—, se traen los que ya estaban en la carpeta sin duplicarlos, y borrarlos los saca del almacenamiento soltando los precios que los citaban. Botón para dejar la copia del estudio completo en la carpeta `estudios`. Tres herramientas de agente nuevas: `LISTAR_DOCUMENTOS`, `VINCULAR_DOCUMENTO` y `GUARDAR_EN_LA_NUBE`. El almacenamiento es opcional en el contrato: sin él la app explica por qué no está y sigue funcionando con la fuente como URL. |
 | 2.0.0 | **El estudio deja de ser la app y pasa a ser un documento**, para que la herramienta sirva a cualquier empresa y no solo a KIMOS: nueve plantillas de rubro, editor de identidad, de líneas y de precios con fuente obligatoria, importar y exportar como JSON, control de vigencia de la evidencia con alerta a los 6 y 12 meses, y el protocolo de investigación en nueve pasos, todo en la pestaña nueva **Este estudio**. Ocho herramientas nuevas de agente (`PROTOCOLO`, `NUEVO_ESTUDIO`, `SET_IDENTIDAD`, `AGREGAR_LINEA`, `AGREGAR_COMPETIDOR`, `ELIMINAR_COMPETIDOR`, `EXPORTAR_ESTUDIO`, `IMPORTAR_ESTUDIO`) dejan el estudio completo al alcance del agente. Se investigó además la propia categoría de la app y entró como **módulo 25, Estudio de Mercado**, con 16 planes de competencia levantados el 1-sep-2026 (`src/ampliacion.json`): la suite a la carta pasa de $2.046 a $2.220 al mes y los precios verificados de 140/154 a 149/170. Cambia el formato de datos guardado y el contrato del agente, de ahí el salto de versión mayor. |
 | 1.2.0 | **Modo dashboard**: réplica del tablero del estudio (cabecera con marca y herramientas, KPIs con acento por color, pestañas en panel adherido, formato numérico del tablero) elegible desde el menú de tema junto al modo compacto y el modo KIMOS. Tarjetas de plan con las filas del tablero (suma a la carta, descuento, anual, ahorro, módulos), gráfico de concentración del valor en Diagnóstico y botón Imprimir/PDF. Arregla dos fallos de la 1.1.0: la raíz ya no se posiciona en absoluto —lo que descuadraba las proporciones dentro de la ventana del shell— y los títulos ya no heredan colores del host, que los dejaba negros sobre el fondo oscuro. Adaptación explícita a móvil, tablet, PC y tótem. |
 | 1.1.0 | Tablero interactivo con el sistema visual del dashboard del estudio: cinco KPIs de cabecera, gráficos en SVG (barras comparadas, dona del stack, escalera de planes, SAM y precio por país, ARR y matriz de cartera), pestañas nuevas de **Configurador** (cotización en vivo con presets y veredicto de banda), **Pros y contras** (tarjeta por módulo con icono) y **Diagnóstico** (ocho dimensiones, ocho movimientos y conclusión), precios de la competencia editables fila por fila, controles del cliente tipo con sliders, tarjetas de plan y alternador de tema estudio/KIMOS. |

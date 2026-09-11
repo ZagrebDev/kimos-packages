@@ -11,7 +11,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 
 const DATA = /* DATOS_INLINE */ null;
 const VIS = /* VISUAL_INLINE */ null;
@@ -31,6 +31,42 @@ const PATHS = VIS.paths;
 
 const clon = (o) => JSON.parse(JSON.stringify(o));
 
+/* ------------------------------------------------------------------ *
+ * Documentos de respaldo
+ *
+ * La regla del estudio es que un precio sin fuente no entra. Una URL sirve
+ * mientras la página siga en pie; a los seis meses la tarifa cambió y el
+ * enlace ya no prueba nada. Por eso el estudio puede guardar el documento
+ * mismo —la captura de la página de precios, el arancel en PDF, la propuesta
+ * recibida— en el almacenamiento del tenant, con `shell.files` (APP-SPEC
+ * §7.e): la ruta la decide el host, así que hay aislamiento por app, cuota
+ * atribuible y limpieza al desinstalar.
+ * ------------------------------------------------------------------ */
+
+const MAX_DOC_MB = 10;
+
+// Lo que tiene sentido como respaldo de un precio. La plataforma no adivina
+// qué es aceptable para cada app: el tipo lo valida la app.
+const TIPOS_DOC = {
+  pdf: 'PDF', png: 'Imagen', jpg: 'Imagen', jpeg: 'Imagen', webp: 'Imagen', gif: 'Imagen',
+  csv: 'Tabla', xlsx: 'Planilla', xls: 'Planilla', ods: 'Planilla',
+  docx: 'Documento', doc: 'Documento', odt: 'Documento', txt: 'Texto', md: 'Texto',
+  json: 'Datos', eml: 'Correo', msg: 'Correo',
+};
+
+const extDe = (nombre) => String(nombre || '').split('?')[0].split('#')[0]
+  .split('/').pop().split('.').pop().toLowerCase();
+
+const esURL = (t) => /^(https?:\/\/|www\.)/i.test(String(t || '').trim());
+
+const pesoCorto = (n) => {
+  const b = Number(n) || 0;
+  if (!b) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return Math.round(b / 1024) + ' KB';
+  return (b / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
 function docSemilla() {
   const d = clon(DATA);
   d.meta = Object.assign({
@@ -45,6 +81,9 @@ function docSemilla() {
     scores: clon(VIS.scores), tldr: clon(VIS.tldr), sugerencias: clon(VIS.sugerencias),
     conclusiones: clon(VIS.conclusiones), notas: clon(VIS.notas),
   };
+  // El estudio de KIMOS se levantó contra páginas públicas: no trae respaldos
+  // subidos. Los que suba quien lo use se guardan aquí.
+  d.adjuntos = [];
   return d;
 }
 
@@ -315,7 +354,7 @@ function docPlantilla(id, empresa) {
       mixPlan: [{ plan: 'Starter', peso: 0.5 }, { plan: 'Business', peso: 0.35 }, { plan: 'Enterprise', peso: 0.15 }],
       mixRegion: [],
     },
-    evidencia: [], icp: [], segmentos: [], decisiones: [],
+    evidencia: [], icp: [], segmentos: [], decisiones: [], adjuntos: [],
     notas: ['Estudio en blanco creado con la plantilla "' + t.nombre + '" el ' + hoyISO()
       + '. Todavía no tiene ni un precio: el protocolo de la pestaña "Este estudio" dice en qué orden llenarlo y qué fuentes sirven en este rubro.'],
     visual: { scores: [], tldr: [], sugerencias: [], conclusiones: [], notas: clon(VIS.notas) },
@@ -337,6 +376,9 @@ function validarDoc(o) {
   }
   for (const m of o.modulos) if (typeof m.n !== 'number' || !m.app) return 'Hay un módulo sin número o sin nombre.';
   for (const p of o.planes.concat(o.kits)) if (!p.id || !Array.isArray(p.mods)) return 'Hay un plan sin id o sin lista de módulos.';
+  // Los adjuntos llegaron en la 2.1.0: un estudio exportado antes no los trae
+  // y sigue siendo válido.
+  if (!Array.isArray(o.adjuntos)) o.adjuntos = [];
   if (!o.visual || typeof o.visual !== 'object') o.visual = { scores: [], tldr: [], sugerencias: [], conclusiones: [], notas: clon(VIS.notas) };
   for (const k of ['scores', 'tldr', 'sugerencias', 'conclusiones']) if (!Array.isArray(o.visual[k])) o.visual[k] = [];
   if (!o.visual.notas) o.visual.notas = clon(VIS.notas);
@@ -406,10 +448,11 @@ function estadoInicial(d) {
     // cálculo, porque el documento se muta en sitio y React no lo vería.
     rev: 0,
     propio: false,
+    subiendo: '',
     form: {
       plantilla: 'saas', empresa: '', linea: '',
       nl: { app: '', cat: '', alt: '' },
-      nc: { comp: '', plan: '', precio: '', unidad: 'Plano', seg: 'PyME / Empresa', fuente: '', conf: 'Verificado', nota: '' },
+      nc: { comp: '', plan: '', precio: '', unidad: 'Plano', seg: 'PyME / Empresa', fuente: '', conf: 'Verificado', nota: '', fuenteDoc: '' },
     },
   };
 }
@@ -766,6 +809,7 @@ export default function mount(shell) {
       row: D.competidores.length, app: app, comp: String(o.comp).trim(), plan: String(o.plan).trim(),
       precio: precio, unidad: o.unidad, seg: o.seg, nota: o.nota || '',
       fuente: String(o.fuente).trim(), conf: o.conf === 'Estimado' ? 'Estimado' : 'Verificado',
+      fuenteDoc: o.fuenteDoc && docPorId(o.fuenteDoc) ? o.fuenteDoc : '',
     }]);
     tocarDoc({ precios: {} });
     return null;
@@ -779,6 +823,106 @@ export default function mount(shell) {
     tocarDoc({ precios: {} });
   }
 
+  /* ------------------ documentos en el almacenamiento ------------------- */
+
+  // `shell.files` es opcional en el contrato (APP-SPEC §7): en un host que no
+  // lo exponga la app sigue funcionando, solo que sin respaldos subidos.
+  const hayNube = !!(shell && shell.files && typeof shell.files.upload === 'function');
+
+  const nuevoId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  const docPorId = (id) => (D.adjuntos || []).filter((a) => a.id === id)[0] || null;
+
+  /** Sube un respaldo a la carpeta del estudio y lo registra en el documento. */
+  async function subirDocumento(file, extra) {
+    if (!hayNube) throw new Error('Este host no expone el almacenamiento. Guarda la URL de la fuente en su lugar.');
+    if (!file) throw new Error('No hay archivo.');
+    const ext = extDe(file.name);
+    if (!TIPOS_DOC[ext]) throw new Error('Formato no admitido (' + (ext || 'sin extensión') + '). Se aceptan: ' + Object.keys(TIPOS_DOC).join(', ') + '.');
+    if (file.size > MAX_DOC_MB * 1024 * 1024) throw new Error('El archivo pesa ' + pesoCorto(file.size) + ' y el tope son ' + MAX_DOC_MB + ' MB.');
+    const url = await shell.files.upload(file, { folder: 'evidencia', maxMB: MAX_DOC_MB });
+    if (!url) throw new Error('El almacenamiento no devolvió una URL.');
+    const a = Object.assign({
+      id: nuevoId(), nombre: String(file.name || 'documento'), url: String(url),
+      tipo: TIPOS_DOC[ext], ext: ext, tamano: file.size || 0, subido: hoyISO(),
+      nota: '', linea: '',
+    }, extra || {});
+    D.adjuntos = (D.adjuntos || []).concat([a]);
+    tocarDoc();
+    return a;
+  }
+
+  async function borrarDocumento(id) {
+    const a = docPorId(id);
+    if (!a) return;
+    // Primero el almacenamiento: si el borrado falla, el estudio sigue
+    // apuntando al archivo en vez de quedarse citando un enlace muerto.
+    if (hayNube && typeof shell.files.remove === 'function') await shell.files.remove(a.url);
+    D.adjuntos = D.adjuntos.filter((x) => x.id !== id);
+    D.competidores = D.competidores.map((c) => (c.fuenteDoc === id ? Object.assign({}, c, { fuenteDoc: '' }) : c));
+    tocarDoc();
+  }
+
+  /** Ata (o suelta) el respaldo subido de una fila de precio. */
+  function vincularDocumento(i, docId) {
+    if (!D.competidores[i]) return 'No existe esa fila de precio.';
+    if (docId && !docPorId(docId)) return 'No existe el documento ' + docId + '.';
+    D.competidores = D.competidores.map((c, k) => (k === i ? Object.assign({}, c, { fuenteDoc: docId || '' }) : c));
+    tocarDoc();
+    return null;
+  }
+
+  function editarDocumento(id, k, v) {
+    D.adjuntos = (D.adjuntos || []).map((a) => (a.id === id ? Object.assign({}, a, { [k]: v }) : a));
+    tocarDoc();
+  }
+
+  /** Registra lo que ya vive en la carpeta del estudio y aún no está en él. */
+  async function traerDeLaNube() {
+    if (!hayNube || typeof shell.files.list !== 'function') throw new Error('Este host no permite listar el almacenamiento.');
+    const crudo = await shell.files.list({ folder: 'evidencia' });
+    const lista = Array.isArray(crudo) ? crudo : (crudo && Array.isArray(crudo.files) ? crudo.files : []);
+    const conocidas = {};
+    (D.adjuntos || []).forEach((a) => { conocidas[a.url] = true; });
+    const nuevos = [];
+    lista.forEach((f) => {
+      const url = String((typeof f === 'string' ? f : (f && (f.url || f.publicUrl || f.href))) || '');
+      if (!url || conocidas[url]) return;
+      const nombre = String((f && typeof f === 'object' && (f.name || f.nombre)) || url.split('/').pop() || 'documento');
+      const ext = extDe(nombre) || extDe(url);
+      nuevos.push({
+        id: nuevoId(), nombre: nombre, url: url, tipo: TIPOS_DOC[ext] || (ext || 'Archivo'),
+        ext: ext, tamano: (f && f.size) || 0, subido: hoyISO(), nota: '', linea: '',
+      });
+    });
+    if (nuevos.length) { D.adjuntos = (D.adjuntos || []).concat(nuevos); tocarDoc(); }
+    return nuevos.length;
+  }
+
+  const archivoEstudio = () => ((D.meta.empresa || 'estudio').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'estudio') + '-estudio-mercado.json';
+
+  /** Deja una copia del estudio entero en el almacenamiento del tenant. */
+  async function guardarEnLaNube() {
+    if (!hayNube) throw new Error('Este host no expone el almacenamiento.');
+    const nombre = archivoEstudio();
+    const texto = JSON.stringify(D, null, 1);
+    // File cuando el navegador lo trae; si no, un Blob con nombre, que es lo
+    // que la pasarela necesita para bautizar el objeto.
+    let file;
+    if (typeof File === 'function') {
+      file = new File([texto], nombre, { type: 'application/json' });
+    } else {
+      file = new Blob([texto], { type: 'application/json' });
+      try { file.name = nombre; } catch (e) { /* Blob sellado: el host pondrá el suyo */ }
+    }
+    const url = await shell.files.upload(file, { folder: 'estudios', maxMB: MAX_DOC_MB });
+    if (!url) throw new Error('El almacenamiento no devolvió una URL.');
+    D.meta = Object.assign({}, D.meta, { copia: String(url), copiaFecha: hoyISO() });
+    tocarDoc();
+    return String(url);
+  }
+
   /** Lo que le falta a este estudio para poder decidir con él. */
   function huecos() {
     const hs = [];
@@ -789,6 +933,8 @@ export default function mount(shell) {
     else if (sinPrecio.length) hs.push(sinPrecio.length + ' línea(s) sin competencia levantada: ' + sinPrecio.map((m) => m.app).join(', ') + '.');
     const sinFuente = D.competidores.filter((c) => !c.fuente).length;
     if (sinFuente) hs.push(sinFuente + ' precio(s) sin fuente.');
+    const rotos = (D.adjuntos || []).filter((a) => !a.url).length;
+    if (rotos) hs.push(rotos + ' documento(s) registrados sin URL en el almacenamiento.');
     if (!D.demanda.paises.length) hs.push('El estudio de demanda está vacío: sin mercados no hay TAM ni SAM.');
     if (!D.evidencia.length) hs.push('No hay evidencia de demanda cargada.');
     if (!D.icp.length) hs.push('No hay perfiles de cliente ideal.');
@@ -861,9 +1007,7 @@ export default function mount(shell) {
   }
 
   function exportarEstudio() {
-    const nom = (D.meta.empresa || 'estudio').toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'estudio';
-    descargar(nom + '-estudio-mercado.json', JSON.stringify(D, null, 1), 'json');
+    descargar(archivoEstudio(), JSON.stringify(D, null, 1), 'json');
   }
 
   function importarEstudio(texto) {
@@ -884,9 +1028,13 @@ export default function mount(shell) {
 
   function exportar(oferta, demanda) {
     if (estado.tab === 'competencia') {
-      const cab = ['App KIMOS', 'Competidor', 'Plan', 'Precio USD/mes', 'Unidad', 'Costo cliente tipo', 'Segmento', 'Notas', 'Fuente', 'Confianza'];
-      const filas = D.competidores.map((c, i) => [c.app, c.comp, c.plan, precioLista(c, i, estado.precios),
-        c.unidad, Math.round(costoTipo(c, estado.sup, i, estado.precios)), c.seg, c.nota, c.fuente, c.conf]);
+      const cab = ['App KIMOS', 'Competidor', 'Plan', 'Precio USD/mes', 'Unidad', 'Costo cliente tipo', 'Segmento', 'Notas', 'Fuente', 'Confianza', 'Respaldo'];
+      const filas = D.competidores.map((c, i) => {
+        const doc = c.fuenteDoc ? docPorId(c.fuenteDoc) : null;
+        return [c.app, c.comp, c.plan, precioLista(c, i, estado.precios),
+          c.unidad, Math.round(costoTipo(c, estado.sup, i, estado.precios)), c.seg, c.nota, c.fuente, c.conf,
+          doc ? doc.url : ''];
+      });
       return descargar('kimos-competencia.csv', csv([cab].concat(filas)));
     }
     if (estado.tab === 'mercados') {
@@ -931,6 +1079,28 @@ export default function mount(shell) {
 
   const pill = (texto, clase) => h('span', { className: 'km-pill ' + clase }, texto);
   const pillConf = (c) => pill(c, c === 'Verificado' ? 'km-p-ok' : 'km-p-est');
+
+  /**
+   * La fuente de un precio: el texto que se declaró y, si hay un respaldo
+   * subido al almacenamiento, el enlace al documento. Ese enlace es lo que
+   * sigue probando el precio cuando la página original ya cambió.
+   */
+  const celdaFuente = (c) => {
+    const doc = c.fuenteDoc ? docPorId(c.fuenteDoc) : null;
+    const txt = c.fuente || '—';
+    const base = esURL(txt)
+      ? h('a', {
+        className: 'km-src', href: /^www\./i.test(txt) ? 'https://' + txt : txt,
+        target: '_blank', rel: 'noopener noreferrer', title: txt,
+      }, txt)
+      : h('span', { className: 'km-src', title: txt }, txt);
+    if (!doc) return base;
+    return h('span', { className: 'km-src-doc' }, base,
+      h('a', {
+        className: 'km-doc-chip', href: doc.url, target: '_blank', rel: 'noopener noreferrer',
+        title: 'Respaldo guardado: ' + doc.nombre,
+      }, '📎 ' + doc.tipo));
+  };
   const CLASE_CUAD = {
     'APOSTAR': 'km-p-g', 'MONETIZAR CON CUIDADO': 'km-p-o',
     'DIFERENCIAR, NO FACTURAR': 'km-p-c', 'REPLANTEAR': 'km-p-r',
@@ -1122,6 +1292,8 @@ export default function mount(shell) {
     const verif = D.competidores.filter((c) => c.conf === 'Verificado').length;
     const cobertura = D.competidores.length ? verif / D.competidores.length : 0;
     const conLinea = D.modulos.filter((m) => D.competidores.some((c) => c.app === m.app)).length;
+    const adjSalud = D.adjuntos || [];
+    const conRespaldo = D.competidores.filter((c) => c.fuenteDoc && docPorId(c.fuenteDoc)).length;
     const f = estado.form;
     const avisar = (nivel, texto) => { if (shell && shell.notify) shell.notify({ level: nivel, text: texto }); };
 
@@ -1165,6 +1337,9 @@ export default function mount(shell) {
             (D.competidores.length - verif) + ' estimados', cobertura >= 0.8 ? C.green : C.amber),
           kpi('Líneas con competencia', conLinea + '/' + D.modulos.length,
             conLinea === D.modulos.length ? 'Todas cubiertas' : 'Faltan por levantar', conLinea === D.modulos.length ? C.green : C.orange),
+          kpi('Respaldos guardados', num(adjSalud.length),
+            adjSalud.length ? conRespaldo + ' precio(s) los citan' : (hayNube ? 'Ningún documento subido' : 'Almacenamiento no disponible'),
+            adjSalud.length ? C.blue : C.violet),
           kpi('Edad del levantamiento', meses == null ? '—' : meses + (meses === 1 ? ' mes' : ' meses'),
             meses == null ? 'Sin fecha' : meses >= 12 ? 'Vencido' : meses >= 6 ? 'Toca revisarlo' : 'Vigente', colorEdad)),
         hs.length
@@ -1215,11 +1390,100 @@ export default function mount(shell) {
                 fr.readAsText(file);
               },
             })),
-          h('button', { className: 'km-btn', onClick: volverASemilla }, '↺ Volver al estudio de KIMOS')),
+          h('button', { className: 'km-btn', onClick: volverASemilla }, '↺ Volver al estudio de KIMOS'),
+          hayNube ? h('button', {
+            className: 'km-btn', disabled: estado.subiendo === 'copia',
+            title: 'Deja una copia del estudio en el almacenamiento del equipo',
+            onClick: () => {
+              commit({ subiendo: 'copia' });
+              guardarEnLaNube()
+                .then((url) => avisar('success', 'Copia guardada en el almacenamiento: ' + url))
+                .catch((e) => avisar('error', (e && e.message) || 'No se pudo guardar la copia'))
+                .then(() => commit({ subiendo: '' }));
+            },
+          }, estado.subiendo === 'copia' ? '⟳ Guardando…' : '☁ Guardar copia en el equipo') : null),
+        meta.copia ? h('p', { className: 'km-hint' }, 'Última copia en el almacenamiento: ',
+          h('a', { className: 'km-src', href: meta.copia, target: '_blank', rel: 'noopener noreferrer' }, meta.copia),
+          meta.copiaFecha ? ' · ' + meta.copiaFecha : '') : null,
         nota({
           titulo: 'Qué viaja en el archivo.',
           texto: 'Identidad, supuestos, líneas, precios con su fuente, planes, mercados, evidencia, perfiles y el diagnóstico. Al importarlo se comprueba la estructura y, si algo falta, dice exactamente qué.',
         })));
+
+    /* ----------------------------- documentos ----------------------------- */
+    const adj = D.adjuntos || [];
+    const usosDe = (id) => D.competidores.filter((c) => c.fuenteDoc === id).length;
+    const colsDoc = [
+      {
+        k: 'nombre', l: 'Documento',
+        cell: (a) => h('a', {
+          className: 'km-src', href: a.url, target: '_blank', rel: 'noopener noreferrer', title: a.nombre,
+        }, a.nombre),
+      },
+      { k: 'tipo', l: 'Tipo', cell: (a) => pill(a.tipo || a.ext || 'Archivo', 'km-p-c') },
+      { k: 'peso', l: 'Peso', num: true, cell: (a) => pesoCorto(a.tamano) || '—' },
+      { k: 'subido', l: 'Subido', cell: (a) => a.subido || '—' },
+      {
+        k: 'linea', l: 'Línea',
+        cell: (a) => selector(a.linea || '', D.modulos.map((m) => m.app),
+          (v) => editarDocumento(a.id, 'linea', v), 'Sin asignar'),
+      },
+      {
+        k: 'nota', l: 'Qué prueba',
+        cell: (a) => h('input', {
+          className: 'km-in', value: a.nota || '', placeholder: 'Tarifa vigente al…',
+          onChange: (e) => editarDocumento(a.id, 'nota', e.target.value),
+        }),
+      },
+      { k: 'usos', l: 'Precios', num: true, cell: (a) => String(usosDe(a.id)) },
+      {
+        k: 'x', l: '',
+        cell: (a) => h('button', {
+          className: 'km-x', title: 'Borra el documento del almacenamiento del equipo',
+          onClick: () => borrarDocumento(a.id).catch((e) => avisar('error', (e && e.message) || 'No se pudo borrar')),
+        }, '✕'),
+      },
+    ];
+
+    const subirArchivos = (lista) => {
+      const files = Array.prototype.slice.call(lista || []);
+      if (!files.length) return;
+      commit({ subiendo: 'docs' });
+      // En serie y no en paralelo: si una falla, las anteriores ya quedaron
+      // registradas y el aviso dice cuál fue.
+      files.reduce((prev, f) => prev.then(() => subirDocumento(f)), Promise.resolve())
+        .then(() => avisar('success', files.length === 1 ? 'Documento guardado en el equipo' : files.length + ' documentos guardados en el equipo'))
+        .catch((e) => avisar('error', (e && e.message) || 'No se pudo subir'))
+        .then(() => commit({ subiendo: '' }));
+    };
+
+    const documentos = card('Documentos que respaldan el estudio', C.blue,
+      'Los archivos van al almacenamiento del equipo, en la carpeta que el host reserva a esta app. Una URL prueba el precio mientras la página siga en pie; el documento lo prueba también dentro de seis meses, cuando la tarifa ya cambió.',
+      h('div', null,
+        hayNube ? h('div', { className: 'km-filtros' },
+          h('label', { className: 'km-btn pri' }, estado.subiendo === 'docs' ? '⟳ Subiendo…' : '⭱ Subir documentos',
+            h('input', {
+              type: 'file', multiple: true, style: { display: 'none' },
+              accept: Object.keys(TIPOS_DOC).map((e) => '.' + e).join(','),
+              onChange: (e) => { const l = e.target.files; e.target.value = ''; subirArchivos(l); },
+            })),
+          h('button', {
+            className: 'km-btn', title: 'Registra lo que ya está en la carpeta del estudio',
+            onClick: () => traerDeLaNube()
+              .then((n) => avisar(n ? 'success' : 'info', n ? n + ' documento(s) traídos del almacenamiento' : 'No hay nada nuevo en la carpeta'))
+              .catch((e) => avisar('error', (e && e.message) || 'No se pudo listar')),
+          }, '⟳ Traer del equipo'),
+          h('span', { className: 'km-cuenta' }, adj.length + ' documento(s) · hasta ' + MAX_DOC_MB + ' MB cada uno'))
+          : nota({
+            titulo: 'Este host todavía no expone el almacenamiento.',
+            texto: 'La app lo pide como permiso opcional (files.write) y sigue funcionando sin él: mientras tanto, la fuente de cada precio se guarda como URL. Al actualizar el escritorio de KIMOS, este panel aparece solo.',
+          }),
+        adj.length ? tabla(colsDoc, adj, { key: (a) => a.id })
+          : (hayNube ? h('p', { className: 'km-mut' }, 'Todavía no hay documentos subidos. Sirve cualquier respaldo del precio: la captura de la página de precios, el arancel en PDF, la propuesta que te mandaron o la planilla del proveedor.') : null),
+        hayNube ? nota({
+          titulo: 'Los enlaces son públicos de lectura.',
+          texto: 'Así funcionan en un correo o en el PDF del estudio, pero también significa que no debe subirse ahí nada confidencial que no pueda serlo. Borrar un documento lo saca del almacenamiento y desvincula los precios que lo citaban.',
+        }) : null));
 
     /* ------------------------------- líneas ------------------------------- */
     const colsLin = [
@@ -1264,8 +1528,18 @@ export default function mount(shell) {
       { k: 'precio', l: 'Precio', num: true, cell: (x) => usd1(x.c.precio) },
       { k: 'unidad', l: 'Unidad', cell: (x) => x.c.unidad },
       { k: 'seg', l: 'Segmento', cell: (x) => x.c.seg },
-      { k: 'fuente', l: 'Fuente', cell: (x) => h('span', { className: 'km-src', title: x.c.fuente }, x.c.fuente || '—') },
+      { k: 'fuente', l: 'Fuente', cell: (x) => celdaFuente(x.c) },
       { k: 'conf', l: 'Confianza', cell: (x) => pillConf(x.c.conf) },
+      {
+        k: 'doc', l: 'Respaldo',
+        cell: (x) => (adj.length
+          ? h('select', {
+            className: 'km-in', value: x.c.fuenteDoc || '',
+            onChange: (e) => vincularDocumento(x.i, e.target.value),
+          }, [h('option', { value: '', key: '' }, 'Sin respaldo')].concat(
+            adj.map((a) => h('option', { value: a.id, key: a.id }, a.nombre))))
+          : h('span', { className: 'km-mut' }, '—')),
+      },
       { k: 'x', l: '', cell: (x) => h('button', { className: 'km-x', title: 'Quita este precio', onClick: () => borrarCompetidor(x.i) }, '✕') },
     ];
     const nc = f.nc;
@@ -1304,6 +1578,14 @@ export default function mount(shell) {
               className: 'km-in', value: nc.conf, onChange: (e) => setSubForm('nc', 'conf', e.target.value),
             }, ['Verificado', 'Estimado'].map((u) => h('option', { key: u, value: u }, u)))),
           campo('Fuente', nc.fuente, (v) => setSubForm('nc', 'fuente', v), 'URL o documento donde está el precio'),
+          h('div', { className: 'km-ctrl' },
+            h('label', null, 'Respaldo subido'),
+            h('select', {
+              className: 'km-in', value: nc.fuenteDoc || '', disabled: !adj.length,
+              title: adj.length ? 'Ata el archivo que prueba este precio' : 'Sube primero un documento más arriba',
+              onChange: (e) => setSubForm('nc', 'fuenteDoc', e.target.value),
+            }, [h('option', { value: '', key: '' }, adj.length ? 'Sin respaldo' : 'Todavía no hay documentos')].concat(
+              adj.map((a) => h('option', { value: a.id, key: a.id }, a.nombre))))),
           campo('Nota', nc.nota, (v) => setSubForm('nc', 'nota', v), 'Asientos incluidos, condiciones, rango'),
           h('div', { className: 'km-ctrl' },
             h('label', null, 'Añadir'),
@@ -1312,7 +1594,7 @@ export default function mount(shell) {
               onClick: () => {
                 const err = agregarCompetidor(Object.assign({ app: lineaSel }, nc));
                 if (err) return avisar('error', err);
-                setForm('nc', { comp: '', plan: '', precio: '', unidad: nc.unidad, seg: nc.seg, fuente: '', conf: nc.conf, nota: '' });
+                setForm('nc', { comp: '', plan: '', precio: '', unidad: nc.unidad, seg: nc.seg, fuente: '', conf: nc.conf, nota: '', fuenteDoc: '' });
               },
             }, '＋ Añadir precio')))));
 
@@ -1341,7 +1623,7 @@ export default function mount(shell) {
         })));
 
     return h('div', { className: 'km-vista' },
-      identidad, salud, plantillas, archivo, lineas, precios,
+      identidad, salud, plantillas, archivo, documentos, lineas, precios,
       card('Protocolo de investigación', C.amber,
         'Es lo que hace que el estudio de otra empresa valga lo mismo que el de KIMOS. Se sigue en este orden.', pasos),
       fuentes, agente);
@@ -1444,7 +1726,7 @@ export default function mount(shell) {
       { k: 'tipo', l: 'Cliente tipo', num: true, cell: (r) => h('span', { className: 'km-cel-sug' }, usd(r.costo)) },
       { k: 'seg', l: 'Segmento', cell: (r) => (r.c.seg === 'Enterprise' ? pill('Enterprise', 'km-p-ent') : h('span', { className: 'km-mut' }, r.c.seg)) },
       { k: 'nota', l: 'Notas', cell: (r) => h('span', { className: 'km-mut' }, r.c.nota) },
-      { k: 'fuente', l: 'Fuente', cell: (r) => h('span', { className: 'km-src' }, r.c.fuente) },
+      { k: 'fuente', l: 'Fuente', cell: (r) => celdaFuente(r.c) },
     ];
     const filas = D.competidores
       .map((c, idx) => ({ c: c, i: idx, costo: costoTipo(c, estado.sup, idx, estado.precios) }))
@@ -1506,7 +1788,7 @@ export default function mount(shell) {
       { k: 'costo', l: 'Cliente tipo', num: true, sort: true, cell: (r) => h('span', { className: 'km-cel-sug' }, usd(r.costo)) },
       { k: 'seg', l: 'Segmento', cell: (r) => (r.c.seg === 'Enterprise' ? pill('Enterprise', 'km-p-ent') : h('span', { className: 'km-mut' }, r.c.seg)) },
       { k: 'nota', l: 'Notas', cell: (r) => h('span', { className: 'km-mut' }, r.c.nota) },
-      { k: 'fuente', l: 'Fuente', cell: (r) => h('span', { className: 'km-src' }, r.c.fuente) },
+      { k: 'fuente', l: 'Fuente', cell: (r) => celdaFuente(r.c) },
       { k: 'conf', l: 'Confianza', sort: true, cell: (r) => pillConf(r.conf) },
     ];
 
@@ -2033,7 +2315,7 @@ export default function mount(shell) {
   if (shell && shell.agent && typeof shell.agent.register === 'function') {
     desregistrar = shell.agent.register({
       label: 'Estudio de Mercado',
-      description: 'Estudio de mercado competitivo y modelo de precios. Trae hecho el de KIMOS —precio sugerido por línea contra la competencia, planes, configurador, mercado por país y economía por cliente— y sirve para hacer el de cualquier otra empresa: NUEVO_ESTUDIO arranca con la estructura del rubro, PROTOCOLO dice el método y qué falta, y AGREGAR_LINEA y AGREGAR_COMPETIDOR cargan la investigación con su fuente. El agente también mueve supuestos, edita precios, cotiza y lee todo lo que se recalcula.',
+      description: 'Estudio de mercado competitivo y modelo de precios. Trae hecho el de KIMOS —precio sugerido por línea contra la competencia, planes, configurador, mercado por país y economía por cliente— y sirve para hacer el de cualquier otra empresa: NUEVO_ESTUDIO arranca con la estructura del rubro, PROTOCOLO dice el método y qué falta, y AGREGAR_LINEA y AGREGAR_COMPETIDOR cargan la investigación con su fuente. Los documentos que respaldan cada precio viven en el almacenamiento del equipo: LISTAR_DOCUMENTOS dice cuáles hay y VINCULAR_DOCUMENTO los ata a la fila que prueban. El agente también mueve supuestos, edita precios, cotiza y lee todo lo que se recalcula.',
       tools: [
         {
           name: 'SET_SUPUESTO',
@@ -2200,6 +2482,29 @@ export default function mount(shell) {
           },
         },
         {
+          name: 'LISTAR_DOCUMENTOS',
+          description: 'Lista los documentos que respaldan el estudio y viven en el almacenamiento del equipo, con su id, nombre, tipo, enlace y qué precios los citan. Úsalo antes de VINCULAR_DOCUMENTO para saber qué hay.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'VINCULAR_DOCUMENTO',
+          description: 'Ata un documento ya subido a un precio concreto, como respaldo de esa fila. Con documento vacío se suelta el respaldo. El agente no puede subir archivos: eso lo hace la persona desde la pestaña "Este estudio".',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              comp: { type: 'string', description: 'Competidor de la fila' },
+              plan: { type: 'string', description: 'Plan de la fila' },
+              documento: { type: 'string', description: 'Id del documento, de LISTAR_DOCUMENTOS. Vacío para soltar el respaldo.' },
+            },
+            required: ['comp', 'plan'],
+          },
+        },
+        {
+          name: 'GUARDAR_EN_LA_NUBE',
+          description: 'Deja una copia del estudio entero como JSON en el almacenamiento del equipo y devuelve su enlace, para compartirlo o archivarlo.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'IMPORTAR_ESTUDIO',
           description: 'Carga un estudio completo desde un JSON (objeto o texto). Reemplaza el estudio de esta ventana.',
           inputSchema: {
@@ -2233,6 +2538,12 @@ export default function mount(shell) {
               precios: D.competidores.filter((c) => c.app === m.app).length,
             })),
             faltan: huecos(),
+            almacenamiento: {
+              disponible: hayNube,
+              documentos: (D.adjuntos || []).length,
+              preciosConRespaldo: D.competidores.filter((c) => c.fuenteDoc && docPorId(c.fuenteDoc)).length,
+              copia: D.meta.copia || null,
+            },
           },
           pestana: estado.tab,
           tema: estado.tema,
@@ -2417,6 +2728,43 @@ export default function mount(shell) {
             };
             if (p.incluirDocumento) resumen.documento = clon(D);
             return { success: true, message: 'Estudio exportado como JSON', data: resumen };
+          }
+          if (t === 'LISTAR_DOCUMENTOS') {
+            const adjs = D.adjuntos || [];
+            return {
+              success: true,
+              message: adjs.length ? adjs.length + ' documento(s) en el almacenamiento del estudio' : 'El estudio no tiene documentos subidos',
+              data: {
+                almacenamientoDisponible: hayNube,
+                carpeta: 'evidencia',
+                documentos: adjs.map((a) => ({
+                  id: a.id, nombre: a.nombre, tipo: a.tipo, enlace: a.url, subido: a.subido,
+                  linea: a.linea || null, prueba: a.nota || null,
+                  precios: D.competidores.filter((c) => c.fuenteDoc === a.id).map((c) => c.comp + ' · ' + c.plan),
+                })),
+              },
+            };
+          }
+          if (t === 'VINCULAR_DOCUMENTO') {
+            const i = D.competidores.findIndex((c) => c.comp === p.comp && c.plan === p.plan);
+            if (i < 0) return { success: false, error: 'No existe el plan ' + p.plan + ' de ' + p.comp };
+            const err = vincularDocumento(i, p.documento || '');
+            if (err) return { success: false, error: err };
+            const doc = p.documento ? docPorId(p.documento) : null;
+            return {
+              success: true,
+              message: doc ? p.comp + ' · ' + p.plan + ' queda respaldado por ' + doc.nombre
+                : 'Respaldo soltado de ' + p.comp + ' · ' + p.plan,
+            };
+          }
+          if (t === 'GUARDAR_EN_LA_NUBE') {
+            if (!hayNube) return { success: false, error: 'Este host no expone el almacenamiento (shell.files).' };
+            const url = await guardarEnLaNube();
+            return {
+              success: true,
+              message: 'Copia del estudio guardada en el almacenamiento del equipo',
+              data: { enlace: url, archivo: archivoEstudio(), lineas: D.modulos.length, precios: D.competidores.length },
+            };
           }
           if (t === 'IMPORTAR_ESTUDIO') {
             const doc = typeof p.documento === 'string' ? p.documento : JSON.stringify(p.documento);

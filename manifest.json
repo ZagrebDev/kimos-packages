@@ -709,9 +709,9 @@
     {
       "id": "estudio-mercado",
       "name": "Estudio de Mercado",
-      "description": "Estudio de mercado competitivo como tablero interactivo, y no solo el de KIMOS: trae hecho el suyo —25 lineas frente a 170 planes de precio de la competencia, con precio sugerido, graficos en vivo, precios editables, planes y kits, configurador de suscripcion con cotizacion instantanea, mercado por region y por pais, economia por cliente (LTV, CAC, payback, proyeccion a 3 anios) y diagnostico— y sirve para hacer el de cualquier otra empresa: nueve plantillas de rubro, editor de lineas y de precios con fuente obligatoria, importar y exportar el estudio como JSON, control de vigencia de la evidencia y un protocolo de investigacion en nueve pasos que el agente IA puede ejecutar solo. Tres modos visuales (dashboard, compacto y tema de KIMOS), adaptado a PC, tablet, movil y totem. Todos los supuestos son editables y todo se recalcula en vivo.",
+      "description": "Estudio de mercado competitivo como tablero interactivo, y no solo el de KIMOS: trae hecho el suyo —25 lineas frente a 170 planes de precio de la competencia, con precio sugerido, graficos en vivo, precios editables, planes y kits, configurador de suscripcion con cotizacion instantanea, mercado por region y por pais, economia por cliente (LTV, CAC, payback, proyeccion a 3 anios) y diagnostico— y sirve para hacer el de cualquier otra empresa: nueve plantillas de rubro, editor de lineas y de precios con fuente obligatoria, documentos de respaldo (capturas, aranceles, propuestas, planillas) guardados en el almacenamiento del equipo y atados al precio que prueban, importar y exportar el estudio como JSON o dejar la copia en el almacenamiento, control de vigencia de la evidencia y un protocolo de investigacion en nueve pasos que el agente IA puede ejecutar solo. Tres modos visuales (dashboard, compacto y tema de KIMOS), adaptado a PC, tablet, movil y totem. Todos los supuestos son editables y todo se recalcula en vivo.",
       "icon": "🎯",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
