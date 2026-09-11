@@ -85,8 +85,17 @@ function validaEnServidor(cuerpo) {
   // Campos que el backend NO acepta: si la app los manda, se entera aquí.
   const permitidos = new Set([
     'name', 'tagline', 'description', 'legalName', 'taxId', 'address', 'email', 'phone',
-    'website', 'footer', 'bankDetails', 'palette', 'logos', 'typography', 'ecosystems', 'principles',
+    'website', 'footer', 'bankDetails', 'palette', 'logos', 'typography', 'ecosystems',
+    'principles', 'form',
   ]);
+  if (cuerpo.form) {
+    if (['rounded', 'square', 'cut'].indexOf(cuerpo.form.cornerStyle) < 0) {
+      throw new Error('Esquina no válida: ' + cuerpo.form.cornerStyle);
+    }
+    if (['flat', 'soft', 'raised'].indexOf(cuerpo.form.elevation) < 0) {
+      throw new Error('Elevación no válida: ' + cuerpo.form.elevation);
+    }
+  }
   for (const k of Object.keys(cuerpo)) {
     if (!permitidos.has(k)) throw new Error("El registro no acepta el campo '" + k + "'.");
   }
@@ -344,6 +353,58 @@ seccion('Avisos: lo que impide que la marca se aplique');
   eq(T.avisosDe(buena).length, 0, 'y una marca completa no tiene avisos', T.avisosDe(buena));
 }
 
+seccion('La forma: el sistema de diseño más allá del color');
+{
+  const id = T.getModel().brands[0].id;
+  T.abrirBorrador(id);
+
+  // Lo que hace que esto valga la pena: los tokens que emite son los que el
+  // tema de KIMOS ya lee, así que cambian el shell y las apps sin tocar nada.
+  T.actAplicarPlantillaForma('recta');
+  const f = T.getModel().draft.form;
+  eq(f.cornerStyle, 'square', 'una plantilla de forma se aplica entera');
+  eq(f.elevation, 'flat', 'con su elevación');
+  const tk = T.tokensDeForma(f);
+  eq(tk['--radius'], '0px', 'esquinas rectas → --radius 0');
+  eq(tk['--shadow-md'], 'none', 'y plano → sin sombras');
+  ok(tk['--radius'] !== undefined && tk['--shadow-sm'] !== undefined,
+    'esos dos son los que cambian el sistema entero sin tocar código: en el tema de KIMOS, `rounded-*` y `shadow-*` cuelgan de ellos');
+
+  T.actSetForm({ cornerStyle: 'rounded', radius: 14 });
+  eq(T.getModel().draft.form.radius, 14, 'y luego se ajusta campo a campo');
+  T.actSetForm({ cornerStyle: 'square', radius: 14 });
+  eq(T.getModel().draft.form.radius, 0,
+    'con esquinas rectas el radio vuelve a 0: guardar uno que no se aplica confunde al editar');
+  T.actSetForm({ radius: 999 });
+  ok(T.getModel().draft.form.radius <= 32, 'un radio absurdo se recorta');
+
+  eq(T.biselDe({ cornerStyle: 'rounded' }), null, 'sin esquina cortada no hay bisel');
+  ok(String(T.biselDe({ cornerStyle: 'cut', radius: 10 })).indexOf('polygon') === 0,
+    'y con ella se calcula el recorte');
+
+  // La previsualización usa los mismos números que el backend: si divergieran,
+  // lo que se ve al editar no sería lo que se aplica.
+  eq(T.tokensDeForma({ cornerStyle: 'rounded', radius: 8, elevation: 'soft', borderWidth: 1 })['--shadow-sm'],
+    T.SOMBRAS.soft[0], 'las sombras de la muestra son las mismas que emite el registro');
+
+  const guardada = await T.actGuardar();
+  ok(!!guardada.form, 'la forma llega al registro');
+  eq(REG.marcas[0].form.cornerStyle, 'square', 'con lo que se eligió');
+
+  T.abrirBorrador(guardada.id);
+  T.actQuitarForma();
+  eq(T.getModel().draft.form, null, 'se puede quitar la forma');
+  const sinForma = await T.actGuardar();
+  eq(sinForma.form, null,
+    'y entonces la marca deja de imponerla: manda el tema del tenant');
+  eq(Object.keys(T.tokensDeForma(null)).length, 0, 'sin forma no se emite ningún token');
+
+  // Vuelve a tener forma para las pruebas de la hoja.
+  T.abrirBorrador(sinForma.id);
+  T.actAplicarPlantillaForma('suave');
+  await T.actGuardar();
+}
+
 seccion('La hoja del sistema visual');
 {
   const b = T.getModel().brands[0];
@@ -356,12 +417,33 @@ seccion('La hoja del sistema visual');
   const guardada = await T.actGuardar();
 
   const ctx = T.hojaContexto(guardada, {});
-  eq(ctx.secciones.length, 5, 'la hoja trae las cinco secciones cuando la marca las tiene');
+  eq(ctx.secciones.length, 6, 'la hoja trae las seis secciones cuando la marca las tiene');
   eq(ctx.secciones[0], 'logos', 'y en el orden en que se leen');
   ok(!!ctx.base && !!ctx.acento, 'con el principal y el acento resueltos');
 
   const parcial = T.hojaContexto(guardada, { secciones: ['palette', 'principles'] });
   eq(parcial.secciones.join(','), 'palette,principles', 'se puede elegir qué secciones salen');
+
+  // Dos láminas: identidad (quién es la marca) y forma (cómo se construye lo
+  // que se hace con ella). Son dos preguntas distintas.
+  const l1 = T.hojaContexto(guardada, { lamina: 'identidad' });
+  eq(l1.secciones.join(','), 'logos,palette,typography', 'la lámina 1 es la identidad');
+  const l2 = T.hojaContexto(guardada, { lamina: 'forma' });
+  eq(l2.secciones.join(','), 'form,ecosystems,principles', 'y la 2 la forma y su aplicación');
+  eq(l2.laminaLabel, 'Forma y aplicación', 'cada lámina se nombra en su cabecera');
+  eq(T.hojaContexto(guardada, {}).laminasConContenido.join(','), 'identidad,forma',
+    'las dos tienen contenido en una marca completa');
+
+  const soloIdentidad = T.hojaContexto(T.normalizeBrand({
+    name: 'X', palette: [{ name: 'A', hex: '#123456', role: 'base' }],
+  }), {});
+  eq(soloIdentidad.laminasConContenido.join(','), 'identidad',
+    'una marca sin forma ni principios no ofrece una lámina 2 en blanco');
+
+  ok(render(R.createElement(T.dialogos.Hoja, { brand: guardada, lamina: 'forma' }), 'l2') > 20,
+    'la lámina 2 se renderiza con sus muestras');
+  ok(render(R.createElement(T.dialogos.MuestrasDeForma, { ctx: T.hojaContexto(guardada, {}) }), 'mu') > 10,
+    'y las muestras son componentes reales: botón, tarjeta, campo y burbuja de chat');
 
   // Vacío es vacío: una sección que la marca no tiene NO se pinta con un hueco.
   const flaca = T.hojaContexto(T.normalizeBrand({ name: 'Flaca', palette: [{ name: 'A', hex: '#123456' }] }), {});
@@ -390,7 +472,12 @@ seccion('Render de todas las pantallas');
     const n = render(R.createElement(C, extra), nombre);
     ok(n > 0, 'y se renderiza sin romperse (' + nombre + ', ' + n + ' nodos)');
   }
-  for (const sec of ['identidad', 'logos', 'palette', 'typography', 'ecosystems', 'principles']) {
+  ok(typeof T.dialogos.EdForma === 'function', 'existe EdForma');
+  ok(render(R.createElement(T.dialogos.EdForma, { b, ro: false }), 'edforma') > 0,
+    'el editor de forma se renderiza');
+  ok(render(R.createElement(T.dialogos.EdForma, { b: T.normalizeBrand({ name: 'Sin forma' }), ro: false }), 'edf2') > 0,
+    'también con una marca que no la declara');
+  for (const sec of ['identidad', 'logos', 'palette', 'typography', 'form', 'ecosystems', 'principles']) {
     T.actSetSeccion(sec);
     ok(render(R.createElement(T.dialogos.Editor, { m: T.getModel(), b }), 'ed-' + sec) > 0,
       'el editor se renderiza en la sección ' + sec);
@@ -491,6 +578,17 @@ seccion('Agente IA');
 
   r = await call('AGREGAR_LOGO', { url: 'javascript:alert(1)' });
   ok(!r.success, 'una URL que no es http(s) ni ruta se rechaza');
+
+  r = await call('APLICAR_PLANTILLA_FORMA', { plantilla: 'inventada' });
+  ok(!r.success && r.error.indexOf('Disponibles') >= 0,
+    'una plantilla de forma que no existe lista las que sí', r.error);
+  r = await call('APLICAR_PLANTILLA_FORMA', { plantilla: 'recta' });
+  ok(r.success && r.forma.cornerStyle === 'square', 'el agente aplica una plantilla de forma', r.error);
+  r = await call('DEFINIR_FORMA', { elevacion: 'raised' });
+  ok(r.success && r.tokens['--shadow-md'] !== 'none',
+    'y ajusta la forma campo a campo, devolviendo los tokens que se aplicarán', r.error);
+  r = await call('DEFINIR_FORMA', {});
+  ok(!r.success, 'sin campos no finge que cambió algo');
 
   r = await call('GUARDAR_MARCA');
   ok(r.success, 'y el agente guarda cuando se le pide', r.error);

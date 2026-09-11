@@ -24,6 +24,7 @@ const model = {
   tab: 'sistema',        // 'sistema' (la hoja) | 'editor'
   seccion: 'logos',      // sección abierta del editor
   hojaSecciones: SECCIONES.map((x) => x[0]),
+  lamina: 'identidad',   // la plana que se está viendo
 };
 
 let estado = model;

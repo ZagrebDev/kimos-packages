@@ -20,6 +20,12 @@ function actSetSeccion(seccion) {
   return estado.seccion;
 }
 
+function actSetLamina(clave) {
+  const valida = LAMINAS.some((x) => x[0] === clave);
+  setModel({ lamina: valida ? clave : 'identidad' });
+  return estado.lamina;
+}
+
 function actSeleccionar(id) {
   const b = marcaPorId(id);
   if (!b) return null;
@@ -290,6 +296,32 @@ function actRemoveEco(key) {
   return editarBorrador((d) => Object.assign({}, d, {
     ecosystems: d.ecosystems.filter((e) => e.key !== s(key)),
   }));
+}
+
+// ── Forma ───────────────────────────────────────────────────────────────
+// Cambiar la forma cambia las esquinas del shell, del chat de agentes y de
+// todas las apps. Por eso vive en el borrador como todo lo demás y no se
+// aplica hasta guardar.
+
+function actSetForm(patch) {
+  return editarBorrador((d) => Object.assign({}, d, {
+    form: normalizeForm(Object.assign({}, d.form || formaPorDefecto(), patch || {})),
+  }));
+}
+
+/** Aplica una plantilla de forma entera. Es un punto de partida, no un
+ *  candado: después se ajusta campo a campo. */
+function actAplicarPlantillaForma(clave) {
+  const tpl = PLANTILLAS_FORMA.find((x) => x[0] === s(clave));
+  if (!tpl) { avisar('warn', 'No conozco esa plantilla de forma.'); return null; }
+  const out = editarBorrador((d) => Object.assign({}, d, { form: normalizeForm(tpl[3]) }));
+  if (out) avisar('info', 'Plantilla «' + tpl[1] + '» aplicada. Ajusta lo que haga falta y guarda.');
+  return out;
+}
+
+/** Quita la forma: la marca deja de imponer una y manda el tema del tenant. */
+function actQuitarForma() {
+  return editarBorrador((d) => Object.assign({}, d, { form: null }));
 }
 
 // ── Principios ──────────────────────────────────────────────────────────

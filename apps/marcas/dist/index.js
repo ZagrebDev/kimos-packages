@@ -1,5 +1,5 @@
 /**
- * Marcas v1.0.0 — app oficial de KIMOS.
+ * Marcas v1.1.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -91,13 +91,78 @@ const TYPE_USAGES = [
   ['accent', 'Destacados'],
 ];
 
+// ── La FORMA ────────────────────────────────────────────────────────────
+// Lo que cada app venía definiendo por su cuenta: esquinas, borde, sombra,
+// densidad. Vive en la marca porque en el tema de KIMOS `rounded-*` y
+// `shadow-*` de Tailwind cuelgan de `--radius` y `--shadow-*`, así que
+// cambiarla aquí cambia el shell, el chat de agentes y toda app que cumpla
+// APP-SPEC §9 sin tocar una línea en ninguna.
+//
+// Espejo de `brands_core.py`: si se desalinean, el backend rechaza lo que la
+// app deja escribir y el error aparece lejos de su causa.
+
+const CORNER_STYLES = [
+  ['rounded', 'Redondeadas'],
+  ['square', 'Rectas'],
+  ['cut', 'Cortadas'],
+];
+
+const ELEVATIONS = [
+  ['flat', 'Plano'],
+  ['soft', 'Sombra suave'],
+  ['raised', 'Sombra marcada'],
+];
+
+const DENSITIES = [
+  ['compact', 'Compacta'],
+  ['normal', 'Normal'],
+  ['comfortable', 'Amplia'],
+];
+
+const MAX_RADIUS = 32;
+const MAX_BORDER = 4;
+
+/**
+ * Plantillas de forma: un punto de partida en vez de cinco mandos.
+ *
+ * No son un sistema aparte —solo rellenan los mismos cinco campos—, y por eso
+ * simplifican sin añadir una capa: se elige una y luego se ajusta lo que haga
+ * falta.
+ */
+const PLANTILLAS_FORMA = [
+  ['recta', 'Recta y plana', 'Bordes rectos, sin sombras. Técnico y directo.',
+    { cornerStyle: 'square', radius: 0, borderWidth: 1, elevation: 'flat', density: 'compact' }],
+  ['suave', 'Redondeada y suave', 'Esquinas amables con algo de relieve.',
+    { cornerStyle: 'rounded', radius: 12, borderWidth: 1, elevation: 'soft', density: 'normal' }],
+  ['limpia', 'Sin bordes', 'Se separa por espacio y color, no por líneas.',
+    { cornerStyle: 'rounded', radius: 10, borderWidth: 0, elevation: 'soft', density: 'comfortable' }],
+  ['editorial', 'Editorial', 'Filete marcado y nada de sombra.',
+    { cornerStyle: 'square', radius: 0, borderWidth: 2, elevation: 'flat', density: 'comfortable' }],
+  ['cortada', 'Cortada', 'Esquinas en bisel. Requiere que la app lo honre.',
+    { cornerStyle: 'cut', radius: 10, borderWidth: 1, elevation: 'flat', density: 'normal' }],
+];
+
 /** Las secciones de la hoja, en el orden en que se leen. */
 const SECCIONES = [
   ['logos', 'Logotipo'],
   ['palette', 'Paleta'],
   ['typography', 'Tipografía'],
+  ['form', 'Forma'],
   ['ecosystems', 'Elementos visuales'],
   ['principles', 'Principios y reglas'],
+];
+
+/**
+ * La hoja se parte en dos láminas.
+ *
+ * La 1 responde «quién es esta marca» y la 2 «cómo se construye lo que se
+ * hace con ella». Son dos preguntas distintas y meterlas en una plana deja
+ * las dos apretadas: la de identidad se imprime y se cuelga, la de forma se
+ * consulta al construir.
+ */
+const LAMINAS = [
+  ['identidad', 'Identidad', ['logos', 'palette', 'typography']],
+  ['forma', 'Forma y aplicación', ['form', 'ecosystems', 'principles']],
 ];
 
 const labelDe = (tabla, clave, sino) => {
@@ -267,6 +332,87 @@ function normalizeEcosystem(raw, i) {
   };
 }
 
+/** La forma, con sus valores por defecto. `null` si la marca no declara una:
+ *  entonces manda el tema del tenant y no se impone nada. */
+function normalizeForm(raw) {
+  if (!isObj(raw) || !Object.keys(raw).length) return null;
+  const corner = CORNER_STYLES.some((x) => x[0] === raw.cornerStyle) ? s(raw.cornerStyle) : 'rounded';
+  const entero = (v, tope, def) => {
+    const n = Number(v);
+    return clamp(Math.round(isFinite(n) ? n : def), 0, tope);
+  };
+  return {
+    cornerStyle: corner,
+    // En `square` el radio es 0 por definición: dejar guardado uno que no se
+    // aplica es la clase de estado que confunde al editarlo.
+    radius: corner === 'square' ? 0 : entero(raw.radius, MAX_RADIUS, 8),
+    borderWidth: entero(raw.borderWidth, MAX_BORDER, 1),
+    elevation: ELEVATIONS.some((x) => x[0] === raw.elevation) ? s(raw.elevation) : 'soft',
+    density: DENSITIES.some((x) => x[0] === raw.density) ? s(raw.density) : 'normal',
+  };
+}
+
+const formaPorDefecto = () => normalizeForm({ cornerStyle: 'rounded' });
+
+/** Las sombras de cada nivel, iguales a las del backend. */
+const SOMBRAS = {
+  flat: ['none', 'none', 'none'],
+  soft: [
+    '0 1px 2px 0 hsl(220 20% 10% / 0.05)',
+    '0 4px 6px -1px hsl(220 20% 10% / 0.10), 0 2px 4px -2px hsl(220 20% 10% / 0.10)',
+    '0 10px 15px -3px hsl(220 20% 10% / 0.10), 0 4px 6px -4px hsl(220 20% 10% / 0.10)',
+  ],
+  raised: [
+    '0 2px 4px 0 hsl(220 20% 10% / 0.10)',
+    '0 8px 14px -2px hsl(220 20% 10% / 0.16), 0 3px 6px -3px hsl(220 20% 10% / 0.14)',
+    '0 18px 28px -6px hsl(220 20% 10% / 0.20), 0 8px 12px -8px hsl(220 20% 10% / 0.16)',
+  ],
+};
+
+/**
+ * Los tokens que emite la forma, para previsualizarla dentro de la app.
+ *
+ * Los calcula también el backend; aquí se repiten porque la muestra tiene que
+ * verse mientras se edita, antes de guardar. Si divergieran, lo que se ve al
+ * editar no sería lo que se aplica, que es el peor fallo posible en un editor
+ * de marca.
+ */
+function tokensDeForma(form) {
+  const f = normalizeForm(form);
+  if (!f) return {};
+  const sombras = SOMBRAS[f.elevation] || SOMBRAS.soft;
+  return {
+    '--radius': f.radius + 'px',
+    '--border-width': f.borderWidth + 'px',
+    '--brand-corner': f.cornerStyle,
+    '--brand-density': f.density,
+    '--shadow-sm': sombras[0],
+    '--shadow-md': sombras[1],
+    '--shadow-lg': sombras[2],
+  };
+}
+
+/** El `clip-path` de una esquina cortada. Solo tiene sentido con `cut`. */
+function biselDe(form) {
+  const f = normalizeForm(form);
+  if (!f || f.cornerStyle !== 'cut') return null;
+  const c = Math.max(4, f.radius || 10) + 'px';
+  return 'polygon(' + c + ' 0, 100% 0, 100% calc(100% - ' + c + '), calc(100% - ' + c + ') 100%, 0 100%, 0 ' + c + ')';
+}
+
+/** El estilo de una caja según la forma: lo usan las muestras de la lámina. */
+function cajaDeForma(form, extra) {
+  const f = normalizeForm(form) || formaPorDefecto();
+  const bisel = biselDe(f);
+  return Object.assign({
+    borderRadius: bisel ? 0 : f.radius + 'px',
+    borderWidth: f.borderWidth + 'px',
+    borderStyle: 'solid',
+    boxShadow: (SOMBRAS[f.elevation] || SOMBRAS.soft)[1],
+    clipPath: bisel || undefined,
+  }, extra || {});
+}
+
 function normalizePrincipio(raw, i) {
   const r = isObj(raw) ? raw : {};
   return {
@@ -308,6 +454,7 @@ function normalizeBrand(raw) {
     typography: clavesUnicas(arr(r.typography).map(normalizeFont)),
     ecosystems: clavesUnicas(arr(r.ecosystems).map(normalizeEcosystem)),
     principles: arr(r.principles).map(normalizePrincipio),
+    form: normalizeForm(r.form),
     updatedAt: s(r.updatedAt),
   };
 }
@@ -334,6 +481,10 @@ function paraGuardar(brand) {
       baseColorKey: e.baseColorKey, accentColorKey: e.accentColorKey,
     })),
     principles: b.principles.map((p) => ({ title: p.title, text: p.text })),
+    // Se manda siempre, incluso `null`: es la única forma de poder QUITAR la
+    // forma de una marca que ya la tenía. Omitir la clave dejaría la anterior
+    // guardada y «Quitar» no haría nada.
+    form: b.form,
   };
 }
 
@@ -441,6 +592,7 @@ const model = {
   tab: 'sistema',        // 'sistema' (la hoja) | 'editor'
   seccion: 'logos',      // sección abierta del editor
   hojaSecciones: SECCIONES.map((x) => x[0]),
+  lamina: 'identidad',   // la plana que se está viendo
 };
 
 let estado = model;
@@ -698,6 +850,12 @@ function actSetSeccion(seccion) {
   const valida = SECCIONES.some((x) => x[0] === seccion) || seccion === 'identidad';
   setModel({ seccion: valida ? seccion : 'logos' });
   return estado.seccion;
+}
+
+function actSetLamina(clave) {
+  const valida = LAMINAS.some((x) => x[0] === clave);
+  setModel({ lamina: valida ? clave : 'identidad' });
+  return estado.lamina;
 }
 
 function actSeleccionar(id) {
@@ -970,6 +1128,32 @@ function actRemoveEco(key) {
   return editarBorrador((d) => Object.assign({}, d, {
     ecosystems: d.ecosystems.filter((e) => e.key !== s(key)),
   }));
+}
+
+// ── Forma ───────────────────────────────────────────────────────────────
+// Cambiar la forma cambia las esquinas del shell, del chat de agentes y de
+// todas las apps. Por eso vive en el borrador como todo lo demás y no se
+// aplica hasta guardar.
+
+function actSetForm(patch) {
+  return editarBorrador((d) => Object.assign({}, d, {
+    form: normalizeForm(Object.assign({}, d.form || formaPorDefecto(), patch || {})),
+  }));
+}
+
+/** Aplica una plantilla de forma entera. Es un punto de partida, no un
+ *  candado: después se ajusta campo a campo. */
+function actAplicarPlantillaForma(clave) {
+  const tpl = PLANTILLAS_FORMA.find((x) => x[0] === s(clave));
+  if (!tpl) { avisar('warn', 'No conozco esa plantilla de forma.'); return null; }
+  const out = editarBorrador((d) => Object.assign({}, d, { form: normalizeForm(tpl[3]) }));
+  if (out) avisar('info', 'Plantilla «' + tpl[1] + '» aplicada. Ajusta lo que haga falta y guarda.');
+  return out;
+}
+
+/** Quita la forma: la marca deja de imponer una y manda el tema del tenant. */
+function actQuitarForma() {
+  return editarBorrador((d) => Object.assign({}, d, { form: null }));
 }
 
 // ── Principios ──────────────────────────────────────────────────────────
@@ -1261,11 +1445,88 @@ function EdPrincipios(props) {
   ]);
 }
 
+// ── Forma ───────────────────────────────────────────────────────────────
+
+function EdForma(props) {
+  const { b, ro } = props;
+  const declarada = !!b.form;
+  const f = b.form || formaPorDefecto();
+  return h('div', { className: 'mk-ed' }, [
+    h(SecHead, {
+      key: 'h', title: 'Forma',
+      right: (!ro && declarada)
+        ? h(Btn, { size: 'sm', onClick: actQuitarForma, title: 'La marca deja de imponer forma y manda el tema del sistema' }, 'Quitar')
+        : null,
+    }),
+    h('p', { key: 'x', className: 'mk-nota' }, declarada
+      ? 'Esto no es solo de esta app: `--radius` y las sombras cuelgan de aquí en todo KIMOS, así que cambiarlo cambia las esquinas del escritorio, del chat del agente y de las demás apps.'
+      : 'Esta marca no define forma, así que manda el tema del sistema. Elige una plantilla para empezar.'),
+
+    h('div', { key: 'p', className: 'mk-plantillas' }, PLANTILLAS_FORMA.map(([clave, nombre, desc, def]) => {
+      const activa = declarada && CAMPOS_FORMA.every((k) => f[k] === normalizeForm(def)[k]);
+      return h('button', {
+        key: clave, type: 'button', disabled: ro,
+        className: cx('mk-plantilla', activa && 'on'),
+        title: desc,
+        onClick: () => actAplicarPlantillaForma(clave),
+      }, [
+        // La muestra ES la plantilla: se ve la esquina y la sombra antes de
+        // aplicarla, en vez de leer «radio 0, plano».
+        h('span', { key: 'm', className: 'mk-plantilla-m', style: cajaDeForma(def) }),
+        h('span', { key: 'n', className: 'mk-plantilla-n' }, nombre),
+      ]);
+    })),
+
+    h('div', { key: 'g', className: 'mk-grid2' }, [
+      h(Field, { key: 'c', label: 'Esquinas' },
+        h(Select, {
+          value: f.cornerStyle, disabled: ro, options: CORNER_STYLES,
+          onChange: (e) => actSetForm({ cornerStyle: e.target.value }),
+        })),
+      h(Field, {
+        key: 'r', label: 'Radio',
+        help: f.cornerStyle === 'square' ? 'Con esquinas rectas el radio no se aplica.' : 'En píxeles.',
+      }, h(Input, {
+        type: 'number', min: 0, max: MAX_RADIUS, value: f.radius,
+        disabled: ro || f.cornerStyle === 'square',
+        onChange: (e) => actSetForm({ radius: e.target.value }),
+      })),
+      h(Field, {
+        key: 'b', label: 'Grosor del borde',
+        help: 'La app tiene que leer `--border-width` para que se note.',
+      }, h(Input, {
+        type: 'number', min: 0, max: MAX_BORDER, value: f.borderWidth, disabled: ro,
+        onChange: (e) => actSetForm({ borderWidth: e.target.value }),
+      })),
+      h(Field, { key: 'e', label: 'Elevación', help: 'Se aplica en todo el sistema sin tocar nada.' },
+        h(Select, {
+          value: f.elevation, disabled: ro, options: ELEVATIONS,
+          onChange: (e) => actSetForm({ elevation: e.target.value }),
+        })),
+      h(Field, {
+        key: 'd', label: 'Densidad', wide: true,
+        help: 'Se publica como `--brand-density`; la honra la app que quiera.',
+      }, h(Select, {
+        value: f.density, disabled: ro, options: DENSITIES,
+        onChange: (e) => actSetForm({ density: e.target.value }),
+      })),
+    ]),
+
+    h('div', { key: 'v', className: 'mk-forma-prev' }, [
+      h('span', { key: 'l', className: 'mk-field-lbl' }, 'Así queda'),
+      h(MuestrasDeForma, { key: 'm', ctx: hojaContexto(b, {}) }),
+    ]),
+  ]);
+}
+
+const CAMPOS_FORMA = ['cornerStyle', 'radius', 'borderWidth', 'elevation', 'density'];
+
 const EDITORES = {
   identidad: EdIdentidad,
   logos: EdLogos,
   palette: EdPaleta,
   typography: EdTipografias,
+  form: EdForma,
   ecosystems: EdEcosistemas,
   principles: EdPrincipios,
 };
@@ -1321,12 +1582,22 @@ function hojaContexto(brand, opts) {
     logos: logos.length > 0,
     palette: b.palette.length > 0,
     typography: b.typography.length > 0,
+    // La forma se enseña solo si la marca la declara, igual que el resto:
+    // una lámina que explica la forma «por defecto» estaría describiendo el
+    // tema del tenant, no la marca.
+    form: !!b.form,
     ecosystems: b.ecosystems.length > 0,
     principles: b.principles.length > 0,
   };
+  // `lamina` acota a las secciones de una de las dos planas. Sin ella salen
+  // todas, que es lo que se imprime.
+  const deLamina = s(o.lamina)
+    ? (LAMINAS.find((x) => x[0] === s(o.lamina)) || [null, null, []])[2]
+    : null;
   const secciones = SECCIONES
     .map((x) => x[0])
-    .filter((k) => activas.indexOf(k) >= 0 && disponible[k]);
+    .filter((k) => activas.indexOf(k) >= 0 && disponible[k]
+      && (!deLamina || deLamina.indexOf(k) >= 0));
 
   const base = colorPorRol(b, 'base');
   const acento = colorPorRol(b, 'accent');
@@ -1344,6 +1615,14 @@ function hojaContexto(brand, opts) {
     logoCabecera: logoParaFondo(b, base ? 'dark' : 'light'),
     fecha: (o.fecha || new Date().toISOString().slice(0, 7)).replace('-', ' / '),
     nota: s(o.nota),
+    lamina: s(o.lamina),
+    laminaLabel: (LAMINAS.find((x) => x[0] === s(o.lamina)) || [null, ''])[1],
+    // Qué láminas tienen algo que enseñar. Una vacía no se ofrece ni se
+    // imprime: una plana en blanco no dice «la marca está a medias», dice
+    // que el sistema está roto.
+    laminasConContenido: LAMINAS
+      .filter(([, , claves]) => claves.some((k) => disponible[k] && activas.indexOf(k) >= 0))
+      .map(([k]) => k),
   };
 }
 
@@ -1464,12 +1743,112 @@ function HojaPrincipios(props) {
   ]);
 }
 
+// ── Lámina 2: la forma ──────────────────────────────────────────────────
+/**
+ * La forma no se entiende leyendo «radio 0, sin sombra»: se entiende viendo
+ * un botón, una tarjeta, un campo y una burbuja de chat con esa forma puesta.
+ * Por eso la lámina 2 son COMPONENTES REALES, no una tabla de valores.
+ *
+ * Son los mismos cuatro que aparecen en todo KIMOS, el chat de agentes
+ * incluido: si se ven bien aquí, se ven bien en el sistema.
+ */
+function MuestrasDeForma(props) {
+  const { ctx } = props;
+  const b = ctx.brand;
+  const f = b.form || formaPorDefecto();
+  const base = ctx.base;
+  const acento = ctx.acento;
+  const borde = colorPorRol(b, 'border');
+  const superficie = colorPorRol(b, 'surface');
+
+  const colBorde = borde ? borde.hex : 'currentColor';
+  const colSup = superficie ? superficie.hex : 'transparent';
+  const caja = (extra) => cajaDeForma(f, Object.assign({ borderColor: colBorde }, extra));
+
+  return h('div', { className: 'mk-muestras' }, [
+    // Botones: lo primero donde se nota una esquina.
+    h('div', { key: 'b', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Botones'),
+      h('div', { key: 'c', className: 'mk-muestra-c' }, [
+        h('span', {
+          key: '1', className: 'mk-m-btn',
+          style: caja({
+            background: acento ? acento.hex : 'transparent',
+            color: acento ? acento.foreground : 'inherit',
+            borderColor: acento ? acento.hex : colBorde,
+          }),
+        }, 'Principal'),
+        h('span', { key: '2', className: 'mk-m-btn', style: caja({ background: 'transparent' }) }, 'Secundario'),
+      ]),
+    ]),
+    // Tarjeta: donde se ve la sombra y el filete.
+    h('div', { key: 'c', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Tarjeta'),
+      h('div', { key: 'c', className: 'mk-muestra-c' },
+        h('div', { className: 'mk-m-card', style: caja({ background: colSup }) }, [
+          h('b', { key: 't' }, b.name || 'Título'),
+          h('span', { key: 'd' }, s(b.tagline) || 'Una línea de contenido dentro de la tarjeta.'),
+        ])),
+    ]),
+    // Campo: la forma también manda en los formularios.
+    h('div', { key: 'i', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Campo'),
+      h('div', { key: 'c', className: 'mk-muestra-c' },
+        h('span', { className: 'mk-m-input', style: caja({ background: 'transparent' }) }, 'Texto de ejemplo')),
+    ]),
+    // Chat: el que motivó la lámina. Las burbujas también cuelgan del radio.
+    h('div', { key: 'ch', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Chat del agente'),
+      h('div', { key: 'c', className: 'mk-muestra-c mk-m-chat' }, [
+        h('span', {
+          key: '1', className: 'mk-m-burbuja',
+          style: caja({ background: colSup, borderColor: colBorde }),
+        }, '¿Cuánto llevamos cotizado este mes?'),
+        h('span', {
+          key: '2', className: 'mk-m-burbuja mk-m-burbuja-yo',
+          style: caja({
+            background: base ? base.hex : 'transparent',
+            color: base ? base.foreground : 'inherit',
+            borderColor: base ? base.hex : colBorde,
+          }),
+        }, 'Van 12 propuestas por 48,3 millones.'),
+      ]),
+    ]),
+  ]);
+}
+
+function HojaForma(props) {
+  const { ctx } = props;
+  const f = ctx.brand.form || formaPorDefecto();
+  const declarada = !!ctx.brand.form;
+  const ficha = [
+    ['Esquinas', labelDe(CORNER_STYLES, f.cornerStyle) + (f.cornerStyle === 'square' ? '' : ' · ' + f.radius + ' px')],
+    ['Borde', f.borderWidth ? f.borderWidth + ' px' : 'Sin borde'],
+    ['Elevación', labelDe(ELEVATIONS, f.elevation)],
+    ['Densidad', labelDe(DENSITIES, f.density)],
+  ];
+  return h('section', { className: 'mk-hs mk-hs-forma' }, [
+    h(SecHead, {
+      key: 'h', num: numSeccion(ctx, 'form'), title: 'Forma',
+      right: declarada ? null : h('span', { className: 'mk-sechead-nota' }, 'sin definir · manda el tema del sistema'),
+    }),
+    h('div', { key: 'g', className: 'mk-forma-grid' }, [
+      h('dl', { key: 'f', className: 'mk-forma-ficha' }, ficha.map(([k, v]) => [
+        h('dt', { key: k + 'k' }, k),
+        h('dd', { key: k + 'v' }, v),
+      ])),
+      h(MuestrasDeForma, { key: 'm', ctx }),
+    ]),
+  ]);
+}
+
 const SECCION_COMP = {
   logos: HojaLogos,
   palette: HojaPaleta,
   typography: HojaTipografia,
   ecosystems: HojaEcosistemas,
   principles: HojaPrincipios,
+  form: HojaForma,
 };
 
 // ── La hoja ─────────────────────────────────────────────────────────────
@@ -1513,6 +1892,7 @@ function Hoja(props) {
         : h('span', { key: 'l', className: 'mk-hoja-nm' }, b.name),
       h('span', { key: 'd', className: 'mk-hoja-div' }),
       h('h2', { key: 't' }, 'Sistema Visual'),
+      ctx.laminaLabel ? h('span', { key: 'l', className: 'mk-hoja-lamina' }, ctx.laminaLabel) : null,
       h('span', { key: 'sp', className: 'mk-sp' }),
       h('span', { key: 'f', className: 'mk-hoja-meta' }, ctx.fecha),
     ]),
@@ -1565,6 +1945,10 @@ function printCss(opts) {
     '.kimos-marcas { background: #fff; color: #111; height: auto; }',
     '.mk-print .mk-hoja { height: auto; min-height: 0; }',
     '.mk-print .mk-hs { break-inside: avoid; }',
+    // Cada lámina en su hoja: la 1 se cuelga en la pared, la 2 se
+    // consulta al construir. Juntas en una plana no caben.
+    '.mk-print .mk-hoja-pagina { break-after: page; }',
+    '.mk-print .mk-hoja-pagina:last-child { break-after: auto; }',
     '@media print { .mk-noprint { display: none !important; } }',
   ].join('\n');
 }
@@ -1572,7 +1956,17 @@ function printCss(opts) {
 function renderHojaInto(container, brand, opts) {
   const RD = globalThis.ReactDOM;
   if (!RD) throw new Error('El host no expone ReactDOM: no es posible generar la hoja.');
-  const el = h(Hoja, Object.assign({ brand }, opts || {}));
+  const o = isObj(opts) ? opts : {};
+  // Se imprimen TODAS las láminas con contenido, una por página. En pantalla
+  // se ve una cada vez; en papel se quieren las dos juntas, que es el
+  // documento que se entrega.
+  const ctx = hojaContexto(brand, o);
+  const laminas = arr(ctx.laminasConContenido);
+  const el = laminas.length > 1
+    ? h('div', { className: 'mk-hojas' },
+      laminas.map((k) => h('div', { key: k, className: 'mk-hoja-pagina' },
+        h(Hoja, Object.assign({}, o, { brand, lamina: k })))))
+    : h(Hoja, Object.assign({ brand }, o));
   if (RD.createRoot) {
     const root = RD.createRoot(container);
     root.render(el);
@@ -1727,10 +2121,20 @@ function Barra(props) {
 function HojaOpciones(props) {
   const { m, b } = props;
   const ctx = hojaContexto(b, { secciones: m.hojaSecciones });
+  const conContenido = arr(ctx.laminasConContenido);
   return h('div', { className: 'mk-hoja-opts mk-noprint' }, [
+    // Las dos planas: identidad (quién es la marca) y forma (cómo se
+    // construye lo que se hace con ella). Se imprimen las dos; en pantalla
+    // se ve una cada vez.
+    h('div', { key: 'lam', className: 'mk-laminas' }, LAMINAS.map(([clave, label]) => h(Btn, {
+      key: clave, size: 'sm', active: m.lamina === clave,
+      disabled: conContenido.indexOf(clave) < 0,
+      title: conContenido.indexOf(clave) < 0 ? 'La marca todavía no tiene nada en esta lámina' : '',
+      onClick: () => actSetLamina(clave),
+    }, label))),
     h('span', { key: 'l', className: 'mk-hoja-opts-l' }, 'En la hoja:'),
     SECCIONES.map(([k, label]) => {
-      const tiene = k === 'logos' ? ctx.logos.length : arr(b[k]).length;
+      const tiene = k === 'logos' ? ctx.logos.length : (k === 'form' ? (b.form ? 1 : 0) : arr(b[k]).length);
       return h('label', {
         key: k,
         className: cx('mk-check', !tiene && 'mk-check-off'),
@@ -1786,7 +2190,7 @@ function App() {
         : h('div', { key: 's', className: 'mk-hoja-wrap' }, [
           h(HojaOpciones, { key: 'o', m, b }),
           h(Avisos, { key: 'a', avisos: avisosDe(b) }),
-          h(Hoja, { key: 'h', brand: b, secciones: m.hojaSecciones }),
+          h(Hoja, { key: 'h', brand: b, secciones: m.hojaSecciones, lamina: m.lamina }),
         ]),
     ] : h(Empty, { icon: '👈', title: 'Elige una marca' })),
   ]);
@@ -1848,6 +2252,16 @@ const AGENT_TOOLS = [
       familia: T_STR, uso: { type: 'string', enum: TYPE_USAGES.map((x) => x[0]) },
       pesos: { type: 'array', items: T_STR }, muestra: T_STR,
     }, ['familia']),
+  tool('DEFINIR_FORMA', 'Define la FORMA de la marca: esquinas, radio, grosor del borde, elevación y densidad. Ojo: `--radius` y las sombras cuelgan de aquí en TODO KIMOS, así que esto cambia las esquinas del escritorio, del chat del agente y de las demás apps.',
+    {
+      esquinas: { type: 'string', enum: CORNER_STYLES.map((x) => x[0]) },
+      radio: T_NUM, grosorBorde: T_NUM,
+      elevacion: { type: 'string', enum: ELEVATIONS.map((x) => x[0]) },
+      densidad: { type: 'string', enum: DENSITIES.map((x) => x[0]) },
+    }),
+  tool('APLICAR_PLANTILLA_FORMA', 'Aplica una plantilla de forma entera como punto de partida: ' + PLANTILLAS_FORMA.map((x) => x[0] + ' (' + x[1] + ')').join(', ') + '.',
+    { plantilla: { type: 'string', enum: PLANTILLAS_FORMA.map((x) => x[0]) } }, ['plantilla']),
+  tool('QUITAR_FORMA', 'La marca deja de imponer forma y manda el tema del sistema.', {}),
   tool('AGREGAR_PRINCIPIO', 'Añade una regla de la marca: lo que alguien de fuera necesita para no romperla.',
     { titulo: T_STR, texto: T_STR }, ['titulo']),
   tool('GUARDAR_MARCA', 'Guarda los cambios de la marca abierta en el registro. A partir de aquí las demás apps la ven así.',
@@ -1897,7 +2311,13 @@ function agentSnapshot() {
     version: APP_VERSION,
     marcas: estado.brands.map(resumenDe),
     activa: s(estado.currentId),
-    abierta: b ? Object.assign(resumenDe(b), { sinGuardar: !!estado.dirty }) : null,
+    abierta: b ? Object.assign(resumenDe(b), {
+      sinGuardar: !!estado.dirty,
+      forma: b.form || null,
+      // Los tokens que se aplicarían: es lo que deja ver al agente qué cambia
+      // fuera de esta app.
+      tokens: b.form ? tokensDeForma(b.form) : {},
+    }) : null,
     puedeEditar: puedeEditar(),
     rolesDeColor: COLOR_ROLES.map((x) => ({ id: x[0], nombre: x[1], para: x[2] })),
     fondosDeLogo: LOGO_BACKGROUNDS.map((x) => ({ id: x[0], nombre: x[1] })),
@@ -2027,6 +2447,46 @@ async function agentDispatch(action) {
       return okMsg('Principio añadido. Sin guardar todavía.');
     }
 
+    case 'DEFINIR_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      const campos = {
+        esquinas: 'cornerStyle', radio: 'radius', grosorBorde: 'borderWidth',
+        elevacion: 'elevation', densidad: 'density',
+      };
+      const patch = {};
+      for (const [entrada, campo] of Object.entries(campos)) {
+        if (pl[entrada] !== undefined) patch[campo] = pl[entrada];
+      }
+      if (!Object.keys(patch).length) return errMsg('No mandaste ningún campo de la forma.');
+      const out = actSetForm(patch);
+      if (!out) return errMsg('No se pudo cambiar la forma.');
+      return okMsg('Forma actualizada: ' + labelDe(CORNER_STYLES, out.form.cornerStyle).toLowerCase()
+        + ', ' + labelDe(ELEVATIONS, out.form.elevation).toLowerCase()
+        + '. Sin guardar todavía.', { forma: out.form, tokens: tokensDeForma(out.form) });
+    }
+
+    case 'APLICAR_PLANTILLA_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      const tpl = PLANTILLAS_FORMA.find((x) => x[0] === s(pl.plantilla));
+      if (!tpl) {
+        return errMsg('No conozco la plantilla «' + s(pl.plantilla) + '». Disponibles: '
+          + PLANTILLAS_FORMA.map((x) => x[0]).join(', ') + '.');
+      }
+      const out = actAplicarPlantillaForma(tpl[0]);
+      if (!out) return errMsg('No se pudo aplicar la plantilla.');
+      return okMsg('Plantilla «' + tpl[1] + '» aplicada. Sin guardar todavía.', { forma: out.form });
+    }
+
+    case 'QUITAR_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      if (!g.b.form) return errMsg('Esa marca no define forma.');
+      actQuitarForma();
+      return okMsg('La marca deja de imponer forma; manda el tema del sistema. Sin guardar todavía.');
+    }
+
     case 'GUARDAR_MARCA': {
       if (!estado.dirty) return errMsg('No hay cambios que guardar.');
       const guardada = await actGuardar();
@@ -2075,7 +2535,9 @@ function registrarAgente() {
     description: 'El sistema visual de la empresa: logotipos, paleta con roles, tipografías, '
       + 'ecosistemas y principios de cada marca. Cambiar una marca cambia cómo se ven las '
       + 'propuestas, fichas y correos de TODAS las apps, así que nada se guarda hasta '
-      + 'GUARDAR_MARCA. Un color sin rol no lo usará ninguna app: pregunta el rol si no te lo dan.',
+      + 'GUARDAR_MARCA. Un color sin rol no lo usará ninguna app: pregunta el rol si no te lo dan. '
+      + 'La FORMA (esquinas, borde, sombra) también es de la marca: cambiarla cambia el aspecto '
+      + 'del escritorio y del chat, no solo de una app.',
     tools: AGENT_TOOLS,
     getSnapshot: agentSnapshot,
     dispatchAction: agentDispatch,
@@ -2091,7 +2553,10 @@ function registrarAgente() {
     __test: {
       cargar, getModel, setModel, teardown, suscribir,
       normalizeBrand, normalizeColor, normalizeLogo, normalizeFont,
-      normalizeEcosystem, normalizePrincipio, paraGuardar,
+      normalizeEcosystem, normalizePrincipio, normalizeForm, paraGuardar,
+      formaPorDefecto, tokensDeForma, biselDe, cajaDeForma, SOMBRAS,
+      CORNER_STYLES, ELEVATIONS, DENSITIES, PLANTILLAS_FORMA, LAMINAS,
+      actSetForm, actAplicarPlantillaForma, actQuitarForma, actSetLamina,
       colorPorRol, colorPorClave, logoParaFondo, marcaPorId, seleccionada,
       normalizeHex, esHexValido, hexToRgb, hexToHslToken, textoLegible, contraste, slug,
       puedeEditar, registroNoDisponible, abrirBorrador, editarBorrador,
@@ -2112,6 +2577,7 @@ function registrarAgente() {
       dialogos: {
         Hoja, Editor, Cartera, Barra, HojaOpciones, Modal,
         EdIdentidad, EdPaleta, EdLogos, EdTipografias, EdEcosistemas, EdPrincipios,
+        EdForma, HojaForma, MuestrasDeForma,
       },
     },
   };

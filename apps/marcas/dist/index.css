@@ -298,3 +298,60 @@
   .kimos-marcas .mk-hoja-row[data-n="2"] { grid-template-columns: 1fr; }
   .kimos-marcas .mk-grid2, .kimos-marcas .mk-card-form { grid-template-columns: 1fr; }
 }
+
+/* ── Lámina 2: la forma ────────────────────────────────────────────────── */
+.kimos-marcas .mk-laminas { display: flex; gap: 4px; margin-right: 6px; }
+.kimos-marcas .mk-hoja-lamina {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .14em;
+  padding: 3px 7px; border: 1px solid currentColor; opacity: .8;
+}
+.kimos-marcas .mk-sechead-nota { font-size: 10.5px; color: var(--mk-dim); }
+.kimos-marcas .mk-hojas { display: flex; flex-direction: column; gap: 18px; }
+
+.kimos-marcas .mk-forma-grid { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; }
+.kimos-marcas .mk-forma-ficha { margin: 0; display: grid; grid-template-columns: 1fr; gap: 7px; }
+.kimos-marcas .mk-forma-ficha dt {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: var(--mk-dim);
+}
+.kimos-marcas .mk-forma-ficha dd { margin: 0 0 4px; font-size: 12px; font-weight: 500; }
+
+.kimos-marcas .mk-muestras { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.kimos-marcas .mk-muestra { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kimos-marcas .mk-muestra-l {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: var(--mk-dim);
+}
+.kimos-marcas .mk-muestra-c { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; }
+.kimos-marcas .mk-m-btn { display: inline-block; padding: 7px 12px; font-size: 11.5px; font-weight: 600; }
+.kimos-marcas .mk-m-card {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; min-width: 150px; font-size: 11.5px;
+}
+.kimos-marcas .mk-m-card b { font-size: 12.5px; }
+.kimos-marcas .mk-m-input {
+  display: block; width: 100%; padding: 7px 10px; font-size: 11.5px; color: var(--mk-dim);
+}
+.kimos-marcas .mk-m-chat { flex-direction: column; align-items: stretch; }
+.kimos-marcas .mk-m-burbuja { display: block; padding: 7px 10px; font-size: 11.5px; max-width: 92%; }
+.kimos-marcas .mk-m-burbuja-yo { align-self: flex-end; margin-left: auto; }
+
+/* Plantillas de forma: la muestra ES la plantilla, se ve antes de aplicarla. */
+.kimos-marcas .mk-plantillas { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.kimos-marcas .mk-plantilla {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer;
+  border: 1px solid var(--mk-line); border-radius: var(--mk-radius);
+  background: var(--mk-card); color: inherit; font: inherit; font-size: 12px;
+}
+.kimos-marcas .mk-plantilla:hover:not(:disabled) { background: var(--mk-surface); }
+.kimos-marcas .mk-plantilla:disabled { opacity: .5; cursor: default; }
+.kimos-marcas .mk-plantilla.on { border-color: var(--mk-accent); background: var(--mk-accent-soft); }
+.kimos-marcas .mk-plantilla-m {
+  width: 26px; height: 20px; flex-shrink: 0;
+  background: var(--mk-surface); border-color: var(--mk-dim);
+}
+.kimos-marcas .mk-forma-prev {
+  margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--mk-line-soft);
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .kimos-marcas .mk-forma-grid { grid-template-columns: 1fr; }
+}

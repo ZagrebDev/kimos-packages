@@ -262,11 +262,88 @@ function EdPrincipios(props) {
   ]);
 }
 
+// ── Forma ───────────────────────────────────────────────────────────────
+
+function EdForma(props) {
+  const { b, ro } = props;
+  const declarada = !!b.form;
+  const f = b.form || formaPorDefecto();
+  return h('div', { className: 'mk-ed' }, [
+    h(SecHead, {
+      key: 'h', title: 'Forma',
+      right: (!ro && declarada)
+        ? h(Btn, { size: 'sm', onClick: actQuitarForma, title: 'La marca deja de imponer forma y manda el tema del sistema' }, 'Quitar')
+        : null,
+    }),
+    h('p', { key: 'x', className: 'mk-nota' }, declarada
+      ? 'Esto no es solo de esta app: `--radius` y las sombras cuelgan de aquí en todo KIMOS, así que cambiarlo cambia las esquinas del escritorio, del chat del agente y de las demás apps.'
+      : 'Esta marca no define forma, así que manda el tema del sistema. Elige una plantilla para empezar.'),
+
+    h('div', { key: 'p', className: 'mk-plantillas' }, PLANTILLAS_FORMA.map(([clave, nombre, desc, def]) => {
+      const activa = declarada && CAMPOS_FORMA.every((k) => f[k] === normalizeForm(def)[k]);
+      return h('button', {
+        key: clave, type: 'button', disabled: ro,
+        className: cx('mk-plantilla', activa && 'on'),
+        title: desc,
+        onClick: () => actAplicarPlantillaForma(clave),
+      }, [
+        // La muestra ES la plantilla: se ve la esquina y la sombra antes de
+        // aplicarla, en vez de leer «radio 0, plano».
+        h('span', { key: 'm', className: 'mk-plantilla-m', style: cajaDeForma(def) }),
+        h('span', { key: 'n', className: 'mk-plantilla-n' }, nombre),
+      ]);
+    })),
+
+    h('div', { key: 'g', className: 'mk-grid2' }, [
+      h(Field, { key: 'c', label: 'Esquinas' },
+        h(Select, {
+          value: f.cornerStyle, disabled: ro, options: CORNER_STYLES,
+          onChange: (e) => actSetForm({ cornerStyle: e.target.value }),
+        })),
+      h(Field, {
+        key: 'r', label: 'Radio',
+        help: f.cornerStyle === 'square' ? 'Con esquinas rectas el radio no se aplica.' : 'En píxeles.',
+      }, h(Input, {
+        type: 'number', min: 0, max: MAX_RADIUS, value: f.radius,
+        disabled: ro || f.cornerStyle === 'square',
+        onChange: (e) => actSetForm({ radius: e.target.value }),
+      })),
+      h(Field, {
+        key: 'b', label: 'Grosor del borde',
+        help: 'La app tiene que leer `--border-width` para que se note.',
+      }, h(Input, {
+        type: 'number', min: 0, max: MAX_BORDER, value: f.borderWidth, disabled: ro,
+        onChange: (e) => actSetForm({ borderWidth: e.target.value }),
+      })),
+      h(Field, { key: 'e', label: 'Elevación', help: 'Se aplica en todo el sistema sin tocar nada.' },
+        h(Select, {
+          value: f.elevation, disabled: ro, options: ELEVATIONS,
+          onChange: (e) => actSetForm({ elevation: e.target.value }),
+        })),
+      h(Field, {
+        key: 'd', label: 'Densidad', wide: true,
+        help: 'Se publica como `--brand-density`; la honra la app que quiera.',
+      }, h(Select, {
+        value: f.density, disabled: ro, options: DENSITIES,
+        onChange: (e) => actSetForm({ density: e.target.value }),
+      })),
+    ]),
+
+    h('div', { key: 'v', className: 'mk-forma-prev' }, [
+      h('span', { key: 'l', className: 'mk-field-lbl' }, 'Así queda'),
+      h(MuestrasDeForma, { key: 'm', ctx: hojaContexto(b, {}) }),
+    ]),
+  ]);
+}
+
+const CAMPOS_FORMA = ['cornerStyle', 'radius', 'borderWidth', 'elevation', 'density'];
+
 const EDITORES = {
   identidad: EdIdentidad,
   logos: EdLogos,
   palette: EdPaleta,
   typography: EdTipografias,
+  form: EdForma,
   ecosystems: EdEcosistemas,
   principles: EdPrincipios,
 };

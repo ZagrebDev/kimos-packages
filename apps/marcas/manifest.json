@@ -1,10 +1,10 @@
 {
   "id": "marcas",
   "name": "Marcas",
-  "description": "El sistema visual de la empresa, en una plana. Gestiona todas sus marcas —logotipos con el fondo sobre el que van, paleta con roles, tipografías con su uso, ecosistemas de aplicación y principios— y publica una hoja imprimible por marca. Las marcas no viven en esta app: viven en la plataforma, así que Cotizaciones, ProductLab o cualquier otra app pueden emitir con la marca correcta sin depender de que esta esté instalada.",
+  "description": "El sistema visual de la empresa, en dos láminas por marca. La primera dice quién es la marca —logotipos con el fondo sobre el que van, paleta con roles, tipografías con su uso— y la segunda cómo se construye lo que se hace con ella: esquinas, borde, elevación y densidad, con muestras de botón, tarjeta, campo y chat. La forma no es decoración de esta app: `--radius` y las sombras cuelgan de ahí en todo KIMOS, así que cambiarla cambia el escritorio, el chat del agente y las demás apps sin tocar su código. Las marcas viven en el registro de la plataforma, no aquí: Cotizaciones y ProductLab las usan aunque esta app no esté instalada.",
   "icon": "🎨",
   "author": "kimos",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "entry": "dist/index.js",
   "css": "dist/index.css",
   "appShellApi": "1.x",

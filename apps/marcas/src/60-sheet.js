@@ -30,12 +30,22 @@ function hojaContexto(brand, opts) {
     logos: logos.length > 0,
     palette: b.palette.length > 0,
     typography: b.typography.length > 0,
+    // La forma se enseña solo si la marca la declara, igual que el resto:
+    // una lámina que explica la forma «por defecto» estaría describiendo el
+    // tema del tenant, no la marca.
+    form: !!b.form,
     ecosystems: b.ecosystems.length > 0,
     principles: b.principles.length > 0,
   };
+  // `lamina` acota a las secciones de una de las dos planas. Sin ella salen
+  // todas, que es lo que se imprime.
+  const deLamina = s(o.lamina)
+    ? (LAMINAS.find((x) => x[0] === s(o.lamina)) || [null, null, []])[2]
+    : null;
   const secciones = SECCIONES
     .map((x) => x[0])
-    .filter((k) => activas.indexOf(k) >= 0 && disponible[k]);
+    .filter((k) => activas.indexOf(k) >= 0 && disponible[k]
+      && (!deLamina || deLamina.indexOf(k) >= 0));
 
   const base = colorPorRol(b, 'base');
   const acento = colorPorRol(b, 'accent');
@@ -53,6 +63,14 @@ function hojaContexto(brand, opts) {
     logoCabecera: logoParaFondo(b, base ? 'dark' : 'light'),
     fecha: (o.fecha || new Date().toISOString().slice(0, 7)).replace('-', ' / '),
     nota: s(o.nota),
+    lamina: s(o.lamina),
+    laminaLabel: (LAMINAS.find((x) => x[0] === s(o.lamina)) || [null, ''])[1],
+    // Qué láminas tienen algo que enseñar. Una vacía no se ofrece ni se
+    // imprime: una plana en blanco no dice «la marca está a medias», dice
+    // que el sistema está roto.
+    laminasConContenido: LAMINAS
+      .filter(([, , claves]) => claves.some((k) => disponible[k] && activas.indexOf(k) >= 0))
+      .map(([k]) => k),
   };
 }
 
@@ -173,12 +191,112 @@ function HojaPrincipios(props) {
   ]);
 }
 
+// ── Lámina 2: la forma ──────────────────────────────────────────────────
+/**
+ * La forma no se entiende leyendo «radio 0, sin sombra»: se entiende viendo
+ * un botón, una tarjeta, un campo y una burbuja de chat con esa forma puesta.
+ * Por eso la lámina 2 son COMPONENTES REALES, no una tabla de valores.
+ *
+ * Son los mismos cuatro que aparecen en todo KIMOS, el chat de agentes
+ * incluido: si se ven bien aquí, se ven bien en el sistema.
+ */
+function MuestrasDeForma(props) {
+  const { ctx } = props;
+  const b = ctx.brand;
+  const f = b.form || formaPorDefecto();
+  const base = ctx.base;
+  const acento = ctx.acento;
+  const borde = colorPorRol(b, 'border');
+  const superficie = colorPorRol(b, 'surface');
+
+  const colBorde = borde ? borde.hex : 'currentColor';
+  const colSup = superficie ? superficie.hex : 'transparent';
+  const caja = (extra) => cajaDeForma(f, Object.assign({ borderColor: colBorde }, extra));
+
+  return h('div', { className: 'mk-muestras' }, [
+    // Botones: lo primero donde se nota una esquina.
+    h('div', { key: 'b', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Botones'),
+      h('div', { key: 'c', className: 'mk-muestra-c' }, [
+        h('span', {
+          key: '1', className: 'mk-m-btn',
+          style: caja({
+            background: acento ? acento.hex : 'transparent',
+            color: acento ? acento.foreground : 'inherit',
+            borderColor: acento ? acento.hex : colBorde,
+          }),
+        }, 'Principal'),
+        h('span', { key: '2', className: 'mk-m-btn', style: caja({ background: 'transparent' }) }, 'Secundario'),
+      ]),
+    ]),
+    // Tarjeta: donde se ve la sombra y el filete.
+    h('div', { key: 'c', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Tarjeta'),
+      h('div', { key: 'c', className: 'mk-muestra-c' },
+        h('div', { className: 'mk-m-card', style: caja({ background: colSup }) }, [
+          h('b', { key: 't' }, b.name || 'Título'),
+          h('span', { key: 'd' }, s(b.tagline) || 'Una línea de contenido dentro de la tarjeta.'),
+        ])),
+    ]),
+    // Campo: la forma también manda en los formularios.
+    h('div', { key: 'i', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Campo'),
+      h('div', { key: 'c', className: 'mk-muestra-c' },
+        h('span', { className: 'mk-m-input', style: caja({ background: 'transparent' }) }, 'Texto de ejemplo')),
+    ]),
+    // Chat: el que motivó la lámina. Las burbujas también cuelgan del radio.
+    h('div', { key: 'ch', className: 'mk-muestra' }, [
+      h('span', { key: 'l', className: 'mk-muestra-l' }, 'Chat del agente'),
+      h('div', { key: 'c', className: 'mk-muestra-c mk-m-chat' }, [
+        h('span', {
+          key: '1', className: 'mk-m-burbuja',
+          style: caja({ background: colSup, borderColor: colBorde }),
+        }, '¿Cuánto llevamos cotizado este mes?'),
+        h('span', {
+          key: '2', className: 'mk-m-burbuja mk-m-burbuja-yo',
+          style: caja({
+            background: base ? base.hex : 'transparent',
+            color: base ? base.foreground : 'inherit',
+            borderColor: base ? base.hex : colBorde,
+          }),
+        }, 'Van 12 propuestas por 48,3 millones.'),
+      ]),
+    ]),
+  ]);
+}
+
+function HojaForma(props) {
+  const { ctx } = props;
+  const f = ctx.brand.form || formaPorDefecto();
+  const declarada = !!ctx.brand.form;
+  const ficha = [
+    ['Esquinas', labelDe(CORNER_STYLES, f.cornerStyle) + (f.cornerStyle === 'square' ? '' : ' · ' + f.radius + ' px')],
+    ['Borde', f.borderWidth ? f.borderWidth + ' px' : 'Sin borde'],
+    ['Elevación', labelDe(ELEVATIONS, f.elevation)],
+    ['Densidad', labelDe(DENSITIES, f.density)],
+  ];
+  return h('section', { className: 'mk-hs mk-hs-forma' }, [
+    h(SecHead, {
+      key: 'h', num: numSeccion(ctx, 'form'), title: 'Forma',
+      right: declarada ? null : h('span', { className: 'mk-sechead-nota' }, 'sin definir · manda el tema del sistema'),
+    }),
+    h('div', { key: 'g', className: 'mk-forma-grid' }, [
+      h('dl', { key: 'f', className: 'mk-forma-ficha' }, ficha.map(([k, v]) => [
+        h('dt', { key: k + 'k' }, k),
+        h('dd', { key: k + 'v' }, v),
+      ])),
+      h(MuestrasDeForma, { key: 'm', ctx }),
+    ]),
+  ]);
+}
+
 const SECCION_COMP = {
   logos: HojaLogos,
   palette: HojaPaleta,
   typography: HojaTipografia,
   ecosystems: HojaEcosistemas,
   principles: HojaPrincipios,
+  form: HojaForma,
 };
 
 // ── La hoja ─────────────────────────────────────────────────────────────
@@ -222,6 +340,7 @@ function Hoja(props) {
         : h('span', { key: 'l', className: 'mk-hoja-nm' }, b.name),
       h('span', { key: 'd', className: 'mk-hoja-div' }),
       h('h2', { key: 't' }, 'Sistema Visual'),
+      ctx.laminaLabel ? h('span', { key: 'l', className: 'mk-hoja-lamina' }, ctx.laminaLabel) : null,
       h('span', { key: 'sp', className: 'mk-sp' }),
       h('span', { key: 'f', className: 'mk-hoja-meta' }, ctx.fecha),
     ]),

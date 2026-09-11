@@ -609,9 +609,37 @@ if (shell.brands) {
 | `palette[]` | Cada color con su **rol** (`base`, `accent`, `text`, `border`…), su `hex`, su `token` HSL y el `foreground` que se lee encima. Un color sin rol es decoración: no sabrás dónde usarlo. |
 | `logos[]` | Cada uno con el **fondo** sobre el que va (`dark`, `light`, `color`, `transparent`). |
 | `typography[]` | Cada familia con su **uso** (`headings`, `body`, `data`) y de dónde sale la fuente. |
+| `form` | La **forma**: `cornerStyle`, `radius`, `borderWidth`, `elevation`, `density`. Vacío si la marca no declara ninguna. |
 | `ecosystems[]` | Variantes de la misma marca; apuntan a la paleta por clave. |
 | `principles[]` | Las reglas, en texto. |
 | Identidad | `name`, `tagline`, `legalName`, `taxId`, contacto, `footer`, `bankDetails`. |
+
+### La forma: por qué NO va en tu app
+
+Si tu app tiene su propio ajuste de «esquinas redondeadas» o «con sombra»,
+quítalo. Eso no es de tu app: es el lenguaje visual de la empresa, tanto como
+su paleta. Y hay una razón concreta para que viva en la marca:
+
+```
+tailwind.config:  rounded-lg → var(--radius)     shadow-md → var(--shadow-md)
+```
+
+En el tema de KIMOS, `rounded-*` y `shadow-*` cuelgan de esos tokens, y las
+apps derivan su radio de `var(--radius)`. Cuando la marca define su forma, el
+host los inyecta y **cambian el escritorio, el chat del agente y tu app a la
+vez, sin que toques nada**. Tres apps con su propio ajuste de esquinas no
+forman un sistema; forman tres.
+
+Lo que **no** es de la marca es la maqueta de tu app: dónde van las
+miniaturas, si la barra es pegajosa, qué dice el botón. Eso sigue siendo tuyo.
+La línea está en si otra app tendría el mismo campo: `radius` sí, `photos.layout` no.
+
+| Token | Qué tienes que hacer |
+|---|---|
+| `--radius`, `--shadow-sm/md/lg` | **Nada**, si ya cumples §9. |
+| `--border-width` | Leerlo en vez de cablear `1px`: `border: var(--border-width, 1px) solid var(--mi-borde);` |
+| `--font-sans`, `--font-mono` | Leerlos en vez de cablear `'Inter'`. |
+| `--brand-corner`, `--brand-density` | Honrarlos si tu app puede. `--brand-corner: cut` pide un `clip-path`, que no sale gratis. |
 
 Y los **atajos ya resueltos**, para no recorrer nada: `baseColor`,
 `accentColor`, `logoLight`, `logoDark`, `themeTokens`.

@@ -67,10 +67,20 @@ function Barra(props) {
 function HojaOpciones(props) {
   const { m, b } = props;
   const ctx = hojaContexto(b, { secciones: m.hojaSecciones });
+  const conContenido = arr(ctx.laminasConContenido);
   return h('div', { className: 'mk-hoja-opts mk-noprint' }, [
+    // Las dos planas: identidad (quién es la marca) y forma (cómo se
+    // construye lo que se hace con ella). Se imprimen las dos; en pantalla
+    // se ve una cada vez.
+    h('div', { key: 'lam', className: 'mk-laminas' }, LAMINAS.map(([clave, label]) => h(Btn, {
+      key: clave, size: 'sm', active: m.lamina === clave,
+      disabled: conContenido.indexOf(clave) < 0,
+      title: conContenido.indexOf(clave) < 0 ? 'La marca todavía no tiene nada en esta lámina' : '',
+      onClick: () => actSetLamina(clave),
+    }, label))),
     h('span', { key: 'l', className: 'mk-hoja-opts-l' }, 'En la hoja:'),
     SECCIONES.map(([k, label]) => {
-      const tiene = k === 'logos' ? ctx.logos.length : arr(b[k]).length;
+      const tiene = k === 'logos' ? ctx.logos.length : (k === 'form' ? (b.form ? 1 : 0) : arr(b[k]).length);
       return h('label', {
         key: k,
         className: cx('mk-check', !tiene && 'mk-check-off'),
@@ -126,7 +136,7 @@ function App() {
         : h('div', { key: 's', className: 'mk-hoja-wrap' }, [
           h(HojaOpciones, { key: 'o', m, b }),
           h(Avisos, { key: 'a', avisos: avisosDe(b) }),
-          h(Hoja, { key: 'h', brand: b, secciones: m.hojaSecciones }),
+          h(Hoja, { key: 'h', brand: b, secciones: m.hojaSecciones, lamina: m.lamina }),
         ]),
     ] : h(Empty, { icon: '👈', title: 'Elige una marca' })),
   ]);

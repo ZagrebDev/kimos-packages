@@ -84,7 +84,10 @@ parts.push(`
     __test: {
       cargar, getModel, setModel, teardown, suscribir,
       normalizeBrand, normalizeColor, normalizeLogo, normalizeFont,
-      normalizeEcosystem, normalizePrincipio, paraGuardar,
+      normalizeEcosystem, normalizePrincipio, normalizeForm, paraGuardar,
+      formaPorDefecto, tokensDeForma, biselDe, cajaDeForma, SOMBRAS,
+      CORNER_STYLES, ELEVATIONS, DENSITIES, PLANTILLAS_FORMA, LAMINAS,
+      actSetForm, actAplicarPlantillaForma, actQuitarForma, actSetLamina,
       colorPorRol, colorPorClave, logoParaFondo, marcaPorId, seleccionada,
       normalizeHex, esHexValido, hexToRgb, hexToHslToken, textoLegible, contraste, slug,
       puedeEditar, registroNoDisponible, abrirBorrador, editarBorrador,
@@ -105,6 +108,7 @@ parts.push(`
       dialogos: {
         Hoja, Editor, Cartera, Barra, HojaOpciones, Modal,
         EdIdentidad, EdPaleta, EdLogos, EdTipografias, EdEcosistemas, EdPrincipios,
+        EdForma, HojaForma, MuestrasDeForma,
       },
     },
   };

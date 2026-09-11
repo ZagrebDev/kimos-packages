@@ -28,6 +28,10 @@ function printCss(opts) {
     '.kimos-marcas { background: #fff; color: #111; height: auto; }',
     '.mk-print .mk-hoja { height: auto; min-height: 0; }',
     '.mk-print .mk-hs { break-inside: avoid; }',
+    // Cada lámina en su hoja: la 1 se cuelga en la pared, la 2 se
+    // consulta al construir. Juntas en una plana no caben.
+    '.mk-print .mk-hoja-pagina { break-after: page; }',
+    '.mk-print .mk-hoja-pagina:last-child { break-after: auto; }',
     '@media print { .mk-noprint { display: none !important; } }',
   ].join('\n');
 }
@@ -35,7 +39,17 @@ function printCss(opts) {
 function renderHojaInto(container, brand, opts) {
   const RD = globalThis.ReactDOM;
   if (!RD) throw new Error('El host no expone ReactDOM: no es posible generar la hoja.');
-  const el = h(Hoja, Object.assign({ brand }, opts || {}));
+  const o = isObj(opts) ? opts : {};
+  // Se imprimen TODAS las láminas con contenido, una por página. En pantalla
+  // se ve una cada vez; en papel se quieren las dos juntas, que es el
+  // documento que se entrega.
+  const ctx = hojaContexto(brand, o);
+  const laminas = arr(ctx.laminasConContenido);
+  const el = laminas.length > 1
+    ? h('div', { className: 'mk-hojas' },
+      laminas.map((k) => h('div', { key: k, className: 'mk-hoja-pagina' },
+        h(Hoja, Object.assign({}, o, { brand, lamina: k })))))
+    : h(Hoja, Object.assign({ brand }, o));
   if (RD.createRoot) {
     const root = RD.createRoot(container);
     root.render(el);

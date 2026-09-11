@@ -51,6 +51,16 @@ const AGENT_TOOLS = [
       familia: T_STR, uso: { type: 'string', enum: TYPE_USAGES.map((x) => x[0]) },
       pesos: { type: 'array', items: T_STR }, muestra: T_STR,
     }, ['familia']),
+  tool('DEFINIR_FORMA', 'Define la FORMA de la marca: esquinas, radio, grosor del borde, elevación y densidad. Ojo: `--radius` y las sombras cuelgan de aquí en TODO KIMOS, así que esto cambia las esquinas del escritorio, del chat del agente y de las demás apps.',
+    {
+      esquinas: { type: 'string', enum: CORNER_STYLES.map((x) => x[0]) },
+      radio: T_NUM, grosorBorde: T_NUM,
+      elevacion: { type: 'string', enum: ELEVATIONS.map((x) => x[0]) },
+      densidad: { type: 'string', enum: DENSITIES.map((x) => x[0]) },
+    }),
+  tool('APLICAR_PLANTILLA_FORMA', 'Aplica una plantilla de forma entera como punto de partida: ' + PLANTILLAS_FORMA.map((x) => x[0] + ' (' + x[1] + ')').join(', ') + '.',
+    { plantilla: { type: 'string', enum: PLANTILLAS_FORMA.map((x) => x[0]) } }, ['plantilla']),
+  tool('QUITAR_FORMA', 'La marca deja de imponer forma y manda el tema del sistema.', {}),
   tool('AGREGAR_PRINCIPIO', 'Añade una regla de la marca: lo que alguien de fuera necesita para no romperla.',
     { titulo: T_STR, texto: T_STR }, ['titulo']),
   tool('GUARDAR_MARCA', 'Guarda los cambios de la marca abierta en el registro. A partir de aquí las demás apps la ven así.',
@@ -100,7 +110,13 @@ function agentSnapshot() {
     version: APP_VERSION,
     marcas: estado.brands.map(resumenDe),
     activa: s(estado.currentId),
-    abierta: b ? Object.assign(resumenDe(b), { sinGuardar: !!estado.dirty }) : null,
+    abierta: b ? Object.assign(resumenDe(b), {
+      sinGuardar: !!estado.dirty,
+      forma: b.form || null,
+      // Los tokens que se aplicarían: es lo que deja ver al agente qué cambia
+      // fuera de esta app.
+      tokens: b.form ? tokensDeForma(b.form) : {},
+    }) : null,
     puedeEditar: puedeEditar(),
     rolesDeColor: COLOR_ROLES.map((x) => ({ id: x[0], nombre: x[1], para: x[2] })),
     fondosDeLogo: LOGO_BACKGROUNDS.map((x) => ({ id: x[0], nombre: x[1] })),
@@ -230,6 +246,46 @@ async function agentDispatch(action) {
       return okMsg('Principio añadido. Sin guardar todavía.');
     }
 
+    case 'DEFINIR_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      const campos = {
+        esquinas: 'cornerStyle', radio: 'radius', grosorBorde: 'borderWidth',
+        elevacion: 'elevation', densidad: 'density',
+      };
+      const patch = {};
+      for (const [entrada, campo] of Object.entries(campos)) {
+        if (pl[entrada] !== undefined) patch[campo] = pl[entrada];
+      }
+      if (!Object.keys(patch).length) return errMsg('No mandaste ningún campo de la forma.');
+      const out = actSetForm(patch);
+      if (!out) return errMsg('No se pudo cambiar la forma.');
+      return okMsg('Forma actualizada: ' + labelDe(CORNER_STYLES, out.form.cornerStyle).toLowerCase()
+        + ', ' + labelDe(ELEVATIONS, out.form.elevation).toLowerCase()
+        + '. Sin guardar todavía.', { forma: out.form, tokens: tokensDeForma(out.form) });
+    }
+
+    case 'APLICAR_PLANTILLA_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      const tpl = PLANTILLAS_FORMA.find((x) => x[0] === s(pl.plantilla));
+      if (!tpl) {
+        return errMsg('No conozco la plantilla «' + s(pl.plantilla) + '». Disponibles: '
+          + PLANTILLAS_FORMA.map((x) => x[0]).join(', ') + '.');
+      }
+      const out = actAplicarPlantillaForma(tpl[0]);
+      if (!out) return errMsg('No se pudo aplicar la plantilla.');
+      return okMsg('Plantilla «' + tpl[1] + '» aplicada. Sin guardar todavía.', { forma: out.form });
+    }
+
+    case 'QUITAR_FORMA': {
+      const g = exigeBorrador();
+      if (!g.b) return errMsg(g.error);
+      if (!g.b.form) return errMsg('Esa marca no define forma.');
+      actQuitarForma();
+      return okMsg('La marca deja de imponer forma; manda el tema del sistema. Sin guardar todavía.');
+    }
+
     case 'GUARDAR_MARCA': {
       if (!estado.dirty) return errMsg('No hay cambios que guardar.');
       const guardada = await actGuardar();
@@ -278,7 +334,9 @@ function registrarAgente() {
     description: 'El sistema visual de la empresa: logotipos, paleta con roles, tipografías, '
       + 'ecosistemas y principios de cada marca. Cambiar una marca cambia cómo se ven las '
       + 'propuestas, fichas y correos de TODAS las apps, así que nada se guarda hasta '
-      + 'GUARDAR_MARCA. Un color sin rol no lo usará ninguna app: pregunta el rol si no te lo dan.',
+      + 'GUARDAR_MARCA. Un color sin rol no lo usará ninguna app: pregunta el rol si no te lo dan. '
+      + 'La FORMA (esquinas, borde, sombra) también es de la marca: cambiarla cambia el aspecto '
+      + 'del escritorio y del chat, no solo de una app.',
     tools: AGENT_TOOLS,
     getSnapshot: agentSnapshot,
     dispatchAction: agentDispatch,

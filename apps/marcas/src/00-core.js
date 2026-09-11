@@ -61,13 +61,78 @@ const TYPE_USAGES = [
   ['accent', 'Destacados'],
 ];
 
+// ── La FORMA ────────────────────────────────────────────────────────────
+// Lo que cada app venía definiendo por su cuenta: esquinas, borde, sombra,
+// densidad. Vive en la marca porque en el tema de KIMOS `rounded-*` y
+// `shadow-*` de Tailwind cuelgan de `--radius` y `--shadow-*`, así que
+// cambiarla aquí cambia el shell, el chat de agentes y toda app que cumpla
+// APP-SPEC §9 sin tocar una línea en ninguna.
+//
+// Espejo de `brands_core.py`: si se desalinean, el backend rechaza lo que la
+// app deja escribir y el error aparece lejos de su causa.
+
+const CORNER_STYLES = [
+  ['rounded', 'Redondeadas'],
+  ['square', 'Rectas'],
+  ['cut', 'Cortadas'],
+];
+
+const ELEVATIONS = [
+  ['flat', 'Plano'],
+  ['soft', 'Sombra suave'],
+  ['raised', 'Sombra marcada'],
+];
+
+const DENSITIES = [
+  ['compact', 'Compacta'],
+  ['normal', 'Normal'],
+  ['comfortable', 'Amplia'],
+];
+
+const MAX_RADIUS = 32;
+const MAX_BORDER = 4;
+
+/**
+ * Plantillas de forma: un punto de partida en vez de cinco mandos.
+ *
+ * No son un sistema aparte —solo rellenan los mismos cinco campos—, y por eso
+ * simplifican sin añadir una capa: se elige una y luego se ajusta lo que haga
+ * falta.
+ */
+const PLANTILLAS_FORMA = [
+  ['recta', 'Recta y plana', 'Bordes rectos, sin sombras. Técnico y directo.',
+    { cornerStyle: 'square', radius: 0, borderWidth: 1, elevation: 'flat', density: 'compact' }],
+  ['suave', 'Redondeada y suave', 'Esquinas amables con algo de relieve.',
+    { cornerStyle: 'rounded', radius: 12, borderWidth: 1, elevation: 'soft', density: 'normal' }],
+  ['limpia', 'Sin bordes', 'Se separa por espacio y color, no por líneas.',
+    { cornerStyle: 'rounded', radius: 10, borderWidth: 0, elevation: 'soft', density: 'comfortable' }],
+  ['editorial', 'Editorial', 'Filete marcado y nada de sombra.',
+    { cornerStyle: 'square', radius: 0, borderWidth: 2, elevation: 'flat', density: 'comfortable' }],
+  ['cortada', 'Cortada', 'Esquinas en bisel. Requiere que la app lo honre.',
+    { cornerStyle: 'cut', radius: 10, borderWidth: 1, elevation: 'flat', density: 'normal' }],
+];
+
 /** Las secciones de la hoja, en el orden en que se leen. */
 const SECCIONES = [
   ['logos', 'Logotipo'],
   ['palette', 'Paleta'],
   ['typography', 'Tipografía'],
+  ['form', 'Forma'],
   ['ecosystems', 'Elementos visuales'],
   ['principles', 'Principios y reglas'],
+];
+
+/**
+ * La hoja se parte en dos láminas.
+ *
+ * La 1 responde «quién es esta marca» y la 2 «cómo se construye lo que se
+ * hace con ella». Son dos preguntas distintas y meterlas en una plana deja
+ * las dos apretadas: la de identidad se imprime y se cuelga, la de forma se
+ * consulta al construir.
+ */
+const LAMINAS = [
+  ['identidad', 'Identidad', ['logos', 'palette', 'typography']],
+  ['forma', 'Forma y aplicación', ['form', 'ecosystems', 'principles']],
 ];
 
 const labelDe = (tabla, clave, sino) => {
@@ -237,6 +302,87 @@ function normalizeEcosystem(raw, i) {
   };
 }
 
+/** La forma, con sus valores por defecto. `null` si la marca no declara una:
+ *  entonces manda el tema del tenant y no se impone nada. */
+function normalizeForm(raw) {
+  if (!isObj(raw) || !Object.keys(raw).length) return null;
+  const corner = CORNER_STYLES.some((x) => x[0] === raw.cornerStyle) ? s(raw.cornerStyle) : 'rounded';
+  const entero = (v, tope, def) => {
+    const n = Number(v);
+    return clamp(Math.round(isFinite(n) ? n : def), 0, tope);
+  };
+  return {
+    cornerStyle: corner,
+    // En `square` el radio es 0 por definición: dejar guardado uno que no se
+    // aplica es la clase de estado que confunde al editarlo.
+    radius: corner === 'square' ? 0 : entero(raw.radius, MAX_RADIUS, 8),
+    borderWidth: entero(raw.borderWidth, MAX_BORDER, 1),
+    elevation: ELEVATIONS.some((x) => x[0] === raw.elevation) ? s(raw.elevation) : 'soft',
+    density: DENSITIES.some((x) => x[0] === raw.density) ? s(raw.density) : 'normal',
+  };
+}
+
+const formaPorDefecto = () => normalizeForm({ cornerStyle: 'rounded' });
+
+/** Las sombras de cada nivel, iguales a las del backend. */
+const SOMBRAS = {
+  flat: ['none', 'none', 'none'],
+  soft: [
+    '0 1px 2px 0 hsl(220 20% 10% / 0.05)',
+    '0 4px 6px -1px hsl(220 20% 10% / 0.10), 0 2px 4px -2px hsl(220 20% 10% / 0.10)',
+    '0 10px 15px -3px hsl(220 20% 10% / 0.10), 0 4px 6px -4px hsl(220 20% 10% / 0.10)',
+  ],
+  raised: [
+    '0 2px 4px 0 hsl(220 20% 10% / 0.10)',
+    '0 8px 14px -2px hsl(220 20% 10% / 0.16), 0 3px 6px -3px hsl(220 20% 10% / 0.14)',
+    '0 18px 28px -6px hsl(220 20% 10% / 0.20), 0 8px 12px -8px hsl(220 20% 10% / 0.16)',
+  ],
+};
+
+/**
+ * Los tokens que emite la forma, para previsualizarla dentro de la app.
+ *
+ * Los calcula también el backend; aquí se repiten porque la muestra tiene que
+ * verse mientras se edita, antes de guardar. Si divergieran, lo que se ve al
+ * editar no sería lo que se aplica, que es el peor fallo posible en un editor
+ * de marca.
+ */
+function tokensDeForma(form) {
+  const f = normalizeForm(form);
+  if (!f) return {};
+  const sombras = SOMBRAS[f.elevation] || SOMBRAS.soft;
+  return {
+    '--radius': f.radius + 'px',
+    '--border-width': f.borderWidth + 'px',
+    '--brand-corner': f.cornerStyle,
+    '--brand-density': f.density,
+    '--shadow-sm': sombras[0],
+    '--shadow-md': sombras[1],
+    '--shadow-lg': sombras[2],
+  };
+}
+
+/** El `clip-path` de una esquina cortada. Solo tiene sentido con `cut`. */
+function biselDe(form) {
+  const f = normalizeForm(form);
+  if (!f || f.cornerStyle !== 'cut') return null;
+  const c = Math.max(4, f.radius || 10) + 'px';
+  return 'polygon(' + c + ' 0, 100% 0, 100% calc(100% - ' + c + '), calc(100% - ' + c + ') 100%, 0 100%, 0 ' + c + ')';
+}
+
+/** El estilo de una caja según la forma: lo usan las muestras de la lámina. */
+function cajaDeForma(form, extra) {
+  const f = normalizeForm(form) || formaPorDefecto();
+  const bisel = biselDe(f);
+  return Object.assign({
+    borderRadius: bisel ? 0 : f.radius + 'px',
+    borderWidth: f.borderWidth + 'px',
+    borderStyle: 'solid',
+    boxShadow: (SOMBRAS[f.elevation] || SOMBRAS.soft)[1],
+    clipPath: bisel || undefined,
+  }, extra || {});
+}
+
 function normalizePrincipio(raw, i) {
   const r = isObj(raw) ? raw : {};
   return {
@@ -278,6 +424,7 @@ function normalizeBrand(raw) {
     typography: clavesUnicas(arr(r.typography).map(normalizeFont)),
     ecosystems: clavesUnicas(arr(r.ecosystems).map(normalizeEcosystem)),
     principles: arr(r.principles).map(normalizePrincipio),
+    form: normalizeForm(r.form),
     updatedAt: s(r.updatedAt),
   };
 }
@@ -304,6 +451,10 @@ function paraGuardar(brand) {
       baseColorKey: e.baseColorKey, accentColorKey: e.accentColorKey,
     })),
     principles: b.principles.map((p) => ({ title: p.title, text: p.text })),
+    // Se manda siempre, incluso `null`: es la única forma de poder QUITAR la
+    // forma de una marca que ya la tenía. Omitir la clave dejaría la anterior
+    // guardada y «Quitar» no haría nada.
+    form: b.form,
   };
 }
 
