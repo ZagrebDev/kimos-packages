@@ -245,9 +245,9 @@
     {
       "id": "kimos-project-manager",
       "name": "Gestor de Proyectos",
-      "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa con conversor de moneda que toma el tipo de cambio del día: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con su equivalente en dólares a la vista, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño clientes unificados con el directorio de la app Clientes de KIMOS —misma ficha, con enlace a su registro de origen y re-sincronización— y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
+      "description": "Gestión de proyectos de punta a punta, por cliente: cartera con tablero global en vivo (avance ponderado, salud, hitos, riesgos y presupuesto), ficha de proyecto con su propio dashboard, plan de trabajo con fases, tareas, dependencias e hitos sobre línea temporal, matriz de riesgos 5×5, biblioteca de documentos (imágenes, video, PDF y planos) que se suben al Cloud Storage del tenant —área privada del equipo por defecto— con carpetas locales conectadas desde el disco, Google Drive u otro enlace, y un analista que propone el plan de trabajo y responde preguntas sobre el proyecto con sus propios números. Economía completa con conversor de moneda que toma el tipo de cambio del día: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con su equivalente en dólares a la vista, línea base con el puente que explica cada desvío, modelo de costeo del servicio post-venta con escenarios y aritmética del SLA, y margen recomendado que lleva del costo al precio ofertable en la moneda de cada sede. Bitácora, evaluación de desempeño clientes unificados con el directorio de la app Clientes de KIMOS —misma ficha, con enlace a su registro de origen y re-sincronización— y enlace con las apps Planificación, Kanban y Cotizaciones del ecosistema. Control total por agente IA.",
       "icon": "🧭",
-      "version": "1.4.0",
+      "version": "1.6.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",
@@ -256,6 +256,7 @@
         "instance.read",
         "instance.write",
         "agent.control",
+        "files.write",
         "data.read:customers",
         "data.read:gantt",
         "data.read:kanban",
@@ -330,6 +331,34 @@
             "label": "Mostrar presupuesto",
             "type": "boolean",
             "help": "Muestra las cifras económicas en los tableros y la ficha del proyecto."
+          },
+          {
+            "key": "storageScope",
+            "label": "Destino por defecto de los archivos",
+            "type": "select",
+            "options": [
+              {
+                "value": "team",
+                "label": "Archivos del equipo (privado)"
+              },
+              {
+                "value": "public",
+                "label": "Enlace público (cualquiera con la URL)"
+              },
+              {
+                "value": "none",
+                "label": "No subir: solo indexar la ficha"
+              }
+            ],
+            "help": "Dónde queda el contenido de los archivos que se cargan. El área pública se sirve sin autenticación: no la uses para documentación con cláusula de confidencialidad."
+          },
+          {
+            "key": "storageMaxMB",
+            "label": "Tamaño máximo por archivo (MB)",
+            "type": "number",
+            "min": 1,
+            "max": 500,
+            "help": "Los archivos que superen este tamaño no se suben; su ficha igual entra a la biblioteca."
           }
         ]
       },
@@ -339,7 +368,9 @@
         "alertDays": 7,
         "denseTables": false,
         "showFinance": true,
-        "budgetAlertPct": 10
+        "budgetAlertPct": 10,
+        "storageScope": "team",
+        "storageMaxMB": 40
       }
     },
     {
@@ -443,7 +474,7 @@
       "name": "Cotizaciones",
       "description": "Cotizaciones y propuestas comerciales de punta a punta: catálogo propio de ítems y servicios prefijados reutilizables, líneas traídas del catálogo de la app Productos y de los productos configurables de ProductLab (con su combinación de pasos y valores resuelta a precio), cliente tomado de la app Clientes, moneda/impuesto/descuentos/abono y saldo parametrizables, cotizaciones tipo reutilizables y duplicación de cotizaciones ya hechas, editor visual de cuadrícula arrastrable para componer la propuesta con textos, imágenes y tablas, exportación a PDF fiel al editor, envío por correo con el SMTP del tenant usando plantillas de correo editables con variables, y seguimiento por estado con vencimientos y valor del pipeline. Control total por agente IA.",
       "icon": "🧾",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "author": "Kimos",
       "entry": "dist/index.js",
       "css": "dist/index.css",
@@ -900,9 +931,9 @@
     {
       "id": "kimos-safe-concierge",
       "name": "KIMOS Safe Concierge",
-      "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil que muestra al conserje virtual —avatar humanizado o caricaturizado— junto al espejo en vivo de quien está frente a la cámara, con teclado en pantalla para escribir sin teclado físico. Atiende visitas, residentes, citofonía y encomiendas 24/7, y su consola convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
+      "description": "Consejería virtual con IA y central de monitoreo humana para comunidades residenciales, edificios corporativos y porterías. El tótem muestra al conserje virtual —un oficial de seguridad 3D, con nombre y aspecto 100% editables, que parpadea, respira y sigue con la mirada a quien tiene enfrente— junto al espejo en vivo de la persona, con teclado en pantalla y un botón para hablar con una persona de la central por audio y video. Transmite audio y video en vivo a la central por WebRTC punto a punto y ahí el personal humano valida cada alerta: hasta que una persona la aprueba, ningún contacto con seguridad o emergencias queda habilitado. Motor de riesgo de cinco niveles, detección local de conducta agresiva por cámara y audio, ingesta de las cámaras de la comunidad, accesos, encomiendas, citofonía y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas. Archivos y documentos —plan de emergencia, reglamento, evidencia, capturas del acceso— en el Cloud Storage de KIMOS. Bitácora forense encadenada con SHA-256, retención configurable y sin biometría por defecto. Control total por agente IA.",
       "icon": "🛡️",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": true,
@@ -911,8 +942,44 @@
         "instance.write",
         "agent.control",
         "public.read",
-        "public.submit"
+        "public.submit",
+        "files.write"
       ],
+      "dataSchema": {
+        "fields": [
+          {
+            "key": "code",
+            "label": "Unidad (departamento, oficina o casa)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "name",
+            "label": "Nombre del hogar u oficina",
+            "type": "string"
+          },
+          {
+            "key": "tower",
+            "label": "Torre o piso",
+            "type": "string"
+          },
+          {
+            "key": "phone",
+            "label": "Teléfono de contacto",
+            "type": "string"
+          },
+          {
+            "key": "email",
+            "label": "Correo de contacto",
+            "type": "email"
+          },
+          {
+            "key": "notes",
+            "label": "Notas del acceso",
+            "type": "string"
+          }
+        ]
+      },
       "configSchema": {
         "title": "Preferencias de KIMOS Safe Concierge",
         "fields": [
@@ -957,8 +1024,12 @@
             "type": "select",
             "options": [
               {
+                "value": "officer",
+                "label": "Oficial de seguridad (3D, imponente)"
+              },
+              {
                 "value": "human",
-                "label": "Humanizado"
+                "label": "Humano sin uniforme"
               },
               {
                 "value": "cartoon",
@@ -968,12 +1039,14 @@
                 "value": "minimal",
                 "label": "Abstracto (sin rostro)"
               }
-            ]
+            ],
+            "help": "Punto de partida: el aspecto completo se edita en el Estudio del avatar (pestaña Panel)."
           },
           {
             "key": "avatarName",
             "label": "Nombre del avatar",
-            "type": "string"
+            "type": "string",
+            "help": "Se puede cambiar también desde el Estudio del avatar, junto con piel, pelo, barba, gorra, uniforme y porte."
           },
           {
             "key": "voice",
@@ -1019,6 +1092,68 @@
             "help": "Nivel 3 o superior: el tótem advierte por el parlante que se está avisando al personal de seguridad. Nunca llama solo a un servicio de emergencia."
           },
           {
+            "key": "centralApproval",
+            "label": "La central valida las alertas",
+            "type": "boolean",
+            "help": "Toda alerta automática queda pendiente hasta que una persona de la central la aprueba o la descarta. Sin aprobación no se habilita ningún contacto con seguridad o emergencias."
+          },
+          {
+            "key": "streamMode",
+            "label": "Transmisión a la central",
+            "type": "select",
+            "options": [
+              {
+                "value": "ask",
+                "label": "Solo cuando alguien la pide"
+              },
+              {
+                "value": "event",
+                "label": "A pedido y ante incidentes"
+              },
+              {
+                "value": "always",
+                "label": "Siempre en vivo"
+              }
+            ],
+            "help": "El tótem avisa en pantalla mientras la central está mirando."
+          },
+          {
+            "key": "streamLevel",
+            "label": "Nivel que abre la transmisión",
+            "type": "number",
+            "min": 2,
+            "max": 5,
+            "help": "Desde qué nivel de riesgo se abre el enlace solo (3 = Alerta)."
+          },
+          {
+            "key": "autoAnswerCentral",
+            "label": "La central puede abrir el canal del tótem",
+            "type": "boolean",
+            "help": "El tótem atiende automáticamente a la central, anunciándolo en pantalla mientras dure."
+          },
+          {
+            "key": "operatorCamera",
+            "label": "Mostrar la cara del operador",
+            "type": "boolean",
+            "help": "El visitante ve a quien lo atiende, no solo lo escucha."
+          },
+          {
+            "key": "turnUrl",
+            "label": "Servidor TURN (opcional)",
+            "type": "string",
+            "help": "turn:host:3478. Hace falta solo si el tótem y la central están en redes que no se ven entre sí."
+          },
+          {
+            "key": "turnUser",
+            "label": "Usuario TURN",
+            "type": "string"
+          },
+          {
+            "key": "turnPass",
+            "label": "Clave TURN",
+            "type": "string"
+          },
+          {
             "key": "retentionDays",
             "label": "Retención de registros (días)",
             "type": "number",
@@ -1043,8 +1178,8 @@
         "siteName": "",
         "siteAddress": "",
         "startView": "panel",
-        "avatarStyle": "human",
-        "avatarName": "Kim",
+        "avatarStyle": "officer",
+        "avatarName": "Denzel Barrett",
         "voice": true,
         "cameraSensor": false,
         "audioSensor": false,
@@ -1052,7 +1187,15 @@
         "autoWarn": true,
         "retentionDays": 120,
         "privacyMode": true,
-        "accent": "#19ACB1"
+        "accent": "#19ACB1",
+        "centralApproval": true,
+        "streamMode": "event",
+        "streamLevel": 3,
+        "autoAnswerCentral": true,
+        "operatorCamera": true,
+        "turnUrl": "",
+        "turnUser": "",
+        "turnPass": ""
       },
       "appShellApi": "1.x"
     },
@@ -1306,6 +1449,24 @@
         "instance.write",
         "public.submit",
         "agent.control"
+      ]
+    },
+    {
+      "id": "marcas",
+      "name": "Marcas",
+      "description": "El sistema visual de la empresa, en dos láminas por marca. La primera dice quién es la marca —logotipos con el fondo sobre el que van, paleta con roles, tipografías con su uso— y la segunda cómo se construye lo que se hace con ella: esquinas, borde, elevación y densidad, con muestras de botón, tarjeta, campo y chat. La forma no es decoración de esta app: `--radius` y las sombras cuelgan de ahí en todo KIMOS, así que cambiarla cambia el escritorio, el chat del agente y las demás apps sin tocar su código. Las marcas viven en el registro de la plataforma, no aquí: Cotizaciones y ProductLab las usan aunque esta app no esté instalada.",
+      "icon": "🎨",
+      "version": "1.1.0",
+      "entry": "dist/index.js",
+      "css": "dist/index.css",
+      "appShellApi": "1.x",
+      "multiInstance": false,
+      "permissions": [
+        "instance.read",
+        "agent.control",
+        "brand.read",
+        "brand.write",
+        "files.write"
       ]
     },
     {

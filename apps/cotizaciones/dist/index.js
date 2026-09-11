@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.2.1 — app oficial de KIMOS.
+ * Cotizaciones v1.2.2 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.2.1';
+  const APP_VERSION = '1.2.2';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -4438,7 +4438,7 @@ function estadoVinculo(doc) {
 // ── Marca del tenant ────────────────────────────────────────────────────
 /**
  * El emisor de las cotizaciones puede venir de la marca del sistema
- * (`shell.brand`, APP-SPEC §7.f) en vez de reescribirse aquí.
+ * (`shell.brands`, APP-SPEC §7.f) en vez de reescribirse aquí.
  *
  * La marca RELLENA, no impone: se copia a los ajustes del cotizador y desde
  * ahí se puede cambiar. Un tenant con dos unidades de negocio necesita poder
@@ -4447,8 +4447,8 @@ function estadoVinculo(doc) {
  * que no tiene a costa de uno que sí.
  */
 function marcaNoDisponible() {
-  if (!shell.brand || typeof shell.brand.current !== 'function') {
-    return 'Este host todavía no expone la marca del sistema; el emisor se escribe aquí.';
+  if (!shell.brands || typeof shell.brands.current !== 'function') {
+    return 'Este host todavía no expone las marcas del sistema; el emisor se escribe aquí.';
   }
   return '';
 }
@@ -4460,7 +4460,7 @@ async function actImportBrand() {
 
   let marca;
   try {
-    marca = await shell.brand.current();
+    marca = await shell.brands.current();
   } catch (e) {
     shell.notify({ level: 'error', text: 'No se pudo leer la marca: ' + ((e && e.message) || 'error') });
     return null;
@@ -4473,7 +4473,10 @@ async function actImportBrand() {
     return null;
   }
 
-  const logos = isObj(marca.logos) ? marca.logos : {};
+  // El registro devuelve los atajos ya resueltos (`logoLight`, `logoDark`),
+  // así que la cotización no tiene que recorrer la lista de logotipos ni
+  // acertar con el fondo. Se prefiere el de fondo claro: la propuesta se
+  // imprime sobre papel blanco.
   // Solo se pisa lo que la marca SÍ trae: si no tiene teléfono, no se borra
   // el que ya estaba escrito aquí.
   const patch = {};
@@ -4484,7 +4487,7 @@ async function actImportBrand() {
   poner('phone', marca.phone);
   poner('web', marca.website);
   poner('address', marca.address);
-  poner('logoUrl', logos.light || logos.mark || logos.dark);
+  poner('logoUrl', marca.logoLight || marca.logoDark);
   poner('paymentInfo', marca.bankDetails);
   if (!Object.keys(patch).length) {
     shell.notify({ level: 'warn', text: 'La marca del sistema no tiene datos que traer todavía.' });

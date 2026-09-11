@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.6.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -340,7 +340,7 @@ export default function mount(shell) {
 
   const newDoc = (patch) => Object.assign({
     id: uid('doc'), name: '', kind: 'other', mime: '', size: 0, path: '',
-    sourceId: '', origin: 'upload', url: '', thumb: '', dataUrl: '',
+    sourceId: '', origin: 'upload', url: '', thumb: '', dataUrl: '', storage: null,
     tags: [], notes: '', reviewed: false, addedAt: stamp(), updatedAt: stamp(),
   }, patch || {});
 
@@ -2754,8 +2754,137 @@ export default function mount(shell) {
    * analista lee esos nombres y tipos— sin convertir el documento de la
    * instancia en un depósito de binarios. */
 
+
+  // ── Cloud Storage de KIMOS ──────────────────────────────────────────────
+  /* Hasta aquí la biblioteca solo indexaba la ficha del archivo: el
+   * contenido seguía en el disco de quien lo cargó, y por eso no se podía
+   * abrir desde otro computador. Con el almacenamiento del tenant el archivo
+   * viaja de verdad y queda disponible para todo el equipo.
+   *
+   * El contrato es el mismo que usan ProductLab y Cotizaciones:
+   *   POST /api/v2/files   con FormData { path, file }   vía shell.authFetch
+   *
+   * Hay dos destinos, y la diferencia importa:
+   *
+   *   · EQUIPO (por defecto). Cuelga de `equipos/{teamId}/…` y se lee con
+   *     credenciales por el endpoint de descarga del File Storage. Es donde
+   *     corresponde dejar las bases de una licitación, los planos o un
+   *     contrato: documentación con cláusula de confidencialidad.
+   *
+   *   · ENLACE PÚBLICO. Cuelga de `imagenes/…`, el prefijo que el gateway
+   *     sirve SIN autenticación, así que cualquiera con la URL abre el
+   *     archivo. Solo para lo que se quiere compartir por link —un render,
+   *     un logo, una imagen para el cliente— y nunca por defecto.
+   *
+   * Si el backend rechaza la escritura en el área del equipo, la app lo dice
+   * con el error tal cual y ofrece el área pública como decisión explícita.
+   * Subir documentación confidencial a una URL pública no puede ser jamás un
+   * comportamiento automático. */
+
+  function apiBase() {
+    try {
+      const raw = shell.assetUrl ? shell.assetUrl('x').split('/api/apps/')[0] : '';
+      return new URL(raw || '/', window.location.href).toString().replace(/\/$/, '');
+    } catch (e) {
+      try { return window.location.origin; } catch (e2) { return ''; }
+    }
+  }
+  const API = apiBase();
+  const UPLOAD_ENDPOINT = '/api/v2/files';
+  const PUBLIC_PREFIX = '/api/public/files/';
+  const TEAM_DOWNLOAD = '/api/storage/teams/';
+  const STORAGE_SCOPES = [
+    ['team', 'Archivos del equipo (privado)'],
+    ['public', 'Enlace público (cualquiera con la URL)'],
+    ['none', 'No subir: solo indexar la ficha'],
+  ];
+  const DEFAULT_MAX_MB = 40;
+
+  const cloudAvailable = () => !!((shell.authFetch && API) || (shell.files && shell.files.upload));
+
+  /** Nombre de archivo seguro: sin rutas, sin acentos, sin espacios. */
+  function safeFileName(name, fallback) {
+    const base = s(name).split(/[\\/]/).pop();
+    const ext = (s(base).match(/\.([a-z0-9]{1,6})$/i) || [])[1] || '';
+    const clean = canon(base.replace(/\.[a-z0-9]+$/i, '')).replace(/\s+/g, '-').slice(0, 60);
+    return (clean || s(fallback) || 'archivo') + (ext ? '.' + ext.toLowerCase() : '');
+  }
+
+  /** Ruta de destino dentro del bucket, según el ámbito. */
+  function storagePath(scope, projectId, file) {
+    const teamId = s(shell.app && shell.app.teamId);
+    const stampPart = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    const nameSafe = safeFileName(file && file.name, 'documento');
+    const proj = s(projectId).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) || 'sin-proyecto';
+    if (scope === 'public') {
+      return 'imagenes/kimos-project-manager/' + proj + '/' + stampPart + '-' + nameSafe;
+    }
+    return 'equipos/' + (teamId || 'sin-equipo') + '/gestor-proyectos/' + proj + '/' + stampPart + '-' + nameSafe;
+  }
+
+  /** URL con la que se abre un archivo ya subido. */
+  /** Un documento vive en el almacenamiento si tiene ruta propia (endpoint
+   *  crudo) o URL devuelta por shell.files. Un solo criterio evita que los
+   *  contadores y los chips discrepen según por dónde se subió. */
+  const isStored = (d) => !!(d && d.storage && (s(d.storage.path) || s(d.storage.url)));
+
+  function storageUrl(storage) {
+    if (storage && s(storage.url)) return s(storage.url);
+    if (!storage || !s(storage.path)) return '';
+    if (s(storage.scope) === 'public') return API + PUBLIC_PREFIX + s(storage.path);
+    const teamId = s(shell.app && shell.app.teamId);
+    if (!teamId) return '';
+    return API + TEAM_DOWNLOAD + teamId + '/files/download?path=' + encodeURIComponent(s(storage.path));
+  }
+
+  /** Sube un archivo al almacenamiento del tenant. Devuelve la ficha de
+   *  storage o lanza con el error que dio el backend, sin adornarlo. */
+  async function uploadToCloud(file, scope, projectId, maxMB) {
+    if (!file) throw new Error('No hay archivo.');
+    const limit = n(maxMB, DEFAULT_MAX_MB) || DEFAULT_MAX_MB;
+    if (n(file.size, 0) > limit * 1024 * 1024) {
+      throw new Error('"' + s(file.name) + '" pesa ' + fmtBytes(file.size) + ' y el límite es ' + limit + ' MB.');
+    }
+    // Destino público: manda `shell.files` (§7.e del APP-SPEC). La ruta la
+    // decide el host —`imagenes/{appId}/{instanceId}/{folder}/`—, lo que da
+    // aislamiento por app, cuota atribuible y limpieza al desinstalar. La URL
+    // que devuelve es de lectura pública, que es justo lo que este destino
+    // significa.
+    if (scope === 'public' && shell.files && shell.files.upload) {
+      const url = await shell.files.upload(file, {
+        folder: s(projectId).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) || 'proyecto',
+        maxMB: limit,
+      });
+      const href = typeof url === 'string' ? url : s(url && (url.url || url.href));
+      if (!href) throw new Error('shell.files.upload no devolvió una URL.');
+      return {
+        scope: 'public', via: 'shell.files', url: href, path: '',
+        uploadedAt: stamp(), size: n(file.size, 0), contentType: s(file.type),
+      };
+    }
+    if (!cloudAvailable()) throw new Error('Este host no expone shell.files ni shell.authFetch: no se puede subir al almacenamiento.');
+    const path = storagePath(scope, projectId, file);
+    const fd = new FormData();
+    fd.append('path', path);
+    fd.append('file', file);
+    const res = await shell.authFetch(API + UPLOAD_ENDPOINT, { method: 'POST', body: fd });
+    if (!res || !res.ok) {
+      let detail = '';
+      try { const d = await res.json(); detail = s(d.detail || d.message || d.error); } catch (e) { /* sin cuerpo */ }
+      const err3 = new Error(detail || ('El almacenamiento rechazó la subida (HTTP ' + ((res && res.status) || '?') + ').'));
+      err3.status = res && res.status;
+      err3.scope = scope;
+      throw err3;
+    }
+    return {
+      scope: s(scope), via: 'api/v2/files', path, uploadedAt: stamp(),
+      size: n(file.size, 0), contentType: s(file.type),
+    };
+  }
+
   const MAX_EMBED = 1.5 * 1024 * 1024;   // incrustar solo archivos pequeños
   const THUMB_PX = 128;
+  const THUMB_TIMEOUT_MS = 8000;   // una miniatura nunca bloquea una subida
   /** Handles de carpeta viva (File System Access API). Solo en memoria: un
    *  handle no es serializable, así que al reabrir la ventana hay que volver
    *  a conectar la carpeta para re-sincronizarla. */
@@ -2777,10 +2906,15 @@ export default function mount(shell) {
     let url = '';
     try {
       url = URL.createObjectURL(file);
+      // Con tiempo límite: una imagen corrupta —o un blob que no dispara ni
+      // onload ni onerror— no puede dejar colgada la carga del archivo. La
+      // miniatura es un adorno; subir el documento es lo que importa.
       const img = await new Promise((resolve, reject) => {
         const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = reject;
+        let settled = false;
+        const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error('timeout')); } }, THUMB_TIMEOUT_MS);
+        el.onload = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(el); } };
+        el.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); reject(new Error('no se pudo decodificar')); } };
         el.src = url;
       });
       const scale = Math.min(1, THUMB_PX / Math.max(1, Math.max(img.width, img.height)));
@@ -2795,35 +2929,79 @@ export default function mount(shell) {
 
   /** Convierte archivos del navegador en fichas de documento del proyecto. */
   async function ingestFiles(files, projectId, opts) {
-    const o = Object.assign({ sourceId: '', origin: 'upload', embedSmall: false, tags: [] }, opts || {});
+    const o = Object.assign({
+      sourceId: '', origin: 'upload', embedSmall: false, tags: [],
+      scope: '', maxMB: DEFAULT_MAX_MB, onProgress: null,
+    }, opts || {});
     const p = findProject(projectId);
-    if (!p) return { added: 0, skipped: 0 };
+    if (!p) return { added: 0, skipped: 0, uploaded: 0, failed: [] };
     const known = new Set(arr(p.documents).map((d) => canon(d.name) + '|' + n(d.size)));
-    let added = 0, skipped = 0;
+    const scope = s(o.scope) || s((currentConfig() || {}).storageScope) || 'team';
+    const wantUpload = scope !== 'none' && cloudAvailable();
+    let added = 0, skipped = 0, uploaded = 0;
+    const failed = [];
     const list = Array.from(files || []).slice(0, 800);
+    let i = 0;
     for (const file of list) {
+      i++;
       if (!file || !s(file.name)) continue;
       const key = canon(file.name) + '|' + n(file.size);
       if (known.has(key)) { skipped++; continue; }
       known.add(key);
+      if (o.onProgress) o.onProgress({ index: i, total: list.length, name: s(file.name) });
       const kind = docKindOf(file.name, file.type);
       const thumb = await makeThumb(file);
       let dataUrl = '';
       if (o.embedSmall && n(file.size) <= MAX_EMBED) dataUrl = await readAsDataUrl(file);
+      let storage = null;
+      if (wantUpload) {
+        try {
+          storage = await uploadToCloud(file, scope, projectId, o.maxMB);
+          uploaded++;
+        } catch (e) {
+          // El archivo igual entra a la biblioteca como ficha indexada: se
+          // pierde el contenido en la nube, no el trabajo de catalogarlo.
+          failed.push({ name: s(file.name), error: (e && e.message) || 'no se pudo subir', status: e && e.status });
+        }
+      }
       p.documents = arr(p.documents).concat([newDoc({
         name: file.name, kind, mime: s(file.type), size: n(file.size),
         path: s(file.webkitRelativePath || (o.pathPrefix || '') + file.name),
-        sourceId: o.sourceId, origin: o.origin, thumb, dataUrl, tags: arr(o.tags),
+        sourceId: o.sourceId, origin: storage ? 'cloud' : o.origin,
+        thumb, dataUrl, storage, tags: arr(o.tags),
       })]);
       added++;
     }
     if (added) {
       touch(p);
-      addLog(projectId, 'system', 'Se indexaron ' + added + ' documento(s)' +
+      addLog(projectId, 'system', 'Se añadieron ' + added + ' documento(s) a la biblioteca' +
+        (uploaded ? ', ' + uploaded + ' subidos al almacenamiento del ' + (scope === 'public' ? 'área pública' : 'equipo') : '') +
         (o.origin === 'folder' ? ' desde una carpeta conectada' : '') +
-        (skipped ? ' (' + skipped + ' ya estaban en la biblioteca)' : '') + '.', 'Biblioteca');
+        (skipped ? ' (' + skipped + ' ya estaban)' : '') +
+        (failed.length ? '. ' + failed.length + ' no se pudieron subir y quedaron solo indexados' : '') + '.', 'Biblioteca');
     }
-    return { added, skipped };
+    return { added, skipped, uploaded, failed, scope };
+  }
+
+  /** Sube al almacenamiento un documento que ya está en la biblioteca pero
+   *  solo indexado. Necesita el archivo, así que se pide de nuevo. */
+  async function uploadExistingDoc(projectId, docId, file, scope) {
+    const p = findProject(projectId);
+    const doc = p && arr(p.documents).find((d) => d.id === docId);
+    if (!doc) throw new Error('El documento ya no está en la biblioteca.');
+    const storage = await uploadToCloud(file, s(scope) || 'team', projectId, DEFAULT_MAX_MB);
+    commit((m) => {
+      const proj = findProject(projectId);
+      if (!proj) return m;
+      proj.documents = arr(proj.documents).map((d) => (d.id === docId
+        ? touch(Object.assign({}, d, {
+          storage, origin: 'cloud', size: n(file.size, d.size), mime: s(file.type) || d.mime,
+        }))
+        : d));
+      touch(proj);
+      return m;
+    });
+    return storage;
   }
 
   /** Selector de archivos sueltos (imágenes, video, PDF u otros). */
@@ -2837,8 +3015,10 @@ export default function mount(shell) {
     }
     input.style.display = 'none';
     input.onchange = async () => {
-      const res = await ingestFiles(input.files, projectId, opts);
-      commit((m) => m);
+      const run = opts && typeof opts.ingest === 'function' ? opts.ingest : null;
+      const res = run
+        ? await run(input.files, opts)
+        : await (async () => { const r = await ingestFiles(input.files, projectId, opts); commit((m) => m); return r; })();
       if (done) done(res);
       try { document.body.removeChild(input); } catch (e) { /* ya removido */ }
     };
@@ -2928,6 +3108,28 @@ export default function mount(shell) {
       level: 'success',
       text: res.added ? res.added + ' documento(s) nuevos desde "' + source.label + '".' : 'Sin novedades en "' + source.label + '".',
     });
+  }
+
+  /** Relee una carpeta conectada y sube sus archivos al almacenamiento. */
+  async function uploadSourceFolder(sourceId, scope, maxMB, runIngest) {
+    const source = arr(model.sources).find((x) => x.id === sourceId);
+    if (!source) return;
+    const handle = folderHandles.get(sourceId);
+    if (!handle) {
+      shell.notify && shell.notify({ level: 'info', text: 'Vuelve a conectar la carpeta: el permiso de lectura no sobrevive al cierre de la ventana.' });
+      await connectLocalFolder(source.projectId, sourceId);
+      return;
+    }
+    const files = [];
+    await scanHandle(handle, '', files, 0);
+    if (!files.length) {
+      shell.notify && shell.notify({ level: 'info', text: 'La carpeta no tiene archivos legibles.' });
+      return;
+    }
+    await runIngest(files, { sourceId: source.id, origin: 'folder', scope, maxMB });
+    Object.assign(source, { fileCount: files.length, lastScan: stamp() });
+    touch(source);
+    commit((m) => m);
   }
 
   const DRIVE_FOLDER_RE = /drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]+)/;
@@ -3818,6 +4020,10 @@ export default function mount(shell) {
    * solo en esta cartera es legítimo, pero conviene VERLO, porque es la
    * situación que produce el segundo «Acme SpA» meses después.
    */
+  /* Se monta con h(ClientRecordState, …), NUNCA se llama como función: usa
+   * useState, y una llamada suelta desde renderEditor añadiría un hook al
+   * componente raíz solo cuando el panel está abierto, que es justo lo que
+   * React prohíbe ("Rendered more hooks than during the previous render"). */
   const ClientRecordState = ({ data, upd }) => {
     const [ocupado, setOcupado] = useState('');
     const motivo = registroNoDisponible();
@@ -4527,9 +4733,61 @@ export default function mount(shell) {
               risks.length ? 'Quita el filtro de la matriz o del estado.' : 'Un proyecto sin riesgos anotados no es un proyecto sin riesgos.'))));
   }
 
+  /** Abre un archivo del almacenamiento. El área pública se abre por URL;
+   *  la del equipo necesita credenciales, así que se descarga con authFetch
+   *  y se muestra desde un blob temporal. */
+  async function openStoredDoc(doc) {
+    const url = storageUrl(doc && doc.storage);
+    if (!url) {
+      shell.notify && shell.notify({ level: 'warn', text: 'Este documento no está en el almacenamiento: solo está indexado.' });
+      return;
+    }
+    if (s(doc.storage.scope) === 'public' || s(doc.storage.via) === 'shell.files') {
+      try { window.open(url, '_blank', 'noopener'); } catch (e) { /* el navegador decide */ }
+      return;
+    }
+    if (!shell.authFetch) {
+      shell.notify && shell.notify({ level: 'error', text: 'Este host no permite descargar del almacenamiento del equipo.' });
+      return;
+    }
+    try {
+      const res = await shell.authFetch(url);
+      if (!res || !res.ok) throw new Error('HTTP ' + ((res && res.status) || '?'));
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrls.add(objectUrl);
+      window.open(objectUrl, '_blank', 'noopener');
+      // el blob se libera al desmontar la app (unmount revoca los pendientes)
+    } catch (e) {
+      shell.notify && shell.notify({ level: 'error', text: 'No se pudo abrir el archivo: ' + ((e && e.message) || 'error de descarga') });
+    }
+  }
+
   // ── Proyecto · Documentos y fuentes ─────────────────────────────────────
   function viewProjectDocs(ctx, p) {
-    const { ui, setUi } = ctx;
+    const { ui, setUi, cfg } = ctx;
+    const scope = s(ui.storageScope) || s(cfg.storageScope) || 'team';
+    const maxMB = n(cfg.storageMaxMB, DEFAULT_MAX_MB) || DEFAULT_MAX_MB;
+    const cloudOn = cloudAvailable() && scope !== 'none';
+    const setScope = (v) => setUi((u) => ({ ...u, storageScope: v }));
+    const runIngest = async (files, opts) => {
+      setUi((u) => ({ ...u, upBusy: { total: (files && files.length) || 0, done: 0, name: '' } }));
+      const res = await ingestFiles(files, p.id, Object.assign({
+        scope, maxMB,
+        onProgress: (pr) => setUi((u) => ({ ...u, upBusy: { total: pr.total, done: pr.index, name: pr.name } })),
+      }, opts || {}));
+      commit((m) => m);
+      setUi((u) => ({ ...u, upBusy: null, upResult: res }));
+      if (res.added && !res.failed.length) {
+        shell.notify && shell.notify({
+          level: 'success',
+          text: res.uploaded
+            ? res.uploaded + ' archivo(s) subidos al almacenamiento' + (scope === 'public' ? ' público' : ' del equipo') + '.'
+            : res.added + ' documento(s) indexados.',
+        });
+      }
+      return res;
+    };
     const docs = arr(p.documents);
     const sources = arr(model.sources).filter((x) => x.projectId === p.id);
     const filtered = docs.filter((d) => {
@@ -4540,15 +4798,14 @@ export default function mount(shell) {
     }).sort((a, b) => s(b.addedAt).localeCompare(s(a.addedAt)));
     const kinds = DOC_KINDS.map(([k, label]) => ({ k, label, count: docs.filter((d) => d.kind === k).length })).filter((x) => x.count);
     const totalSize = sum(docs, (d) => n(d.size));
+    const cloudCount = docs.filter(isStored).length;
 
     const onDrop = async (e) => {
       e.preventDefault();
       setUi((u) => ({ ...u, dropOn: false }));
       const files = e.dataTransfer && e.dataTransfer.files;
       if (!files || !files.length) return;
-      const res = await ingestFiles(files, p.id, { origin: 'upload' });
-      commit((m) => m);
-      shell.notify && shell.notify({ level: 'success', text: res.added + ' documento(s) añadidos a la biblioteca.' });
+      await runIngest(files, { origin: 'upload' });
     };
 
     return h('div', { className: 'kp-body' },
@@ -4557,7 +4814,12 @@ export default function mount(shell) {
           Input(ui.q, (v) => setUi((u) => ({ ...u, q: v })), { placeholder: 'Buscar documento, ruta o etiqueta…' })),
         kinds.length ? Select(ui.docKind, [['', 'Todos los tipos']].concat(kinds.map((x) => [x.k, x.label + ' (' + x.count + ')'])), (v) => setUi((u) => ({ ...u, docKind: v })), { style: { width: 'auto' } }) : null,
         sources.length ? Select(ui.docSource, [['', 'Todas las fuentes']].concat(sources.map((x) => [x.id, x.label])), (v) => setUi((u) => ({ ...u, docSource: v })), { style: { width: 'auto' } }) : null,
-        h('button', { className: 'kp-btn kp-btn-sm', onClick: () => pickFiles(p.id, { origin: 'upload' }) }, I.upload(13), 'Cargar archivos'),
+        Select(scope, STORAGE_SCOPES, setScope, { style: { width: 'auto' }, title: 'Dónde queda el archivo al cargarlo' }),
+        h('button', {
+          className: 'kp-btn kp-btn-sm',
+          title: cloudOn ? 'Sube el archivo al almacenamiento y lo indexa' : 'Registra la ficha del archivo sin subirlo',
+          onClick: () => pickFiles(p.id, { origin: 'upload', scope, maxMB, ingest: runIngest }),
+        }, I.upload(13), cloudOn ? 'Subir archivos' : 'Indexar archivos'),
         h('button', { className: 'kp-btn kp-btn-sm', onClick: () => connectLocalFolder(p.id) }, I.folders(13), 'Conectar carpeta'),
         h('button', {
           className: 'kp-btn kp-btn-sm',
@@ -4581,6 +4843,16 @@ export default function mount(shell) {
                   (src.lastScan ? ' · leída ' + fmtWhen(src.lastScan) : '')),
                 src.url ? h('a', { className: 'kp-sec-note kp-ellip', href: src.url, target: '_blank', rel: 'noreferrer noopener', style: { display: 'block', color: 'var(--kp-accent)' } }, src.url) : null),
               h('div', { style: { display: 'flex', gap: '4px' } },
+                src.kind === 'folder' && cloudAvailable() ? IconBtn(I.upload(13), 'Subir los archivos de esta carpeta al almacenamiento', () => setUi((u) => ({
+                  ...u,
+                  editor: {
+                    type: 'confirm', title: 'Subir la carpeta al almacenamiento',
+                    text: 'Se leerá "' + src.label + '" y se subirán sus archivos al ' +
+                      (scope === 'public' ? 'ÁREA PÚBLICA (cualquiera con la URL podrá abrirlos)' : 'almacenamiento del equipo') +
+                      '. Los que ya estén en la biblioteca se omiten. Puede tardar según el tamaño de la carpeta.',
+                    onOk: () => { void uploadSourceFolder(src.id, scope, maxMB, runIngest); },
+                  },
+                })), { ghost: true }) : null,
                 src.kind === 'folder' ? IconBtn(I.refresh(13), 'Volver a leer la carpeta', () => rescanSource(src.id), { ghost: true }) : null,
                 IconBtn(I.trash(13), 'Quitar la fuente', () => setUi((u) => ({
                   ...u,
@@ -4594,6 +4866,28 @@ export default function mount(shell) {
             ? 'Conecta una carpeta del disco (C:\\ u otra) y la app indexa su contenido: nombres, tipos, tamaños y rutas quedan disponibles para el analista. También puedes registrar una carpeta de Google Drive o cualquier enlace compartido. Los archivos no se copian al servidor.'
             : 'Este navegador no expone la File System Access API: al conectar una carpeta se leerá su contenido una vez (sin enlace vivo para re-sincronizar). También puedes registrar una carpeta de Google Drive o cualquier enlace compartido.', 'accent', I.folders(15)) : null),
 
+        ui.upBusy ? h('div', { className: 'kp-sec' },
+          Note(h('span', null,
+            'Subiendo ' + fmtNum(ui.upBusy.done) + ' de ' + fmtNum(ui.upBusy.total) + '… ',
+            h('span', { className: 'kp-sec-note' }, s(ui.upBusy.name))), 'accent', I.upload(15))) : null,
+
+        ui.upResult && arr(ui.upResult.failed).length ? h('div', { className: 'kp-sec' },
+          Note(h('span', null,
+            h('strong', null, arr(ui.upResult.failed).length + ' archivo(s) no se pudieron subir'),
+            ' y quedaron en la biblioteca solo como ficha indexada: ',
+            arr(ui.upResult.failed).slice(0, 3).map((f) => f.name + ' (' + f.error + ')').join(' · '),
+            s(ui.upResult.scope) === 'team'
+              ? h('span', null, ' Si el almacenamiento del equipo no acepta la escritura, puedes ',
+                h('button', {
+                  className: 'kp-crumb-btn',
+                  onClick: () => { setScope('public'); setUi((u) => ({ ...u, upResult: null })); },
+                }, 'cambiar el destino a enlace público'),
+                ' — pero ten presente que ese área se sirve sin autenticación: cualquiera con la URL abre el archivo. No es sitio para documentación con cláusula de confidencialidad.')
+              : null), 'err', I.alert(15))) : null,
+
+        !cloudAvailable() ? h('div', { className: 'kp-sec' },
+          Note('Este host no expone shell.authFetch, así que la app no puede subir archivos al almacenamiento: los documentos quedan indexados por su ficha.', 'warn', I.alert(15))) : null,
+
         h('div', {
           className: cx('kp-sec', 'kp-drop', ui.dropOn && 'kp-drop-on'),
           onDragOver: (e) => { e.preventDefault(); if (!ui.dropOn) setUi((u) => ({ ...u, dropOn: true })); },
@@ -4601,8 +4895,13 @@ export default function mount(shell) {
           onDrop,
         },
           h('div', { className: 'kp-drop-title' }, 'Suelta aquí imágenes, videos, PDF, planos o planillas'),
-          h('div', null, 'También puedes usar "Cargar archivos" o conectar una carpeta completa. ' +
-            (docs.length ? docs.length + ' documento(s) indexados' + (totalSize ? ' · ' + fmtBytes(totalSize) + ' en disco' : '') + '.' : ''))),
+          h('div', null,
+            cloudOn
+              ? 'Se suben al ' + (scope === 'public' ? 'área pública del tenant' : 'almacenamiento del equipo') + ' y quedan disponibles para todo el equipo. Límite de ' + maxMB + ' MB por archivo.'
+              : 'Se registrará la ficha de cada archivo sin subir el contenido: el archivo sigue solo en este computador.'),
+          h('div', { className: 'kp-sec-note', style: { marginTop: '4px' } },
+            (docs.length ? docs.length + ' documento(s) en la biblioteca · ' + cloudCount + ' en el almacenamiento' +
+              (totalSize ? ' · ' + fmtBytes(totalSize) : '') : ''))),
 
         filtered.length
           ? h('div', { className: 'kp-grid kp-grid-3' }, filtered.map((d) => h('div', { key: d.id, className: 'kp-doc' },
@@ -4616,9 +4915,19 @@ export default function mount(shell) {
                 labelOf(DOC_KINDS, d.kind) + (d.size ? ' · ' + fmtBytes(d.size) : '') + ' · ' + fmtWhen(d.addedAt)),
               d.path && d.path !== d.name ? h('div', { className: 'kp-doc-meta kp-mono kp-ellip', title: d.path }, d.path) : null,
               h('div', { className: 'kp-chips' },
+                isStored(d)
+                  ? Chip(s(d.storage.scope) === 'public' ? 'Enlace público' : 'En el equipo', {
+                    tone: s(d.storage.scope) === 'public' ? 'warn' : 'ok', icon: I.cloud(11),
+                    title: 'Subido ' + fmtWhen(d.storage.uploadedAt) + ' · ' + s(d.storage.path),
+                    onClick: () => { void openStoredDoc(d); },
+                  })
+                  : Chip('Solo indexado', { title: 'La ficha está en la biblioteca, pero el archivo no se subió al almacenamiento.' }),
+                isStored(d)
+                  ? Chip('Abrir', { icon: I.download(11), onClick: () => { void openStoredDoc(d); } })
+                  : null,
                 d.reviewed ? Chip('Revisado', { tone: 'ok', icon: I.check(11) }) : null,
                 d.dataUrl ? Chip('Incrustado', { icon: I.download(11) }) : null,
-                d.url ? h('a', { key: 'lnk', className: 'kp-chip kp-chip-btn', href: d.url, target: '_blank', rel: 'noreferrer noopener' }, I.link(11), 'Abrir') : null,
+                d.url ? h('a', { key: 'lnk', className: 'kp-chip kp-chip-btn', href: d.url, target: '_blank', rel: 'noreferrer noopener' }, I.link(11), 'Enlace') : null,
                 arr(d.tags).slice(0, 3).map((t) => Chip(t, { key: t }))))))) 
           : Empty(I.docs(28), docs.length ? 'Ningún documento coincide con el filtro' : 'La biblioteca está vacía',
             docs.length ? 'Prueba a limpiar la búsqueda o el filtro de tipo.'
@@ -5686,7 +5995,7 @@ export default function mount(shell) {
           Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera')),
         h('div', { className: 'kp-row' },
           Field('Rubro', Input(data.industry, (v) => upd({ industry: v }), { placeholder: 'Retail, minería, educación…' }), 'Propio de la cartera'),
-          Field('Identidad del sistema', ClientRecordState({ data, upd }),
+          Field('Identidad del sistema', h(ClientRecordState, { data, upd }),
             'Un cliente es el mismo cliente en Cotizaciones, Clientes y aquí')),
         h('div', { className: 'kp-row' },
           Field('Correo' + (isLinked ? ' · del directorio' : ''), Input(data.email, (v) => upd({ email: v, contactEmail: v }), { type: 'email', placeholder: 'contacto@empresa.com' })),
@@ -5867,7 +6176,49 @@ export default function mount(shell) {
         Field('Etiquetas', Input(arr(data.tags).join(', '), (v) => upd({ tags: v.split(',').map((x) => x.trim()).filter(Boolean) }))),
         Field('Notas', TextArea(data.notes, (v) => upd({ notes: v }), { placeholder: 'Qué contiene y para qué sirve en este proyecto' }),
           'El analista lee estas notas: describir bien un documento mejora la propuesta de plan.'),
-        data.size ? h('div', { className: 'kp-sec-note' }, 'Tamaño en disco: ' + fmtBytes(data.size) + (data.dataUrl ? ' · contenido incrustado en el documento de la app' : ' · el archivo permanece en su ubicación original')) : null,
+        isStored(data)
+          ? h('div', null,
+            Note(h('span', null,
+              h('strong', null, s(data.storage.scope) === 'public'
+                ? 'Guardado en el área pública del tenant'
+                : 'Guardado en el almacenamiento del equipo'),
+              ' · ' + fmtBytes(data.storage.size) + ' · subido ' + fmtWhen(data.storage.uploadedAt),
+              h('br'),
+              h('span', { className: 'kp-mono kp-sec-note' }, s(data.storage.path) || s(data.storage.url)),
+              s(data.storage.scope) === 'public'
+                ? h('span', null, h('br'), 'Ese área se sirve sin autenticación: cualquiera con la URL abre el archivo.')
+                : null),
+            s(data.storage.scope) === 'public' ? 'warn' : 'accent', I.cloud(15)),
+            h('div', { className: 'kp-chips', style: { marginTop: '8px' } },
+              h('button', { className: 'kp-btn kp-btn-sm', onClick: () => { void openStoredDoc(data); } }, I.download(13), 'Abrir el archivo')))
+          : h('div', null,
+            Note('Este documento está indexado por su ficha, pero el archivo no está en el almacenamiento: solo existe en el computador desde donde se cargó.', 'warn', I.alert(15)),
+            cloudAvailable() ? h('div', { className: 'kp-chips', style: { marginTop: '8px' } },
+              h('button', {
+                className: 'kp-btn kp-btn-sm',
+                onClick: () => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.style.display = 'none';
+                  input.onchange = async () => {
+                    const file = input.files && input.files[0];
+                    try {
+                      document.body.removeChild(input);
+                    } catch (e) { /* ya removido */ }
+                    if (!file) return;
+                    try {
+                      const st = await uploadExistingDoc(project.id, data.id, file, s(ui.storageScope) || 'team');
+                      upd({ storage: st, origin: 'cloud', size: n(file.size, data.size) });
+                      shell.notify && shell.notify({ level: 'success', text: 'Archivo subido al almacenamiento.' });
+                    } catch (e2) {
+                      shell.notify && shell.notify({ level: 'error', text: 'No se pudo subir: ' + ((e2 && e2.message) || 'error') });
+                    }
+                  };
+                  document.body.appendChild(input);
+                  input.click();
+                },
+              }, I.upload(13), 'Subir este archivo al almacenamiento')) : null),
+        data.size ? h('div', { className: 'kp-sec-note' }, 'Tamaño: ' + fmtBytes(data.size) + (data.dataUrl ? ' · contenido incrustado en el documento de la app' : '')) : null,
       ], [
         !ed.isNew ? h('button', {
           key: 'del', className: 'kp-btn kp-btn-danger kp-panel-foot-l',
@@ -5969,6 +6320,7 @@ export default function mount(shell) {
     planStatus: '', planOwner: '', riskCell: '', riskStatus: '',
     docKind: '', docSource: '', dropOn: false,
     econTab: 'costeo', lineKind: '', lineCenter: '',
+    storageScope: '', upBusy: null, upResult: null,
     analystMode: 'plan', question: '', answer: null,
     editor: null, proposal: null, proposalOpts: { templateId: '', scale: 1, startDate: '' },
     logDraft: null,
@@ -5980,7 +6332,7 @@ export default function mount(shell) {
     const [snap, setSnap] = useState({ model, loaded, loadError, saving, lastSync });
     const [ui, setUi] = useState(initialUi);
     const [, setTick] = useState(0);
-    const [cfg, setCfg] = useState(() => Object.assign({ accent: '', defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true }, liveConfig));
+    const [cfg, setCfg] = useState(() => Object.assign({ accent: '', defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true, storageScope: 'team', storageMaxMB: DEFAULT_MAX_MB }, liveConfig));
     const uiRef = useRef(ui);
     uiRef.current = ui;
 
@@ -6014,7 +6366,7 @@ export default function mount(shell) {
       let off = null;
       const apply = (settings) => {
         liveConfig = Object.assign({}, settings || {});
-        setCfg(Object.assign({ defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true }, liveConfig));
+        setCfg(Object.assign({ defaultCurrency: 'CLP', alertDays: 7, budgetAlertPct: 10, denseTables: false, showFinance: true, storageScope: 'team', storageMaxMB: DEFAULT_MAX_MB }, liveConfig));
       };
       if (shell.config && shell.config.get) {
         Promise.resolve(shell.config.get()).then(apply).catch(() => {});
@@ -6300,6 +6652,14 @@ export default function mount(shell) {
         };
       }),
       fuentes: arr(model.sources).map((x) => ({ id: x.id, tipo: x.kind, nombre: x.label, proyecto: (findProject(x.projectId) || {}).name || '', archivos: x.fileCount })),
+      almacenamiento: {
+        disponible: cloudAvailable(),
+        destinoPorDefecto: s(liveConfig.storageScope) || 'team',
+        endpoint: UPLOAD_ENDPOINT,
+        documentosSubidos: sum(model.projects, (p) => arr(p.documents).filter(isStored).length),
+        documentosSoloIndexados: sum(model.projects, (p) => arr(p.documents).filter((d) => !isStored(d)).length),
+        nota: 'El agente no puede subir bytes: la subida ocurre en el navegador de la persona, desde la pestaña Documentos. Con ADD_DOCUMENT se registra la ficha o un enlace ya existente.',
+      },
       plantillasDePlan: PLAN_TEMPLATES.map((t) => ({ id: t.id, nombre: t.name })),
     };
   }

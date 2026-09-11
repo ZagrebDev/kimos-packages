@@ -153,7 +153,7 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.data.create/update` | Escribir en otra app, si esa app publica su contrato (§7.2). |
 | `shell.records` | Clientes, contactos y proyectos compartidos con el resto de KIMOS (§7.3). |
 | `shell.files.upload/list/remove` | Subir archivos; la ruta la gestiona el host (§7.4). |
-| `shell.brand.current()` | Marca del tenant: logos, razón social, colores (§7.5). |
+| `shell.brands.list/get/current` | Marcas del tenant: logotipos, paleta, tipografías (§7.5). |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -374,7 +374,7 @@ await shell.files.remove(url);    // solo borra dentro del espacio de tu app
 
 No subas ahí nada que no pueda ser público de lectura.
 
-### 7.5 La marca del tenant (`shell.brand`)
+### 7.5 Las marcas del tenant (`shell.brands`)
 
 No definas los colores ni el logo de la empresa dentro de tu app. Si respetas
 la regla de los tokens del tema (nada de colores cableados), **el host inyecta
@@ -389,10 +389,10 @@ volver a escribir su razón social:
 ```
 
 ```js
-if (shell.brand) {
-  const marca = await shell.brand.current();   // null si el tenant no configuró ninguna
+if (shell.brands) {
+  const marca = await shell.brands.current();   // null si el tenant no configuró ninguna
   if (marca) {
-    cabecera.logo   = marca.logos.light || '';
+    cabecera.logo   = marca.logoLight || marca.logoDark;
     cabecera.emisor = marca.legalName || marca.name;
     cabecera.rut    = marca.taxId;
   }
@@ -404,7 +404,7 @@ caso puntual. No la impongas.
 
 ### Compruébalo antes de usarlo
 
-`shell.records`, `shell.files` y `shell.brand` pueden no existir en un host
+`shell.records`, `shell.files` y `shell.brands` pueden no existir en un host
 anterior. Tu app no debe romperse por eso:
 
 ```js
@@ -455,7 +455,7 @@ pestaña Resultados.
 - [ ] Si guardas archivos: `shell.files`, no un bucket propio ni base64 dentro
       del documento.
 - [ ] Si tu app muestra logo, razón social o colores de la empresa: vienen de
-      `shell.brand`, no de un formulario propio.
+      `shell.brands`, no de un formulario propio.
 - [ ] `node tools/check-app.mjs <carpeta>` sin errores (los avisos, leídos:
       los que descartes, escríbelo en tu README y por qué).
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.

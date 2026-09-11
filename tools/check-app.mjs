@@ -183,9 +183,14 @@ function revisarApp(dir, catalogo) {
   //    de esa identidad —Clientes lo es de `account`—, así que guardar la
   //    ficha es exactamente su trabajo y no hay nada que señalar.
   const esFuente = !!(manifest.dataSchema && manifest.dataSchema.recordType);
+  // Una app con `brand.write` ES la gestora de marcas: la razón social, el
+  // RUT y los datos bancarios que maneja son los de la MARCA, no los de un
+  // cliente ni una identidad que se esté inventando. Sin esta excepción el
+  // revisor le pide a la app de marcas que deje de gestionar marcas.
+  const gestionaMarcas = tiene('brand.write');
   const pistaCliente = PISTAS_CLIENTE.find(([, re]) => re.test(bundle));
   const usaRecords = /shell\.records\b/.test(bundle);
-  if (pistaCliente && !usaRecords && !esFuente) {
+  if (pistaCliente && !usaRecords && !esFuente && !gestionaMarcas) {
     avisos.push(`Parece guardar ${pistaCliente[0]} por su cuenta. Si la app maneja clientes o contactos, \`shell.records\` evita que el sistema acabe con tres «Acme SpA» y ninguna vista completa. Si es la app DUEÑA de esa ficha, declara \`recordType\` en su \`dataSchema\` (APP-SPEC §7.c y §7.d).`);
   }
   if (usaRecords && !tiene('records.link')) {
@@ -197,12 +202,15 @@ function revisarApp(dir, catalogo) {
 
   // 3. Marca propia en vez de shell.brand (§7.f).
   const pistaMarca = PISTAS_MARCA.find(([, re]) => re.test(bundle));
-  const usaBrand = /shell\.brand\b/.test(bundle);
-  if (pistaMarca && !usaBrand) {
+  const usaBrand = /shell\.brands?\b/.test(bundle);
+  if (pistaMarca && !usaBrand && !gestionaMarcas) {
     avisos.push(`Parece definir ${pistaMarca[0]} por su cuenta. Con \`shell.brand\` el logo y la razón social se definen una vez para todo KIMOS, en vez de en cada app (APP-SPEC §7.f).`);
   }
   if (usaBrand && !tiene('brand.read')) {
-    errores.push('Usa `shell.brand` pero no declara `brand.read` en el manifest.');
+    errores.push('Usa `shell.brands` pero no declara `brand.read` en el manifest.');
+  }
+  if (gestionaMarcas && !tiene('brand.read')) {
+    errores.push('Declara `brand.write` sin `brand.read`: no podría ni leer lo que va a editar.');
   }
 
   // 4. Colores cableados: lo que impide que la marca del tenant se aplique.
@@ -214,7 +222,7 @@ function revisarApp(dir, catalogo) {
   }
 
   // 5. Los miembros opcionales, comprobados antes de usarlos.
-  for (const miembro of ['records', 'files', 'brand']) {
+  for (const miembro of ['records', 'files', 'brands']) {
     const usa = new RegExp(`shell\\.${miembro}\\b`).test(bundle);
     const comprueba = new RegExp(`(if\\s*\\(\\s*!?\\s*shell\\.${miembro}\\b|shell\\.${miembro}\\s*(&&|\\?\\.|\\?))`).test(bundle);
     if (usa && !comprueba) {
@@ -255,7 +263,7 @@ function revisarApp(dir, catalogo) {
   // Lo que ya está bien, para que se vea que se comprobó.
   if (usaRecords) bien.push('Usa la base compartida de identidades (`shell.records`).');
   if (usaFiles) bien.push('Guarda archivos con `shell.files`.');
-  if (usaBrand) bien.push('Lee la marca del tenant (`shell.brand`).');
+  if (usaBrand) bien.push('Lee las marcas del tenant (`shell.brands`).');
   if (manifest.dataSchema) bien.push('Publica su `dataSchema`: otras apps pueden alimentarla.');
 
   return { errores, avisos, bien, id, version, perms };

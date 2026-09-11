@@ -5,7 +5,7 @@ corporativos y porterías**: un tótem táctil con avatar que atiende el acceso
 24/7 y una consola de seguridad que convierte cámaras, sensores y accesos en
 **incidentes contextualizados, trazables y accionables**.
 
-Versión actual: **1.1.0**
+Versión actual: **1.2.0**
 
 - **Contrato**: AppShell **v1** (`appShellApi: "1.x"`), `multiInstance: true`.
   Las capacidades v2 —⚙️ Configurar y `shell.config`— se usan solo si el host
@@ -22,7 +22,9 @@ Versión actual: **1.1.0**
 | Módulo | Lo esencial |
 |---|---|
 | 📊 **Panel** | Estado del acceso, incidentes en curso, sensores y los tres tiempos que importan (MTTD / MTTE / MTTR) |
-| 🪧 **Tótem** | La pantalla del visitante: conserje virtual con voz **y espejo en vivo de quien está frente a la cámara**, teclado en pantalla, visitas, residentes, citofonía, encomiendas y botón de auxilio. Modo pantalla completa |
+| 🪧 **Tótem** | La pantalla del visitante: **Denzel Barrett**, conserje virtual 3D con voz, junto al espejo en vivo de quien está frente a la cámara; teclado en pantalla, visitas, residentes, citofonía, encomiendas, **hablar con una persona** y botón de auxilio. Modo pantalla completa |
+| 📡 **Central** | Monitoreo humano: audio y video en vivo con el acceso y la **cola de validación** de alertas |
+| 📁 **Documentos** | Archivos en el Cloud Storage de KIMOS: plan de emergencia, reglamento, evidencia y capturas |
 | 🚨 **Incidentes** | Bitácora forense: nivel de riesgo, confianza, contexto, acciones, escalamiento y cierre |
 | 🚪 **Accesos** | Ingresos y salidas, decisiones pendientes de las visitas, búsqueda y exportación CSV |
 | 📦 **Encomiendas** | Recepción → código de retiro → notificación → retiro validado, sin que el repartidor entre |
@@ -48,11 +50,56 @@ acceso**.
   consola, solo con el botón ⌨ (ahí sí hay teclado físico). Cada campo tiene
   además su propio botón ⌨.
 
+## La pantalla del tótem
+
+Tres cosas a la vez: **el conserje virtual, la persona que está frente al acceso
+y lo que necesita hacer**.
+
+- **Denzel Barrett** — conserje virtual 3D: retrato por capas con volumen,
+  uniforme, placa y gorra; parpadea, respira, mueve la cabeza, sincroniza la
+  boca al hablar y **sigue con la mirada** el centro de movimiento que ya
+  calcula el sensor de la cámara. Nombre y aspecto son **100% editables** desde
+  el **Estudio del avatar** (pestaña Panel): estilo, piel, pelo, ojos, barba,
+  gorra, uniforme, vivos, iniciales de la placa y porte, con vista previa en
+  vivo y cuatro presets.
+- **Espejo en vivo** — la misma señal que analiza el sensor, en un recuadro
+  grande bajo el avatar, rotulada «Usted · vista en vivo · no se graba».
+- **Teclado en pantalla** — QWERTY español (ñ y acentos) y numérico para
+  códigos. En modo tótem se abre al tocar un campo; en la consola, con ⌨.
+- **Hablar con una persona** — abre audio y video con la central; el marco del
+  conserje pasa a mostrar **la cara del operador** mientras dure la llamada.
+
+## La central de monitoreo (personal humano)
+
+| Pieza | Qué hace |
+|---|---|
+| **Enlace en vivo** | WebRTC punto a punto entre el tótem y la central. La señalización viaja por los items de la instancia: sin servidor a medida. STUN público por defecto; TURN configurable para redes cerradas |
+| **Quién abre el canal** | El visitante (botón del tótem), la central («👁 Ver el acceso ahora») o un incidente de nivel ≥ 3 (configurable). El tótem **anuncia en pantalla** que la central está mirando, mientras dure |
+| **Validación humana** | Toda alerta automática nace `pendiente`. Una persona la aprueba o la descarta, con su nombre |
+| **Compuerta dura** | Con la alerta pendiente, escalar está **bloqueado** — en la UI y en el agente IA. Lo declarado por una persona en el tótem nace aprobado: ahí ya decidió alguien |
+
+El orden es deliberado: **validar ≠ contactar**. Aprobar solo habilita el
+escalamiento; el contacto se registra aparte, con quién lo autoriza.
+
+## Archivos en el Cloud Storage
+
+Plan de emergencia, reglamento, actas, documentos de unidades, fotos de
+encomiendas y evidencia de incidentes van al almacenamiento de la plataforma,
+no dentro del documento de la instancia. Con `shell.files` (AppShell v2, §7.e)
+la ruta la gestiona el host —aislamiento por app, cuota atribuible y limpieza
+al desinstalar— y en un host anterior se cae al endpoint del tenant
+(`POST /api/v2/files`, lectura por `/api/public/files/{path}`). Se suben desde **📁 Documentos** (botón o arrastrando
+al recuadro) o desde el propio incidente, y el tótem puede **capturar un cuadro
+de la cámara** como evidencia sellada. Cada archivo deja su registro en la
+bitácora: quién lo subió, cuándo y a qué incidente o unidad pertenece.
+
 ## Las cuatro decisiones de diseño
 
 1. **La IA propone, la persona decide.** Ninguna detección llama sola a un
-   servicio de emergencia ni abre un acceso. `ESCALATE_INCIDENT` **exige** el
-   nombre de quien autoriza — al agente IA también se lo pide.
+   servicio de emergencia ni abre un acceso. Desde 1.2.0 hay dos compuertas en
+   serie: la central **valida** la alerta (`APPROVE_INCIDENT`, con el nombre de
+   quien revisó) y recién entonces alguien puede **autorizar** el contacto
+   (`ESCALATE_INCIDENT`, con el nombre de quien lo autoriza).
 2. **Privacidad por diseño.** Sin biometría. Cámara y micrófono se analizan en
    el dispositivo (diferencia de cuadros y energía acústica): no se suben
    imágenes ni audio, no se transcribe nada y en modo privacidad las personas
@@ -98,9 +145,10 @@ descarta al convertirse en incidente, para no dejar el dato duplicado.
 ## Control por agente IA
 
 `STATUS · LIST_INCIDENTS · RAISE_INCIDENT · ACK_INCIDENT · ADD_ACTION ·
-ESCALATE_INCIDENT · CLOSE_INCIDENT · LOG_ACCESS · DECIDE_ACCESS ·
-RECEIVE_PARCEL · RELEASE_PARCEL · UPSERT_UNIT · SPEAK · SET_SENSORS ·
-VERIFY_LEDGER · SET_VIEW`
+APPROVE_INCIDENT · DISMISS_INCIDENT · ESCALATE_INCIDENT · CLOSE_INCIDENT ·
+LOG_ACCESS · DECIDE_ACCESS · RECEIVE_PARCEL · RELEASE_PARCEL · UPSERT_UNIT ·
+SPEAK · SET_SENSORS · OPEN_LINK · ANSWER_LINK · END_LINK · SNAPSHOT ·
+LIST_DOCS · VERIFY_LEDGER · SET_VIEW`
 
 `SPEAK` hace hablar al avatar del tótem; `SET_SENSORS` enciende o apaga el
 análisis local; `ESCALATE_INCIDENT` falla a propósito si no viene quién
@@ -114,8 +162,12 @@ autoriza.
 | `agent.control` | Operación por agente IA |
 | `public.read` | Publicar la definición del acceso (título y campos que acepta la ingesta) |
 | `public.submit` | Recibir detecciones de las cámaras de la comunidad |
+| `files.write` | Subir al Cloud Storage con la ruta gestionada por el host |
 
-No pide `data.read:*`: la app no lee datos de otras apps.
+No pide `data.read:*`: la app no lee datos de otras apps. Sí publica un
+`dataSchema` con el contrato de las **unidades** (unidad, nombre, torre,
+teléfono, correo, notas), para que una app de administración pueda mantener el
+directorio del acceso al día sin duplicarlo.
 
 ## Marco normativo (Chile)
 
@@ -133,5 +185,6 @@ siendo de la comunidad.
 
 | Versión | Cambios |
 |---|---|
+| 1.2.0 | Central de monitoreo con personal humano: audio y video en vivo por WebRTC (señalización por items, sin backend a medida), validación humana obligatoria de cada alerta antes de habilitar cualquier contacto, y botón «Hablar con una persona» en el tótem. Conserje virtual **Denzel Barrett**: retrato 3D con mirada que sigue a la persona, y Estudio del avatar para editar nombre y aspecto por completo. Recuadros del avatar y del espejo mucho más grandes, interfaz del tótem rediseñada. Archivos y documentos en el Cloud Storage de KIMOS, con captura de evidencia desde la cámara. |
 | 1.1.0 | El tótem muestra al conserje virtual **y** el espejo en vivo de quien está frente a la cámara; teclado en pantalla (QWERTY español y numérico) para escribir sin teclado físico; encender la cámara desde el propio tótem. |
 | 1.0.0 | Primera versión: tótem con avatar (humanizado / caricaturizado / abstracto), motor de riesgo de cinco niveles, detección local por cámara y micrófono, ingesta de cámaras externas, accesos, encomiendas, directorio, emergencias con validación humana, bitácora sellada con SHA-256 y pestaña de cumplimiento. |

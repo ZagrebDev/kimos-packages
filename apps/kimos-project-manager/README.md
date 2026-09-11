@@ -4,7 +4,7 @@ App instalable de KIMOS para **dirigir proyectos de punta a punta, separados por
 cliente**: planificar, ejecutar, controlar y cerrar, con un tablero global de la
 cartera en la portada y un tablero propio dentro de cada proyecto.
 
-**Versión actual: 1.4.0**
+**Versión actual: 1.6.0**
 
 ---
 
@@ -115,7 +115,7 @@ instancia en un depósito de binarios.
 
 | Origen | Cómo |
 |---|---|
-| Archivos sueltos | Botón *Cargar archivos* o arrastrarlos sobre la zona de la pestaña Documentos. |
+| Archivos sueltos | Botón *Subir archivos* o arrastrarlos sobre la zona de la pestaña Documentos. |
 | Carpeta del disco (C:\ u otra) | *Conectar carpeta*. Con la File System Access API queda un enlace vivo re-sincronizable con *volver a leer*; sin ella, el navegador entrega el contenido una vez. |
 | Google Drive, OneDrive, Dropbox o cualquier enlace | *Drive / nube*: se registra la fuente con su enlace y, si pegas el listado de archivos, cada línea se convierte en una ficha de documento. |
 
@@ -223,8 +223,9 @@ riesgos y fuentes, para que el agente sepa sobre qué actuar antes de despachar.
 ## Preferencias (⚙️ Configurar)
 
 Color de acento · moneda por defecto · días de anticipación para las alertas ·
-**umbral de desvío del costeo** · tablas compactas · mostrar u ocultar las cifras
-de presupuesto.
+umbral de desvío del costeo · **destino por defecto de los archivos** · **tamaño
+máximo por archivo** · tablas compactas · mostrar u ocultar las cifras de
+presupuesto.
 
 ## Aspecto
 
@@ -238,6 +239,8 @@ visión normal ΔE ≥ 15 en ambos modos), con su juego de pasos para fondo oscu
 
 | Versión | Qué trae |
 |---|---|
+| **1.6.0** | El destino público pasa a usar la **API oficial `shell.files`** (§7.e del APP-SPEC, permiso `files.write`): la ruta la decide el host, con aislamiento por app, cuota atribuible y limpieza al desinstalar. El área privada del equipo sigue por el endpoint directo, porque `shell.files` entrega URLs de lectura pública por diseño y la documentación confidencial no puede vivir ahí. Un único criterio decide si un documento está en el almacenamiento, venga por donde venga. |
+| **1.5.0** | **Los archivos se suben al Cloud Storage del tenant** (`POST /api/v2/files`), con dos destinos: el área privada del equipo —la de por defecto, para documentación confidencial— y el enlace público, que solo se usa cuando la persona lo elige y con el aviso de que se sirve sin autenticación. Progreso de subida, apertura con credenciales de los archivos privados, reintento desde la ficha del documento y subida de una carpeta conectada completa. Lo que no se puede subir queda indexado igual, con el error del backend a la vista. Corregido: la miniatura de una imagen ya no puede dejar colgada la carga de un archivo (ahora tiene tiempo límite). |
 | **1.4.0** | **Identidad del cliente compartida con todo KIMOS**: además del enlace a su ficha de origen, cada cliente guarda su `recordRef` (`shell.records`, permiso `records.link`), así que el cliente de un proyecto es el mismo que el de una cotización. Al traer del directorio se reconoce primero por identidad y por RUT —que se normaliza— antes que por correo o nombre, que es lo frágil. Se añade **RUT** a la ficha, el estado de la identidad con su acción en el editor del cliente, y dos herramientas de agente: `LINK_CLIENT_IDENTITY` y `REFRESH_CLIENT_IDENTITY`. En un host sin `shell.records` la app funciona igual que la 1.3. |
 | **1.3.0** | **Clientes unificados con la app Clientes de KIMOS**: la ficha de la cartera comparte los nombres de campo del directorio, se trae desde él con enlace a su registro de origen, se vincula en vez de duplicarse cuando ya existe un cliente con el mismo correo o nombre, y se re-sincroniza informando qué campos cambiaron y qué enlaces quedaron huérfanos. Nuevo permiso `data.read:customers` y cuatro herramientas de agente para operar el directorio. Las fichas escritas antes de la unificación migran solas: el correo y el teléfono de contacto pasan a los campos compartidos. |
 | **1.2.0** | **Conversor de moneda**: una tabla de tipos de cambio por proyecto con el dólar como base, actualizable con el valor del día desde tres proveedores públicos encadenados y editable a mano cuando la red del host no deja consultar. El tipo de cambio de cada centro se deriva de la tabla o se fija a mano; cada importe fuera del dólar muestra su equivalente en pequeño; y al cambiar la moneda de gestión la app ofrece reexpresar los importes o solo cambiar la etiqueta. Las cantidades y los costos unitarios ahora se escriben y se leen con **separador de miles**, con el valor crudo al enfocar el campo. Nueva herramienta de agente `UPDATE_FX`. Corregido: las bandas del margen recomendado se miden en dólares, así que ya no dependen de la moneda en que esté expresado el proyecto. |

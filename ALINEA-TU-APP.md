@@ -175,10 +175,10 @@ en un formulario propio: ya están definidos una vez para todo KIMOS.
 ```
 
 ```js
-if (shell.brand) {
-  const marca = await shell.brand.current();   // null si el tenant no configuró ninguna
+if (shell.brands) {
+  const marca = await shell.brands.current();   // null si el tenant no configuró ninguna
   if (marca) {
-    cabecera.logo   = marca.logos.light || '';
+    cabecera.logo   = marca.logoLight || marca.logoDark;
     cabecera.emisor = marca.legalName || marca.name;
   }
 }
@@ -192,7 +192,7 @@ Detalle: **APP-SPEC §7.f**.
 
 ## 6. «Usa `shell.records` sin comprobar que exista»
 
-`shell.records`, `shell.files` y `shell.brand` son **opcionales en el
+`shell.records`, `shell.files` y `shell.brands` son **opcionales en el
 contrato**: un tenant que no haya actualizado el shell no los tiene. Tu app no
 debe romperse por eso.
 
@@ -200,7 +200,7 @@ debe romperse por eso.
 if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }
 ```
 
-Y «existe» no es «hay algo»: `brand.current()` devuelve `null` en un tenant sin
+Y «existe» no es «hay algo»: `brands.current()` devuelve `null` en un tenant sin
 marca, y `records.resolve()` devuelve `resolved: false` para una identidad que
 ya no está. En los dos casos tu app sigue — por eso guardas tu instantánea.
 

@@ -271,7 +271,7 @@ const shell = {
   records: registroSimulado,
   // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
   // configurada, que es un caso normal y no un error.
-  brand: { current: async () => MARCA.actual },
+  brands: { current: async () => MARCA.actual, list: async () => ({ brands: MARCA.actual ? [MARCA.actual] : [], currentId: '' }) },
   // Archivos con ruta gestionada por el host: la app pasa un `folder` lógico
   // y el host devuelve una URL que la app no compone.
   files: {
@@ -817,11 +817,17 @@ seccion('La marca del sistema rellena el emisor');
     'y se explica que la define un administrador');
   eq(T.issuerOf().name, antesNombre, 'el emisor que ya había no se borra');
 
+  // La marca tal como la devuelve el registro (APP-SPEC §7.f): paleta con
+  // roles, logotipos con su fondo, y los atajos ya resueltos.
   MARCA.actual = {
-    id: 'b1', name: 'Metakut', legalName: 'METAKUT SPA', taxId: '77.718.188-2',
+    id: 'b1', name: 'Metakut', tagline: '', description: '',
+    legalName: 'METAKUT SPA', taxId: '77.718.188-2',
     email: 'info@kimos.dev', phone: '', website: 'kimos.dev', address: 'Santiago',
     footer: '', bankDetails: 'Banco de Chile · Cuenta Vista · 2532924267',
-    logos: { light: 'https://cdn/logo-claro.png' }, colors: { primary: '#00e5d0' },
+    palette: [{ key: 'base', name: 'Base', hex: '#00e5d0', role: 'base', token: '174 100% 45%', foreground: '220 25% 6%' }],
+    logos: [{ key: 'claro', name: 'Claro', url: 'https://cdn/logo-claro.png', background: 'light' }],
+    typography: [], ecosystems: [], principles: [], warnings: [],
+    logoLight: 'https://cdn/logo-claro.png', logoDark: '',
     themeTokens: { '--primary': '174 100% 45%', '--primary-foreground': '220 25% 6%' },
   };
   T.actPatchIssuer({ phone: '+56 9 5555 4444' });
@@ -862,7 +868,7 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
     data: { listInstances: shell.data.listInstances, listItems: shell.data.listItems },
   });
   delete viejo.records;
-  delete viejo.brand;
+  delete viejo.brands;
   delete viejo.files;
 
   const app2 = mod.default(viejo);
