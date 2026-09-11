@@ -19,7 +19,8 @@ export const ALLOWED_PERMISSIONS = new Set([
   // Recursos compartidos de plataforma (APP-SPEC §7.d, §7.e y §7.f).
   'records.link',   // identidades compartidas entre apps (shell.records)
   'files.write',    // subir archivos con ruta gestionada por el host (shell.files)
-  'brand.read',     // marca del tenant: logos, razón social, colores (shell.brand)
+  'brand.read',     // leer las marcas del tenant (shell.brands)
+  'brand.write',    // gestionarlas: solo la app «Marcas» debería pedirlo
 ]);
 
 /**

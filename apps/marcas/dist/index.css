@@ -1,0 +1,300 @@
+/* Marcas — estilos con scope .kimos-marcas.
+ *
+ * Ni un color cableado: todo sale de los tokens del tema del host (APP-SPEC
+ * §9). Es la app que enseña a no cablear colores, así que sería contradictorio
+ * que los cableara. Los ÚNICOS colores literales que aparecen aquí son los de
+ * la marca que se está mostrando, y esos vienen en `style` desde los datos.
+ */
+.kimos-marcas {
+  --mk-fg: hsl(var(--foreground, 220 25% 6%));
+  --mk-dim: hsl(var(--muted-foreground, 215 20% 32%));
+  --mk-line: hsl(var(--border, 214 18% 72%) / .55);
+  --mk-line-soft: hsl(var(--border, 214 18% 72%) / .3);
+  --mk-bg: hsl(var(--background, 220 20% 97%));
+  --mk-card: hsl(var(--card, 0 0% 100%));
+  --mk-surface: hsl(var(--muted, 220 14% 92%) / .45);
+  --mk-accent: hsl(var(--primary, 178 96% 59%));
+  --mk-accent-fg: hsl(var(--primary-foreground, 220 20% 10%));
+  --mk-accent-soft: hsl(var(--primary, 178 96% 59%) / .12);
+  --mk-warn: hsl(38 92% 40%);
+  --mk-radius: var(--radius, 0.5rem);
+
+  height: 100%;
+  display: flex;
+  min-height: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--mk-fg);
+  background: var(--mk-bg);
+  overflow: hidden;
+}
+
+.kimos-marcas .mk-sp { flex: 1 1 auto; }
+.kimos-marcas .mk-mono { font-family: ui-monospace, 'JetBrains Mono', monospace; }
+.kimos-marcas .mk-nota { font-size: 11.5px; color: var(--mk-dim); margin: 0 0 10px; line-height: 1.45; }
+.kimos-marcas .mk-warn { color: var(--mk-warn); }
+
+/* ── Controles ─────────────────────────────────────────────────────────── */
+.kimos-marcas .mk-btn {
+  border: 1px solid var(--mk-line); background: transparent; color: var(--mk-fg);
+  height: 30px; padding: 0 11px; font-size: 12.5px; border-radius: var(--mk-radius);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.kimos-marcas .mk-btn:hover { background: var(--mk-surface); }
+.kimos-marcas .mk-btn:disabled { opacity: .5; cursor: default; }
+.kimos-marcas .mk-btn.on { background: var(--mk-accent-soft); border-color: var(--mk-accent); color: var(--mk-accent); }
+.kimos-marcas .mk-btn-primary { background: var(--mk-accent); border-color: var(--mk-accent); color: var(--mk-accent-fg); font-weight: 600; }
+.kimos-marcas .mk-btn-sm { height: 26px; padding: 0 9px; font-size: 11.5px; }
+.kimos-marcas .mk-ico {
+  width: 26px; height: 26px; flex-shrink: 0; border: 1px solid var(--mk-line);
+  background: transparent; color: var(--mk-fg); border-radius: var(--mk-radius);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.kimos-marcas .mk-ico:hover { background: var(--mk-surface); }
+
+.kimos-marcas .mk-in {
+  width: 100%; min-width: 0; height: 30px; padding: 0 9px; font-size: 12.5px;
+  border: 1px solid var(--mk-line); border-radius: var(--mk-radius);
+  background: var(--mk-card); color: var(--mk-fg); outline: none;
+}
+.kimos-marcas .mk-in:focus { border-color: var(--mk-accent); }
+.kimos-marcas .mk-in:disabled { opacity: .65; }
+.kimos-marcas .mk-in-bad { border-color: hsl(0 72% 50%); }
+.kimos-marcas .mk-area { height: auto; padding: 7px 9px; line-height: 1.45; resize: vertical; }
+.kimos-marcas .mk-sel { padding-right: 4px; }
+
+.kimos-marcas .mk-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kimos-marcas .mk-field-wide { grid-column: 1 / -1; }
+.kimos-marcas .mk-field-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--mk-dim); }
+.kimos-marcas .mk-field-help { font-size: 11px; color: var(--mk-dim); line-height: 1.35; }
+.kimos-marcas .mk-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kimos-marcas .mk-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.kimos-marcas .mk-sechead {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--mk-line-soft); margin-bottom: 12px;
+}
+.kimos-marcas .mk-sechead-num { font-family: ui-monospace, monospace; font-size: 10px; color: var(--mk-dim); letter-spacing: .2em; }
+.kimos-marcas .mk-sechead-t { font-size: 13px; font-weight: 600; }
+
+.kimos-marcas .mk-tag {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em;
+  padding: 2px 6px; border-radius: 999px; background: var(--mk-accent-soft); color: var(--mk-accent);
+}
+.kimos-marcas .mk-tag-warn { background: hsl(38 92% 50% / .15); color: var(--mk-warn); }
+
+.kimos-marcas .mk-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; text-align: center; padding: 36px 18px; color: var(--mk-dim);
+}
+.kimos-marcas .mk-empty-icon { font-size: 30px; opacity: .75; }
+.kimos-marcas .mk-empty-title { font-size: 15px; font-weight: 600; color: var(--mk-fg); }
+.kimos-marcas .mk-empty-text { font-size: 12.5px; max-width: 460px; line-height: 1.5; }
+
+.kimos-marcas .mk-avisos {
+  margin: 0 0 12px; padding: 8px 12px 8px 26px; list-style: disc;
+  border: 1px solid hsl(38 92% 50% / .35); background: hsl(38 92% 50% / .08);
+  border-radius: var(--mk-radius); font-size: 11.5px; color: var(--mk-warn); line-height: 1.5;
+}
+
+/* ── Cartera ───────────────────────────────────────────────────────────── */
+.kimos-marcas .mk-cartera {
+  width: 224px; flex-shrink: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--mk-line-soft); background: var(--mk-surface); min-height: 0;
+}
+.kimos-marcas .mk-cartera-hd {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--mk-line-soft); font-weight: 600; flex-shrink: 0;
+}
+.kimos-marcas .mk-cartera-n { font-size: 11px; color: var(--mk-dim); font-weight: 400; flex: 1; }
+.kimos-marcas .mk-cartera-l { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.kimos-marcas .mk-cartera-it {
+  width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+  padding: 7px 8px; border: 1px solid transparent; border-radius: var(--mk-radius);
+  background: transparent; color: inherit; cursor: pointer; font: inherit;
+}
+.kimos-marcas .mk-cartera-it:hover { background: var(--mk-card); }
+.kimos-marcas .mk-cartera-it.on { background: var(--mk-card); border-color: var(--mk-accent); }
+.kimos-marcas .mk-cartera-color {
+  width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0;
+  border: 1px solid var(--mk-line); background: var(--mk-surface);
+}
+.kimos-marcas .mk-cartera-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.kimos-marcas .mk-cartera-nm { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-marcas .mk-cartera-meta { font-size: 10.5px; color: var(--mk-dim); }
+
+/* ── Barra y contenido ─────────────────────────────────────────────────── */
+.kimos-marcas .mk-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.kimos-marcas .mk-barra {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 14px; border-bottom: 1px solid var(--mk-line-soft); flex-shrink: 0;
+}
+.kimos-marcas .mk-barra-id { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.kimos-marcas .mk-barra-nm { font-weight: 600; font-size: 14px; }
+.kimos-marcas .mk-barra-avisos { font-size: 11.5px; color: var(--mk-warn); cursor: help; }
+.kimos-marcas .mk-tabs { display: flex; gap: 4px; }
+.kimos-marcas .mk-ver { font-size: 10.5px; color: var(--mk-dim); opacity: .7; font-variant-numeric: tabular-nums; }
+
+.kimos-marcas .mk-editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.kimos-marcas .mk-subnav {
+  display: flex; gap: 4px; flex-wrap: wrap; padding: 10px 14px 0; flex-shrink: 0;
+}
+.kimos-marcas .mk-editor-body { flex: 1; overflow-y: auto; padding: 14px; min-height: 0; }
+.kimos-marcas .mk-ed { max-width: 900px; }
+
+.kimos-marcas .mk-rows { display: flex; flex-direction: column; gap: 6px; }
+.kimos-marcas .mk-row {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 5px; border: 1px solid var(--mk-line-soft); border-radius: var(--mk-radius);
+  background: var(--mk-card);
+}
+.kimos-marcas .mk-row-wrap { flex-wrap: wrap; }
+.kimos-marcas .mk-row-sw {
+  width: 34px; height: 30px; border-radius: var(--mk-radius); flex-shrink: 0;
+  border: 1px solid var(--mk-line); overflow: hidden; cursor: pointer; position: relative;
+}
+.kimos-marcas .mk-row-sw input { position: absolute; inset: -4px; width: 150%; height: 150%; border: 0; padding: 0; cursor: pointer; opacity: 0; }
+.kimos-marcas .mk-row-nm { flex: 2 1 130px; }
+.kimos-marcas .mk-row-hex { flex: 1 1 100px; }
+.kimos-marcas .mk-row-rol { flex: 1 1 120px; }
+.kimos-marcas .mk-row-full { flex: 3 1 200px; }
+.kimos-marcas .mk-row-contra { font-size: 10.5px; color: var(--mk-dim); width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+.kimos-marcas .mk-row-acts { display: flex; gap: 3px; flex-shrink: 0; }
+
+.kimos-marcas .mk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.kimos-marcas .mk-card {
+  border: 1px solid var(--mk-line-soft); border-radius: var(--mk-radius);
+  background: var(--mk-card); padding: 10px; display: flex; flex-direction: column; gap: 10px; position: relative;
+}
+.kimos-marcas .mk-card-form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.kimos-marcas .mk-card-form .mk-field-wide { grid-column: 1 / -1; }
+.kimos-marcas .mk-card-acts { position: absolute; top: 8px; right: 8px; }
+
+/* ── Piezas compartidas por la pantalla y la hoja ──────────────────────── */
+.kimos-marcas .mk-logobox { display: flex; flex-direction: column; min-height: 0; }
+.kimos-marcas .mk-logobox-img {
+  flex: 1; min-height: 74px; display: flex; align-items: center; justify-content: center;
+  padding: 12px; border: 1px solid var(--mk-line-soft); border-radius: var(--mk-radius); overflow: hidden;
+}
+.kimos-marcas .mk-logobox-img img { max-width: 100%; max-height: 96px; object-fit: contain; }
+.kimos-marcas .mk-logobox-falta { font-size: 11px; color: var(--mk-dim); }
+/* Tramado para «cualquier fondo»: sin él un PNG transparente parece un hueco. */
+.kimos-marcas .mk-tramado {
+  background-image:
+    linear-gradient(45deg, var(--mk-surface) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--mk-surface) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--mk-surface) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--mk-surface) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+.kimos-marcas .mk-logobox-lbl {
+  display: flex; justify-content: space-between; gap: 8px; margin-top: 6px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .12em; color: var(--mk-dim);
+}
+.kimos-marcas .mk-logobox-lbl b { color: var(--mk-fg); font-weight: 500; }
+
+.kimos-marcas .mk-sw {
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 10px 8px; min-width: 0; min-height: 76px; position: relative; overflow: hidden;
+}
+.kimos-marcas .mk-sw-role {
+  position: absolute; top: 8px; left: 8px; right: 8px; font-size: 8px;
+  text-transform: uppercase; letter-spacing: .14em; opacity: .85;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kimos-marcas .mk-sw-nm { font-size: 10.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kimos-marcas .mk-sw-hex { font-family: ui-monospace, monospace; font-size: 8.5px; letter-spacing: .06em; margin-top: 2px; opacity: .9; }
+.kimos-marcas .mk-sw-rgb { font-family: ui-monospace, monospace; font-size: 8px; margin-top: 1px; opacity: .72; }
+
+/* ── La hoja ───────────────────────────────────────────────────────────── */
+.kimos-marcas .mk-hoja-wrap { flex: 1; overflow-y: auto; padding: 14px; min-height: 0; }
+.kimos-marcas .mk-hoja-opts {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+  font-size: 11.5px; color: var(--mk-dim);
+}
+.kimos-marcas .mk-hoja-opts-l { text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
+.kimos-marcas .mk-check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.kimos-marcas .mk-check-off { opacity: .45; cursor: not-allowed; }
+
+.kimos-marcas .mk-hoja {
+  display: flex; flex-direction: column; gap: 16px;
+  background: var(--mk-card); border: 1px solid var(--mk-line-soft);
+  border-radius: var(--mk-radius); padding: 16px;
+}
+.kimos-marcas .mk-hoja-hd,
+.kimos-marcas .mk-hoja-ft {
+  display: flex; align-items: center; gap: 14px; padding: 12px 18px;
+  background: var(--mk-surface); color: var(--mk-fg);
+}
+.kimos-marcas .mk-hoja-hd h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.kimos-marcas .mk-hoja-logo { height: 28px; max-width: 190px; object-fit: contain; display: block; }
+.kimos-marcas .mk-hoja-nm { font-size: 17px; font-weight: 700; }
+.kimos-marcas .mk-hoja-div { width: 1px; height: 26px; background: currentColor; opacity: .25; }
+.kimos-marcas .mk-hoja-meta { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .75; }
+.kimos-marcas .mk-hoja-ft { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.kimos-marcas .mk-hoja-puntos { display: flex; gap: 4px; }
+.kimos-marcas .mk-hoja-puntos i { width: 9px; height: 9px; display: inline-block; }
+
+.kimos-marcas .mk-hoja-row { display: grid; gap: 18px; align-items: start; }
+.kimos-marcas .mk-hoja-row[data-n="1"] { grid-template-columns: 1fr; }
+.kimos-marcas .mk-hoja-row[data-n="2"] { grid-template-columns: 1.4fr 1fr; }
+.kimos-marcas .mk-hoja-row[data-n="3"] { grid-template-columns: 1fr 1.5fr 1fr; }
+.kimos-marcas .mk-hs { min-width: 0; }
+.kimos-marcas .mk-hs-logos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kimos-marcas .mk-hs-sw { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--mk-line-soft); }
+.kimos-marcas .mk-hs-sw .mk-sw + .mk-sw { border-left: 1px solid var(--mk-line-soft); }
+
+.kimos-marcas .mk-tipos { display: flex; flex-direction: column; gap: 10px; }
+.kimos-marcas .mk-tipo { display: flex; flex-direction: column; gap: 3px; padding-bottom: 8px; border-bottom: 1px dashed var(--mk-line-soft); }
+.kimos-marcas .mk-tipo:last-child { border-bottom: 0; padding-bottom: 0; }
+.kimos-marcas .mk-tipo-meta { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--mk-dim); }
+.kimos-marcas .mk-tipo-sample { line-height: 1.15; letter-spacing: -.01em; overflow-wrap: break-word; }
+
+.kimos-marcas .mk-ecos { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+.kimos-marcas .mk-eco { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.kimos-marcas .mk-eco-hd { display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-width: 0; }
+.kimos-marcas .mk-eco-nm { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-marcas .mk-eco-tag { margin-left: auto; font-family: ui-monospace, monospace; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; padding: 3px 6px; white-space: nowrap; }
+.kimos-marcas .mk-eco-nav { display: flex; align-items: center; gap: 9px; padding: 0 9px; height: 32px; overflow: hidden; }
+.kimos-marcas .mk-eco-nav img { height: 11px; object-fit: contain; }
+.kimos-marcas .mk-eco-link { font-size: 10px; font-weight: 500; white-space: nowrap; }
+.kimos-marcas .mk-eco-btn { font-size: 9px; font-weight: 600; padding: 6px 9px; white-space: nowrap; }
+.kimos-marcas .mk-eco-banner { padding: 11px 12px; display: flex; flex-direction: column; gap: 6px; min-height: 76px; }
+.kimos-marcas .mk-eco-banner h4 { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; }
+.kimos-marcas .mk-eco-banner em { font-style: normal; }
+.kimos-marcas .mk-eco-note { font-family: ui-monospace, monospace; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+.kimos-marcas .mk-eco-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.kimos-marcas .mk-chip { font-family: ui-monospace, monospace; font-size: 8.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; padding: 5px 7px; white-space: nowrap; }
+.kimos-marcas .mk-chip-out { background: transparent; border: 1px solid currentColor; }
+
+.kimos-marcas .mk-pps { display: flex; flex-direction: column; gap: 9px; }
+.kimos-marcas .mk-pp { display: grid; grid-template-columns: 24px 1fr; gap: 9px; padding-bottom: 8px; border-bottom: 1px dashed var(--mk-line-soft); }
+.kimos-marcas .mk-pp:last-child { border-bottom: 0; padding-bottom: 0; }
+.kimos-marcas .mk-pp-n { font-family: ui-monospace, monospace; font-size: 10px; color: var(--mk-accent); letter-spacing: .08em; padding-top: 2px; }
+.kimos-marcas .mk-pp-t { font-size: 12px; font-weight: 600; }
+.kimos-marcas .mk-pp-d { font-size: 11px; color: var(--mk-dim); margin-top: 2px; line-height: 1.4; }
+
+/* ── Modal ─────────────────────────────────────────────────────────────── */
+.kimos-marcas .mk-modal-bg {
+  position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: hsl(var(--background, 220 20% 97%) / .72); backdrop-filter: blur(3px);
+}
+.kimos-marcas .mk-modal {
+  width: 100%; max-width: 520px; max-height: 100%; display: flex; flex-direction: column;
+  background: var(--mk-card); border: 1px solid var(--mk-line); border-radius: var(--mk-radius);
+  box-shadow: var(--shadow-md, 0 10px 30px hsl(220 20% 10% / .18));
+}
+.kimos-marcas .mk-modal-wide { max-width: 880px; }
+.kimos-marcas .mk-modal-hd { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--mk-line-soft); }
+.kimos-marcas .mk-modal-hd h3 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; }
+.kimos-marcas .mk-modal-body { padding: 14px; overflow-y: auto; }
+.kimos-marcas .mk-modal-ft { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--mk-line-soft); }
+
+/* ── Estrecho ──────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .kimos-marcas .mk-cartera { width: 168px; }
+  .kimos-marcas .mk-hoja-row[data-n="3"],
+  .kimos-marcas .mk-hoja-row[data-n="2"] { grid-template-columns: 1fr; }
+  .kimos-marcas .mk-grid2, .kimos-marcas .mk-card-form { grid-template-columns: 1fr; }
+}

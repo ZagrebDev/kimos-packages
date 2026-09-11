@@ -1,0 +1,19 @@
+{
+  "id": "marcas",
+  "name": "Marcas",
+  "description": "El sistema visual de la empresa, en una plana. Gestiona todas sus marcas —logotipos con el fondo sobre el que van, paleta con roles, tipografías con su uso, ecosistemas de aplicación y principios— y publica una hoja imprimible por marca. Las marcas no viven en esta app: viven en la plataforma, así que Cotizaciones, ProductLab o cualquier otra app pueden emitir con la marca correcta sin depender de que esta esté instalada.",
+  "icon": "🎨",
+  "author": "kimos",
+  "version": "1.0.0",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": false,
+  "permissions": [
+    "instance.read",
+    "agent.control",
+    "brand.read",
+    "brand.write",
+    "files.write"
+  ]
+}

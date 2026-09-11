@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.2.1**
+**Versión actual: 1.2.2**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -224,6 +224,7 @@ decisión; uno descartado en silencio es el que vuelve dentro de seis meses
 
 | Versión | Qué trae |
 |---|---|
+| 1.2.2 | Al día con el registro de marcas: `shell.brand` (una marca) pasó a `shell.brands` (varias), así que «Traer de la marca» usa la marca activa del nuevo registro y toma el logotipo por su atajo ya resuelto en vez de adivinar la variante. Sin esto el botón habría dejado de encontrar la marca. |
 | 1.2.1 | Las imágenes y la propuesta publicada se suben por `shell.files`: la ruta la decide el host, así que el almacenamiento queda aislado por app, con cuota atribuible y limpieza al desinstalar. El camino antiguo (la app elegía la ruta) queda solo como respaldo para un host que no exponga `shell.files`. Lo detectó `tools/check-app.mjs`. |
 | 1.2.0 | El emisor puede traerse de la **marca del sistema** (`shell.brand`): razón social, RUT, contacto, logo y datos de transferencia dejan de reescribirse aquí. La marca rellena y el usuario puede ajustar, para que una unidad de negocio pueda cotizar con otra razón social. Los colores no se copian: el host inyecta los de la marca como tokens del tema y esta app no cablea ninguno. |
 | 1.1.0 | El cliente deja de ser una copia suelta: la cotización guarda además su identidad compartida de KIMOS (`shell.records`), reutiliza el cliente que ya existe aunque el RUT venga escrito de otra forma, refresca la ficha cuando el registro cambia o se fusiona, y permite guardar en la app Clientes un cliente escrito a mano. Dos acciones nuevas del agente: `VINCULAR_CLIENTE` y `ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO`. En un host sin registro la app funciona exactamente como antes. |
