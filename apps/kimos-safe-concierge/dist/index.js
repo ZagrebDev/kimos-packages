@@ -45,7 +45,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json y con el catálogo raíz.
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
 
   const instanceId = shell.app && shell.app.instanceId;
 
@@ -85,9 +85,16 @@ export default function mount(shell) {
   // ── Configuración ───────────────────────────────────────────────────────
   const DEFAULTS = {
     siteName: '', siteAddress: '', startView: 'panel',
-    avatarStyle: 'human', avatarName: 'Kim', voice: true,
+    avatarStyle: 'officer', avatarName: 'Denzel Barrett', voice: true,
     cameraSensor: false, audioSensor: false, sensitivity: 'medium',
     autoWarn: true, retentionDays: 120, privacyMode: true, accent: '#19ACB1',
+    // Central de monitoreo con personal humano.
+    centralApproval: true,     // toda alerta automática la valida una persona
+    streamMode: 'event',       // ask · event · always
+    streamLevel: 3,            // desde qué nivel se abre el enlace solo
+    autoAnswerCentral: true,   // la central puede abrir el canal (con aviso a la vista)
+    operatorCamera: true,      // el visitante ve la cara de quien lo atiende
+    turnUrl: '', turnUser: '', turnPass: '',
     // Solo desde la consola (no es parte del formulario ⚙️ del host): abre el
     // gateway público para que las cámaras de la comunidad publiquen eventos.
     ingestEnabled: false,
@@ -161,8 +168,12 @@ export default function mount(shell) {
     counters: { person: 0 },
     chainHead: { seq: 0, hash: 'genesis' },
     totem: { step: 'home', ctx: {}, message: '', busy: false },
-    avatar: { speaking: false, mood: 'idle', text: '' },
-    sensor: { cam: false, mic: false, agitation: 0, sound: 0, presence: 0, error: '', lastFire: 0 },
+    avatar: null,                 // aspecto del conserje virtual (Estudio del avatar)
+    face: { speaking: false, mood: 'idle', text: '' },
+    sensor: { cam: false, mic: false, agitation: 0, sound: 0, presence: 0, error: '', lastFire: 0, focus: null },
+    calls: [],                    // enlaces con la central (señalización por items)
+    docs: [],                     // archivos en el Cloud Storage de KIMOS
+    link: { state: 'idle', callId: '', role: '', since: 0, error: '', remote: false, mic: true, cam: true },
     kiosk: false,
   };
   const listeners = new Set();
@@ -225,7 +236,8 @@ export default function mount(shell) {
   const byTime = (a, b) => (s(b.at || b.openedAt || '') > s(a.at || a.openedAt || '') ? 1 : -1);
   // Todo lo sellado: incidentes, accesos y movimientos de encomiendas comparten
   // una sola cadena, así que la verificación tiene que mirarlos juntos.
-  const ledger = () => model.incidents.concat(model.accesses, model.parcels);
+  const KEY_OF = { incident: 'incidents', access: 'accesses', parcel: 'parcels', call: 'calls', doc: 'docs' };
+  const ledger = () => model.incidents.concat(model.accesses, model.parcels, model.calls, model.docs);
 
   async function refresh(force) {
     if (!instanceId) { setModel({ loaded: true, offline: true }); return; }
@@ -236,16 +248,19 @@ export default function mount(shell) {
       const accesses = items.filter((i) => i.kind === 'access').sort(byTime);
       const parcels = items.filter((i) => i.kind === 'parcel').sort(byTime);
       const incidents = items.filter((i) => i.kind === 'incident').sort(byTime);
-      const patch = { units, accesses, parcels, incidents, loaded: true, offline: false };
+      const calls = items.filter((i) => i.kind === 'call').sort(byTime);
+      const docs = items.filter((i) => i.kind === 'doc').sort(byTime);
+      const patch = { units, accesses, parcels, incidents, calls, docs, loaded: true, offline: false };
       if (def) {
         patch.channels = Array.isArray(def.channels) && def.channels.length ? def.channels : model.channels;
         if (def.chainHead && num(def.chainHead.seq, 0) >= num(model.chainHead.seq, 0)) patch.chainHead = def.chainHead;
         if (def.counters) patch.counters = Object.assign({ person: 0 }, def.counters);
+        if (def.avatar) patch.avatar = Object.assign({}, AVATAR_DEFAULT, def.avatar);
         if (def.settings && !hasHostConfig) patch.settings = Object.assign({}, DEFAULTS, def.settings);
       }
       // La cabeza de la cadena se reconstruye desde los registros: si otra
       // consola escribió mientras tanto, esta se pone al día antes de sellar.
-      const top = incidents.concat(accesses, parcels)
+      const top = incidents.concat(accesses, parcels, calls, docs)
         .reduce((mx, r) => (num(r.seq, 0) > num(mx.seq, 0) ? r : mx), { seq: 0, hash: 'genesis' });
       const known = num((patch.chainHead || model.chainHead).seq, 0);
       if (num(top.seq, 0) > known) patch.chainHead = { seq: num(top.seq, 0), hash: s(top.hash) || 'genesis' };
@@ -253,9 +268,14 @@ export default function mount(shell) {
       if (subs.length) void processSubmissions(subs);
       const sig = JSON.stringify([units.length, accesses.length, parcels.length, incidents.length,
         accesses[0] && accesses[0].id, incidents[0] && incidents[0].id,
-        incidents.map((i) => i.status + i.level).join(''), parcels.map((p) => p.status).join('')]);
+        incidents.map((i) => i.status + i.level + ((i.review && i.review.status) || '')).join(''),
+        parcels.map((p) => p.status).join(''),
+        calls.map((c) => c.id + c.status + (c.answer ? 'a' : '')).join('')]);
       if (force || sig !== lastSig || !model.loaded || model.offline) { lastSig = sig; setModel(patch); }
       else { model = Object.assign({}, model, patch); }
+      // El enlace en vivo reacciona al estado recién leído (respuesta SDP,
+      // llamada entrante, la otra punta que colgó), sin esperar al sondeo.
+      void driveLink();
     } catch (e) {
       setModel({ loaded: true, offline: true });
     }
@@ -302,6 +322,7 @@ export default function mount(shell) {
         channels: model.channels,
         chainHead: model.chainHead,
         counters: model.counters,
+        avatar: model.avatar || undefined,
         settings: hasHostConfig ? undefined : model.settings,
         // Compuerta del gateway público (APP-SPEC §7.b): las cámaras y la VMS
         // de la comunidad publican detecciones por aquí, sin backend a medida.
@@ -336,13 +357,13 @@ export default function mount(shell) {
     const sealed = await seal(Object.assign({ id: uid(rec.kind || 'rec') }, rec));
     if (!instanceId) {
       // Sin instancia (host v1 sin persistencia): al menos se ve en pantalla.
-      const key = sealed.kind === 'incident' ? 'incidents' : sealed.kind === 'access' ? 'accesses' : 'parcels';
+      const key = KEY_OF[sealed.kind] || 'parcels';
       setModel({ [key]: [sealed].concat(model[key]) });
       return sealed;
     }
     const created = await shell.items.create(sealed);
     const full = Object.assign({}, sealed, created || {});
-    const key = full.kind === 'incident' ? 'incidents' : full.kind === 'access' ? 'accesses' : 'parcels';
+    const key = KEY_OF[full.kind] || 'parcels';
     setModel({ [key]: [full].concat(model[key]) });
     scheduleDefinition();
     return full;
@@ -438,8 +459,17 @@ export default function mount(shell) {
       });
       return next;
     }
+    // Quién valida: lo declarado por una persona ya viene validado por esa
+    // persona; lo que levanta un sensor o una cámara espera a la central.
+    const human = !!input.declared || input.source === 'manual' || input.source === 'consola' || input.source === 'totem';
+    const review = human
+      ? { status: 'approved', by: input.source === 'totem' ? 'declarado en el tótem' : actorName(), at, note: 'lo declaró una persona' }
+      : (model.settings.centralApproval === false
+        ? { status: 'approved', by: 'validación automática (desactivada la revisión)', at, note: '' }
+        : { status: 'pending', by: '', at: '', note: '' });
     const rec = await addRecord({
       kind: 'incident',
+      review,
       type: s(input.type) || 'other',
       typeLabel: verdict.typeLabel,
       level: verdict.level,
@@ -470,8 +500,19 @@ export default function mount(shell) {
   /** Respuesta automática por nivel. Nunca incluye llamar a un servicio. */
   function respond(rec) {
     const lv = num(rec.level, 0);
+    const pending = rec.review && rec.review.status === 'pending';
     if (lv >= 2) {
-      shell.notify({ level: lv >= 4 ? 'error' : 'warn', text: levelInfo(lv).label + ' · ' + s(rec.typeLabel) + (rec.camera ? ' (' + rec.camera + ')' : '') });
+      shell.notify({
+        level: lv >= 4 ? 'error' : 'warn',
+        text: levelInfo(lv).label + ' · ' + s(rec.typeLabel) + (rec.camera ? ' (' + rec.camera + ')' : '')
+          + (pending ? ' — esperando validación de la central' : ''),
+      });
+    }
+    // Transmisión por evento: la central recibe el audio y el video del acceso
+    // junto con la alerta, para poder validarla mirando, no adivinando.
+    if (lv >= num(model.settings.streamLevel, 3) && model.settings.streamMode !== 'ask'
+        && isTotemWindow() && model.link.state === 'idle') {
+      void requestLink({ to: 'central', reason: 'incidente ' + s(rec.typeLabel), incidentId: rec.id });
     }
     if (lv >= 3 && model.settings.autoWarn) {
       // Aviso disuasivo: el tótem habla. No acusa a nadie ni afirma un delito.
@@ -525,6 +566,15 @@ export default function mount(shell) {
     if (!inc) return { success: false, error: 'No existe ese incidente.' };
     const ch = model.channels.find((c) => c.id === channelId);
     if (!ch) return { success: false, error: 'Canal desconocido: ' + channelId + '.' };
+    // La central valida antes de que nadie contacte a un servicio externo.
+    const rv = inc.review || {};
+    if (rv.status === 'pending') {
+      return { success: false, error: 'La alerta todavía no está validada. El personal de la central debe revisarla '
+        + '(ver el acceso en vivo si hace falta) y aprobarla antes de contactar a ' + ch.name + '.' };
+    }
+    if (rv.status === 'dismissed') {
+      return { success: false, error: 'Esta alerta fue descartada por ' + s(rv.by) + '. Si cambió la situación, vuelve a aprobarla antes de escalar.' };
+    }
     const by = s(byName).trim() || actorName();
     const entry = { at: stamp(), channel: ch.id, channelName: ch.name, phone: ch.phone, by };
     await patchRecord('incidents', id, {
@@ -550,6 +600,38 @@ export default function mount(shell) {
       inc.summary ? 'Detalle: ' + inc.summary : '',
       'Registro: ' + s(inc.id) + ' · sello ' + s(inc.hash).slice(0, 12),
     ].filter(Boolean).join('\n');
+  }
+
+  /**
+   * Validación humana de una alerta automática. Es la compuerta del sistema:
+   * hasta que una persona de la central la aprueba, el incidente no habilita
+   * ningún contacto con seguridad ni con emergencias.
+   */
+  async function approveIncident(id, byName, note) {
+    const inc = model.incidents.find((i) => i.id === id);
+    if (!inc) return { success: false, error: 'No existe ese incidente.' };
+    const by = s(byName).trim() || actorName();
+    const at = stamp();
+    await patchRecord('incidents', id, {
+      review: { status: 'approved', by, at, note: s(note) },
+      status: inc.status === 'closed' ? 'closed' : 'ack',
+      ackAt: inc.ackAt || at, ackBy: inc.ackBy || by, hold: true,
+      actions: (inc.actions || []).concat([{ at, what: 'Alerta VALIDADA por la central' + (note ? ': ' + s(note) : ''), by }]),
+    });
+    return { success: true, message: 'Alerta validada. Ya se puede registrar el contacto con un canal externo.' };
+  }
+
+  async function dismissIncident(id, byName, note) {
+    const inc = model.incidents.find((i) => i.id === id);
+    if (!inc) return { success: false, error: 'No existe ese incidente.' };
+    const by = s(byName).trim() || actorName();
+    const at = stamp();
+    await patchRecord('incidents', id, {
+      review: { status: 'dismissed', by, at, note: s(note) },
+      status: 'closed', closedAt: at, closedBy: by, outcome: s(note) || 'no corresponde',
+      actions: (inc.actions || []).concat([{ at, what: 'Alerta DESCARTADA por la central' + (note ? ': ' + s(note) : ''), by }]),
+    });
+    return { success: true, message: 'Alerta descartada y cerrada. Queda en la bitácora con quién la revisó.' };
   }
 
   async function closeIncident(id, outcome) {
@@ -671,9 +753,9 @@ export default function mount(shell) {
   /** Habla por el parlante del tótem con la síntesis del navegador (sin red). */
   function speak(text, mood) {
     const line = s(text).trim();
-    setModel({ avatar: { speaking: !!line, mood: s(mood) || 'talk', text: line } });
+    setModel({ face: { speaking: !!line, mood: s(mood) || 'talk', text: line } });
     if (speakTimer) { clearTimeout(speakTimer); speakTimer = null; }
-    const stop = () => { speakTimer = null; setModel({ avatar: { speaking: false, mood: 'idle', text: line } }); };
+    const stop = () => { speakTimer = null; setModel({ face: { speaking: false, mood: 'idle', text: line } }); };
     try {
       if (model.settings.voice && typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -752,7 +834,18 @@ export default function mount(shell) {
             const now = Date.now();
             if (ema >= t.motion) { if (!motionSince) motionSince = now; } else motionSince = 0;
             if (ratio >= 0.02) { if (!presenceSince) presenceSince = now; } else presenceSince = 0;
-            setModel({ sensor: Object.assign({}, model.sensor, { cam: true, agitation: ema, presence: presenceSince ? now - presenceSince : 0, error: '' }) });
+            // Centro del movimiento: de ahí sale la mirada del conserje virtual.
+            let focus = model.sensor.focus;
+            if (ratio >= 0.015) {
+              let sx = 0; let sy = 0; let n = 0;
+              for (let i = 0; i < cur.length; i += 4) {
+                const px2 = i / 4;
+                const d = Math.abs(cur[i] - sensors.prev[i]) + Math.abs(cur[i + 1] - sensors.prev[i + 1]) + Math.abs(cur[i + 2] - sensors.prev[i + 2]);
+                if (d > 60) { sx += (px2 % 64); sy += Math.floor(px2 / 64); n++; }
+              }
+              if (n) focus = { x: clamp((sx / n / 64 - 0.5) * 2.4, -1, 1), y: clamp((sy / n / 48 - 0.5) * 2, -1, 1), at: Date.now() };
+            }
+            setModel({ sensor: Object.assign({}, model.sensor, { cam: true, agitation: ema, presence: presenceSince ? now - presenceSince : 0, error: '', focus }) });
             if (motionSince && now - motionSince >= t.sustain && canFire('aggression', 30000)) {
               const over = clamp((ema - t.motion) / Math.max(0.001, t.motion), 0, 2);
               void raise({
@@ -868,6 +961,359 @@ export default function mount(shell) {
     setModel({ sensor: Object.assign({}, model.sensor, { mic: false, sound: 0 }) });
   }
 
+
+  // ── Enlace con la central de monitoreo ──────────────────────────────────
+  /**
+   * Audio y video en vivo entre el tótem y la central atendida por personas.
+   *
+   * Es WebRTC punto a punto y la señalización viaja por los mismos items de la
+   * instancia (oferta, respuesta y estado): no hace falta un servidor a medida.
+   * Se juntan todos los candidatos ICE **antes** de escribir la oferta o la
+   * respuesta (sin *trickle*), porque este canal de señalización es lento: una
+   * sola escritura por lado y la conexión queda hecha.
+   *
+   * Reglas de la casa:
+   *   · La central puede abrir el canal, pero el tótem **lo anuncia en
+   *     pantalla** mientras dure: nadie mira sin que se vea que está mirando.
+   *   · Cada enlace queda sellado en la bitácora (quién, cuándo, por qué y
+   *     cuánto duró), igual que un acceso o un incidente.
+   */
+  const winId = uid('win');
+  const rtc = { pc: null, remote: null, op: null, pollTimer: null, lastRequest: 0 };
+
+  const isTotemWindow = () => !!(model.kiosk || model.view === 'totem');
+  const iceServers = () => {
+    const list = [{ urls: 'stun:stun.l.google.com:19302' }];
+    if (s(model.settings.turnUrl).trim()) {
+      list.push({
+        urls: s(model.settings.turnUrl).trim(),
+        username: s(model.settings.turnUser) || undefined,
+        credential: s(model.settings.turnPass) || undefined,
+      });
+    }
+    return list;
+  };
+
+  /** Pistas locales: el tótem reusa sus sensores; la central usa las suyas. */
+  async function localTracks(role) {
+    if (role === 'totem') {
+      if (!sensors.cam) await startCamera();
+      if (!sensors.mic) await startMic();
+      const t = [];
+      if (sensors.cam) t.push.apply(t, sensors.cam.getVideoTracks());
+      if (sensors.mic) t.push.apply(t, sensors.mic.getAudioTracks());
+      return t;
+    }
+    // Central: cámara y micrófono del operador, sin análisis de conducta
+    // (si no, el sistema levantaría incidentes de la propia sala de monitoreo).
+    if (!rtc.op) {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices) return [];
+      rtc.op = await navigator.mediaDevices.getUserMedia({
+        video: model.settings.operatorCamera !== false, audio: true,
+      });
+    }
+    return rtc.op.getTracks();
+  }
+
+  function newPeer(role) {
+    const PC = (typeof window !== 'undefined') && (window.RTCPeerConnection || window.webkitRTCPeerConnection);
+    if (!PC) throw new Error('Este navegador no soporta WebRTC.');
+    const pc = new PC({ iceServers: iceServers() });
+    pc.ontrack = (ev) => {
+      const stream = (ev.streams && ev.streams[0]) || null;
+      rtc.remote = stream || rtc.remote;
+      setModel({ link: Object.assign({}, model.link, { remote: true }) });
+    };
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState;
+      if (st === 'connected') setModel({ link: Object.assign({}, model.link, { state: 'active', since: Date.now(), error: '' }) });
+      if (st === 'failed' || st === 'closed' || st === 'disconnected') {
+        if (model.link.state !== 'idle') void hangup(st === 'failed' ? 'falló la conexión' : 'se cortó');
+      }
+    };
+    rtc.pc = pc;
+    return pc;
+  }
+
+  /** Espera a tener todos los candidatos (o se rinde: la red ya dio lo que hay). */
+  const waitIce = (pc) => new Promise((resolve) => {
+    if (pc.iceGatheringState === 'complete') { resolve(); return; }
+    const done = () => { clearTimeout(t); resolve(); };
+    const t = setTimeout(resolve, 2600);
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') done(); });
+  });
+
+  /**
+   * Pide enlace a la otra punta. `to` es 'central' (lo pide el tótem) o
+   * 'totem' (lo pide el operador para ver el acceso).
+   */
+  async function requestLink(opts) {
+    const o = opts || {};
+    const to = o.to === 'totem' ? 'totem' : 'central';
+    const role = to === 'central' ? 'totem' : 'central';
+    if (model.link.state !== 'idle') return { success: false, error: 'Ya hay un enlace abierto.' };
+    if (Date.now() - rtc.lastRequest < 8000) return { success: false, error: 'Espera unos segundos antes de reintentar.' };
+    rtc.lastRequest = Date.now();
+    setModel({ link: { state: 'calling', callId: '', role, since: Date.now(), error: '', remote: false, mic: true, cam: true } });
+    try {
+      const tracks = await localTracks(role);
+      if (!tracks.length) throw new Error('Sin cámara ni micrófono disponibles.');
+      const pc = newPeer(role);
+      const stream = role === 'totem' ? (sensors.cam || sensors.mic) : rtc.op;
+      tracks.forEach((t) => pc.addTrack(t, stream || undefined));
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      await waitIce(pc);
+      const rec = await addRecord({
+        kind: 'call', to, from: winId, fromRole: role,
+        fromName: role === 'central' ? actorName() : (avatarOf().name + ' · tótem'),
+        status: 'ringing', reason: s(o.reason) || (to === 'central' ? 'petición desde el tótem' : 'supervisión desde la central'),
+        incidentId: s(o.incidentId), at: stamp(),
+        offer: JSON.stringify(pc.localDescription),
+        summary: 'Enlace ' + role + ' → ' + to + (o.reason ? ' · ' + o.reason : ''),
+      });
+      setModel({ link: Object.assign({}, model.link, { callId: rec.id, state: 'calling' }) });
+      pollLinkSoon();
+      return { success: true, message: 'Llamando a la ' + (to === 'central' ? 'central' : 'pantalla del tótem') + '…', call: rec };
+    } catch (e) {
+      const why = s((e && e.message) || e);
+      closePeer();
+      setModel({ link: { state: 'idle', callId: '', role: '', since: 0, error: why, remote: false, mic: true, cam: true } });
+      return { success: false, error: why };
+    }
+  }
+
+  /** Atiende un enlace entrante. En la central lo pulsa una persona. */
+  async function answerLink(call) {
+    if (!call || call.status !== 'ringing') return { success: false, error: 'Ese enlace ya no está esperando.' };
+    if (model.link.state !== 'idle') return { success: false, error: 'Ya hay un enlace abierto.' };
+    const role = call.to === 'totem' ? 'totem' : 'central';
+    setModel({ link: { state: 'connecting', callId: call.id, role, since: Date.now(), error: '', remote: false, mic: true, cam: true } });
+    try {
+      const tracks = await localTracks(role);
+      const pc = newPeer(role);
+      const stream = role === 'totem' ? (sensors.cam || sensors.mic) : rtc.op;
+      tracks.forEach((t) => pc.addTrack(t, stream || undefined));
+      await pc.setRemoteDescription(JSON.parse(s(call.offer)));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await waitIce(pc);
+      await patchRecord('calls', call.id, {
+        status: 'active', answeredAt: stamp(), answeredBy: role === 'central' ? actorName() : 'tótem',
+        answerWin: winId, answer: JSON.stringify(pc.localDescription),
+      });
+      if (role === 'totem') {
+        speak('Estás en contacto con la central de monitoreo. Una persona te está atendiendo.', 'talk');
+      }
+      pollLinkSoon();
+      return { success: true, message: 'Enlace abierto.' };
+    } catch (e) {
+      const why = s((e && e.message) || e);
+      closePeer();
+      setModel({ link: { state: 'idle', callId: '', role: '', since: 0, error: why, remote: false, mic: true, cam: true } });
+      return { success: false, error: why };
+    }
+  }
+
+  function closePeer() {
+    if (rtc.pc) { try { rtc.pc.close(); } catch (e) { /* ya cerrada */ } }
+    rtc.pc = null; rtc.remote = null;
+    if (rtc.pollTimer) { clearTimeout(rtc.pollTimer); rtc.pollTimer = null; }
+  }
+
+  /** Cierra el enlace por ambos lados y deja la duración en la bitácora. */
+  async function hangup(reason) {
+    const id = model.link.callId;
+    const wasActive = model.link.state === 'active';
+    closePeer();
+    // La cámara del operador se apaga al colgar; la del tótem la gobiernan sus
+    // propios ajustes de sensor, no la llamada.
+    if (model.link.role === 'central' && rtc.op) {
+      try { rtc.op.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
+      rtc.op = null;
+    }
+    setModel({ link: { state: 'idle', callId: '', role: '', since: 0, error: '', remote: false, mic: true, cam: true } });
+    if (id) {
+      const call = model.calls.find((c) => c.id === id);
+      await patchRecord('calls', id, {
+        status: 'ended', endedAt: stamp(), endedBy: actorName(), endReason: s(reason) || 'cerrado',
+        seconds: call && call.answeredAt ? Math.round((Date.now() - Date.parse(call.answeredAt)) / 1000) : 0,
+      });
+    }
+    if (wasActive && isTotemWindow()) speak('La comunicación con la central terminó. Sigo aquí si necesitas algo más.', 'talk');
+    return { success: true, message: 'Enlace cerrado.' };
+  }
+
+  /**
+   * Motor del enlace: mira las llamadas de la instancia y reacciona. Corre
+   * después de cada refresco y, mientras hay algo vivo, cada par de segundos.
+   */
+  let driving = false;
+  async function driveLink() {
+    if (driving) return;
+    driving = true;
+    try { await driveLinkOnce(); } finally { driving = false; }
+  }
+  async function driveLinkOnce() {
+    const calls = model.calls || [];
+    const mine = model.link.callId ? calls.find((c) => c.id === model.link.callId) : null;
+
+    // Quien llamó aplica la respuesta en cuanto aparece.
+    if (mine && rtc.pc && model.link.state === 'calling' && mine.answer && !rtc.pc.currentRemoteDescription) {
+      try {
+        await rtc.pc.setRemoteDescription(JSON.parse(s(mine.answer)));
+        setModel({ link: Object.assign({}, model.link, { state: 'active', since: Date.now() }) });
+        if (isTotemWindow()) speak('Estás en contacto con la central de monitoreo.', 'talk');
+      } catch (e) { void hangup('no se pudo abrir el canal'); }
+    }
+    // Si la otra punta colgó, se cierra de este lado.
+    if (mine && mine.status === 'ended' && model.link.state !== 'idle') { closePeer(); setModel({ link: { state: 'idle', callId: '', role: '', since: 0, error: '', remote: false, mic: true, cam: true } }); }
+
+    // El tótem atiende solo a la central si así está configurado (y lo avisa).
+    if (model.link.state === 'idle' && isTotemWindow() && model.settings.autoAnswerCentral !== false) {
+      const forMe = calls.find((c) => c.to === 'totem' && c.status === 'ringing' && ms(c.at, stamp()) < 60000);
+      if (forMe) await answerLink(forMe);
+    }
+    // Modo "siempre en vivo": el tótem mantiene el enlace abierto.
+    if (model.link.state === 'idle' && isTotemWindow() && model.settings.streamMode === 'always'
+        && Date.now() - rtc.lastRequest > 30000 && !calls.some((c) => c.status === 'ringing' && c.from === winId)) {
+      await requestLink({ to: 'central', reason: 'transmisión permanente' });
+    }
+    // Limpieza: las llamadas cerradas no se quedan como basura de señalización.
+    for (const c of calls) {
+      if (c.status === 'ended' && ms(c.endedAt || c.at, stamp()) > 900000) await removeRecord('calls', c.id);
+    }
+  }
+  function pollLinkSoon() {
+    if (rtc.pollTimer) clearTimeout(rtc.pollTimer);
+    rtc.pollTimer = setTimeout(async () => {
+      rtc.pollTimer = null;
+      await refresh();
+      await driveLink();
+      if (model.link.state !== 'idle' || (model.calls || []).some((c) => c.status === 'ringing')) pollLinkSoon();
+    }, 1800);
+  }
+
+
+  // ── Cloud Storage de KIMOS (archivos y documentos) ──────────────────────
+  /**
+   * Los archivos van al almacenamiento de la plataforma, no dentro del
+   * documento de la instancia: el plan de emergencia, el reglamento, la foto de
+   * una encomienda o la evidencia de un incidente pueden pesar megas y tienen
+   * que poder abrirse desde cualquier consola.
+   *
+   * Subida:   POST {API}/api/v2/files   (multipart: path + file, con la sesión
+   *           del usuario vía authFetch)
+   * Lectura:  {API}/api/public/files/{path}
+   *
+   * Cada archivo deja además un registro sellado en la bitácora (quién lo
+   * subió, cuándo, a qué incidente o unidad pertenece), así la cadena de
+   * custodia incluye lo que se adjunta y no solo lo que se escribe.
+   */
+  const DOC_FOLDERS = [
+    { id: 'evidencia', label: 'Evidencia de incidentes' },
+    { id: 'emergencia', label: 'Plan de emergencia y protocolos' },
+    { id: 'reglamento', label: 'Reglamento y actas' },
+    { id: 'unidades', label: 'Documentos de unidades' },
+    { id: 'encomiendas', label: 'Encomiendas' },
+    { id: 'general', label: 'General' },
+  ];
+  const MAX_DOC_MB = 25;
+
+  const storagePath = (name, folder) => {
+    const safe = s(name || 'archivo').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'archivo';
+    return 'documentos/safe-concierge/' + (instanceId || 'sin-instancia') + '/'
+      + (s(folder) || 'general') + '/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '-' + safe;
+  };
+
+  /** Sube un archivo al Cloud Storage y devuelve su ruta y su URL de lectura. */
+  async function uploadToStorage(file, folder) {
+    if (!file) throw new Error('No hay archivo.');
+    if (!shell.authFetch) throw new Error('Este host no expone authFetch: no se puede subir al almacenamiento.');
+    const mb = num(file.size, 0) / 1048576;
+    if (mb > MAX_DOC_MB) throw new Error('El archivo pesa ' + mb.toFixed(1) + ' MB y el máximo son ' + MAX_DOC_MB + ' MB.');
+    const path = storagePath(file.name, folder);
+    const fd = new FormData();
+    fd.append('path', path);
+    fd.append('file', file);
+    const res = await shell.authFetch(API + '/api/v2/files', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(s(d.detail) || ('el almacenamiento respondió HTTP ' + res.status));
+    }
+    return { path, url: API + '/api/public/files/' + path, name: s(file.name), size: num(file.size, 0), type: s(file.type) };
+  }
+
+  /** Sube y deja el archivo registrado (y sellado) en la bitácora. */
+  async function attachDoc(file, meta) {
+    const m = meta || {};
+    const up = await uploadToStorage(file, m.folder);
+    const rec = await addRecord({
+      kind: 'doc',
+      name: up.name || 'archivo', path: up.path, url: up.url, size: up.size, mime: up.type,
+      folder: s(m.folder) || 'general',
+      note: s(m.note),
+      incidentId: s(m.incidentId), unit: s(m.unit), parcelId: s(m.parcelId),
+      uploadedBy: actorName(),
+      at: stamp(),
+      summary: 'Archivo ' + (up.name || up.path) + (m.incidentId ? ' · incidente ' + m.incidentId : '') + (m.unit ? ' · unidad ' + m.unit : ''),
+    });
+    // Si pertenece a un incidente, queda además en su propia hoja de evidencia.
+    if (s(m.incidentId)) {
+      const inc = model.incidents.find((i) => i.id === s(m.incidentId));
+      if (inc) {
+        await patchRecord('incidents', inc.id, {
+          hold: true,
+          evidence: (inc.evidence || []).concat([{ at: rec.at, note: 'Archivo adjunto: ' + rec.name, url: rec.url, docId: rec.id }]).slice(-40),
+          actions: (inc.actions || []).concat([{ at: rec.at, what: 'Adjuntó ' + rec.name, by: actorName() }]),
+        });
+      }
+    }
+    return rec;
+  }
+
+  /**
+   * Captura un cuadro de la cámara del tótem y lo guarda como evidencia. Es la
+   * excepción explícita a "el video no sale del dispositivo": lo dispara una
+   * persona (o un incidente ya validado), queda con su sello y su autor, y el
+   * tótem lo anuncia en pantalla.
+   */
+  async function snapshotEvidence(incidentId, note) {
+    if (!sensors.videoEl || !sensors.cam) return { success: false, error: 'La cámara del tótem no está encendida.' };
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = 640; cv.height = 480;
+      cv.getContext('2d').drawImage(sensors.videoEl, 0, 0, cv.width, cv.height);
+      const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82));
+      if (!blob) return { success: false, error: 'El navegador no entregó la imagen.' };
+      const name = 'evidencia-' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
+      const file = (typeof File === 'function') ? new File([blob], name, { type: 'image/jpeg' }) : blob;
+      if (!file.name) file.name = name;
+      const rec = await attachDoc(file, { folder: 'evidencia', incidentId: s(incidentId), note: s(note) || 'Captura de la cámara del tótem' });
+      shell.notify({ level: 'success', text: 'Evidencia guardada en el almacenamiento.' });
+      return { success: true, message: 'Evidencia guardada: ' + rec.name, doc: rec };
+    } catch (e) {
+      return { success: false, error: s((e && e.message) || e) };
+    }
+  }
+
+  const docsFor = (kind, id) => (model.docs || []).filter((d) => (kind === 'incident' ? d.incidentId === id : kind === 'unit' ? d.unit === id : d.parcelId === id));
+  const fmtSize = (b) => {
+    const n = num(b, 0);
+    return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+  };
+  const docIcon = (d) => {
+    const t = s(d.mime) + ' ' + s(d.name);
+    if (/image|\.jpe?g|\.png|\.webp|\.gif/i.test(t)) return '🖼️';
+    if (/pdf/i.test(t)) return '📕';
+    if (/video|\.mp4|\.webm/i.test(t)) return '🎬';
+    if (/audio|\.mp3|\.wav|\.ogg/i.test(t)) return '🔊';
+    if (/sheet|excel|\.csv|\.xlsx?/i.test(t)) return '📊';
+    if (/word|\.docx?/i.test(t)) return '📄';
+    return '📎';
+  };
+
   // ── Indicadores (lo que se mide en el piloto) ───────────────────────────
   function kpis() {
     const inc = model.incidents;
@@ -880,7 +1326,12 @@ export default function mount(shell) {
     }).filter((v) => v != null && v >= 0));
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const since = today.toISOString();
+    const mttv = avg(inc.map((i) => (i.review && i.review.at ? ms(i.openedAt, i.review.at) : null))
+      .filter((v) => v != null && v >= 0));
     return {
+      pendingReview: inc.filter((i) => i.review && i.review.status === 'pending').length,
+      dismissed: inc.filter((i) => i.review && i.review.status === 'dismissed').length,
+      mttv,
       open: inc.filter((i) => i.status !== 'closed').length,
       critical: inc.filter((i) => i.status !== 'closed' && num(i.level, 0) >= 4).length,
       todayAccess: model.accesses.filter((a) => s(a.at) >= since).length,
@@ -973,9 +1424,13 @@ export default function mount(shell) {
     if (syncTimer) clearTimeout(syncTimer);
     const hidden = (typeof document !== 'undefined' && document.visibilityState === 'hidden');
     const focused = (typeof document !== 'undefined' && document.hasFocus && document.hasFocus());
-    const wait = hidden ? 90000 : focused ? SYNC_MS : SYNC_MS * 2;
+    const busyLink = model.link.state !== 'idle' || (model.calls || []).some((c) => c.status === 'ringing');
+    const wait = busyLink ? 2500 : hidden ? 90000 : focused ? SYNC_MS : SYNC_MS * 2;
     syncTimer = setTimeout(async () => {
-      if (syncSubs > 0 && !(typeof document !== 'undefined' && document.visibilityState === 'hidden')) await refresh();
+      if (syncSubs > 0 && !(typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+        await refresh();
+        await driveLink();
+      }
       scheduleSync();
     }, wait);
   }
@@ -1075,7 +1530,19 @@ export default function mount(shell) {
     { name: 'ADD_ACTION', description: 'Anota en el incidente qué se hizo.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, what: { type: 'string' } }, required: ['id', 'what'] } },
     { name: 'ESCALATE_INCIDENT', description: 'Registra el contacto con un canal externo (samu, bomberos, carabineros, pdi, municipal, cra, admin). Requiere el nombre de la persona que lo autoriza: la app no llama sola.',
       inputSchema: { type: 'object', properties: { id: { type: 'string' }, channel: { type: 'string' }, authorizedBy: { type: 'string' } }, required: ['id', 'channel', 'authorizedBy'] } },
+    { name: 'APPROVE_INCIDENT', description: 'Validación humana: la central confirma que la alerta corresponde. Requiere el nombre de quien la revisó. Sin esto no se puede escalar a ningún servicio.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, reviewedBy: { type: 'string' }, note: { type: 'string' } }, required: ['id', 'reviewedBy'] } },
+    { name: 'DISMISS_INCIDENT', description: 'Validación humana: la central descarta la alerta (no corresponde, falso positivo). Requiere quién la revisó.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' }, reviewedBy: { type: 'string' }, note: { type: 'string' } }, required: ['id', 'reviewedBy'] } },
     { name: 'CLOSE_INCIDENT', description: 'Cierra un incidente con su resultado (por ejemplo "falso-positivo").', inputSchema: { type: 'object', properties: { id: { type: 'string' }, outcome: { type: 'string' } }, required: ['id'] } },
+    { name: 'OPEN_LINK', description: 'Abre audio y video en vivo entre el tótem y la central de monitoreo. destino: "central" (desde el tótem) o "totem" (la central mira el acceso).',
+      inputSchema: { type: 'object', properties: { to: { type: 'string' }, reason: { type: 'string' }, incidentId: { type: 'string' } } } },
+    { name: 'ANSWER_LINK', description: 'Atiende el enlace en vivo que está esperando.', inputSchema: { type: 'object', properties: { id: { type: 'string' } } } },
+    { name: 'END_LINK', description: 'Cierra el enlace en vivo con la central.', inputSchema: { type: 'object', properties: { reason: { type: 'string' } } } },
+    { name: 'SNAPSHOT', description: 'Guarda en el almacenamiento una captura de la cámara del tótem como evidencia, opcionalmente ligada a un incidente.',
+      inputSchema: { type: 'object', properties: { incidentId: { type: 'string' }, note: { type: 'string' } } } },
+    { name: 'LIST_DOCS', description: 'Lista los archivos guardados en el Cloud Storage de esta instancia (plan de emergencia, reglamento, evidencia, documentos de unidades).',
+      inputSchema: { type: 'object', properties: { folder: { type: 'string' }, incidentId: { type: 'string' }, limit: { type: 'number' } } } },
     { name: 'LOG_ACCESS', description: 'Registra un ingreso o salida.',
       inputSchema: { type: 'object', properties: { direction: { type: 'string' }, profile: { type: 'string' }, subject: { type: 'string' }, unit: { type: 'string' }, plate: { type: 'string' }, company: { type: 'string' }, status: { type: 'string' } } } },
     { name: 'DECIDE_ACCESS', description: 'Autoriza o rechaza una visita que está esperando en el acceso.',
@@ -1098,6 +1565,9 @@ export default function mount(shell) {
     TOMAR_INCIDENTE: 'ACK_INCIDENT', ESCALAR: 'ESCALATE_INCIDENT', CERRAR_INCIDENTE: 'CLOSE_INCIDENT',
     REGISTRAR_ACCESO: 'LOG_ACCESS', RECIBIR_ENCOMIENDA: 'RECEIVE_PARCEL', ENTREGAR_ENCOMIENDA: 'RELEASE_PARCEL',
     HABLAR: 'SPEAK', VERIFICAR_BITACORA: 'VERIFY_LEDGER',
+    APROBAR: 'APPROVE_INCIDENT', VALIDAR: 'APPROVE_INCIDENT', DESCARTAR: 'DISMISS_INCIDENT',
+    ABRIR_ENLACE: 'OPEN_LINK', ATENDER: 'ANSWER_LINK', COLGAR: 'END_LINK',
+    CAPTURA: 'SNAPSHOT', LISTAR_ARCHIVOS: 'LIST_DOCS',
   };
 
   /** Resuelve un incidente por id exacto, por sufijo o por "el último". */
@@ -1127,13 +1597,26 @@ export default function mount(shell) {
           direccion: model.settings.siteAddress || null,
           indicadores: k,
           sensores: { camara: !!model.sensor.cam, microfono: !!model.sensor.mic, sensibilidad: model.settings.sensitivity },
+          enlaceEnVivo: {
+            estado: model.link.state, rol: model.link.role || null,
+            esperando: (model.calls || []).filter((c) => c.status === 'ringing').map((c) => ({ id: c.id, hacia: c.to, motivo: c.reason })),
+            modoTransmision: model.settings.streamMode,
+          },
+          validacionHumana: {
+            activa: model.settings.centralApproval !== false,
+            pendientes: model.incidents.filter((i) => i.review && i.review.status === 'pending')
+              .map((i) => ({ id: i.id, evento: i.typeLabel, nivel: i.level, abierto: i.openedAt })),
+          },
+          archivos: (model.docs || []).slice(0, 20).map((d) => ({ id: d.id, nombre: d.name, carpeta: d.folder, url: d.url, incidente: d.incidentId || null })),
           niveles: LEVELS.map((l) => l.n + ' ' + l.label),
           tiposDeEvento: RISK_TYPES.map((t) => t.id),
           canales: model.channels.map((c) => ({ id: c.id, nombre: c.name, telefono: c.phone || null })),
           incidentesAbiertos: model.incidents.filter((i) => i.status !== 'closed').slice(0, 25).map((i) => ({
             id: i.id, tipo: i.type, evento: i.typeLabel, nivel: i.level, puntaje: i.score,
             confianza: Math.round(num(i.confidence, 0) * 100) + '%',
-            estado: i.status, abierto: i.openedAt, ubicacion: i.camera || null, unidad: i.unit || null,
+            estado: i.status, validacion: (i.review && i.review.status) || 'approved',
+            validadaPor: (i.review && i.review.by) || null,
+            abierto: i.openedAt, ubicacion: i.camera || null, unidad: i.unit || null,
             detalle: i.summary, escalamientos: (i.escalations || []).map((e) => e.channelName),
           })),
           accesosPendientes: model.accesses.filter((a) => a.status === 'pending').map((a) => ({
@@ -1187,7 +1670,36 @@ export default function mount(shell) {
             if (!r.success) return r;
             return { success: true, message: r.message + (r.phone ? ' Marcar ' + r.phone + '.' : ' (sin teléfono configurado)') + '\nParte:\n' + r.brief };
           }
+          if (type === 'APPROVE_INCIDENT' || type === 'DISMISS_INCIDENT') {
+            const i = resolveIncident(p.id);
+            if (!i) return { success: false, error: 'No encuentro ese incidente.' };
+            const by = s(p.reviewedBy || p.by).trim();
+            if (!by) return { success: false, error: 'Falta el nombre de quien revisó la alerta: la validación es de una persona de la central, no del sistema.' };
+            return type === 'APPROVE_INCIDENT' ? await approveIncident(i.id, by, p.note) : await dismissIncident(i.id, by, p.note);
+          }
           if (type === 'CLOSE_INCIDENT') { const i = resolveIncident(p.id); return i ? await closeIncident(i.id, p.outcome) : { success: false, error: 'No encuentro ese incidente.' }; }
+          if (type === 'OPEN_LINK') return await requestLink({ to: s(p.to) === 'totem' ? 'totem' : 'central', reason: s(p.reason), incidentId: s(p.incidentId) });
+          if (type === 'ANSWER_LINK') {
+            const call = (model.calls || []).find((c) => c.id === s(p.id) && c.status === 'ringing')
+              || (model.calls || []).find((c) => c.status === 'ringing');
+            if (!call) return { success: false, error: 'No hay ningún enlace esperando.' };
+            return await answerLink(call);
+          }
+          if (type === 'END_LINK') {
+            if (model.link.state === 'idle') return { success: false, error: 'No hay enlace abierto.' };
+            return await hangup(s(p.reason) || 'cerrado desde el agente');
+          }
+          if (type === 'SNAPSHOT') return await snapshotEvidence(s(p.incidentId), s(p.note));
+          if (type === 'LIST_DOCS') {
+            await refresh();
+            let list = model.docs || [];
+            if (s(p.folder)) list = list.filter((d) => d.folder === s(p.folder));
+            if (s(p.incidentId)) list = list.filter((d) => d.incidentId === s(p.incidentId));
+            list = list.slice(0, clamp(num(p.limit, 20), 1, 60));
+            if (!list.length) return { success: true, message: 'No hay archivos con ese filtro.' };
+            return { success: true, message: list.map((d) => d.name + ' · ' + fmtSize(d.size) + ' · ' + s(d.folder)
+              + ' · subido por ' + s(d.uploadedBy) + ' · ' + s(d.url)).join('\n') };
+          }
           if (type === 'LOG_ACCESS') {
             const acc = await logAccess({
               direction: s(p.direction) === 'out' ? 'out' : 'in', profile: s(p.profile) || 'visit',
@@ -1252,10 +1764,12 @@ export default function mount(shell) {
   const VIEWS = [
     { id: 'panel', label: 'Panel', icon: '📊' },
     { id: 'totem', label: 'Tótem', icon: '🪧' },
+    { id: 'central', label: 'Central', icon: '📡' },
     { id: 'incidents', label: 'Incidentes', icon: '🚨' },
     { id: 'access', label: 'Accesos', icon: '🚪' },
     { id: 'parcels', label: 'Encomiendas', icon: '📦' },
     { id: 'directory', label: 'Directorio', icon: '🏠' },
+    { id: 'docs', label: 'Documentos', icon: '📁' },
     { id: 'emergency', label: 'Emergencias', icon: '📞' },
     { id: 'compliance', label: 'Cumplimiento', icon: '⚖️' },
   ];
@@ -1279,13 +1793,63 @@ export default function mount(shell) {
     hint ? h('span', { className: 'sc-field-h' }, hint) : null);
   const chip = (text, tone) => h('span', { className: 'sc-chip' + (tone ? ' sc-chip-' + tone : '') }, text);
 
-  /** Avatar del tótem. Tres estilos, mismo esqueleto SVG. */
+  // ── El conserje virtual ─────────────────────────────────────────────────
+  /**
+   * Aspecto por defecto: "Denzel Barrett", oficial de seguridad. Todo esto es
+   * editable desde el Estudio del avatar (pestaña Panel) y se guarda con la
+   * instancia, así que cada comunidad puede tener el suyo.
+   */
+  const AVATAR_DEFAULT = {
+    name: 'Denzel Barrett',
+    style: 'officer',        // officer | human | cartoon | minimal
+    skin: '#8A5A3B',
+    hair: '#17120F',
+    beard: 'short',          // none | short | full
+    cap: true,
+    uniform: '#1B2A3D',
+    trim: '#0EA5E9',         // galones, insignia y vivos del uniforme
+    eyes: '#3A2A20',
+    build: 1,                // porte: 0.9 discreto · 1.15 imponente
+    badge: 'DB',
+  };
+  const avatarOf = () => {
+    const a = Object.assign({}, AVATAR_DEFAULT, model.avatar || {});
+    // ⚙️ Configurar siembra nombre y estilo mientras el Estudio no los toque.
+    if (!(model.avatar && model.avatar.name) && s(model.settings.avatarName)) a.name = s(model.settings.avatarName);
+    if (!(model.avatar && model.avatar.style) && s(model.settings.avatarStyle)) a.style = s(model.settings.avatarStyle);
+    return a;
+  };
+
+  /** Aclara u oscurece un color hex: sombras y luces salen del mismo tono. */
+  function shade(hex, amount) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(s(hex).trim());
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    const mix = (c) => clamp(Math.round(amount >= 0 ? c + (255 - c) * amount : c * (1 + amount)), 0, 255);
+    return '#' + [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)]
+      .map((c) => c.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * Avatar del tótem. Un retrato SVG por capas —volumen por degradados,
+   * sombra propia bajo el mentón, luz de contorno y especulares— con vida
+   * propia: parpadeo, respiración, micro-balanceo de cabeza, boca sincronizada
+   * al habla y **mirada que sigue a la persona** (el centro de movimiento que
+   * ya calcula el sensor de la cámara). Nada de esto pesa: son transformaciones
+   * sobre un puñado de nodos.
+   */
   function Avatar(props) {
-    const style = s(props.style) || 'human';
+    const a = props.look || AVATAR_DEFAULT;
+    const style = s(a.style) || 'officer';
     const speaking = !!props.speaking;
     const alert = props.mood === 'alert';
+    const uid2 = s(props.idSuffix) || 'a';
     const [blink, setBlink] = useState(false);
     const [phase, setPhase] = useState(0);
+    const [tick, setTick] = useState(0);
+    const [gaze, setGaze] = useState({ x: 0, y: 0 });
+
+    // Parpadeo espontáneo.
     useEffect(() => {
       let alive = true;
       let t = null;
@@ -1293,61 +1857,231 @@ export default function mount(shell) {
         if (!alive) return;
         t = setTimeout(() => {
           setBlink(true);
-          setTimeout(() => { if (alive) setBlink(false); }, 120);
+          setTimeout(() => { if (alive) setBlink(false); }, 110);
           loop();
-        }, 2600 + Math.random() * 3800);
+        }, 2400 + Math.random() * 3600);
       };
       loop();
       return () => { alive = false; if (t) clearTimeout(t); };
     }, []);
+
+    // Boca: cuatro aperturas encadenadas mientras habla.
     useEffect(() => {
       if (!speaking) { setPhase(0); return undefined; }
-      const t = setInterval(() => setPhase((p) => (p + 1) % 4), 110);
+      const t = setInterval(() => setPhase((p) => (p + 1) % 4), 105);
       return () => clearInterval(t);
     }, [speaking]);
 
-    const mouthH = speaking ? [3, 10, 6, 13][phase] : (alert ? 4 : 5);
-    const skin = style === 'cartoon' ? '#FFD9B3' : '#EEC9A8';
-    const eyeR = style === 'cartoon' ? 7 : 4.6;
-    const ring = alert ? 'var(--sc-err)' : 'var(--sc-accent)';
+    // Respiración, balanceo y mirada. Un solo temporizador para todo.
+    useEffect(() => {
+      const t = setInterval(() => {
+        setTick((k) => k + 1);
+        const f = props.focus;
+        if (f && f.at && Date.now() - f.at < 2500) {
+          // La cámara ve a alguien: la mirada va hacia ahí (el espejo invierte
+          // la imagen, así que la coordenada también).
+          setGaze({ x: clamp(-num(f.x, 0), -1, 1), y: clamp(num(f.y, 0), -1, 1) });
+        } else {
+          const w = Date.now() / 2600;
+          setGaze({ x: Math.sin(w) * 0.35, y: Math.sin(w * 0.7) * 0.2 });
+        }
+      }, 140);
+      return () => clearInterval(t);
+    }, [props.focus]);
 
+    const breathe = Math.sin(tick / 11) * 1.6;
+    const sway = Math.sin(tick / 17) * 0.6 + gaze.x * 1.6;
+    const gx = gaze.x * 4.2;
+    const gy = gaze.y * 2.6;
+    const build = clamp(num(a.build, 1), 0.85, 1.2);
+
+    // Estilos heredados: siguen disponibles para quien no quiera un oficial.
     if (style === 'minimal') {
-      // Sin rostro: un orbe con anillos que laten al hablar. Para instituciones
-      // que prefieren no antropomorfizar la atención.
-      return h('svg', { className: 'sc-avatar', viewBox: '0 0 200 200', 'aria-hidden': 'true' },
-        h('defs', null, h('radialGradient', { id: 'scOrb', cx: '40%', cy: '35%' },
+      const ring = alert ? 'var(--sc-err)' : 'var(--sc-accent)';
+      return h('svg', { className: 'sc-avatar', viewBox: '0 0 320 400', 'aria-hidden': 'true' },
+        h('defs', null, h('radialGradient', { id: 'orb' + uid2, cx: '40%', cy: '35%' },
           h('stop', { offset: '0%', stopColor: ring, stopOpacity: '0.95' }),
-          h('stop', { offset: '100%', stopColor: ring, stopOpacity: '0.25' }))),
-        h('circle', { cx: 100, cy: 100, r: 54, fill: 'url(#scOrb)' }),
+          h('stop', { offset: '100%', stopColor: ring, stopOpacity: '0.2' }))),
+        h('circle', { cx: 160, cy: 190, r: 86, fill: 'url(#orb' + uid2 + ')' }),
         [0, 1, 2].map((i) => h('circle', {
-          key: i, cx: 100, cy: 100, r: 62 + i * 13 + (speaking ? [0, 4, 2, 6][phase] : 0),
-          fill: 'none', stroke: ring, strokeOpacity: 0.28 - i * 0.07, strokeWidth: 2,
-        })),
-      );
+          key: i, cx: 160, cy: 190, r: 98 + i * 20 + (speaking ? [0, 6, 3, 9][phase] : 0),
+          fill: 'none', stroke: ring, strokeOpacity: 0.26 - i * 0.07, strokeWidth: 2.5,
+        })));
     }
-    return h('svg', { className: 'sc-avatar', viewBox: '0 0 200 200', 'aria-hidden': 'true' },
-      h('ellipse', { cx: 100, cy: 178, rx: 62, ry: 34, fill: ring, opacity: 0.22 }),
-      h('path', { d: 'M46 200c0-30 24-46 54-46s54 16 54 46z', fill: ring, opacity: 0.55 }),
-      h('ellipse', { cx: 100, cy: 96, rx: style === 'cartoon' ? 56 : 48, ry: style === 'cartoon' ? 54 : 58, fill: skin }),
-      style === 'cartoon'
-        ? h('path', { d: 'M44 78c6-30 34-44 56-44s50 14 56 44c-16-12-34-16-56-16s-40 4-56 16z', fill: '#3B2E2A' })
-        : h('path', { d: 'M52 74c8-26 30-38 48-38s40 12 48 38c-14-14-30-20-48-20s-34 6-48 20z', fill: '#4A3A33' }),
-      // Ojos: se cierran al parpadear.
-      blink
-        ? [h('rect', { key: 'l', x: 68, y: 94, width: 20, height: 3, rx: 1.5, fill: '#2A2320' }),
-           h('rect', { key: 'r', x: 112, y: 94, width: 20, height: 3, rx: 1.5, fill: '#2A2320' })]
-        : [h('circle', { key: 'l', cx: 78, cy: 95, r: eyeR, fill: '#2A2320' }),
-           h('circle', { key: 'r', cx: 122, cy: 95, r: eyeR, fill: '#2A2320' }),
-           style === 'cartoon' ? h('circle', { key: 'lh', cx: 80.5, cy: 92.5, r: 2.4, fill: '#fff' }) : null,
-           style === 'cartoon' ? h('circle', { key: 'rh', cx: 124.5, cy: 92.5, r: 2.4, fill: '#fff' }) : null],
-      // Cejas: la única señal de "estado de ánimo" del avatar.
-      h('path', { d: alert ? 'M66 80l24 8' : 'M66 84h24', stroke: '#3B2E2A', strokeWidth: 3.4, strokeLinecap: 'round', fill: 'none' }),
-      h('path', { d: alert ? 'M134 80l-24 8' : 'M110 84h24', stroke: '#3B2E2A', strokeWidth: 3.4, strokeLinecap: 'round', fill: 'none' }),
-      style === 'cartoon' ? h('circle', { cx: 64, cy: 112, r: 8, fill: '#F7A9A0', opacity: 0.6 }) : null,
-      style === 'cartoon' ? h('circle', { cx: 136, cy: 112, r: 8, fill: '#F7A9A0', opacity: 0.6 }) : null,
-      // Boca: se abre al hablar (sincronía simple, sin fonemas).
-      h('rect', { x: 100 - (speaking ? 15 : 13), y: 124, width: (speaking ? 30 : 26), height: mouthH, rx: mouthH / 2, fill: '#8C4B4B' }),
-      h('circle', { cx: 100, cy: 96, r: style === 'cartoon' ? 58 : 52, fill: 'none', stroke: ring, strokeOpacity: speaking ? 0.5 : 0.22, strokeWidth: 2 }),
+
+    const cartoon = style === 'cartoon';
+    const skin = s(a.skin) || AVATAR_DEFAULT.skin;
+    const skinHi = shade(skin, cartoon ? 0.34 : 0.24);
+    const skinLo = shade(skin, -0.28);
+    const hair = s(a.hair) || AVATAR_DEFAULT.hair;
+    const uniform = s(a.uniform) || AVATAR_DEFAULT.uniform;
+    const uniHi = shade(uniform, 0.16);
+    const uniLo = shade(uniform, -0.3);
+    const trim = alert ? '#F87171' : (s(a.trim) || AVATAR_DEFAULT.trim);
+    const officer = style === 'officer';
+    const beard = officer || style === 'human' ? s(a.beard) : 'none';
+    const cap = officer && a.cap !== false;
+    const eyeR = cartoon ? 8.5 : 7.4;
+    const mouthOpen = speaking ? [3, 12, 7, 15][phase] : (alert ? 4 : 2.5);
+
+    return h('svg', { className: 'sc-avatar', viewBox: '0 0 320 400', 'aria-hidden': 'true' },
+      h('defs', null,
+        h('radialGradient', { id: 'skin' + uid2, cx: '38%', cy: '28%', r: '78%' },
+          h('stop', { offset: '0%', stopColor: skinHi }),
+          h('stop', { offset: '62%', stopColor: skin }),
+          h('stop', { offset: '100%', stopColor: skinLo })),
+        h('linearGradient', { id: 'uni' + uid2, x1: '0', y1: '0', x2: '0.35', y2: '1' },
+          h('stop', { offset: '0%', stopColor: uniHi }),
+          h('stop', { offset: '55%', stopColor: uniform }),
+          h('stop', { offset: '100%', stopColor: uniLo })),
+        h('linearGradient', { id: 'cap' + uid2, x1: '0.1', y1: '0', x2: '0.9', y2: '1' },
+          h('stop', { offset: '0%', stopColor: shade(uniform, 0.22) }),
+          h('stop', { offset: '100%', stopColor: shade(uniform, -0.35) })),
+        h('radialGradient', { id: 'iris' + uid2, cx: '40%', cy: '35%' },
+          h('stop', { offset: '0%', stopColor: shade(s(a.eyes) || '#3A2A20', 0.45) }),
+          h('stop', { offset: '100%', stopColor: shade(s(a.eyes) || '#3A2A20', -0.35) })),
+        h('filter', { id: 'soft' + uid2, x: '-40%', y: '-40%', width: '180%', height: '180%' },
+          h('feGaussianBlur', { stdDeviation: '5' })),
+        h('filter', { id: 'tiny' + uid2, x: '-40%', y: '-40%', width: '180%', height: '180%' },
+          h('feGaussianBlur', { stdDeviation: '1.6' })),
+        h('clipPath', { id: 'eyeL' + uid2 }, h('ellipse', { cx: 126, cy: 176, rx: 17, ry: cartoon ? 12 : 9.6 })),
+        h('clipPath', { id: 'eyeR' + uid2 }, h('ellipse', { cx: 194, cy: 176, rx: 17, ry: cartoon ? 12 : 9.6 })),
+        h('clipPath', { id: 'head' + uid2 }, h('path', {
+          d: 'M84 168C84 108 112 70 160 70C208 70 236 108 236 168C236 202 229 232 214 256C199 280 181 296 160 296C139 296 121 280 106 256C91 232 84 202 84 168Z',
+        })),
+      ),
+
+      // Halo del estado: verde en calma, rojo cuando hay una alerta viva.
+      h('ellipse', {
+        cx: 160, cy: 214, rx: 128, ry: 138, fill: alert ? '#F87171' : trim,
+        opacity: speaking ? 0.16 : 0.09, filter: 'url(#soft' + uid2 + ')',
+      }),
+
+      h('g', { transform: 'translate(160 400) scale(' + build.toFixed(3) + ') translate(-160 -400)' },
+        // ── Torso y uniforme ────────────────────────────────────────────
+        h('g', { transform: 'translate(0 ' + (breathe * 0.5).toFixed(2) + ')' },
+          h('path', {
+            d: 'M8 400C8 344 52 312 108 298L160 288L212 298C268 312 312 344 312 400Z',
+            fill: 'url(#uni' + uid2 + ')',
+          }),
+          // Solapas y camisa
+          h('path', { d: 'M126 292L160 340L194 292L212 298L196 400H124L108 298Z', fill: shade(uniform, -0.16) }),
+          h('path', { d: 'M160 300L136 336L160 400L184 336Z', fill: shade(uniform, 0.3), opacity: 0.85 }),
+          // Charreteras con galones
+          h('path', { d: 'M40 356C58 330 84 312 110 302L124 330C98 340 74 356 58 378Z', fill: shade(uniform, 0.12) }),
+          h('path', { d: 'M280 356C262 330 236 312 210 302L196 330C222 340 246 356 262 378Z', fill: shade(uniform, 0.12) }),
+          [0, 1].map((i) => h('rect', { key: 'gl' + i, x: 62 + i * 14, y: 344 - i * 8, width: 26, height: 5, rx: 2.5, fill: trim, transform: 'rotate(-32 75 346)' })),
+          [0, 1].map((i) => h('rect', { key: 'gr' + i, x: 232 - i * 14, y: 344 - i * 8, width: 26, height: 5, rx: 2.5, fill: trim, transform: 'rotate(32 245 346)' })),
+          // Placa e identificación
+          h('path', { d: 'M96 348L124 342L128 368C128 380 118 388 110 392C102 388 92 380 92 368Z', fill: trim, opacity: 0.92 }),
+          h('text', {
+            x: 110, y: 372, textAnchor: 'middle', fontSize: 15, fontWeight: 700,
+            fill: shade(uniform, -0.4), fontFamily: 'Inter, system-ui, sans-serif',
+          }, s(a.badge || '').slice(0, 2).toUpperCase() || 'DB'),
+          h('rect', { x: 196, y: 352, width: 74, height: 15, rx: 3, fill: shade(uniform, -0.42) }),
+          h('text', {
+            x: 233, y: 363.5, textAnchor: 'middle', fontSize: 10, letterSpacing: '0.06em',
+            fill: shade(uniform, 0.55), fontFamily: 'Inter, system-ui, sans-serif',
+          }, s(a.name).split(' ').slice(-1)[0].slice(0, 10).toUpperCase() || 'SEGURIDAD'),
+        ),
+
+        // ── Cabeza ──────────────────────────────────────────────────────
+        h('g', { transform: 'rotate(' + sway.toFixed(2) + ' 160 300) translate(0 ' + (breathe * 0.3).toFixed(2) + ')' },
+          // Cuello y su sombra
+          h('path', { d: 'M132 250H188V300C188 314 176 322 160 322C144 322 132 314 132 250Z', fill: shade(skin, -0.22) }),
+          h('ellipse', { cx: 160, cy: 268, rx: 44, ry: 16, fill: '#000', opacity: 0.28, filter: 'url(#soft' + uid2 + ')' }),
+          // Orejas
+          h('ellipse', { cx: 84, cy: 186, rx: 12, ry: 20, fill: shade(skin, -0.1) }),
+          h('ellipse', { cx: 236, cy: 186, rx: 12, ry: 20, fill: shade(skin, -0.1) }),
+          // Rostro
+          h('path', {
+            d: 'M84 168C84 108 112 70 160 70C208 70 236 108 236 168C236 202 229 232 214 256C199 280 181 296 160 296C139 296 121 280 106 256C91 232 84 202 84 168Z',
+            fill: 'url(#skin' + uid2 + ')',
+          }),
+          // Volumen: pómulos, sien y luz de contorno
+          h('g', { clipPath: 'url(#head' + uid2 + ')' },
+            h('ellipse', { cx: 104, cy: 214, rx: 26, ry: 34, fill: skinLo, opacity: 0.34, filter: 'url(#soft' + uid2 + ')' }),
+            h('ellipse', { cx: 216, cy: 214, rx: 26, ry: 34, fill: skinLo, opacity: 0.34, filter: 'url(#soft' + uid2 + ')' }),
+            h('path', { d: 'M228 120C240 160 238 214 220 256L244 256V110Z', fill: '#fff', opacity: 0.16, filter: 'url(#soft' + uid2 + ')' }),
+            h('ellipse', { cx: 128, cy: 128, rx: 34, ry: 26, fill: '#fff', opacity: 0.12, filter: 'url(#soft' + uid2 + ')' }),
+            beard && beard !== 'none' ? h('path', {
+              d: beard === 'full'
+                ? 'M92 178C92 250 118 296 160 296C202 296 228 250 228 178C228 232 202 258 160 258C118 258 92 232 92 178Z'
+                : 'M104 216C110 262 130 296 160 296C190 296 210 262 216 216C206 250 186 264 160 264C134 264 114 250 104 216Z',
+              fill: hair, opacity: 0.9,
+            }) : null,
+            beard && beard !== 'none' ? h('path', {
+              d: 'M132 224C142 218 178 218 188 224C180 232 172 234 160 234C148 234 140 232 132 224Z', fill: hair, opacity: 0.92,
+            }) : null,
+          ),
+          // Pelo (cuando no hay gorra)
+          !cap ? h('path', {
+            d: cartoon
+              ? 'M80 154C82 96 116 62 160 62C204 62 238 96 240 154C224 122 198 106 160 106C122 106 96 122 80 154Z'
+              : 'M84 150C88 100 118 68 160 68C202 68 232 100 236 150C222 116 196 100 160 100C124 100 98 116 84 150Z',
+            fill: hair,
+          }) : null,
+
+          // ── Ojos ──────────────────────────────────────────────────────
+          h('g', null,
+            h('path', { d: 'M104 148C116 138 138 136 150 144', stroke: hair, strokeWidth: alert ? 8 : 7, strokeLinecap: 'round', fill: 'none', transform: alert ? 'rotate(-7 127 142)' : '' }),
+            h('path', { d: 'M216 148C204 138 182 136 170 144', stroke: hair, strokeWidth: alert ? 8 : 7, strokeLinecap: 'round', fill: 'none', transform: alert ? 'rotate(7 193 142)' : '' }),
+            ['L', 'R'].map((side) => {
+              const cx = side === 'L' ? 126 : 194;
+              return h('g', { key: side, clipPath: 'url(#eye' + side + uid2 + ')' },
+                h('ellipse', { cx, cy: 176, rx: 17, ry: cartoon ? 12 : 9.6, fill: '#F6F1EA' }),
+                h('ellipse', { cx: cx - 6, cy: 176, rx: 8, ry: 10, fill: '#000', opacity: 0.1, filter: 'url(#tiny' + uid2 + ')' }),
+                h('g', { transform: 'translate(' + gx.toFixed(2) + ' ' + gy.toFixed(2) + ')' },
+                  h('circle', { cx, cy: 176, r: eyeR, fill: 'url(#iris' + uid2 + ')' }),
+                  h('circle', { cx, cy: 176, r: eyeR * 0.45, fill: '#0B0906' }),
+                  h('circle', { cx: cx - eyeR * 0.42, cy: 172.4, r: cartoon ? 3.1 : 2.4, fill: '#fff', opacity: 0.92 }),
+                  h('circle', { cx: cx + eyeR * 0.36, cy: 179.6, r: 1.3, fill: '#fff', opacity: 0.45 })),
+                // Párpado: baja del todo al parpadear.
+                h('rect', {
+                  x: cx - 19, y: blink ? 164 : 143, width: 38, height: 26, fill: skin,
+                  style: { transition: 'y .07s linear' },
+                }),
+                h('path', { d: 'M' + (cx - 17) + ' 168C' + (cx - 8) + ' 161 ' + (cx + 8) + ' 161 ' + (cx + 17) + ' 168', stroke: shade(skin, -0.35), strokeWidth: 1.6, fill: 'none', opacity: 0.7 }),
+                h('path', { d: 'M' + (cx - 15) + ' 186C' + (cx - 6) + ' 190 ' + (cx + 6) + ' 190 ' + (cx + 15) + ' 186', stroke: shade(skin, -0.3), strokeWidth: 1.3, fill: 'none', opacity: 0.5 }),
+              );
+            }),
+          ),
+
+          // ── Nariz y boca ──────────────────────────────────────────────
+          h('path', { d: 'M158 178C154 196 146 208 140 214C146 220 156 222 160 222C164 222 174 220 180 214C174 208 166 196 162 178Z', fill: skinLo, opacity: 0.3, filter: 'url(#tiny' + uid2 + ')' }),
+          h('path', { d: 'M142 214C148 210 172 210 178 214', stroke: shade(skin, -0.4), strokeWidth: 1.5, fill: 'none', opacity: 0.55 }),
+          h('ellipse', { cx: 147, cy: 214, rx: 3.2, ry: 2.1, fill: shade(skin, -0.55), opacity: 0.75 }),
+          h('ellipse', { cx: 173, cy: 214, rx: 3.2, ry: 2.1, fill: shade(skin, -0.55), opacity: 0.75 }),
+          h('ellipse', { cx: 152, cy: 200, rx: 5, ry: 7, fill: '#fff', opacity: 0.18, filter: 'url(#tiny' + uid2 + ')' }),
+          h('g', null,
+            h('path', {
+              d: 'M132 240C142 232 178 232 188 240C178 248 142 248 132 240Z',
+              fill: shade(skin, -0.42), opacity: 0.9,
+            }),
+            h('ellipse', { cx: 160, cy: 241, rx: speaking ? 17 : 14, ry: mouthOpen, fill: '#3A1D1D' }),
+            mouthOpen > 6 ? h('ellipse', { cx: 160, cy: 236 + mouthOpen * 0.1, rx: 11, ry: 2.6, fill: '#F4EDE7', opacity: 0.85 }) : null,
+            h('path', { d: 'M134 252C144 258 176 258 186 252', stroke: shade(skin, -0.34), strokeWidth: 1.4, fill: 'none', opacity: 0.6 }),
+          ),
+
+          // ── Gorra ─────────────────────────────────────────────────────
+          cap ? h('g', null,
+            h('path', { d: 'M76 132C80 88 112 56 160 56C208 56 240 88 244 132C226 118 198 108 160 108C122 108 94 118 76 132Z', fill: 'url(#cap' + uid2 + ')' }),
+            h('path', { d: 'M74 130H246V152H74Z', fill: shade(uniform, -0.5) }),
+            h('path', { d: 'M62 152C62 168 100 180 160 180C220 180 258 168 258 152C258 146 220 144 160 144C100 144 62 146 62 152Z', fill: shade(uniform, -0.62) }),
+            h('path', { d: 'M62 152C62 162 100 172 160 172C220 172 258 162 258 152', stroke: '#fff', strokeOpacity: 0.14, strokeWidth: 3, fill: 'none' }),
+            h('path', { d: 'M148 108L160 84L172 108C168 116 152 116 148 108Z', fill: trim }),
+            h('rect', { x: 116, y: 132, width: 88, height: 18, rx: 3, fill: shade(uniform, -0.68) }),
+            h('circle', { cx: 160, cy: 141, r: 6.5, fill: trim, opacity: 0.95 }),
+          ) : null,
+        ),
+      ),
+
+      // Aro de "en línea": late suave al hablar.
+      h('ellipse', {
+        cx: 160, cy: 216, rx: 130, ry: 142, fill: 'none',
+        stroke: alert ? '#F87171' : trim, strokeOpacity: speaking ? 0.5 : 0.2,
+        strokeWidth: speaking ? 3 : 2,
+      }),
     );
   }
 
@@ -1361,6 +2095,81 @@ export default function mount(shell) {
   const levelPill = (lv) => h('span', { className: 'sc-lv sc-lv-' + levelInfo(lv).color },
     'N' + clamp(num(lv, 0), 0, 5) + ' · ' + levelInfo(lv).label);
 
+  /**
+   * Estudio del avatar: el conserje virtual es 100% editable —nombre, estilo,
+   * piel, pelo, barba, gorra, uniforme, vivos, porte e insignia— con la vista
+   * previa al lado. Se guarda con la instancia, así que cada comunidad tiene el
+   * suyo y todas las consolas lo ven igual.
+   */
+  function AvatarStudio(props) {
+    const m = props.m;
+    const [draft, setDraft] = useState(avatarOf());
+    const [open, setOpen] = useState(false);
+    const set = (k, v) => setDraft((d) => Object.assign({}, d, { [k]: v }));
+    useEffect(() => { setDraft(avatarOf()); }, [m.avatar]);
+    const PRESETS = [
+      { label: 'Denzel Barrett', look: Object.assign({}, AVATAR_DEFAULT) },
+      { label: 'Oficial de noche', look: Object.assign({}, AVATAR_DEFAULT, { name: 'Marco Silva', uniform: '#111827', trim: '#F59E0B', beard: 'full', skin: '#6B4230' }) },
+      { label: 'Recepción corporativa', look: Object.assign({}, AVATAR_DEFAULT, { name: 'Elena Ruiz', cap: false, beard: 'none', uniform: '#334155', trim: '#22D3EE', hair: '#2B1B12', skin: '#D9A87E' }) },
+      { label: 'Caricatura amable', look: Object.assign({}, AVATAR_DEFAULT, { name: 'Kimo', style: 'cartoon', cap: false, beard: 'none', trim: '#19ACB1' }) },
+    ];
+    const save = () => {
+      const next = Object.assign({}, AVATAR_DEFAULT, draft);
+      setModel({ avatar: next });
+      scheduleDefinition({ avatar: next });
+      shell.notify({ level: 'success', text: 'Conserje virtual actualizado: ' + next.name + '.' });
+    };
+
+    return h('section', { className: 'sc-card' },
+      h('h3', null, '🎨 Conserje virtual',
+        h('span', { className: 'sc-chip' }, s(draft.name)),
+        h('span', { className: 'sc-spacer' }),
+        btn({ onClick: () => setOpen(!open) }, open ? 'Cerrar estudio' : 'Editar aspecto')),
+      h('div', { className: 'sc-studio' },
+        h('div', { className: 'sc-studio-prev' },
+          h(Avatar, { look: draft, idSuffix: 'std', speaking: m.face.speaking, mood: m.face.mood, focus: m.sensor.focus }),
+          h('div', { className: 'sc-row' },
+            btn({ onClick: () => speak('Buenas tardes. Soy ' + s(draft.name) + ', del equipo de seguridad. ¿En qué puedo ayudarte?', 'talk') }, '🔊 Probar voz'),
+            open ? btn({ className: 'sc-btn sc-btn-primary', onClick: save }, 'Guardar') : null)),
+        open ? h('div', { className: 'sc-studio-form' },
+          h('div', { className: 'sc-form-grid' },
+            field('Nombre', h('input', { className: 'sc-input', value: s(draft.name), onChange: (e) => set('name', e.target.value) })),
+            field('Estilo', h('select', { className: 'sc-input', value: s(draft.style), onChange: (e) => set('style', e.target.value) },
+              h('option', { value: 'officer' }, 'Oficial de seguridad (3D)'),
+              h('option', { value: 'human' }, 'Humano sin uniforme'),
+              h('option', { value: 'cartoon' }, 'Caricaturizado'),
+              h('option', { value: 'minimal' }, 'Abstracto (sin rostro)'))),
+            field('Piel', h('input', { className: 'sc-input sc-color', type: 'color', value: s(draft.skin), onChange: (e) => set('skin', e.target.value) })),
+            field('Pelo', h('input', { className: 'sc-input sc-color', type: 'color', value: s(draft.hair), onChange: (e) => set('hair', e.target.value) })),
+            field('Ojos', h('input', { className: 'sc-input sc-color', type: 'color', value: s(draft.eyes), onChange: (e) => set('eyes', e.target.value) })),
+            field('Uniforme', h('input', { className: 'sc-input sc-color', type: 'color', value: s(draft.uniform), onChange: (e) => set('uniform', e.target.value) })),
+            field('Vivos e insignia', h('input', { className: 'sc-input sc-color', type: 'color', value: s(draft.trim), onChange: (e) => set('trim', e.target.value) })),
+            field('Barba', h('select', { className: 'sc-input', value: s(draft.beard), onChange: (e) => set('beard', e.target.value) },
+              h('option', { value: 'none' }, 'Sin barba'),
+              h('option', { value: 'short' }, 'Corta'),
+              h('option', { value: 'full' }, 'Cerrada'))),
+            field('Iniciales de la placa', h('input', { className: 'sc-input', maxLength: 2, value: s(draft.badge), onChange: (e) => set('badge', e.target.value.toUpperCase()) })),
+            field('Porte', h('input', {
+              className: 'sc-input', type: 'range', min: 0.9, max: 1.2, step: 0.01,
+              value: num(draft.build, 1), onChange: (e) => set('build', Number(e.target.value)),
+            }), 'Más alto = más imponente en pantalla'),
+          ),
+          h('label', { className: 'sc-switch' },
+            h('input', { type: 'checkbox', checked: draft.cap !== false, onChange: (e) => set('cap', e.target.checked) }),
+            h('span', null, 'Con gorra de servicio')),
+          h('div', { className: 'sc-row sc-row-wrap' },
+            PRESETS.map((p) => btn({ key: p.label, onClick: () => setDraft(p.look) }, p.label))),
+          h('div', { className: 'sc-row' },
+            btn({ className: 'sc-btn sc-btn-primary', onClick: save }, 'Guardar conserje'),
+            btn({ onClick: () => setDraft(avatarOf()) }, 'Descartar cambios'),
+            btn({ className: 'sc-btn sc-btn-no', onClick: () => { setModel({ avatar: null }); scheduleDefinition({ avatar: null }); setDraft(AVATAR_DEFAULT); } }, 'Volver al original')),
+          h('p', { className: 'sc-note' }, 'El nombre y el aspecto viajan con la instancia: si tienes dos accesos, cada uno puede tener '
+            + 'su propio conserje. ⚙️ Configurar solo siembra el nombre y el estilo iniciales; lo que se guarda aquí manda.'),
+        ) : null,
+      ),
+    );
+  }
+
   // ── Vista: centro de operaciones ────────────────────────────────────────
   function Panel(props) {
     const m = props.m;
@@ -1368,10 +2177,10 @@ export default function mount(shell) {
     const open = m.incidents.filter((i) => i.status !== 'closed').slice(0, 6);
     const pending = m.accesses.filter((a) => a.status === 'pending');
     const tiles = [
+      { k: 'Esperando validación', v: k.pendingReview, sub: 'la central decide', tone: k.pendingReview ? 'warn' : 'ok' },
       { k: 'Incidentes abiertos', v: k.open, sub: k.critical + ' críticos', tone: k.critical ? 'err' : k.open ? 'warn' : 'ok' },
       { k: 'Accesos hoy', v: k.todayAccess, sub: k.pending + ' esperando decisión', tone: k.pending ? 'warn' : 'ok' },
       { k: 'Encomiendas', v: k.parcels, sub: 'por retirar', tone: 'ok' },
-      { k: 'Escalamientos', v: k.escalated, sub: 'con servicio externo', tone: k.escalated ? 'warn' : 'ok' },
     ];
     return h('div', { className: 'sc-view sc-panel' },
       h('div', { className: 'sc-tiles' }, tiles.map((t) => h('div', { key: t.k, className: 'sc-tile sc-tile-' + t.tone },
@@ -1407,6 +2216,7 @@ export default function mount(shell) {
           h('table', { className: 'sc-kpi' }, h('tbody', null,
             h('tr', null, h('td', null, 'Detección → registro (MTTD)'), h('td', null, k.mttd == null ? '—' : fmtDur(k.mttd))),
             h('tr', null, h('td', null, 'Registro → alguien lo toma (MTTE)'), h('td', null, k.mtte == null ? '—' : fmtDur(k.mtte))),
+            h('tr', null, h('td', null, 'Registro → validación de la central'), h('td', null, k.mttv == null ? '—' : fmtDur(k.mttv))),
             h('tr', null, h('td', null, 'Registro → primera acción (MTTR)'), h('td', null, k.mttr == null ? '—' : fmtDur(k.mttr))),
             h('tr', null, h('td', null, 'Incidentes cerrados'), h('td', null, String(k.closed))),
             h('tr', null, h('td', null, 'Cerrados como falso positivo'), h('td', null, String(k.falsePositives))),
@@ -1415,6 +2225,8 @@ export default function mount(shell) {
             + 'no basta con que la detección funcione, tiene que acortar la respuesta.'),
         ),
       ),
+
+      h(AvatarStudio, { m }),
 
       h('section', { className: 'sc-card' },
         h('h3', null, 'Incidentes en curso'),
@@ -1513,19 +2325,26 @@ export default function mount(shell) {
   function Totem(props) {
     const m = props.m;
     const t = m.totem;
+    const look = avatarOf();
+    const live = m.link.state === 'active';
+    const connecting = m.link.state === 'calling' || m.link.state === 'connecting';
     const [unitQ, setUnitQ] = useState('');
     const [who, setWho] = useState('');
     const [pin, setPin] = useState('');
     const [carrier, setCarrier] = useState('');
     const [pickCode, setPickCode] = useState('');
     const [kb, setKb] = useState({ open: false, target: '', mode: 'abc', shift: true });
+    const [clock, setClock] = useState(new Date());
+    useEffect(() => {
+      const c = setInterval(() => setClock(new Date()), 20000);
+      return () => clearInterval(c);
+    }, []);
     const matches = useMemo(() => {
       const c = canon(unitQ);
-      if (!c) return m.units.slice(0, 6);
-      return m.units.filter((u) => canon(u.code).includes(c) || canon(u.name).includes(c) || canon(u.tower).includes(c)).slice(0, 8);
+      if (!c) return m.units.slice(0, 8);
+      return m.units.filter((u) => canon(u.code).includes(c) || canon(u.name).includes(c) || canon(u.tower).includes(c)).slice(0, 10);
     }, [unitQ, m.units]);
 
-    // Campos que puede escribir el teclado en pantalla.
     const FIELDS = {
       who: { value: who, set: setWho, mode: 'abc', label: 'Tu nombre' },
       unitQ: { value: unitQ, set: setUnitQ, mode: '123', label: 'Unidad' },
@@ -1547,10 +2366,6 @@ export default function mount(shell) {
     };
     const kbBack = () => { const f = FIELDS[kb.target]; if (f) f.set(s(f.value).slice(0, -1)); };
 
-    /**
-     * Campo del tótem. En modo tótem (pantalla del acceso) tocarlo despliega el
-     * teclado en pantalla; en la consola no, porque ahí sí hay teclado físico.
-     */
     const tinput = (name, extra) => h('div', { className: 'sc-tot-input' },
       h('input', Object.assign({
         className: 'sc-input sc-input-big' + (kb.open && kb.target === name ? ' sc-input-kb' : ''),
@@ -1564,13 +2379,27 @@ export default function mount(shell) {
     const say = t.message || (t.step === 'home' ? HELLO() : '');
     const back = () => { closeKb(); totemGo('home', {}, ''); };
 
+    /** Botón grande del menú: ícono en disco, título y una línea de ayuda. */
+    const bigBtn = (icon, title, hint, onClick, cls) => btn({
+      className: 'sc-tot-b' + (cls ? ' ' + cls : ''), onClick,
+    }, h('span', { className: 'sc-tot-b-ic' }, icon),
+       h('span', { className: 'sc-tot-b-tx' }, h('strong', null, title), hint ? h('span', null, hint) : null));
+
     const home = h('div', { className: 'sc-tot-menu' },
-      btn({ className: 'sc-tot-b', onClick: () => totemGo('visit', {}, '¿A qué unidad vienes? Puedes escribir el número.') }, h('span', null, '🚶'), 'Vengo de visita'),
-      btn({ className: 'sc-tot-b', onClick: () => totemGo('resident', {}, 'Escribe tu unidad y tu código de ingreso.') }, h('span', null, '🔑'), 'Soy residente'),
-      btn({ className: 'sc-tot-b', onClick: () => totemGo('call', {}, '¿A qué unidad quieres llamar?') }, h('span', null, '📞'), 'Llamar a una unidad'),
-      btn({ className: 'sc-tot-b', onClick: () => totemGo('parcel', {}, 'Indica la unidad de destino de la encomienda.') }, h('span', null, '📦'), 'Dejar una encomienda'),
-      btn({ className: 'sc-tot-b', onClick: () => totemGo('pickup', {}, 'Escribe el código de retiro que recibiste.') }, h('span', null, '🎁'), 'Retirar una encomienda'),
-      btn({ className: 'sc-tot-b sc-tot-sos', onClick: () => totemGo('help', {}, '¿Qué tipo de ayuda necesitas?', 'alert') }, h('span', null, '🆘'), 'Necesito ayuda'),
+      bigBtn('🚶', 'Vengo de visita', 'Aviso a la unidad y espero su respuesta',
+        () => totemGo('visit', {}, '¿A qué unidad vienes? Puedes escribir el número o tocarlo en la lista.')),
+      bigBtn('🔑', 'Soy residente', 'Ingreso con el código de mi unidad',
+        () => totemGo('resident', {}, 'Escribe tu unidad y tu código de ingreso.')),
+      bigBtn('📞', 'Llamar a una unidad', 'Citofonía desde el tótem',
+        () => totemGo('call', {}, '¿A qué unidad quieres llamar?')),
+      bigBtn('📦', 'Dejar una encomienda', 'Se registra y avisamos a la unidad',
+        () => totemGo('parcel', {}, 'Indica la unidad de destino de la encomienda.')),
+      bigBtn('🎁', 'Retirar una encomienda', 'Con el código que recibiste',
+        () => totemGo('pickup', {}, 'Escribe el código de retiro que recibiste.')),
+      bigBtn('🎧', 'Hablar con una persona', 'Central de monitoreo, en vivo con audio y video',
+        () => { totemGo('human', {}, 'Te estoy comunicando con la central de monitoreo. Un momento, por favor.'); void requestLink({ to: 'central', reason: 'petición del visitante' }); }, 'sc-tot-human'),
+      bigBtn('🆘', 'Necesito ayuda', 'Emergencia médica, fuego o seguridad',
+        () => totemGo('help', {}, '¿Qué tipo de ayuda necesitas?', 'alert'), 'sc-tot-sos'),
     );
 
     const unitPicker = (onPick) => h('div', { className: 'sc-tot-form' },
@@ -1587,8 +2416,7 @@ export default function mount(shell) {
       body = h('div', { className: 'sc-tot-form' },
         tinput('who', { placeholder: '¿Cuál es tu nombre? (opcional)' }),
         unitPicker((u) => { void totemAnnounce(u.code, who); setUnitQ(''); }),
-        t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null,
-      );
+        t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null);
     } else if (step === 'call') {
       body = unitPicker((u) => { void totemCall(u.code, who); setUnitQ(''); });
     } else if (step === 'resident') {
@@ -1597,8 +2425,7 @@ export default function mount(shell) {
         tinput('pin', { type: 'password', inputMode: 'numeric', placeholder: 'Código de ingreso' }),
         btn({ className: 'sc-btn sc-btn-primary sc-btn-big', onClick: () => { closeKb(); void totemPin(unitQ, pin); setPin(''); } }, 'Entrar'),
         t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null,
-        h('p', { className: 'sc-note' }, 'Sin biometría: el ingreso se valida con un código de la unidad.'),
-      );
+        h('p', { className: 'sc-note' }, 'Sin biometría: el ingreso se valida con un código de la unidad.'));
     } else if (step === 'parcel') {
       body = h('div', { className: 'sc-tot-form' },
         tinput('carrier', { placeholder: 'Empresa de reparto' }),
@@ -1607,8 +2434,7 @@ export default function mount(shell) {
           setUnitQ(''); setCarrier('');
           totemGo('parcel-done', { code: r.code, unit: u.code },
             'Encomienda registrada para ' + u.code + '. Avisamos a la unidad con su código de retiro. Gracias.');
-        }),
-      );
+        }));
     } else if (step === 'parcel-done') {
       body = h('div', { className: 'sc-tot-form sc-tot-center' },
         h('div', { className: 'sc-code' }, s(t.ctx.code)),
@@ -1626,16 +2452,25 @@ export default function mount(shell) {
           totemGo('done', { ok: true }, 'Retiro registrado. Gracias.');
         } }, 'Retirar'),
         t.ctx.error ? h('p', { className: 'sc-warn' }, t.ctx.error) : null);
+    } else if (step === 'human') {
+      body = h('div', { className: 'sc-tot-form sc-tot-center' },
+        h('p', { className: 'sc-tot-big' }, live ? 'Estás hablando con la central.' : connecting ? 'Conectando con la central…' : 'La central no respondió.'),
+        h('p', { className: 'sc-note' }, live
+          ? 'Te atiende una persona del equipo de monitoreo. Habla con normalidad: te escucha y te ve.'
+          : 'Si nadie contesta, puedes dejar un aviso a la unidad o pedir ayuda desde el menú.'),
+        live
+          ? btn({ className: 'sc-btn sc-btn-danger sc-btn-big', onClick: () => { void hangup('cerrado por el visitante'); back(); } }, 'Terminar la llamada')
+          : btn({ className: 'sc-btn sc-btn-big', onClick: back }, 'Volver'));
     } else if (step === 'help') {
       body = h('div', { className: 'sc-tot-menu' },
-        btn({ className: 'sc-tot-b sc-tot-sos', onClick: () => totemHelp('medical') }, h('span', null, '🚑'), 'Emergencia médica'),
-        btn({ className: 'sc-tot-b sc-tot-sos', onClick: () => totemHelp('fire') }, h('span', null, '🔥'), 'Fuego o humo'),
-        btn({ className: 'sc-tot-b sc-tot-sos', onClick: () => totemHelp('security') }, h('span', null, '🚨'), 'Me siento en peligro'),
-        btn({ className: 'sc-tot-b', onClick: back }, h('span', null, '↩'), 'Volver'));
+        bigBtn('🚑', 'Emergencia médica', 'Aviso inmediato y contacto con SAMU', () => totemHelp('medical'), 'sc-tot-sos'),
+        bigBtn('🔥', 'Fuego o humo', 'Aviso inmediato y contacto con Bomberos', () => totemHelp('fire'), 'sc-tot-sos'),
+        bigBtn('🚨', 'Me siento en peligro', 'Aviso a seguridad y a la central', () => totemHelp('security'), 'sc-tot-sos'),
+        bigBtn('↩', 'Volver', '', back));
     } else if (step === 'help-done') {
       body = h('div', { className: 'sc-tot-form sc-tot-center' },
         h('p', { className: 'sc-tot-big' }, 'El personal ya fue avisado.'),
-        h('p', { className: 'sc-note' }, 'Una persona del equipo confirmará el contacto con el servicio de emergencia. '
+        h('p', { className: 'sc-note' }, 'Una persona de la central confirmará el contacto con el servicio de emergencia. '
           + 'Si puedes, quédate aquí: el tótem mantiene el canal abierto.'),
         btn({ className: 'sc-btn sc-btn-big', onClick: back }, 'Volver'));
     } else if (step === 'waiting') {
@@ -1653,24 +2488,42 @@ export default function mount(shell) {
     }
 
     const kbField = FIELDS[kb.target];
-    // El botón de teclado del pie escribe en el primer campo del paso.
     const firstField = step === 'visit' ? 'who'
       : step === 'resident' ? 'unitQ' : step === 'call' ? 'unitQ'
       : step === 'parcel' ? 'carrier' : step === 'pickup' ? 'pickCode' : '';
+    const hhmm = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     return h('div', { className: 'sc-view sc-totem' + (m.kiosk ? ' sc-kiosk' : '') },
+      // Barra superior: dónde estoy, qué hora es y si la central está mirando.
+      h('div', { className: 'sc-tot-top' },
+        h('span', { className: 'sc-tot-place' }, '🛡️ ' + (s(m.settings.siteName) || 'Acceso')),
+        h('span', { className: 'sc-tot-clock' }, hhmm),
+        live
+          ? h('span', { className: 'sc-tot-onair' }, h('span', { className: 'sc-dot' }), 'EN VIVO CON LA CENTRAL')
+          : h('span', { className: 'sc-tot-state' }, m.sensor.cam ? '🎥 Acceso monitoreado' : 'Acceso monitoreado')),
+
       h('div', { className: 'sc-tot-stage' },
         h('div', { className: 'sc-tot-side' },
-          h('div', { className: 'sc-tot-avatar' },
-            h(Avatar, { style: m.settings.avatarStyle, speaking: m.avatar.speaking, mood: m.avatar.mood }),
-            h('div', { className: 'sc-tot-name' }, s(m.settings.avatarName) || 'Kim',
-              h('span', { className: 'sc-tot-live' + (m.avatar.speaking ? ' on' : '') },
-                m.avatar.speaking ? 'hablando' : 'conserje virtual · en línea')),
-          ),
+          // Marco del conserje: el avatar, o la cara del operador si hay enlace.
+          h('div', { className: 'sc-tot-avatar' + (live ? ' sc-tot-avatar-live' : '') },
+            live
+              ? h(LiveVideo, { on: true, nonce: m.link.since, className: 'sc-op-video' })
+              : h(Avatar, {
+                look, idSuffix: 'tot',
+                speaking: m.face.speaking, mood: m.face.mood, focus: m.sensor.focus,
+              }),
+            h('div', { className: 'sc-tot-tag' },
+              h('strong', null, live ? 'Central de monitoreo' : s(look.name)),
+              h('span', { className: 'sc-tot-live' + (m.face.speaking || live ? ' on' : '') },
+                live ? '● en vivo · te atiende una persona'
+                  : connecting ? 'llamando a la central…'
+                  : m.face.speaking ? 'hablando' : 'conserje virtual · en línea'))),
+          // Espejo del acceso: quien está frente a la cámara.
           h(Mirror, { on: !!m.sensor.cam }),
         ),
+
         h('div', { className: 'sc-tot-panelx' },
-          h('p', { className: 'sc-tot-say' }, say || HELLO()),
+          h('div', { className: 'sc-tot-bubble' }, h('p', { className: 'sc-tot-say' }, say || HELLO())),
           body,
           kb.open && kbField ? h(Keyboard, {
             mode: kb.mode, shift: kb.shift, value: kbField.value, label: kbField.label, secret: kbField.secret,
@@ -1681,14 +2534,196 @@ export default function mount(shell) {
           step !== 'home' ? btn({ className: 'sc-btn sc-btn-ghost', onClick: back }, '← Inicio') : null,
         ),
       ),
+
       h('div', { className: 'sc-tot-foot' },
-        h('span', null, '🔒 Acceso monitoreado. Se registran ingresos, salidas y eventos de seguridad. '
-          + 'La cámara se analiza en este equipo y no se graba. Sin reconocimiento facial. Retención: '
+        h('span', null, '🔒 Se registran ingresos, salidas y eventos de seguridad. La cámara se analiza en este equipo y no se graba; '
+          + 'si la central abre el enlace, se avisa arriba. Sin reconocimiento facial. Retención: '
           + num(m.settings.retentionDays, LEGAL_RETENTION_DAYS) + ' días.'),
         h('span', { className: 'sc-row' },
           firstField ? btn({ className: 'sc-btn' + (kb.open ? ' sc-btn-on' : ''), onClick: () => (kb.open ? closeKb() : openKb(firstField)) }, '⌨ Teclado') : null,
           btn({ className: 'sc-btn' + (m.sensor.cam ? ' sc-btn-on' : ''), onClick: () => (m.sensor.cam ? stopCamera() : startCamera()) }, m.sensor.cam ? '🎥 Cámara encendida' : '🎥 Encender cámara'),
+          live ? btn({ className: 'sc-btn sc-btn-danger', onClick: () => hangup('cerrado en el tótem') }, '⏹ Cortar enlace') : null,
           btn({ className: 'sc-btn sc-btn-ghost', onClick: () => setModel({ kiosk: !m.kiosk }) }, m.kiosk ? 'Salir del modo tótem' : 'Modo tótem (pantalla completa)')),
+      ),
+    );
+  }
+
+  /** Video del otro extremo del enlace (la central ve el acceso y viceversa). */
+  function LiveVideo(props) {
+    const ref = useRef(null);
+    const on = !!props.on;
+    useEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      try {
+        if (on && rtc.remote) {
+          el.srcObject = rtc.remote;
+          const pl = el.play();
+          if (pl && typeof pl.catch === 'function') pl.catch(() => { /* el gesto del operador lo destraba */ });
+        } else { el.srcObject = null; }
+      } catch (e) { /* sin señal */ }
+      return () => { try { if (el) el.srcObject = null; } catch (e) { /* noop */ } };
+    }, [on, props.nonce]);
+    return h('video', { ref, className: s(props.className) || 'sc-live-video', autoPlay: true, playsInline: true, muted: !!props.muted });
+  }
+
+  /** Botón de archivo: abre el selector y sube al Cloud Storage. */
+  function UploadButton(props) {
+    const ref = useRef(null);
+    const [busy, setBusy] = useState(false);
+    return h('span', { className: 'sc-upload' },
+      h('input', {
+        ref, type: 'file', className: 'sc-file', multiple: props.multiple !== false,
+        accept: props.accept,
+        onChange: async (e) => {
+          const files = Array.from((e.target && e.target.files) || []);
+          if (!files.length) return;
+          setBusy(true);
+          let ok = 0;
+          for (const f of files) {
+            try { await attachDoc(f, props.meta || {}); ok++; }
+            catch (err) { shell.notify({ level: 'error', text: 'No se pudo subir ' + f.name + ': ' + s((err && err.message) || err) }); }
+          }
+          setBusy(false);
+          try { e.target.value = ''; } catch (err) { /* noop */ }
+          if (ok) shell.notify({ level: 'success', text: ok + ' archivo(s) en el almacenamiento.' });
+          if (typeof props.onDone === 'function') props.onDone();
+        },
+      }),
+      btn({
+        className: 'sc-btn' + (props.primary ? ' sc-btn-primary' : ''), disabled: busy,
+        onClick: () => { const el = ref.current; if (el && el.click) el.click(); },
+      }, busy ? 'Subiendo…' : (s(props.label) || '⬆ Subir archivo')),
+    );
+  }
+
+  // ── Vista: central de monitoreo ─────────────────────────────────────────
+  function Central(props) {
+    const m = props.m;
+    const [by, setBy] = useState('');
+    const [note, setNote] = useState('');
+    const ringing = (m.calls || []).filter((c) => c.status === 'ringing');
+    const active = (m.calls || []).find((c) => c.id === m.link.callId);
+    const pend = m.incidents.filter((i) => i.review && i.review.status === 'pending');
+    const history = (m.calls || []).filter((c) => c.status === 'ended').slice(0, 8);
+    const linkState = m.link.state;
+    const operator = s(by).trim() || actorName();
+
+    return h('div', { className: 'sc-view' },
+      h('section', { className: 'sc-card sc-card-live' },
+        h('h3', null, '📡 Enlace con el acceso',
+          h('span', { className: 'sc-chip sc-chip-' + (linkState === 'active' ? 'ok' : linkState === 'idle' ? '' : 'warn') },
+            linkState === 'active' ? 'en vivo' : linkState === 'idle' ? 'sin enlace' : 'conectando…')),
+        h('div', { className: 'sc-live-stage' },
+          h('div', { className: 'sc-live-box' + (linkState === 'active' ? ' on' : '') },
+            h(LiveVideo, { on: linkState === 'active', nonce: m.link.since }),
+            linkState !== 'active' ? h('div', { className: 'sc-live-off' },
+              h('span', null, '📺'),
+              h('span', null, linkState === 'idle' ? 'Sin transmisión' : 'Estableciendo enlace…')) : null,
+            h('div', { className: 'sc-live-bar' },
+              h('span', null, linkState === 'active' ? '● EN VIVO · acceso' : 'acceso'),
+              active && active.reason ? h('span', null, s(active.reason)) : null)),
+          h('div', { className: 'sc-live-side' },
+            ringing.length ? h('div', { className: 'sc-ring' },
+              h('strong', null, '📞 ' + ringing.length + ' enlace(s) esperando'),
+              ringing.map((c) => h('div', { key: c.id, className: 'sc-ring-row' },
+                h('span', null, s(c.fromName || c.fromRole) + ' · ' + s(c.reason)),
+                btn({ className: 'sc-btn sc-btn-ok', onClick: () => answerLink(c) }, 'Atender'),
+                btn({ className: 'sc-btn sc-btn-no', onClick: () => patchRecord('calls', c.id, { status: 'ended', endedAt: stamp(), endedBy: operator, endReason: 'no atendido' }) }, 'Rechazar')))) : null,
+            h('div', { className: 'sc-row sc-row-wrap' },
+              linkState === 'idle'
+                ? btn({ className: 'sc-btn sc-btn-primary', onClick: () => requestLink({ to: 'totem', reason: 'supervisión desde la central' }) }, '👁 Ver el acceso ahora')
+                : btn({ className: 'sc-btn sc-btn-danger', onClick: () => hangup('cerrado por el operador') }, '⏹ Cerrar enlace'),
+              linkState === 'active' ? btn({ onClick: () => snapshotEvidence('', 'Captura pedida por la central') }, '📸 Guardar captura') : null),
+            m.link.error ? h('p', { className: 'sc-warn' }, m.link.error) : null,
+            h('p', { className: 'sc-note' }, 'El tótem anuncia en su pantalla que la central está mirando: nadie observa sin que se vea. '
+              + 'Cada enlace queda sellado en la bitácora con quién lo abrió, por qué y cuánto duró.'),
+          ),
+        ),
+      ),
+
+      h('section', { className: 'sc-card' },
+        h('h3', null, '🧑‍✈️ Validación humana de alertas',
+          pend.length ? h('span', { className: 'sc-chip sc-chip-warn' }, pend.length + ' pendiente(s)') : h('span', { className: 'sc-chip sc-chip-ok' }, 'al día')),
+        h('p', { className: 'sc-note' }, 'Ninguna alerta automática habilita un contacto con seguridad o emergencias hasta que una '
+          + 'persona de la central la revisa. Aprobar no llama a nadie: habilita el escalamiento, que se registra aparte con quién lo autoriza.'),
+        h('div', { className: 'sc-row sc-row-wrap' },
+          h('input', { className: 'sc-input', value: by, placeholder: 'Operador que revisa (por defecto: ' + actorName() + ')', onChange: (e) => setBy(e.target.value) }),
+          h('input', { className: 'sc-input', value: note, placeholder: 'Nota de la revisión (opcional)', onChange: (e) => setNote(e.target.value) })),
+        pend.length ? h('ul', { className: 'sc-list' }, pend.map((i) => h('li', { key: i.id, className: 'sc-list-i sc-list-review' },
+          h('span', { className: 'sc-i-icon' }, riskType(i.type).icon),
+          h('span', { className: 'sc-i-main' },
+            h('strong', null, s(i.typeLabel)),
+            h('span', { className: 'sc-i-sub' }, [fmtDateTime(i.openedAt), i.camera || i.unit,
+              'confianza ' + Math.round(num(i.confidence, 0) * 100) + '%', s(i.summary)].filter(Boolean).join(' · '))),
+          levelPill(i.level),
+          btn({ className: 'sc-btn sc-btn-ok', onClick: async () => { const r = await approveIncident(i.id, operator, note); shell.notify({ level: r.success ? 'success' : 'error', text: r.message || r.error }); setNote(''); } }, '✓ Corresponde'),
+          btn({ className: 'sc-btn sc-btn-no', onClick: async () => { const r = await dismissIncident(i.id, operator, note || 'no corresponde'); shell.notify({ level: r.success ? 'info' : 'error', text: r.message || r.error }); setNote(''); } }, '✕ Descartar'),
+          btn({ onClick: () => setModel({ view: 'incidents', focus: i.id }) }, 'Abrir'))))
+          : h('p', { className: 'sc-empty' }, 'No hay alertas esperando validación.'),
+      ),
+
+      history.length ? h('section', { className: 'sc-card' },
+        h('h3', null, 'Enlaces recientes'),
+        h('ul', { className: 'sc-mini' }, history.map((c) => h('li', { key: c.id },
+          fmtDateTime(c.at) + ' · ' + s(c.fromName || c.fromRole) + ' → ' + s(c.to)
+          + ' · ' + (num(c.seconds, 0) ? fmtDur(num(c.seconds, 0) * 1000) : 'sin conexión')
+          + (c.answeredBy ? ' · atendió ' + s(c.answeredBy) : '') + (c.endReason ? ' · ' + s(c.endReason) : '')))),
+      ) : null,
+    );
+  }
+
+  // ── Vista: documentos (Cloud Storage) ───────────────────────────────────
+  function Docs(props) {
+    const m = props.m;
+    const [folder, setFolder] = useState('general');
+    const [q, setQ] = useState('');
+    const list = useMemo(() => {
+      const c = canon(q);
+      return (m.docs || []).filter((d) => (folder === 'all' || d.folder === folder)
+        && (!c || canon(d.name + ' ' + d.note + ' ' + d.unit + ' ' + d.uploadedBy).includes(c)));
+    }, [m.docs, folder, q]);
+    const total = (m.docs || []).reduce((a, d) => a + num(d.size, 0), 0);
+
+    return h('div', { className: 'sc-view' },
+      h('section', { className: 'sc-card' },
+        h('h3', null, '📁 Archivos de la comunidad',
+          h('span', { className: 'sc-chip' }, (m.docs || []).length + ' archivo(s) · ' + fmtSize(total))),
+        h('p', { className: 'sc-note' }, 'Se guardan en el Cloud Storage de KIMOS, no dentro de la app: el plan de emergencia, el '
+          + 'reglamento, las actas, la evidencia de un incidente o la foto de una encomienda quedan disponibles desde cualquier consola '
+          + 'y con su registro sellado de quién los subió.'),
+        h('div', { className: 'sc-row sc-row-wrap' },
+          h('select', { className: 'sc-input', value: folder, onChange: (e) => setFolder(e.target.value) },
+            DOC_FOLDERS.map((f) => h('option', { key: f.id, value: f.id }, f.label)),
+            h('option', { value: 'all' }, 'Todas las carpetas')),
+          h(UploadButton, { primary: true, meta: { folder: folder === 'all' ? 'general' : folder }, label: '⬆ Subir a esta carpeta' }),
+          m.sensor.cam ? btn({ onClick: () => snapshotEvidence('', 'Captura manual desde Documentos') }, '📸 Capturar cámara') : null),
+        h('div', { className: 'sc-drop', onDragOver: (e) => e.preventDefault(), onDrop: async (e) => {
+          e.preventDefault();
+          const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+          for (const f of files) {
+            try { await attachDoc(f, { folder: folder === 'all' ? 'general' : folder }); }
+            catch (err) { shell.notify({ level: 'error', text: s((err && err.message) || err) }); }
+          }
+          if (files.length) shell.notify({ level: 'success', text: files.length + ' archivo(s) subido(s).' });
+        } }, 'Suelta archivos aquí · máximo ' + MAX_DOC_MB + ' MB por archivo'),
+      ),
+
+      h('section', { className: 'sc-card' },
+        h('h3', null, 'Guardados'),
+        h('input', { className: 'sc-input', value: q, placeholder: 'Buscar por nombre, unidad o quién lo subió', onChange: (e) => setQ(e.target.value) }),
+        list.length ? h('ul', { className: 'sc-list' }, list.map((d) => h('li', { key: d.id, className: 'sc-list-i' },
+          h('span', { className: 'sc-i-icon' }, docIcon(d)),
+          h('span', { className: 'sc-i-main' },
+            h('strong', null, s(d.name)),
+            h('span', { className: 'sc-i-sub' }, [fmtDateTime(d.at), fmtSize(d.size), s(d.uploadedBy),
+              d.incidentId ? 'incidente' : '', d.unit ? 'unidad ' + d.unit : '', s(d.note)].filter(Boolean).join(' · '))),
+          h('a', { className: 'sc-btn sc-btn-link', href: s(d.url), target: '_blank', rel: 'noopener' }, 'Abrir'),
+          d.incidentId ? btn({ onClick: () => setModel({ view: 'incidents', focus: d.incidentId }) }, 'Ver incidente') : null,
+          btn({ className: 'sc-btn sc-btn-no', onClick: () => removeRecord('docs', d.id) }, 'Quitar'))))
+          : h('p', { className: 'sc-empty' }, 'Nada en esta carpeta todavía.'),
+        h('p', { className: 'sc-note' }, '«Quitar» borra la ficha de la bitácora; el archivo en sí sigue en el almacenamiento del '
+          + 'equipo hasta que se elimine desde ahí. Es a propósito: la evidencia de un incidente no debe poder desaparecer con un clic.'),
       ),
     );
   }
@@ -1702,12 +2737,16 @@ export default function mount(shell) {
     const [byName, setByName] = useState('');
     const [channel, setChannel] = useState('');
     const list = useMemo(() => m.incidents.filter((i) => (
-      filter === 'all' ? true : filter === 'open' ? i.status !== 'closed' : filter === 'critical' ? num(i.level, 0) >= 4 : i.status === filter
+      filter === 'all' ? true
+        : filter === 'pending' ? (i.review && i.review.status === 'pending')
+        : filter === 'open' ? i.status !== 'closed'
+        : filter === 'critical' ? num(i.level, 0) >= 4
+        : i.status === filter
     )), [m.incidents, filter]);
     const inc = list.find((i) => i.id === sel) || m.incidents.find((i) => i.id === sel) || list[0] || null;
     useEffect(() => { if (m.focus && m.focus !== sel) setSel(m.focus); }, [m.focus]);
 
-    const filters = [['open', 'Abiertos'], ['critical', 'Críticos'], ['escalated', 'Escalados'], ['closed', 'Cerrados'], ['all', 'Todos']];
+    const filters = [['pending', 'Por validar'], ['open', 'Abiertos'], ['critical', 'Críticos'], ['escalated', 'Escalados'], ['closed', 'Cerrados'], ['all', 'Todos']];
     return h('div', { className: 'sc-view sc-inc' },
       h('div', { className: 'sc-row sc-row-wrap' },
         filters.map(([id, label]) => btn({ key: id, className: 'sc-btn sc-btn-tab' + (filter === id ? ' sc-btn-on' : ''), onClick: () => setFilter(id) }, label)),
@@ -1721,7 +2760,9 @@ export default function mount(shell) {
           h('span', { className: 'sc-i-icon' }, riskType(i.type).icon),
           h('span', { className: 'sc-i-main' },
             h('strong', null, s(i.typeLabel)),
-            h('span', { className: 'sc-i-sub' }, [fmtDateTime(i.openedAt), i.camera || i.unit, i.status].filter(Boolean).join(' · '))),
+            h('span', { className: 'sc-i-sub' }, [fmtDateTime(i.openedAt), i.camera || i.unit, i.status,
+              (i.review && i.review.status === 'pending') ? 'por validar' : ''].filter(Boolean).join(' · '))),
+          (i.review && i.review.status === 'pending') ? h('span', { className: 'sc-chip sc-chip-warn' }, '⏳') : null,
           levelPill(i.level))) : h('li', { className: 'sc-empty' }, 'Sin incidentes con este filtro.')),
 
         inc ? h('section', { className: 'sc-card sc-detail' },
@@ -1735,6 +2776,33 @@ export default function mount(shell) {
           num(inc.level, 0) >= 3 ? h('p', { className: 'sc-warn' }, 'Esto es una hipótesis del motor, no una conclusión: '
             + 'confírmala antes de escalar. ' + levelInfo(inc.level).action) : null,
 
+          // Compuerta: la central valida antes de que nadie contacte a nadie.
+          (function () {
+            const rv = inc.review || { status: 'approved' };
+            if (rv.status === 'pending') {
+              return h('div', { className: 'sc-review sc-review-pending' },
+                h('h4', null, '🧑‍✈️ Esperando validación de la central'),
+                h('p', { className: 'sc-note' }, 'Mientras una persona no confirme que la alerta corresponde, el escalamiento '
+                  + 'queda bloqueado. Puedes abrir el audio y el video del acceso para revisarla.'),
+                h('div', { className: 'sc-row sc-row-wrap' },
+                  h('input', { className: 'sc-input', value: byName, placeholder: 'Operador que revisa', onChange: (e) => setByName(e.target.value) }),
+                  btn({ className: 'sc-btn sc-btn-ok', onClick: async () => {
+                    const r = await approveIncident(inc.id, byName, '');
+                    shell.notify({ level: r.success ? 'success' : 'error', text: r.message || r.error });
+                  } }, '✓ La alerta corresponde'),
+                  btn({ className: 'sc-btn sc-btn-no', onClick: async () => {
+                    const r = await dismissIncident(inc.id, byName, 'no corresponde');
+                    shell.notify({ level: r.success ? 'info' : 'error', text: r.message || r.error });
+                  } }, '✕ Descartar'),
+                  m.link.state === 'idle'
+                    ? btn({ onClick: () => requestLink({ to: 'totem', reason: 'validar ' + s(inc.typeLabel), incidentId: inc.id }) }, '👁 Ver el acceso en vivo')
+                    : btn({ onClick: () => setModel({ view: 'central' }) }, 'Ir al enlace en vivo')));
+            }
+            return h('p', { className: 'sc-review sc-review-' + (rv.status === 'dismissed' ? 'no' : 'ok') },
+              (rv.status === 'dismissed' ? '✕ Descartada por ' : '✓ Validada por ') + s(rv.by || '—')
+              + (rv.at ? ' · ' + fmtDateTime(rv.at) : '') + (rv.note ? ' · ' + s(rv.note) : ''));
+          })(),
+
           h('div', { className: 'sc-row sc-row-wrap' },
             !inc.ackAt ? btn({ className: 'sc-btn sc-btn-primary', onClick: () => ackIncident(inc.id) }, '✋ Tomar') : chip('Tomado por ' + s(inc.ackBy), 'ok'),
             inc.status !== 'closed' ? btn({ onClick: () => closeIncident(inc.id, 'resuelto') }, '✓ Cerrar') : chip('Cerrado ' + fmtDateTime(inc.closedAt), 'ok'),
@@ -1744,13 +2812,14 @@ export default function mount(shell) {
 
           h('div', { className: 'sc-esc' },
             h('h4', null, 'Escalar a un servicio externo'),
-            h('p', { className: 'sc-note' }, 'La app no llama sola. Elige el canal, escribe quién autoriza y queda sellado en la bitácora.'),
+            h('p', { className: 'sc-note' }, 'La app no llama sola. Elige el canal, escribe quién autoriza y queda sellado en la bitácora.'
+              + ((inc.review || {}).status === 'pending' ? ' Bloqueado: primero la central tiene que validar la alerta.' : '')),
             h('div', { className: 'sc-row sc-row-wrap' },
               h('select', { className: 'sc-input', value: channel, onChange: (e) => setChannel(e.target.value) },
                 h('option', { value: '' }, 'Canal…'),
                 m.channels.map((c) => h('option', { key: c.id, value: c.id }, c.name + (c.phone ? ' · ' + c.phone : ' · sin número')))),
               h('input', { className: 'sc-input', value: byName, placeholder: 'Quién autoriza', onChange: (e) => setByName(e.target.value) }),
-              btn({ className: 'sc-btn sc-btn-danger', disabled: !channel || !s(byName).trim(), onClick: async () => {
+              btn({ className: 'sc-btn sc-btn-danger', disabled: !channel || !s(byName).trim() || (inc.review || {}).status === 'pending', onClick: async () => {
                 const r = await escalate(inc.id, channel, byName);
                 if (!r.success) shell.notify({ level: 'error', text: r.error });
                 setChannel('');
@@ -1774,6 +2843,23 @@ export default function mount(shell) {
               btn({ onClick: () => { void addAction(inc.id, what); setWhat(''); } }, 'Anotar')),
             h('p', { className: 'sc-seal' }, 'Sello ' + s(inc.hash).slice(0, 16) + '… · registro ' + num(inc.seq, 0)
               + (inc.hold ? ' · retención legal activa' : '')),
+          ),
+
+          h('div', { className: 'sc-esc' },
+            h('h4', null, '📎 Evidencia en el almacenamiento'),
+            h('div', { className: 'sc-row sc-row-wrap' },
+              h(UploadButton, { meta: { folder: 'evidencia', incidentId: inc.id }, label: '⬆ Adjuntar archivo' }),
+              m.sensor.cam ? btn({ onClick: () => snapshotEvidence(inc.id, 'Captura del acceso') }, '📸 Capturar cámara') : null,
+              btn({ onClick: () => setModel({ view: 'docs' }) }, 'Ver todos los archivos')),
+            (function () {
+              const list2 = docsFor('incident', inc.id);
+              return list2.length
+                ? h('ul', { className: 'sc-docs' }, list2.map((d) => h('li', { key: d.id },
+                    h('a', { href: s(d.url), target: '_blank', rel: 'noopener' }, docIcon(d) + ' ' + s(d.name)),
+                    h('span', null, fmtSize(d.size) + ' · ' + s(d.uploadedBy) + ' · ' + fmtDateTime(d.at)))))
+                : h('p', { className: 'sc-note' }, 'Sin archivos adjuntos. Las fotos, videos o partes que se suban aquí quedan '
+                    + 'en el Cloud Storage con su sello en la bitácora.');
+            })(),
           ),
         ) : h('section', { className: 'sc-card' }, h('p', { className: 'sc-empty' }, 'Elige un incidente.')),
       ),
@@ -2127,6 +3213,8 @@ export default function mount(shell) {
     const accent = s(m.settings.accent) || '#19ACB1';
     const kpi = kpis();
     const body = m.view === 'totem' ? h(Totem, { m })
+      : m.view === 'central' ? h(Central, { m })
+      : m.view === 'docs' ? h(Docs, { m })
       : m.view === 'incidents' ? h(Incidents, { m })
       : m.view === 'access' ? h(Access, { m })
       : m.view === 'parcels' ? h(Parcels, { m })
@@ -2173,6 +3261,8 @@ export default function mount(shell) {
       if (defSaveTimer) { clearTimeout(defSaveTimer); defSaveTimer = null; }
       if (speakTimer) { clearTimeout(speakTimer); speakTimer = null; }
       try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
+      if (model.link.state !== 'idle') { void hangup('se cerró la ventana'); } else { closePeer(); }
+      if (rtc.op) { try { rtc.op.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ } rtc.op = null; }
       stopCamera();
       stopMic();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onWake);

@@ -230,20 +230,30 @@
 /* ── Tótem ──────────────────────────────────────────────────────────────── */
 .kimos-safe .sc-totem { gap: 10px; }
 .kimos-safe .sc-tot-stage {
-  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 34%) 1fr; gap: 18px;
+  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 46%) 1fr; gap: 18px;
   background: var(--sc-glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--sc-soft); border-radius: calc(var(--sc-radius) * 2);
   box-shadow: var(--sc-shadow-md); padding: 18px;
 }
 .kimos-safe .sc-tot-avatar {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  background: radial-gradient(circle at 50% 30%, var(--sc-accent-soft), transparent 70%);
-  border-radius: calc(var(--sc-radius) * 2);
+  position: relative; min-height: 0; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+  border: 1px solid var(--sc-soft); border-radius: calc(var(--sc-radius) * 3);
+  background:
+    radial-gradient(120% 80% at 50% 8%, hsl(var(--card, 0 0% 100%) / .75), transparent 70%),
+    radial-gradient(90% 70% at 50% 100%, var(--sc-accent-soft), transparent 72%),
+    linear-gradient(180deg, hsl(var(--muted, 220 14% 89%) / .55), hsl(var(--card, 0 0% 100%) / .35));
+  box-shadow: var(--sc-shadow-md), inset 0 1px 0 hsl(0 0% 100% / .35);
 }
-.kimos-safe .sc-avatar { width: min(100%, 260px); height: auto; display: block; }
-.kimos-safe .sc-tot-name {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  font: 600 15px/1.2 'Inter', sans-serif;
+.kimos-safe .sc-tot-avatar-live { border-color: hsl(var(--destructive, 0 84.2% 60.2%) / .6); }
+.kimos-safe .sc-avatar { width: auto; height: 100%; max-width: 100%; display: block; }
+.kimos-safe .sc-op-video {
+  width: 100%; height: 100%; object-fit: cover; display: block; background: hsl(220 20% 10%);
+}
+.kimos-safe .sc-tot-tag {
+  position: absolute; left: 12px; right: 12px; bottom: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; text-align: center;
+  font: 600 16px/1.25 'Inter', sans-serif; text-shadow: 0 1px 2px hsl(220 20% 10% / .25);
 }
 .kimos-safe .sc-tot-live { font: 500 11px/1 'Inter', sans-serif; color: var(--sc-muted); }
 .kimos-safe .sc-tot-live.on { color: var(--sc-accent); }
@@ -282,9 +292,118 @@
   font-size: 11.5px; color: var(--sc-muted); padding: 0 4px 4px;
 }
 
+/* ── Barra superior del tótem ───────────────────────────────────────────── */
+.kimos-safe .sc-tot-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none;
+  padding: 8px 14px; border-radius: 999px;
+  background: var(--sc-glass); border: 1px solid var(--sc-soft); box-shadow: var(--sc-shadow-sm);
+  font: 600 13px/1 'Inter', sans-serif;
+}
+.kimos-safe .sc-tot-place { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kimos-safe .sc-tot-clock { font-variant-numeric: tabular-nums; color: var(--sc-muted); font-weight: 500; }
+.kimos-safe .sc-tot-state { color: var(--sc-muted); font-weight: 500; font-size: 12px; }
+.kimos-safe .sc-tot-onair {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: hsl(var(--destructive, 0 84.2% 60.2%) / .14); color: var(--sc-err);
+  font: 700 11.5px/1 'Inter', sans-serif; letter-spacing: .04em;
+}
+.kimos-safe .sc-dot {
+  width: 8px; height: 8px; border-radius: 999px; background: var(--sc-err);
+  animation: sc-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .kimos-safe .sc-dot { animation: none; } }
+
+/* ── Burbuja de diálogo y botones del menú ──────────────────────────────── */
+.kimos-safe .sc-tot-bubble { position: relative; flex: none; }
+.kimos-safe .sc-tot-bubble::before {
+  content: ''; position: absolute; left: -7px; top: 26px; width: 14px; height: 14px;
+  transform: rotate(45deg); background: var(--sc-glass-solid);
+  border-left: 1px solid var(--sc-soft); border-bottom: 1px solid var(--sc-soft);
+}
+.kimos-safe .sc-tot-b {
+  flex-direction: row; align-items: center; gap: 14px; min-height: 88px;
+}
+.kimos-safe .sc-tot-b-ic {
+  flex: none; width: 48px; height: 48px; border-radius: 999px; font-size: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sc-accent-soft); border: 1px solid var(--sc-soft);
+}
+.kimos-safe .sc-tot-b-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kimos-safe .sc-tot-b-tx strong { font: 600 16px/1.25 'Inter', sans-serif; }
+.kimos-safe .sc-tot-b-tx span { font: 400 12px/1.3 'Inter', sans-serif; color: var(--sc-muted); }
+.kimos-safe .sc-tot-human { border-color: var(--sc-accent); }
+.kimos-safe .sc-tot-human .sc-tot-b-ic { background: var(--sc-accent); color: var(--sc-accent-fg); }
+.kimos-safe .sc-tot-sos .sc-tot-b-ic { background: hsl(var(--destructive, 0 84.2% 60.2%) / .14); }
+
+/* ── Enlace en vivo (central) ───────────────────────────────────────────── */
+.kimos-safe .sc-card-live { border-color: var(--sc-soft); }
+.kimos-safe .sc-live-stage { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; }
+.kimos-safe .sc-live-box {
+  position: relative; aspect-ratio: 16 / 10; border-radius: var(--sc-radius); overflow: hidden;
+  border: 1px solid var(--sc-soft); background: hsl(220 20% 12%);
+}
+.kimos-safe .sc-live-box.on { border-color: hsl(var(--destructive, 0 84.2% 60.2%) / .55); }
+.kimos-safe .sc-live-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kimos-safe .sc-live-off {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 6px; color: hsl(0 0% 100% / .65); font-size: 12.5px;
+}
+.kimos-safe .sc-live-off span:first-child { font-size: 26px; }
+.kimos-safe .sc-live-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; font: 600 11px/1.2 'Inter', sans-serif; color: #fff;
+  background: linear-gradient(to top, hsl(220 20% 8% / .75), transparent);
+}
+.kimos-safe .sc-live-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.kimos-safe .sc-ring {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  border: 1px solid var(--sc-accent); border-radius: var(--sc-radius); background: var(--sc-accent-soft);
+  font-size: 13px;
+}
+.kimos-safe .sc-ring-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.kimos-safe .sc-ring-row span { flex: 1; min-width: 120px; }
+.kimos-safe .sc-list-review { align-items: flex-start; flex-wrap: wrap; }
+
+/* ── Validación humana en el incidente ──────────────────────────────────── */
+.kimos-safe .sc-review {
+  margin: 0; padding: 10px 12px; border-radius: var(--sc-radius); font-size: 12.5px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.kimos-safe .sc-review h4 { margin: 0; }
+.kimos-safe .sc-review-pending { background: hsl(38 92% 50% / .12); border: 1px solid hsl(38 92% 50% / .4); }
+.kimos-safe .sc-review-ok { background: hsl(142 70% 45% / .1); color: var(--sc-ok); }
+.kimos-safe .sc-review-no { background: hsl(var(--destructive, 0 84.2% 60.2%) / .1); color: var(--sc-err); }
+
+/* ── Archivos (Cloud Storage) ───────────────────────────────────────────── */
+.kimos-safe .sc-upload { display: inline-flex; }
+.kimos-safe .sc-file { display: none; }
+.kimos-safe .sc-drop {
+  border: 1.5px dashed var(--sc-line); border-radius: var(--sc-radius); padding: 18px;
+  text-align: center; color: var(--sc-muted); font-size: 12.5px;
+}
+.kimos-safe .sc-drop:hover { border-color: var(--sc-accent); color: var(--sc-fg); }
+.kimos-safe .sc-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.kimos-safe .sc-docs li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.kimos-safe .sc-docs a { color: var(--sc-fg); }
+.kimos-safe .sc-docs span { color: var(--sc-muted); white-space: nowrap; }
+
+/* ── Estudio del avatar ─────────────────────────────────────────────────── */
+.kimos-safe .sc-studio { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.kimos-safe .sc-studio-prev {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px;
+  border: 1px solid var(--sc-soft); border-radius: calc(var(--sc-radius) * 2);
+  background: radial-gradient(90% 70% at 50% 100%, var(--sc-accent-soft), transparent 72%);
+}
+.kimos-safe .sc-studio-prev .sc-avatar { width: 100%; height: auto; max-height: 260px; }
+.kimos-safe .sc-studio-form { display: flex; flex-direction: column; gap: 10px; }
+.kimos-safe .sc-color { padding: 2px; height: 34px; cursor: pointer; }
+
 /* ── Espejo (la persona frente al tótem) ────────────────────────────────── */
-.kimos-safe .sc-tot-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.kimos-safe .sc-tot-side .sc-tot-avatar { flex: 1; min-height: 0; }
+.kimos-safe .sc-tot-side {
+  display: grid; grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; min-height: 0;
+}
+.kimos-safe .sc-tot-side .sc-mirror { aspect-ratio: auto; height: 100%; }
 .kimos-safe .sc-mirror {
   position: relative; aspect-ratio: 4 / 3; width: 100%; flex: none;
   border: 1px solid var(--sc-soft); border-radius: var(--sc-radius); overflow: hidden;
@@ -350,7 +469,10 @@
 .kimos-safe.sc-kioskroot { padding: 0; }
 .kimos-safe.sc-kioskroot .sc-view { padding: 18px; }
 .kimos-safe .sc-kiosk .sc-tot-say { font-size: 23px; }
-.kimos-safe .sc-kiosk .sc-tot-b { min-height: 120px; font-size: 18px; }
+.kimos-safe .sc-kiosk .sc-tot-b { min-height: 104px; }
+.kimos-safe .sc-kiosk .sc-tot-b-tx strong { font-size: 19px; }
+.kimos-safe .sc-kiosk .sc-tot-b-ic { width: 58px; height: 58px; font-size: 29px; }
+.kimos-safe .sc-kiosk .sc-tot-top { font-size: 15px; padding: 10px 18px; }
 .kimos-safe .sc-kiosk .sc-key { font-size: 19px; padding: 16px 6px; }
 .kimos-safe .sc-kiosk .sc-kb-num .sc-key { font-size: 24px; padding: 18px 6px; }
 .kimos-safe .sc-kiosk .sc-input-big { font-size: 19px; padding: 15px 16px; }
@@ -364,8 +486,10 @@
   .kimos-safe .sc-cols, .kimos-safe .sc-split { grid-template-columns: 1fr; }
   .kimos-safe .sc-tiles { grid-template-columns: repeat(2, 1fr); }
   .kimos-safe .sc-tot-stage { grid-template-columns: 1fr; }
-  .kimos-safe .sc-tot-side { flex-direction: row; align-items: center; }
-  .kimos-safe .sc-mirror { width: 44%; }
+  .kimos-safe .sc-tot-side { grid-template-rows: auto auto; }
+  .kimos-safe .sc-tot-avatar { min-height: 260px; }
+  .kimos-safe .sc-tot-side .sc-mirror { aspect-ratio: 4 / 3; height: auto; }
+  .kimos-safe .sc-live-stage, .kimos-safe .sc-studio { grid-template-columns: 1fr; }
   .kimos-safe .sc-avatar { width: min(60%, 180px); }
   .kimos-safe .sc-list-tall { max-height: none; }
   .kimos-safe .sc-detail { position: static; }
