@@ -225,6 +225,135 @@ se = agente.getSnapshot();
 ok(r.success && se.oferta.suiteALaCarta === 2220 && se.oferta.modulos.length === 25,
   'IMPORTAR_ESTUDIO recupera el estudio exportado con sus cifras intactas', se.oferta.suiteALaCarta);
 
+console.log('\nDocumentos en el almacenamiento del equipo');
+
+// Un almacenamiento de mentira que se comporta como el del host: devuelve una
+// URL pública, sabe listar por carpeta y sabe borrar.
+const nube = { subidos: [], borrados: [] };
+const shellNube = Object.assign({}, shell, {
+  agent: { register: (cfg) => { agenteNube = cfg; return () => {}; } },
+  saveData: () => Promise.resolve(),
+  notify: (n) => { avisos.push(n); },
+  files: {
+    upload: async (file, opts) => {
+      const o = opts || {};
+      nube.subidos.push({ folder: o.folder, name: file.name, size: file.size, maxMB: o.maxMB });
+      return 'https://files.kimos.test/' + o.folder + '/' + (file.name || 'sin-nombre');
+    },
+    list: async (o) => nube.subidos.filter((f) => f.folder === (o && o.folder))
+      .map((f) => ({ url: 'https://files.kimos.test/' + f.folder + '/' + f.name, name: f.name, size: f.size })),
+    remove: async (url) => { nube.borrados.push(url); },
+  },
+});
+let agenteNube = null;
+const avisos = [];
+const appNube = mount(shellNube);
+
+// Recorre el árbol que devuelve el render y encuentra el primer nodo que cumpla.
+const buscar = (n, pred) => {
+  if (!n || typeof n !== 'object') return null;
+  if (Array.isArray(n)) { for (const x of n) { const r = buscar(x, pred); if (r) return r; } return null; }
+  if (n.type && pred(n)) return n;
+  return buscar(n.hijos, pred) || (n.props && n.props.children ? buscar(n.props.children, pred) : null);
+};
+const archivoFalso = (nombre, bytes) => ({ name: nombre, size: bytes, type: '' });
+const esperar = () => new Promise((res) => setTimeout(res, 30));
+
+await agenteNube.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: 'estudio' } });
+r = await agenteNube.dispatchAction({ type: 'LISTAR_DOCUMENTOS', payload: {} });
+ok(r.success && r.data.almacenamientoDisponible === true && r.data.carpeta === 'evidencia',
+  'el agente ve el almacenamiento disponible y su carpeta', r.data && r.data.carpeta);
+ok(r.data.documentos.length === 0, 'un estudio recién abierto no tiene documentos');
+
+// Subida por la misma ruta que usa la persona: el input de archivo de la vista.
+// `multiple` distingue el campo de documentos del importador de estudios JSON.
+const entradaArchivo = buscar(appNube.Component(), (n) => n.props && n.props.type === 'file' && n.props.multiple);
+ok(!!entradaArchivo, 'la pestaña ofrece el campo para subir documentos');
+entradaArchivo.props.onChange({ target: { files: [archivoFalso('tarifario-clinica-a.pdf', 220000)], value: 'x' } });
+await esperar();
+ok(nube.subidos.length === 1 && nube.subidos[0].folder === 'evidencia',
+  'el documento va a la carpeta que el host reserva a la app', nube.subidos[0] && nube.subidos[0].folder);
+ok(nube.subidos[0].maxMB === 10, 'la subida declara su tope de tamaño', nube.subidos[0].maxMB);
+
+r = await agenteNube.dispatchAction({ type: 'LISTAR_DOCUMENTOS', payload: {} });
+const doc1 = r.data.documentos[0];
+ok(r.data.documentos.length === 1 && doc1.tipo === 'PDF' && /^https:\/\//.test(doc1.enlace),
+  'queda registrado en el estudio con su tipo y su enlace', doc1 && doc1.tipo);
+
+// Formato y tamaño los valida la app, no la plataforma.
+avisos.length = 0;
+entradaArchivo.props.onChange({ target: { files: [archivoFalso('malware.exe', 1000)], value: '' } });
+await esperar();
+ok(nube.subidos.length === 1 && avisos.some((a) => a.level === 'error'),
+  'un formato que no sirve como respaldo no se sube', avisos.map((a) => a.level).join(','));
+avisos.length = 0;
+entradaArchivo.props.onChange({ target: { files: [archivoFalso('gigante.pdf', 11 * 1024 * 1024)], value: '' } });
+await esperar();
+ok(nube.subidos.length === 1 && avisos.some((a) => a.level === 'error'),
+  'un archivo sobre el tope tampoco', avisos.map((a) => a.text).join(' '));
+
+// El respaldo se ata al precio que prueba.
+await agenteNube.dispatchAction({
+  type: 'AGREGAR_COMPETIDOR',
+  payload: {
+    app: 'Escritorio Kimos', comp: 'Clínica A', plan: 'Consulta', precio: 40,
+    unidad: 'Plano', seg: 'PyME / Empresa', fuente: 'tarifario impreso', conf: 'Verificado',
+  },
+});
+r = await agenteNube.dispatchAction({ type: 'VINCULAR_DOCUMENTO', payload: { comp: 'Clínica A', plan: 'Consulta', documento: doc1.id } });
+ok(r.success, 'VINCULAR_DOCUMENTO ata el respaldo a la fila', r.message || r.error);
+let sn = agenteNube.getSnapshot();
+ok(sn.estudio.almacenamiento.preciosConRespaldo === 1, 'el estudio cuenta los precios respaldados', sn.estudio.almacenamiento.preciosConRespaldo);
+r = await agenteNube.dispatchAction({ type: 'VINCULAR_DOCUMENTO', payload: { comp: 'Clínica A', plan: 'Consulta', documento: 'no-existe' } });
+ok(!r.success, 'VINCULAR_DOCUMENTO rechaza un documento inexistente', r.error);
+r = await agenteNube.dispatchAction({ type: 'VINCULAR_DOCUMENTO', payload: { comp: 'Nadie', plan: 'Ninguno', documento: doc1.id } });
+ok(!r.success, 'y una fila de precio inexistente', r.error);
+
+ok(buscar(appNube.Component(), (n) => n.props && n.props.className === 'km-doc-chip'),
+  'la tabla de precios muestra el respaldo junto a la fuente');
+
+// La copia del estudio entero también vive en el almacenamiento.
+r = await agenteNube.dispatchAction({ type: 'GUARDAR_EN_LA_NUBE', payload: {} });
+ok(r.success && /\/estudios\//.test(r.data.enlace), 'GUARDAR_EN_LA_NUBE deja la copia del estudio', r.data && r.data.enlace);
+sn = agenteNube.getSnapshot();
+ok(sn.estudio.almacenamiento.copia === r.data.enlace, 'y el estudio recuerda dónde quedó');
+
+// Traer lo que ya está en la carpeta sin volver a subirlo.
+nube.subidos.push({ folder: 'evidencia', name: 'captura-crayon.png', size: 90000 });
+const botonTraer = buscar(appNube.Component(), (n) => n.hijos && String(n.hijos[0] || '').indexOf('Traer del equipo') >= 0);
+ok(!!botonTraer, 'la vista ofrece traer lo que ya está en la carpeta');
+await botonTraer.props.onClick();
+await esperar();
+r = await agenteNube.dispatchAction({ type: 'LISTAR_DOCUMENTOS', payload: {} });
+const nombres = r.data.documentos.map((d) => d.nombre);
+ok(r.data.documentos.length === 2 && nombres.indexOf('captura-crayon.png') >= 0,
+  'trae el que faltaba de la carpeta', nombres.join(', '));
+ok(nombres.filter((n) => n === 'tarifario-clinica-a.pdf').length === 1,
+  'y no duplica el que ya estaba registrado');
+
+// Borrar saca el archivo del almacenamiento y suelta los precios que lo citaban.
+const borrar = buscar(appNube.Component(), (n) => n.props && n.props.className === 'km-x' && n.props.title && n.props.title.indexOf('almacenamiento') >= 0);
+ok(!!borrar, 'cada documento se puede borrar del almacenamiento');
+await borrar.props.onClick();
+await esperar();
+ok(nube.borrados.length === 1, 'el borrado llega al almacenamiento', nube.borrados[0]);
+sn = agenteNube.getSnapshot();
+ok(sn.estudio.almacenamiento.preciosConRespaldo === 0, 'y el precio deja de citar un enlace muerto');
+
+appNube.unmount();
+
+console.log('\nHost sin almacenamiento (contrato opcional)');
+r = await agente.dispatchAction({ type: 'LISTAR_DOCUMENTOS', payload: {} });
+ok(r.success && r.data.almacenamientoDisponible === false, 'la app lo dice en vez de romperse', r.message);
+r = await agente.dispatchAction({ type: 'GUARDAR_EN_LA_NUBE', payload: {} });
+ok(!r.success && /almacenamiento/i.test(r.error), 'guardar en la nube falla con un motivo legible', r.error);
+await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: 'estudio' } });
+try {
+  ok(contar(app.Component()) > 20, 'la pestaña Este estudio sigue renderizando sin almacenamiento');
+} catch (e) {
+  ok(false, 'la pestaña Este estudio sigue renderizando sin almacenamiento', e.message);
+}
+
 console.log('\nPersistencia y limpieza');
 await new Promise((res) => setTimeout(res, 1000));
 ok(guardado && guardado.sup && guardado.alcance, 'saveData recibe supuestos y alcance');

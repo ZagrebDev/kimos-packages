@@ -455,6 +455,24 @@ label.km-btn { cursor: pointer; }
 
 .km-col > h4 { font-size: 13px; font-weight: 720; color: var(--k-tx); margin-bottom: 6px; }
 
+/* --------------------------- documentos --------------------------------- */
+
+/* La fuente de un precio y, pegado, el respaldo subido al almacenamiento. */
+.km-src-doc { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.km-doc-chip {
+  flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+  padding: 2px 7px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+  background: var(--k-fill2); color: var(--k-cyan); border: 1px solid var(--k-line);
+}
+.km-doc-chip:hover { background: var(--k-fill); }
+
+/* Los enlaces de fuente heredan el color de .km-src y solo se subrayan al pasar. */
+a.km-src { text-decoration: none; }
+a.km-src:hover { text-decoration: underline; }
+
+/* En la tabla de documentos el nombre puede ser largo; el resto no se aplasta. */
+.km-tbl a.km-src { display: inline-block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+
 /* ------------------------- adaptación de pantalla ------------------------ */
 
 /* tótems y monitores grandes: la escala sube para leerse de pie y a distancia */
