@@ -600,10 +600,16 @@ Campos: `name`, `legalName`, `taxId`, `address`, `email`, `phone`, `website`,
 
 - `current()` devuelve **`null`** cuando el tenant no ha configurado su marca.
   No es un error: tu app tiene que poder seguir con sus propios valores.
-- `themeTokens` son los colores ya convertidos a tokens (`--primary`,
-  `--primary-foreground`, …). **No los necesitas** para pintar tu app: el host
-  ya los inyectó. Sirven para el caso que el host no cubre — pintar la hoja de
-  una **ventana de impresión**, que vive fuera de tu DOM.
+- `themeTokens` son los colores ya convertidos a tokens. **No los necesitas**
+  para pintar tu app: el host ya los inyectó. Sirven para el caso que el host
+  no cubre — pintar la hoja de una **ventana de impresión**, que vive fuera de
+  tu DOM.
+- El color principal de la marca llega en **`--primary`** (con su
+  `--primary-foreground`), que es el token del acento en este sistema de
+  diseño. El segundo color llega en **`--brand-accent`**, no en `--accent`:
+  `--accent` es la superficie de *hover* del tema —un gris neutro— y pisarla
+  con un color de marca no re-marca la app, le pinta cada hover del color de
+  la empresa.
 - Un color que la marca no fija se queda con el del tema del tenant. No se
   inventa un valor.
 - El texto que va **encima** de cada color de marca viene ya decidido por
