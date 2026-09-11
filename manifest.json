@@ -931,9 +931,9 @@
     {
       "id": "kimos-safe-concierge",
       "name": "KIMOS Safe Concierge",
-      "description": "Consejería virtual con IA para comunidades residenciales, edificios corporativos y porterías: un tótem táctil que muestra al conserje virtual —avatar humanizado o caricaturizado— junto al espejo en vivo de quien está frente a la cámara, con teclado en pantalla para escribir sin teclado físico. Atiende visitas, residentes, citofonía y encomiendas 24/7, y su consola convierte cámaras, sensores y accesos en incidentes contextualizados. Motor de riesgo con cinco niveles, detección local de conducta agresiva por cámara y audio (el video nunca sale del dispositivo), aviso disuasivo por el parlante y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas, siempre con validación humana. Bitácora forense encadenada con SHA-256, retención configurable (mínimo legal de 120 días) y sin biometría por defecto. Control total por agente IA.",
+      "description": "Consejería virtual con IA y central de monitoreo humana para comunidades residenciales, edificios corporativos y porterías. El tótem muestra al conserje virtual —un oficial de seguridad 3D, con nombre y aspecto 100% editables, que parpadea, respira y sigue con la mirada a quien tiene enfrente— junto al espejo en vivo de la persona, con teclado en pantalla y un botón para hablar con una persona de la central por audio y video. Transmite audio y video en vivo a la central por WebRTC punto a punto y ahí el personal humano valida cada alerta: hasta que una persona la aprueba, ningún contacto con seguridad o emergencias queda habilitado. Motor de riesgo de cinco niveles, detección local de conducta agresiva por cámara y audio, ingesta de las cámaras de la comunidad, accesos, encomiendas, citofonía y escalamiento a SAMU 131, Bomberos 132, Carabineros 133, PDI 134, seguridad municipal o la central de alarmas. Archivos y documentos —plan de emergencia, reglamento, evidencia, capturas del acceso— en el Cloud Storage de KIMOS. Bitácora forense encadenada con SHA-256, retención configurable y sin biometría por defecto. Control total por agente IA.",
       "icon": "🛡️",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": true,
@@ -942,8 +942,44 @@
         "instance.write",
         "agent.control",
         "public.read",
-        "public.submit"
+        "public.submit",
+        "files.write"
       ],
+      "dataSchema": {
+        "fields": [
+          {
+            "key": "code",
+            "label": "Unidad (departamento, oficina o casa)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "name",
+            "label": "Nombre del hogar u oficina",
+            "type": "string"
+          },
+          {
+            "key": "tower",
+            "label": "Torre o piso",
+            "type": "string"
+          },
+          {
+            "key": "phone",
+            "label": "Teléfono de contacto",
+            "type": "string"
+          },
+          {
+            "key": "email",
+            "label": "Correo de contacto",
+            "type": "email"
+          },
+          {
+            "key": "notes",
+            "label": "Notas del acceso",
+            "type": "string"
+          }
+        ]
+      },
       "configSchema": {
         "title": "Preferencias de KIMOS Safe Concierge",
         "fields": [
@@ -988,8 +1024,12 @@
             "type": "select",
             "options": [
               {
+                "value": "officer",
+                "label": "Oficial de seguridad (3D, imponente)"
+              },
+              {
                 "value": "human",
-                "label": "Humanizado"
+                "label": "Humano sin uniforme"
               },
               {
                 "value": "cartoon",
@@ -999,12 +1039,14 @@
                 "value": "minimal",
                 "label": "Abstracto (sin rostro)"
               }
-            ]
+            ],
+            "help": "Punto de partida: el aspecto completo se edita en el Estudio del avatar (pestaña Panel)."
           },
           {
             "key": "avatarName",
             "label": "Nombre del avatar",
-            "type": "string"
+            "type": "string",
+            "help": "Se puede cambiar también desde el Estudio del avatar, junto con piel, pelo, barba, gorra, uniforme y porte."
           },
           {
             "key": "voice",
@@ -1050,6 +1092,68 @@
             "help": "Nivel 3 o superior: el tótem advierte por el parlante que se está avisando al personal de seguridad. Nunca llama solo a un servicio de emergencia."
           },
           {
+            "key": "centralApproval",
+            "label": "La central valida las alertas",
+            "type": "boolean",
+            "help": "Toda alerta automática queda pendiente hasta que una persona de la central la aprueba o la descarta. Sin aprobación no se habilita ningún contacto con seguridad o emergencias."
+          },
+          {
+            "key": "streamMode",
+            "label": "Transmisión a la central",
+            "type": "select",
+            "options": [
+              {
+                "value": "ask",
+                "label": "Solo cuando alguien la pide"
+              },
+              {
+                "value": "event",
+                "label": "A pedido y ante incidentes"
+              },
+              {
+                "value": "always",
+                "label": "Siempre en vivo"
+              }
+            ],
+            "help": "El tótem avisa en pantalla mientras la central está mirando."
+          },
+          {
+            "key": "streamLevel",
+            "label": "Nivel que abre la transmisión",
+            "type": "number",
+            "min": 2,
+            "max": 5,
+            "help": "Desde qué nivel de riesgo se abre el enlace solo (3 = Alerta)."
+          },
+          {
+            "key": "autoAnswerCentral",
+            "label": "La central puede abrir el canal del tótem",
+            "type": "boolean",
+            "help": "El tótem atiende automáticamente a la central, anunciándolo en pantalla mientras dure."
+          },
+          {
+            "key": "operatorCamera",
+            "label": "Mostrar la cara del operador",
+            "type": "boolean",
+            "help": "El visitante ve a quien lo atiende, no solo lo escucha."
+          },
+          {
+            "key": "turnUrl",
+            "label": "Servidor TURN (opcional)",
+            "type": "string",
+            "help": "turn:host:3478. Hace falta solo si el tótem y la central están en redes que no se ven entre sí."
+          },
+          {
+            "key": "turnUser",
+            "label": "Usuario TURN",
+            "type": "string"
+          },
+          {
+            "key": "turnPass",
+            "label": "Clave TURN",
+            "type": "string"
+          },
+          {
             "key": "retentionDays",
             "label": "Retención de registros (días)",
             "type": "number",
@@ -1074,8 +1178,8 @@
         "siteName": "",
         "siteAddress": "",
         "startView": "panel",
-        "avatarStyle": "human",
-        "avatarName": "Kim",
+        "avatarStyle": "officer",
+        "avatarName": "Denzel Barrett",
         "voice": true,
         "cameraSensor": false,
         "audioSensor": false,
@@ -1083,7 +1187,15 @@
         "autoWarn": true,
         "retentionDays": 120,
         "privacyMode": true,
-        "accent": "#19ACB1"
+        "accent": "#19ACB1",
+        "centralApproval": true,
+        "streamMode": "event",
+        "streamLevel": 3,
+        "autoAnswerCentral": true,
+        "operatorCamera": true,
+        "turnUrl": "",
+        "turnUser": "",
+        "turnPass": ""
       },
       "appShellApi": "1.x"
     },
