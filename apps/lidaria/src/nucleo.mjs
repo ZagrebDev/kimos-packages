@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.4.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.5.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -3461,6 +3461,669 @@ function componentesObservados(evid) {
   if (e.radios && e.radios.bluetooth) vistos.push('ble');
   if (e.radios && e.radios.nfc) vistos.push('nfc');
   return vistos;
+}
+
+/* ===== src/core/gratuidad.js ===== */
+/**
+ * gratuidad.js — qué se puede habilitar hoy sin pagar licencias ni suscripciones.
+ *
+ * La pregunta que este módulo contesta no es «¿cuánto cuesta?» sino «¿de qué
+ * depende que esto siga funcionando el año que viene?». Son cosas distintas:
+ *
+ *   · Una webcam de 40 dólares se paga UNA vez y queda en poder del cliente.
+ *     Si mañana el fabricante quiebra, la cámara sigue enfocando.
+ *   · Una suscripción de 40 dólares al mes se paga siempre, y el día que se
+ *     corta —o que sube de precio, o que el proveedor cierra— la función que el
+ *     cliente compró deja de existir.
+ *
+ * Por eso la política excluye lo recurrente y admite el hardware. Y por eso
+ * cuando la única implementación de algo es de pago, la función **no se
+ * ofrece**: se declara no disponible y se dice qué haría falta. Un producto que
+ * promete lo que solo puede cumplir pagando es un producto que miente.
+ */
+
+/** Modelos de costo, del más libre al más atado. */
+const MODELOS_COSTO = {
+  libre: { orden: 1, recurrente: false, admitido: true, label: 'Software libre' },
+  'gratis-siempre': { orden: 2, recurrente: false, admitido: true, label: 'Gratis sin límite' },
+  'gratis-registro': { orden: 3, recurrente: false, admitido: true, label: 'Gratis con cuenta' },
+  hardware: { orden: 4, recurrente: false, admitido: true, label: 'Hardware de un pago' },
+  'por-uso': { orden: 5, recurrente: true, admitido: false, label: 'Pago por uso' },
+  suscripcion: { orden: 6, recurrente: true, admitido: false, label: 'Suscripción' },
+  licencia: { orden: 7, recurrente: false, admitido: false, label: 'Licencia de pago' },
+};
+
+/** Lo que se asume cuando una pieza no declara su costo. */
+const COSTO_SIN_DECLARAR = 'sin-declarar';
+
+/**
+ * Veredicto de costo de una pieza.
+ *
+ * Una pieza sin `costo` declarado NO se da por gratuita. Es el mismo criterio
+ * que en licencias: la ausencia de dato es un dato, y el dato es "no lo sé".
+ */
+function evaluarCosto(pieza) {
+  const id = (pieza && pieza.costo) || COSTO_SIN_DECLARAR;
+  const m = MODELOS_COSTO[id];
+  if (!m) {
+    return {
+      modelo: COSTO_SIN_DECLARAR, admitido: false, recurrente: null,
+      label: 'Costo sin declarar',
+      porque: 'Esta pieza no declara su modelo de costo. Sin ese dato no se puede afirmar que sea gratuita, así que queda fuera hasta que alguien lo averigüe.',
+    };
+  }
+  return {
+    modelo: id, admitido: m.admitido, recurrente: m.recurrente, label: m.label,
+    porque: m.admitido
+      ? (m.recurrente ? 'Admitido.' : 'Sin pago recurrente: una vez habilitado, sigue funcionando solo.')
+      : (m.recurrente
+        ? 'Excluido por política: el costo es recurrente, así que la función depende de que alguien siga pagando.'
+        : 'Excluido por política: exige pagar por el derecho de uso del software.'),
+  };
+}
+
+/**
+ * Audita una lista de piezas contra la política.
+ *
+ * Devuelve siempre las tres listas, incluso vacías: ver "0 excluidas" es una
+ * afirmación, y no ver la lista no lo es.
+ */
+function auditarCostos(piezas) {
+  const filas = (piezas || []).map((p) => ({ ...p, veredicto: evaluarCosto(p) }));
+  const admitidas = filas.filter((f) => f.veredicto.admitido);
+  const excluidas = filas.filter((f) => !f.veredicto.admitido && f.veredicto.modelo !== COSTO_SIN_DECLARAR);
+  const sinDeclarar = filas.filter((f) => f.veredicto.modelo === COSTO_SIN_DECLARAR);
+  return {
+    filas, admitidas, excluidas, sinDeclarar,
+    limpio: excluidas.length === 0 && sinDeclarar.length === 0,
+    // Una exclusión sin alternativa es un agujero de producto, no una decisión.
+    sinAlternativa: excluidas.filter((f) => !f.alternativaSiFuesePago),
+  };
+}
+
+/**
+ * Costo de encender un módulo: qué piezas necesita y cuáles rompen la política.
+ *
+ * `piezasPorModulo` mapea id de módulo → ids de pieza. Las piezas excluidas se
+ * reemplazan por su alternativa libre cuando existe; cuando no existe, el
+ * módulo queda marcado y se dice exactamente qué lo bloquea.
+ */
+function costoDeModulo(modulo, catalogo, piezasPorModulo) {
+  const ids = (piezasPorModulo && piezasPorModulo[modulo.id]) || [];
+  const piezas = ids.map((id) => (catalogo.piezas || []).find((p) => p.id === id)).filter(Boolean);
+  const aud = auditarCostos(piezas);
+  const conAlternativa = aud.excluidas.filter((f) => !!f.alternativaSiFuesePago);
+  return {
+    modulo: modulo.id,
+    nombre: modulo.nombre || modulo.id,
+    piezas: piezas.map((p) => p.id),
+    admitidas: aud.admitidas.map((p) => p.id),
+    excluidas: aud.excluidas.map((p) => ({ id: p.id, nombre: p.nombre, porque: p.veredicto.porque, alternativa: p.alternativaSiFuesePago || null })),
+    // Gratis de verdad: o no necesita nada excluido, o todo lo excluido tiene
+    // un reemplazo libre que hace el mismo trabajo.
+    gratuito: aud.excluidas.length === 0 || aud.sinAlternativa.length === 0,
+    bloqueado: aud.sinAlternativa.map((p) => p.id),
+    requiereCuenta: aud.admitidas.some((p) => p.veredicto.modelo === 'gratis-registro'),
+    piezasSinDeclarar: aud.sinDeclarar.map((p) => p.id),
+  };
+}
+
+/**
+ * Hardware que hace falta comprar, con su precio y con lo que se puede hacer
+ * sin comprarlo.
+ *
+ * El orden importa: primero lo que ya se tiene, después lo barato que
+ * desbloquea mucho. Un catálogo ordenado por precio descendente es un catálogo
+ * que nadie usa.
+ */
+function comprasNecesarias(accesorios, yaTengo) {
+  const tengo = new Set(yaTengo || []);
+  return (accesorios || [])
+    .filter((a) => !tengo.has(a.id))
+    .map((a) => ({
+      id: a.id, nombre: a.nombre, icon: a.icon,
+      precio: a.costoAprox || 'sin precio declarado',
+      unPago: true,
+      habilita: a.habilita || [],
+      sinComprarlo: a.sinComprarlo || 'No está documentado qué se pierde sin este accesorio.',
+      veredicto: a.veredicto,
+    }))
+    .sort((a, b) => (b.habilita.length - a.habilita.length) || a.nombre.localeCompare(b.nombre));
+}
+
+/**
+ * La ruta gratuita: todo lo que se puede tener funcionando hoy con cero pago
+ * recurrente, ordenado por lo que cuesta ponerlo en marcha.
+ *
+ * Los tres escalones responden a la pregunta real de quien evalúa la app:
+ * «¿qué veo funcionando esta tarde, qué necesita una compra chica, y qué no
+ * voy a tener de ninguna manera sin abrir la billetera todos los meses?».
+ */
+function rutaGratuita(catalogo, opciones) {
+  const o = opciones || {};
+  const aud = auditarCostos(catalogo.piezas || []);
+  const sinComprarNada = aud.admitidas.filter((p) => p.veredicto.modelo !== 'hardware');
+  const conCuenta = sinComprarNada.filter((p) => p.veredicto.modelo === 'gratis-registro');
+  return {
+    tramos: [
+      {
+        id: 'hoy',
+        titulo: 'Hoy mismo, sin gastar ni registrarse',
+        piezas: sinComprarNada.filter((p) => p.veredicto.modelo !== 'gratis-registro').map((p) => ({ id: p.id, nombre: p.nombre, licencia: p.licencia, nota: p.nota })),
+        costo: 0,
+      },
+      {
+        id: 'cuenta',
+        titulo: 'Gratis, pero hay que crear una cuenta',
+        piezas: conCuenta.map((p) => ({ id: p.id, nombre: p.nombre, licencia: p.licencia, nota: p.nota })),
+        costo: 0,
+      },
+      {
+        id: 'compra',
+        titulo: 'Un solo pago de hardware, sin licencias',
+        piezas: comprasNecesarias(catalogo.accesorios || [], o.yaTengo),
+        costo: null,
+      },
+    ],
+    fuera: aud.excluidas.map((p) => ({
+      id: p.id, nombre: p.nombre,
+      porque: p.veredicto.porque,
+      alternativa: p.alternativaSiFuesePago,
+      // Lo grave no es que exista software de pago: es que no haya reemplazo.
+      grave: !p.alternativaSiFuesePago,
+    })),
+    sinDeclarar: aud.sinDeclarar.map((p) => ({ id: p.id, nombre: p.nombre })),
+    politica: catalogo.politica || null,
+  };
+}
+
+/* ===== src/core/laboratorio.js ===== */
+/**
+ * laboratorio.js — banco de pruebas para estudiar un MVP antes de prometerlo.
+ *
+ * Todo lo demás en este núcleo responde «¿qué puede hacer este equipo?». Este
+ * módulo responde una pregunta anterior: **«¿esto da para un producto?»**, y la
+ * responde con un ensayo que se puede reprobar.
+ *
+ * La regla de diseño: un banco cuyo resultado no puede ser «no» está mal hecho.
+ * Por eso cada prueba declara su criterio de aceptación ANTES de correrse, y
+ * `evaluarEnsayo()` compara contra ese criterio sin margen de interpretación.
+ * Mover el criterio después de ver el resultado es el modo más común de
+ * mentirse, y aquí cuesta trabajo hacerlo: el criterio vive en el catálogo y el
+ * ensayo solo aporta números.
+ */
+
+
+
+/** Estados de un banco o de una prueba, del menos al más resuelto. */
+const ESTADOS_ENSAYO = ['sin-probar', 'en-curso', 'cumple', 'parcial', 'no-cumple', 'no-evaluable'];
+
+const ORDEN_ENSAYO = Object.fromEntries(ESTADOS_ENSAYO.map((e, i) => [e, i]));
+
+const bancoPorId = (catalogo, id) => (catalogo && catalogo.bancos || []).find((b) => b.id === id) || null;
+
+const pruebaPorId = (catalogo, id) => {
+  for (const b of (catalogo && catalogo.bancos) || []) {
+    const p = (b.pruebas || []).find((x) => x.id === id);
+    if (p) return { banco: b, prueba: p };
+  }
+  return null;
+};
+
+/**
+ * ¿Qué necesita este banco para poder correrse aquí y ahora?
+ *
+ * Separa tres cosas que se confunden todo el tiempo: que falte el equipo, que
+ * falte el software, y que falte el permiso legal. Las tres bloquean, pero se
+ * resuelven de formas muy distintas y con plazos muy distintos.
+ */
+function requisitosDeBanco(banco, contexto) {
+  const ctx = contexto || {};
+  const catalogoCostos = ctx.costos || { piezas: [] };
+  const piezas = (banco.software || []).map((s) => {
+    const pieza = (catalogoCostos.piezas || []).find((p) => p.id === s.pieza) || { id: s.pieza, costo: null };
+    return { ...s, pieza: s.pieza, nombre: pieza.nombre || s.pieza, veredicto: evaluarCosto(pieza), alternativa: pieza.alternativaSiFuesePago || null };
+  });
+  const noAdmitidas = piezas.filter((p) => !p.veredicto.admitido);
+  const conAlternativa = noAdmitidas.filter((p) => !!p.alternativa);
+
+  const tieneEquipo = ctx.equipoDisponible === true;
+  const legalPendiente = (banco.pruebas || []).some((p) => p.requiereExpedienteLegal)
+    && ctx.expedienteCompleto !== true;
+
+  const faltas = [];
+  if (!tieneEquipo) faltas.push({ tipo: 'equipo', que: banco.equipo, comoSeResuelve: 'Comprarlo o conseguirlo prestado: ' + (banco.precioAprox || 'precio sin declarar') + '.' });
+  for (const p of noAdmitidas) {
+    faltas.push({
+      tipo: 'software', que: p.nombre, porque: p.veredicto.porque,
+      comoSeResuelve: p.alternativa || 'Sin reemplazo libre conocido: esa parte del banco no se puede correr respetando la política.',
+      // Una pieza de pago con alternativa libre no bloquea nada: se cambia y listo.
+      bloquea: !p.alternativa,
+    });
+  }
+  if (legalPendiente) {
+    faltas.push({
+      tipo: 'legal',
+      que: 'Expediente de la Ley 21.719 para las pruebas con dato personal',
+      comoSeResuelve: 'Completar el expediente con responsable designado antes de capturar a nadie. Las demás pruebas del banco se pueden correr igual.',
+      bloquea: true,
+    });
+  }
+
+  const bloqueantes = faltas.filter((f) => f.bloquea !== false);
+  return {
+    banco: banco.id,
+    piezas,
+    piezasNoAdmitidas: noAdmitidas.map((p) => p.pieza),
+    piezasReemplazables: conAlternativa.map((p) => p.pieza),
+    faltas,
+    // "Se puede correr" no es "no falta nada": faltar el equipo es distinto de
+    // faltar el permiso, y solo lo segundo detiene el banco entero.
+    puedeCorrerse: bloqueantes.length === 0,
+    puedeCorrerseParcial: bloqueantes.every((f) => f.tipo === 'legal'),
+    respetaPolitica: noAdmitidas.length === 0 || conAlternativa.length === noAdmitidas.length,
+  };
+}
+
+/**
+ * Compara lo medido contra el criterio y devuelve un veredicto.
+ *
+ * `mediciones` es `{ [idDeMetrica]: numero }`. Una métrica sin medir NO cuenta
+ * como aprobada: el resultado baja a 'parcial' y se nombra lo que falta. Y si
+ * no se midió nada, el veredicto es 'no-evaluable', que no es lo mismo que
+ * 'no-cumple' — la diferencia entre «lo probamos y falló» y «no lo probamos»
+ * es toda la diferencia.
+ */
+function evaluarEnsayo(prueba, ensayo) {
+  const e = ensayo || {};
+  const mediciones = e.mediciones || {};
+  const metricas = (prueba.mide || []).map((m) => {
+    const valor = mediciones[m.id];
+    return { ...m, valor: Number.isFinite(Number(valor)) ? Number(valor) : (valor == null || valor === '' ? null : valor) };
+  });
+  const medidas = metricas.filter((m) => m.valor != null);
+  const faltantes = metricas.filter((m) => m.valor == null);
+
+  if (!medidas.length) {
+    return {
+      prueba: prueba.id, estado: 'no-evaluable', metricas, faltantes: faltantes.map((m) => m.id),
+      criterio: prueba.criterio,
+      porque: 'Todavía no hay ninguna medición: el banco no se ha corrido.',
+    };
+  }
+  // El criterio es una frase con números, no una fórmula: quien corre el banco
+  // decide si se cumple y lo declara. Registrar ese juicio explícito es más
+  // honesto que fingir que un texto libre se puede evaluar solo.
+  const declarado = e.cumpleCriterio;
+  const estado = declarado === true ? (faltantes.length ? 'parcial' : 'cumple')
+    : declarado === false ? 'no-cumple'
+    : 'en-curso';
+  return {
+    prueba: prueba.id, estado, metricas,
+    faltantes: faltantes.map((m) => m.id),
+    criterio: prueba.criterio,
+    observaciones: e.observaciones || '',
+    responsable: e.responsable || null,
+    fecha: e.fecha || null,
+    porque: estado === 'cumple' ? 'Todas las métricas medidas y el criterio declarado cumplido.'
+      : estado === 'parcial' ? 'El criterio se declara cumplido, pero faltan métricas por medir: ' + faltantes.map((m) => m.nombre).join(', ') + '.'
+      : estado === 'no-cumple' ? 'El criterio no se cumple. ' + (prueba.siFalla || '')
+      : 'Hay mediciones pero nadie ha declarado todavía si el criterio se cumple.',
+  };
+}
+
+/** Estado de un banco entero: el de su prueba menos resuelta. */
+function estadoDeBanco(banco, ensayos) {
+  const porPrueba = (banco.pruebas || []).map((p) => evaluarEnsayo(p, (ensayos || {})[p.id]));
+  const peor = porPrueba.reduce((acc, r) => (ORDEN_ENSAYO[r.estado] > ORDEN_ENSAYO[acc] ? r.estado : acc), 'cumple');
+  const cumplen = porPrueba.filter((r) => r.estado === 'cumple').length;
+  return {
+    banco: banco.id,
+    nombre: banco.nombre,
+    pruebas: porPrueba,
+    estado: porPrueba.length === 0 ? 'sin-probar' : (cumplen === porPrueba.length ? 'cumple' : peor),
+    avance: porPrueba.length ? cumplen / porPrueba.length : 0,
+    cumplen, total: porPrueba.length,
+    conclusiones: porPrueba.filter((r) => r.estado === 'no-cumple').map((r) => r.porque),
+  };
+}
+
+/**
+ * Plan del laboratorio: qué correr primero.
+ *
+ * El orden no es por interés sino por costo de fracasar: primero lo barato que
+ * despeja incertidumbre, después lo caro. Un banco que necesita comprar un
+ * equipo va detrás de uno que solo necesita una tarde.
+ */
+function planDeLaboratorio(catalogo, contexto) {
+  const ctx = contexto || {};
+  const bancos = (catalogo.bancos || []).map((b) => {
+    const req = requisitosDeBanco(b, { ...ctx, equipoDisponible: (ctx.equipos || []).includes(b.id) });
+    const est = estadoDeBanco(b, (ctx.ensayos || {})[b.id]);
+    // Menos faltas y más pruebas pendientes = más rinde correrlo ahora.
+    const pendientes = est.total - est.cumplen;
+    return {
+      ...est,
+      icon: b.icon, porQue: b.porQue, precioAprox: b.precioAprox,
+      arquitecturaLibre: b.arquitecturaLibre,
+      veredictoPrevio: b.veredictoPrevio,
+      requisitos: req,
+      prioridad: (req.puedeCorrerse ? 100 : 0) + pendientes * 10 - req.faltas.length * 5,
+    };
+  });
+  bancos.sort((a, b) => b.prioridad - a.prioridad);
+  return {
+    bancos,
+    listos: bancos.filter((b) => b.requisitos.puedeCorrerse).map((b) => b.banco),
+    bloqueados: bancos.filter((b) => !b.requisitos.puedeCorrerse).map((b) => ({ banco: b.banco, faltas: b.requisitos.faltas })),
+    principio: catalogo.principio || null,
+  };
+}
+
+/**
+ * Rasgos legales de una prueba, para `clasificar()` de legal.js.
+ *
+ * Un banco que graba a personas es tratamiento de datos personales aunque sea
+ * "solo una prueba". El laboratorio no es un espacio sin ley, y ese es
+ * justamente el error que este módulo tiene que evitar habilitar.
+ */
+function rasgosDePrueba(prueba) {
+  const conPersonas = /cuerpo|esqueleto|cara|persona|fatiga/i.test(String(prueba.id) + ' ' + String(prueba.nombre));
+  return {
+    personas: conPersonas,
+    sensibles: prueba.requiereExpedienteLegal === true,
+    observacionSistematica: false,
+    masivo: false,
+    decisionAutomatizada: false,
+  };
+}
+
+/** Nivel legal de cada prueba del catálogo, para mostrarlo junto al protocolo. */
+function nivelLegalDePruebas(catalogo) {
+  const salida = [];
+  for (const b of (catalogo.bancos || [])) {
+    for (const p of (b.pruebas || [])) {
+      salida.push({ banco: b.id, prueba: p.id, nombre: p.nombre, nivel: clasificar(rasgosDePrueba(p)) });
+    }
+  }
+  return salida;
+}
+
+/**
+ * Informe de un banco, listo para archivar.
+ *
+ * Es el entregable del laboratorio: un documento con el protocolo que se
+ * siguió, los números que salieron y el veredicto. Sin esto, un ensayo se
+ * convierte en un recuerdo, y un recuerdo no sostiene una decisión de producto.
+ */
+function informeDeBanco(banco, ensayos, meta) {
+  const m = meta || {};
+  const est = estadoDeBanco(banco, ensayos);
+  return {
+    tipo: 'informe-laboratorio',
+    version: 1,
+    generado: new Date().toISOString(),
+    banco: { id: banco.id, nombre: banco.nombre, equipo: banco.equipo, porQue: banco.porQue },
+    arquitecturaLibre: banco.arquitecturaLibre || null,
+    responsable: m.responsable || null,
+    organizacion: m.organizacion || null,
+    estado: est.estado,
+    avance: est.avance,
+    pruebas: est.pruebas.map((r) => {
+      const p = (banco.pruebas || []).find((x) => x.id === r.prueba) || {};
+      return {
+        id: r.prueba, nombre: p.nombre, capacidad: p.capacidad, alimentaMVP: p.alimentaMVP,
+        protocolo: p.protocolo || [],
+        criterio: r.criterio,
+        estado: r.estado,
+        mediciones: r.metricas.map((x) => ({ id: x.id, nombre: x.nombre, unidad: x.unidad, valor: x.valor })),
+        faltantes: r.faltantes,
+        observaciones: r.observaciones || '',
+        porque: r.porque,
+      };
+    }),
+    conclusiones: est.conclusiones,
+    veredictoPrevio: banco.veredictoPrevio || null,
+    // Se firma quién lo corrió: un informe anónimo no compromete a nadie.
+    nota: 'Informe generado por kimos-LiDARia. Los criterios de aceptación estaban declarados antes de correr el ensayo.',
+  };
+}
+
+/* ===== src/core/almacenamiento.js ===== */
+/**
+ * almacenamiento.js — subir archivos al Cloud Storage de KIMOS, sin filtrar
+ * datos personales por el camino.
+ *
+ * El endpoint que KIMOS expone hoy —el mismo que usa ProductLab— sirve todo lo
+ * que cuelga de `imagenes/` **por una URL pública y sin autenticación**. Eso es
+ * perfecto para un catálogo de productos y es un problema serio para esta app,
+ * que produce fotogramas con trabajadores, medidas corporales y evidencia de
+ * EPP. Subir eso a una URL adivinable sería una filtración, no una integración.
+ *
+ * Por eso este módulo no es un envoltorio de `fetch`: es la puerta. Clasifica
+ * lo que se va a subir, y **se niega** a mandar al área pública cualquier cosa
+ * con personas dentro. Lo que no puede subir, lo dice y ofrece la descarga
+ * local, que es la salida honesta mientras la plataforma no tenga un área
+ * privada por equipo con escritura.
+ *
+ * La subida en sí la hace la app con `shell.authFetch`; aquí está la decisión,
+ * que es la parte que hay que poder probar sin red.
+ */
+
+/** Clasificación del contenido, que decide a dónde puede ir. */
+const CLASES_ARCHIVO = [
+  {
+    id: 'publico', label: 'Publicable', orden: 1,
+    desc: 'No contiene personas ni datos de la organización que no puedan verse desde fuera.',
+    areaPermitida: 'publica',
+  },
+  {
+    id: 'interno', label: 'Interno', orden: 2,
+    desc: 'Datos de la organización —inventario, montajes, informes— sin personas identificables.',
+    areaPermitida: 'publica',
+  },
+  {
+    id: 'personal', label: 'Dato personal', orden: 3,
+    desc: 'Incluye personas identificables o medidas atribuibles a alguien.',
+    areaPermitida: 'privada',
+  },
+  {
+    id: 'sensible', label: 'Categoría especial', orden: 4,
+    desc: 'Biometría, salud o cualquier dato del artículo 2 letra g) de la Ley 21.719.',
+    areaPermitida: 'ninguna',
+  },
+];
+
+/** Áreas de almacenamiento, con lo que de verdad se puede hacer en cada una. */
+const AREAS = {
+  publica: {
+    id: 'publica',
+    label: 'Área compartida de KIMOS',
+    prefijo: 'imagenes/',
+    endpoint: '/api/v2/files',
+    lectura: '/api/public/files/',
+    autenticada: true,
+    lecturaPublica: true,
+    nota: 'Escribe cualquier usuario autenticado; LEE cualquiera que tenga la URL, sin iniciar sesión. Es el área que la plataforma expone hoy.',
+  },
+  privada: {
+    id: 'privada',
+    label: 'Área privada del equipo',
+    prefijo: 'equipos/',
+    endpoint: null,
+    lectura: '/api/storage/teams/{teamId}/files/download',
+    autenticada: true,
+    lecturaPublica: false,
+    nota: 'La lectura autenticada por equipo existe. La ESCRITURA desde una app todavía no está expuesta en el contrato del AppShell, así que la app no puede subir aquí: lo que sea personal se descarga al equipo del usuario.',
+  },
+};
+
+const MAX_MB_POR_DEFECTO = 20;
+
+/**
+ * Deja un nombre de archivo apto para una URL, sin perder la extensión.
+ *
+ * Transcribe los acentos en vez de borrarlos: en castellano, tirar la tilde
+ * como si fuera basura convierte «ñandú» en «and» y el archivo deja de
+ * encontrarse por su nombre. Y recorta los puntos del principio, que no
+ * aportan nada y en algunos sistemas esconden el archivo.
+ */
+function nombreSeguro(nombre, porDefecto) {
+  const base = String(nombre == null ? '' : nombre)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // á → a, ñ → n
+    .toLowerCase();
+  const limpio = base
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+  return limpio || (porDefecto || 'archivo');
+}
+
+/**
+ * Clasifica lo que se va a subir a partir de lo que la app sabe de ello.
+ *
+ * El criterio es deliberadamente pesimista: ante la duda, sube de categoría.
+ * Equivocarse hacia arriba cuesta una descarga manual; equivocarse hacia abajo
+ * cuesta una filtración y una multa de hasta 20.000 UTM.
+ */
+function clasificarArchivo(meta) {
+  const m = meta || {};
+  if (m.biometrico === true || m.salud === true) return 'sensible';
+  if (m.personasIdentificables === true || m.medidasCorporales === true) return 'personal';
+  // Un fotograma de cámara casi siempre trae a alguien: se asume que sí salvo
+  // que quien lo sube afirme lo contrario de forma explícita.
+  if (m.tipo === 'fotograma' || m.tipo === 'video') {
+    return m.personasIdentificables === false ? 'interno' : 'personal';
+  }
+  if (m.tipo === 'informe' || m.tipo === 'pack' || m.tipo === 'configuracion' || m.tipo === 'diagnostico') return 'interno';
+  if (m.publicable === true) return 'publico';
+  return 'interno';
+}
+
+const claseDeArchivo = (id) => CLASES_ARCHIVO.find((c) => c.id === id) || null;
+
+/**
+ * Construye la ruta destino. Todo cuelga de un prefijo por app y por equipo,
+ * con un componente aleatorio para que dos subidas del mismo nombre no se
+ * pisen ni sea posible adivinar la URL de la anterior.
+ */
+function rutaDeArchivo(opciones) {
+  const o = opciones || {};
+  const area = AREAS[o.area] || AREAS.publica;
+  const app = nombreSeguro(o.appId || 'lidaria');
+  const carpeta = o.carpeta ? nombreSeguro(o.carpeta) + '/' : '';
+  const equipo = o.teamId ? nombreSeguro(o.teamId) + '/' : '';
+  const unico = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  return area.prefijo + app + '/' + equipo + carpeta + unico + '-' + nombreSeguro(o.nombre, 'archivo');
+}
+
+/**
+ * La puerta. Decide si este archivo puede subir, a dónde, y si no puede, por qué.
+ *
+ * Devuelve siempre una salida utilizable: cuando la subida está prohibida, el
+ * campo `alternativa` dice qué hacer en su lugar. Un "no" sin salida es un
+ * botón roto.
+ */
+function prepararSubida(archivo, meta, contexto) {
+  const a = archivo || {};
+  const ctx = contexto || {};
+  const m = meta || {};
+  const clase = m.clase || clasificarArchivo(m);
+  const info = claseDeArchivo(clase);
+  const maxMB = ctx.maxMB || MAX_MB_POR_DEFECTO;
+
+  if (!a.name && !m.nombre) {
+    return { ok: false, clase, motivo: 'El archivo no tiene nombre.', alternativa: null };
+  }
+  const tam = Number(a.size);
+  if (Number.isFinite(tam) && tam > maxMB * 1024 * 1024) {
+    return {
+      ok: false, clase,
+      motivo: 'Pesa ' + (tam / 1048576).toFixed(1) + ' MB y el máximo es ' + maxMB + ' MB.',
+      alternativa: 'Reduce la resolución o sube el archivo por partes.',
+    };
+  }
+  if (!info) {
+    return { ok: false, clase, motivo: 'Clasificación desconocida: ' + clase, alternativa: null };
+  }
+
+  if (info.areaPermitida === 'ninguna') {
+    return {
+      ok: false, clase,
+      motivo: 'Es dato de categoría especial: biometría o salud. No sube a ninguna área de la plataforma desde esta app.',
+      alternativa: 'Descárgalo al equipo y guárdalo donde el expediente de la Ley 21.719 haya declarado, con su plazo de conservación.',
+      legal: true,
+    };
+  }
+
+  if (info.areaPermitida === 'privada') {
+    const privada = AREAS.privada;
+    return {
+      ok: false, clase,
+      motivo: 'Contiene datos personales, y el área compartida de KIMOS se LEE sin autenticación: cualquiera con la URL vería el archivo.',
+      alternativa: 'Descárgalo al equipo. Cuando la plataforma exponga escritura en el área privada por equipo (' + privada.prefijo + '), la app subirá ahí sin cambiar nada más.',
+      legal: true,
+      esperandoPlataforma: true,
+    };
+  }
+
+  const area = AREAS.publica;
+  const path = rutaDeArchivo({ appId: ctx.appId, teamId: ctx.teamId, carpeta: m.carpeta || clase, nombre: m.nombre || a.name });
+  return {
+    ok: true, clase, area: area.id,
+    path,
+    endpoint: area.endpoint,
+    urlPublica: area.lectura + path,
+    // Que se pueda subir no quiere decir que sea invisible: quien sube tiene
+    // que saber que la URL resultante no pide contraseña.
+    aviso: 'El archivo quedará accesible para cualquiera que tenga la URL, sin iniciar sesión. La URL lleva un componente aleatorio, así que no es adivinable, pero tampoco es secreta.',
+    maxMB,
+  };
+}
+
+/**
+ * El cuerpo `FormData` que espera el endpoint. Se construye aquí para que el
+ * contrato con la plataforma —los nombres de los campos— viva en un solo sitio
+ * y se pueda probar sin navegador.
+ */
+function cuerpoDeSubida(plan, archivo, FormDataImpl) {
+  const FD = FormDataImpl || (typeof FormData !== 'undefined' ? FormData : null);
+  if (!FD) throw new Error('No hay FormData en este entorno.');
+  if (!plan || !plan.ok) throw new Error('No se puede construir la subida: ' + ((plan && plan.motivo) || 'plan inválido'));
+  const fd = new FD();
+  fd.append('path', plan.path);
+  fd.append('file', archivo);
+  return fd;
+}
+
+/**
+ * Registro de lo que se subió. Es lo que permite contestar, meses después,
+ * «¿qué hay de nuestro en ese bucket y quién lo puso?» — una pregunta que la
+ * Ley 21.719 obliga a poder responder.
+ */
+function registroDeSubida(plan, meta, contexto) {
+  const ctx = contexto || {};
+  return {
+    fecha: new Date().toISOString(),
+    app: ctx.appId || 'lidaria',
+    equipo: ctx.teamId || null,
+    responsable: ctx.responsable || null,
+    clase: plan.clase,
+    area: plan.area || null,
+    path: plan.path || null,
+    url: plan.urlPublica || null,
+    nombreOriginal: (meta && meta.nombre) || null,
+    lecturaPublica: plan.area === 'publica',
+  };
+}
+
+/** Un archivo descargable como alternativa cuando la subida no procede. */
+function comoDescarga(contenido, nombre, tipo) {
+  return {
+    nombre: nombreSeguro(nombre, 'lidaria.json'),
+    tipo: tipo || 'application/json',
+    contenido: typeof contenido === 'string' ? contenido : JSON.stringify(contenido, null, 2),
+  };
 }
 
 /* Exportaciones para uso como módulo (las herramientas lo importan;
