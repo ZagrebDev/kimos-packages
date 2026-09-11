@@ -431,6 +431,30 @@
 .km-x:hover { background: rgba(251, 113, 133, .2); color: #fff; }
 .km-pie { color: var(--k-dim); font-size: 11.5px; text-align: center; padding-top: 4px; }
 
+/* ---------------------------- este estudio ------------------------------- */
+
+/* Listas de texto dentro de las tarjetas: el host no garantiza viñetas. */
+.km-lista { padding-left: 18px; }
+.km-lista li { list-style: disc; font-size: 13px; line-height: 1.75; }
+.km-lista li + li { margin-top: 5px; }
+
+/* Los editores del estudio ponen campos dentro de la tabla: el campo ocupa
+   la celda entera y los números siguen alineados a la derecha. */
+.km-tbl .km-in { width: 100%; padding: 6px 9px; font-size: 12.5px; border-radius: 7px; }
+.km-tbl td.km-num .km-in { text-align: right; }
+.km-tbl td:has(.km-x) { width: 1%; }
+
+/* Un botón como último control de la rejilla se alinea con los campos. */
+.km-ctrl > .km-btn { width: 100%; justify-content: center; }
+.km-ctrls > .km-ctrl { min-width: 0; }
+.km-ctrls .km-in { width: 100%; }
+
+/* El importador es un <label> con un input escondido: tiene que verse y
+   comportarse como los demás botones. */
+label.km-btn { cursor: pointer; }
+
+.km-col > h4 { font-size: 13px; font-weight: 720; color: var(--k-tx); margin-bottom: 6px; }
+
 /* ------------------------- adaptación de pantalla ------------------------ */
 
 /* tótems y monitores grandes: la escala sube para leerse de pie y a distancia */

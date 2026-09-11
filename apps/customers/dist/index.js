@@ -1,5 +1,5 @@
 /**
- * Clientes — app oficial instalable (v2.0, bundle real en kimos-packages).
+ * Clientes — app oficial instalable (v2.1, bundle real en kimos-packages).
  *
  * Directorio de clientes GENÉRICO (CRM liviano): los items pueden crearse
  * por API/agente o importarse desde Jumpseller. Funciones: lista con
@@ -8,6 +8,13 @@
  *
  * Bundle ESM puro sobre el contrato AppShell: globalThis.React + shell.items
  * (CRUD de la instancia) + shell.authFetch (sync e integración).
+ *
+ * v2.1 — Clientes pasa a ser la FUENTE de la identidad `account` del sistema
+ * (APP-SPEC §7.c y §7.d). El `dataSchema` del manifest declara qué campos
+ * acepta de otras apps y cuáles son sus claves naturales (RUT y correo), de
+ * modo que cuando Cotizaciones o Prospección escriben un cliente aquí, no se
+ * crea un segundo «Acme SpA»: se reutiliza el que ya existe. Sin ese
+ * contrato publicado, la plataforma rechaza cualquier escritura de fuera.
  */
 export default function mount(shell) {
   const React = globalThis.React;
@@ -15,6 +22,7 @@ export default function mount(shell) {
     throw new Error('globalThis.React no disponible: el host debe exponer React.');
   }
   const h = React.createElement;
+  const APP_VERSION = '2.1.0';
   const { useState, useEffect, useMemo, useCallback } = React;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -133,7 +141,7 @@ export default function mount(shell) {
       const needle = search.trim().toLowerCase();
       return (items || [])
         .filter((it) => !statusFilter || s(it.status) === statusFilter)
-        .filter((it) => !needle || ['name', 'email', 'phone', 'city', 'country']
+        .filter((it) => !needle || ['name', 'taxId', 'email', 'phone', 'city', 'country']
           .some((k) => s(it[k]).toLowerCase().includes(needle)))
         .sort((a, b) => s(a.name).localeCompare(s(b.name)));
     }, [items, search, statusFilter]);
@@ -157,6 +165,7 @@ export default function mount(shell) {
         ),
         h('div', { className: 'kc-spacer' }),
         h('span', { className: 'kc-count' }, visible.length + ' de ' + items.length),
+        h('span', { className: 'kc-version', title: 'Versión de la app' }, 'v' + APP_VERSION),
         hasBinding && h('button', { className: 'kc-btn kc-btn-primary', disabled: syncing, onClick: doSync },
           syncing ? 'Sincronizando…' : '⟳ Jumpseller'),
         h('button', { className: 'kc-btn', title: 'Integración', onClick: () => setShowConfig(!showConfig) }, '⚙'),
@@ -208,7 +217,8 @@ export default function mount(shell) {
             h('button', { className: 'kc-btn', onClick: () => setSelected(null) }, '✕'),
           ),
           h('div', { className: 'kc-panel-body' },
-            [['Email', s(selected.email) ? h('a', { href: 'mailto:' + s(selected.email), className: 'kc-link' }, s(selected.email)) : ''],
+            [['RUT', s(selected.taxId)],
+             ['Email', s(selected.email) ? h('a', { href: 'mailto:' + s(selected.email), className: 'kc-link' }, s(selected.email)) : ''],
              ['Teléfono', s(selected.phone)],
              ['Ciudad', s(selected.city)],
              ['Región', s(selected.region)],
@@ -220,6 +230,10 @@ export default function mount(shell) {
             ) : null),
             Array.isArray(selected.sourceLinks) && selected.sourceLinks.some((l) => l && l.integration === 'jumpseller') &&
               h('p', { className: 'kc-synced' }, '✓ Sincronizado con Jumpseller'),
+            // La ficha pudo entrar desde otra app (Cotizaciones, Prospección…).
+            // Decirlo evita la sospecha de «esto apareció solo».
+            s(selected.createdByApp) && s(selected.createdByApp) !== 'customers' &&
+              h('p', { className: 'kc-synced' }, 'Creado desde la app «' + s(selected.createdByApp) + '»'),
             h('div', { className: 'kc-field kc-notes' },
               h('div', { className: 'kc-field-label' }, 'Notas internas'),
               h('textarea', {

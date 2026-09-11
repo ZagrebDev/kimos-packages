@@ -1,5 +1,7 @@
 # 📊 Encuesta Rápida — app de EJEMPLO de terceros
 
+**Versión actual: 1.0.1**
+
 Demuestra cómo un desarrollador externo construye una app **con endpoints
 públicos sin escribir backend**: todo pasa por el gateway genérico de la
 plataforma, habilitado por los `permissions` del manifest.
@@ -21,3 +23,14 @@ plataforma, habilitado por los `permissions` del manifest.
    respuestas individuales).
 
 Empaquetar: `node tools/pack.mjs apps/miorg.encuestas`
+
+## Avisos del revisor descartados, y por qué
+
+`node tools/check-app.mjs` señala que esta app **no aparece en el catálogo raíz**.
+Es deliberado: es un ejemplo de app de TERCEROS, no una app oficial del
+producto, así que no se ofrece desde la Tienda. Se instala con
+«Instalar desde archivo» a partir de su `.kapp`.
+
+Queda escrito aquí a propósito: un aviso descartado con motivo es una
+decisión; uno descartado en silencio es el que vuelve dentro de seis meses
+(ver `ALINEA-TU-APP.md`).

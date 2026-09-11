@@ -20,6 +20,11 @@ export default function mount(shell) {
   const h = React.createElement;
   const { useState, useEffect } = React;
 
+  // La versión, a mano y a la vista. El contrato pide las dos cosas: que el
+  // bundle la declare y que se vea en pantalla, porque al probar es la única
+  // forma de saber qué build tomó el host (APP-SPEC §7.a).
+  const APP_VERSION = '1.0.1';
+
   const APP_ID = 'miorg.encuestas';
   const instanceId = shell.app && shell.app.instanceId;
 
@@ -249,6 +254,7 @@ export default function mount(shell) {
           key: id, className: 'enc-tab' + (tab === id ? ' enc-tab-active' : ''), onClick: () => setTab(id),
         }, label)).concat([
           h('button', { key: 'r', className: 'enc-tab enc-tab-right', title: 'Actualizar', onClick: () => void refresh() }, '⟳'),
+          h('span', { key: 'v', className: 'enc-version', title: 'Versión de la app' }, 'v' + APP_VERSION),
         ])),
       h('div', { key: 'body', className: 'enc-body' },
         tab === 'results' ? h(ResultsTab, { state }) : tab === 'design' ? h(DesignTab, { state }) : h(EmbedTab, { state })),

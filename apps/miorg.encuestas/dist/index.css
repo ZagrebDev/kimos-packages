@@ -6,6 +6,11 @@
   --enc-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
   --enc-accent: hsl(var(--primary, 182 75% 40%));
   --enc-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  /* Semánticos, no identidad visual: un color detrás de un token con
+     nombre es una decisión en un solo sitio (APP-SPEC §9). */
+  --enc-danger: hsl(0 84% 60%);
+  --enc-code-bg: hsl(222 47% 11%);
+  --enc-code-fg: hsl(213 27% 84%);
 
   height: 100%;
   display: flex;
@@ -34,9 +39,9 @@
 .kimos-encuestas .enc-btn { border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .kimos-encuestas .enc-btn:disabled { opacity: 0.45; cursor: default; }
 .kimos-encuestas .enc-btn-primary { background: var(--enc-accent); color: var(--enc-accent-fg); }
-.kimos-encuestas .enc-btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; padding: 4px 8px; }
+.kimos-encuestas .enc-btn-danger { background: hsl(0 84% 60% / 0.12); color: var(--enc-danger); padding: 4px 8px; }
 .kimos-encuestas .enc-savebar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.kimos-encuestas .enc-code { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; font-family: ui-monospace, monospace; overflow-x: auto; white-space: pre; margin: 0 0 8px; }
+.kimos-encuestas .enc-code { background: var(--enc-code-bg); color: var(--enc-code-fg); border-radius: 8px; padding: 12px; font-size: 12px; font-family: ui-monospace, monospace; overflow-x: auto; white-space: pre; margin: 0 0 8px; }
 .kimos-encuestas .enc-bar-row { margin-bottom: 8px; }
 .kimos-encuestas .enc-bar-label { font-size: 12px; margin-bottom: 3px; }
 .kimos-encuestas .enc-bar-track { height: 10px; border-radius: 999px; background: var(--enc-surface); overflow: hidden; }
@@ -46,3 +51,6 @@
 .kimos-encuestas .enc-resp-opt { font-weight: 600; }
 .kimos-encuestas .enc-resp-comment { color: var(--enc-muted); font-size: 12px; }
 .kimos-encuestas .enc-resp-meta { display: flex; align-items: center; gap: 8px; color: var(--enc-muted); font-size: 11px; flex-shrink: 0; }
+
+/* La versión, siempre a la vista (APP-SPEC §7.a). */
+.kimos-encuestas .enc-version { align-self: center; padding: 0 10px; font-size: 10.5px; color: var(--enc-muted); font-variant-numeric: tabular-nums; }

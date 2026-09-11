@@ -1,0 +1,11 @@
+{
+  "name": "kimos-app-cotizaciones",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fuentes y utilidades de la app Cotizaciones de KIMOS. El bundle publicado es dist/index.js.",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node tools/build.mjs && node test/test-app.mjs"
+  }
+}

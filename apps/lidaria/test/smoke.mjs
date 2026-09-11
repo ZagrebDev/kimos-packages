@@ -50,18 +50,20 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
-ok(agente && agente.tools.length === 14, 'catorce herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
+ok(agente && agente.tools.length === 17, 'diecisiete herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
 ok(snap0.version === manifest.version, 'APP_VERSION coincide con el manifest', snap0.version);
 ok(snap0.catalogoEquipos.length >= 15, 'catálogo de equipos embebido', snap0.catalogoEquipos.length + ' equipos');
-ok(snap0.modulos.length === 15, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
+ok(snap0.modulos.length === 16, 'catálogo de módulos embebido', snap0.modulos.length + ' módulos');
 ok(!!snap0.nucleo, 'versión del núcleo a la vista', snap0.nucleo);
 
-console.log('\nRender de las trece pestañas');
-const TABS = ['panel', 'rubros', 'modulos', 'inventario', 'equipos', 'prospeccion', 'vision',
-  'extensiones', 'manual', 'ecosistema', 'negocio', 'plan', 'licencias'];
+// La lista sale del propio esquema de la herramienta del agente: una pestaña
+// nueva entra sola en la prueba. Antes estaba escrita a mano y las dos
+// pestañas añadidas en 1.4.0 no se renderizaban nunca.
+const TABS = agente.tools.filter((t) => t.name === 'VER_PESTANA')[0].inputSchema.properties.pestana.enum;
+console.log('\nRender de las ' + TABS.length + ' pestañas');
 for (const t of TABS) {
   const r = await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
   let arbol = null;
@@ -200,6 +202,51 @@ ok(guardado && typeof guardado === 'object', 'guarda estado con debounce', guard
 ok(!!guardado.sup && Array.isArray(guardado.inventario), 'guarda supuestos e inventario');
 app.unmount();
 ok(true, 'unmount sin excepciones');
+
+/* --------------- 1.4.0: componentes, montaje y medidas --------------- */
+
+console.log('\nComponentes y montaje');
+
+const rComp = await agente.dispatchAction({ type: 'VER_COMPONENTES', payload: { equipo: 'xiaomi.redmi.note15pro', entorno: 'web' } });
+ok(rComp.success && /Redmi Note 15 Pro/.test(rComp.message), 'lista los componentes de un equipo concreto', rComp.message.slice(0, 150));
+ok(/contenedor nativo/i.test(rComp.message), 'y dice cuáles no se alcanzan desde el navegador');
+
+const rNat = await agente.dispatchAction({ type: 'VER_COMPONENTES', payload: { equipo: 'xiaomi.redmi.note15pro', entorno: 'nativo' } });
+const utilesWeb = Number((rComp.message.match(/(\d+) componentes utilizables/) || [])[1]);
+const utilesNat = Number((rNat.message.match(/(\d+) componentes utilizables/) || [])[1]);
+ok(utilesNat > utilesWeb, 'el contenedor nativo desbloquea más que el navegador', utilesWeb + ' → ' + utilesNat);
+
+const rMal = await agente.dispatchAction({ type: 'VER_COMPONENTES', payload: { equipo: 'no-existe' } });
+ok(!rMal.success, 'un equipo inventado se rechaza', rMal.error);
+
+const rEstrecho = await agente.dispatchAction({ type: 'CALCULAR_MONTAJE', payload: { alturaCamara: 175.5, inclinacion: 0, fovH: 70, profundidad: 250, alto: 240 } });
+ok(rEstrecho.success && /no hay altura ni inclinación/.test(rEstrecho.message), 'con 70° dice que no hay montaje posible', rEstrecho.message.slice(0, 120));
+
+const rAncho = await agente.dispatchAction({ type: 'CALCULAR_MONTAJE', payload: { alturaCamara: 145, inclinacion: 5, fovH: 90, profundidad: 250, distanciaZona: 220, alto: 240 } });
+ok(rAncho.success && /ve el cuerpo entero/i.test(rAncho.message), 'con 90° sobre la pantalla sí lo hay', rAncho.message.slice(0, 100));
+
+const rMed = await agente.dispatchAction({ type: 'MEDIDAS_DERIVABLES', payload: {} });
+ok(rMed.success && /NO se pueden derivar/.test(rMed.message), 'declara lo que ninguna cámara puede dar');
+ok(/casco/i.test(rMed.message) && /[Pp]eso/.test(rMed.message), 'y nombra la talla de casco y el peso');
+
+const snapC = agente.getSnapshot();
+ok(snapC.montaje && typeof snapC.montaje.veCuerpoEntero === 'boolean', 'el snapshot lleva el montaje declarado', JSON.stringify(snapC.montaje).slice(0, 110));
+ok(Array.isArray(snapC.noDerivables) && snapC.noDerivables.length >= 4, 'y la lista de lo no derivable', snapC.noDerivables.join(', '));
+ok(snapC.componentes && snapC.componentes.equipo === 'xiaomi.redmi.note15pro', 'y el equipo de componentes elegido', JSON.stringify(snapC.componentes));
+
+for (const t of ['componentes', 'montaje']) {
+  const r = await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
+  ok(r.success, 'la pestaña ' + t + ' existe y se abre');
+}
+
+// Con un equipo elegido, la vista de componentes toma la rama larga: tabla,
+// combinaciones y plan por módulo. Sin esto solo se probaba el caso vacío.
+for (const t of ['componentes', 'montaje']) {
+  await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
+  let arbol = null;
+  try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' con equipo elegido lanza: ' + e.message); continue; }
+  ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con equipo elegido');
+}
 
 console.log('');
 if (fallos) {

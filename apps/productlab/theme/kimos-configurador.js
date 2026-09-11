@@ -36,7 +36,7 @@
     bootMax: (typeof window.KIMOS_BOOT_MAX === 'number') ? window.KIMOS_BOOT_MAX : 4000,
   };
   var LOG = '[kimos-cfg]';
-  var VERSION = '6.1.0';
+  var VERSION = '6.8.1';
   // KIMOS_3D_URL acepta UNA url, VARIAS separadas por coma, o un array:
   // cada una es una instancia de ProductLab y sus catálogos se FUSIONAN
   // (el producto se busca en todos; ante un SKU repetido manda el primero
@@ -379,6 +379,13 @@
           var lb = g.closest && g.closest('label');
           nom = lb ? (lb.textContent || '').trim() : '';
         }
+        if (!nom && g.closest) {
+          // Checkbox sin label (ej. el que inyecta el RESCATE de abajo en un
+          // re-escaneo): el nombre vive en el título de su fieldset.
+          var fsx = g.closest('fieldset');
+          var ttx = fsx && fsx.querySelector('.product-options__title, legend');
+          nom = ttx ? (ttx.textContent || '').trim() : '';
+        }
         var corte = nom.indexOf(': ');
         if (corte === -1) return;   // checkbox ajeno al contrato: es del theme
         var paso = nom.slice(0, corte).trim();
@@ -412,6 +419,57 @@
       }
       reales.push({ el: g, id: optId, name: name, values: values });
     });
+    // ── RESCATE: themes que imprimen el checklist VACÍO ──────────────────────
+    // Jumpseller entrega las opciones addon al theme, pero algunas plantillas
+    // (ej. la de Keiko) pintan solo el título "paso: Valor" dentro de un
+    // <fieldset class="product-options__fieldset" data-optionid> SIN ningún
+    // checkbox — ni siquiera la ficha nativa puede elegirlas. Se inyecta aquí
+    // el control que falta, con el MISMO contrato de los themes que sí lo
+    // imprimen (input.prod-options type=checkbox, name = id de la opción,
+    // value = "Yes"): queda oculto, el resto del kit lo trata como cualquier
+    // addon y el submit del theme lo serializa con el form. El recargo se
+    // declara 0 solo para el TOTAL mostrado (este theme no lo publica en
+    // ninguna parte); lo que se cobra lo decide Jumpseller con la opción que
+    // viaja en el POST, como siempre.
+    var rescatados = [];
+    Array.prototype.forEach.call(document.querySelectorAll('fieldset[data-optionid]'), function (fs) {
+      var optId = fs.getAttribute('data-optionid');
+      if (!optId) return;
+      if (fs.querySelector('input, select')) return;   // ya tiene control: no es el caso
+      var ya = Object.keys(porPaso).some(function (k) { return porPaso[k].inputs[String(optId)]; });
+      if (ya) return;
+      var t = fs.querySelector('.product-options__title, legend');
+      var nom = t ? (t.textContent || '').trim() : '';
+      var corte = nom.indexOf(': ');
+      if (corte === -1) return;                        // no es un addon "paso: Valor"
+      var paso = nom.slice(0, corte).trim();
+      var valor = nom.slice(corte + 2).trim();
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'prod-options';
+      cb.name = String(optId);
+      cb.value = 'Yes';
+      cb.setAttribute('data-optionid', String(optId));
+      cb.setAttribute('data-addon-price', '0');
+      cb.setAttribute('data-kc-inyectado', '1');
+      // Oculto pero serializable: display:none también viaja en el form, pero
+      // así ni ocupa sitio ni puede recibir clics del theme.
+      cb.style.position = 'absolute'; cb.style.opacity = '0'; cb.style.pointerEvents = 'none';
+      cb.style.width = '1px'; cb.style.height = '1px';
+      fs.appendChild(cb);
+      var clave = norm(paso);
+      var vg = porPaso[clave];
+      if (!vg) {
+        vg = porPaso[clave] = { el: null, id: 'kc-addon:' + clave, name: paso, values: [], inputs: {}, virtual: true };
+        virtuales.push(vg);
+      }
+      vg.values.push({ id: String(optId), name: valor });
+      vg.inputs[String(optId)] = cb;
+      rescatados.push(nom);
+    });
+    if (rescatados.length) {
+      console.info(LOG, 'el theme imprimió ' + rescatados.length + ' opción(es) addon sin checkbox — se inyectaron: ' + rescatados.join(' · '));
+    }
     return reales.concat(virtuales);
   }
   // Solo los grupos que la TIENDA usa para casar variante (los addons no
@@ -959,22 +1017,27 @@
   }
 
   function renderSpecsTable(specs) {
+    // SECUENCIAL, con herencia: una fila sin grupo pertenece al último grupo
+    // nombrado ARRIBA de ella (así se lee el editor: "CPU * Fan" y debajo sus
+    // filas). Antes se agrupaba por nombre en un diccionario: las filas sin
+    // grupo iban a parar todas a un bloque suelto pegado al primero — la fila
+    // de la Noctua aparecía bajo GENERAL en vez de bajo CPU * FAN, y el orden
+    // del editor no era el de la ficha (2026-08-25).
     var wrap = el('div', 'kc-specs');
-    var groups = {};
+    var actual = null;   // nombre del grupo vigente ('General' si nadie abrió uno)
+    var tbl = null;
     (specs || []).forEach(function (sp) {
-      var g = sp.group || '';
-      (groups[g] = groups[g] || []).push(sp);
-    });
-    Object.keys(groups).forEach(function (g) {
-      if (g) wrap.appendChild(el('div', 'kc-specs-g', g));
-      var tbl = el('table', 'kc-specs-t');
-      groups[g].forEach(function (sp) {
-        var tr = el('tr');
-        tr.appendChild(el('th', null, sp.label || ''));
-        tr.appendChild(el('td', null, sp.value || ''));
-        tbl.appendChild(tr);
-      });
-      wrap.appendChild(tbl);
+      var g = String(sp.group || '').trim();
+      if (tbl === null || (g && g !== actual)) {
+        actual = g || (actual == null ? 'General' : actual);
+        wrap.appendChild(el('div', 'kc-specs-g', actual));
+        tbl = el('table', 'kc-specs-t');
+        wrap.appendChild(tbl);
+      }
+      var tr = el('tr');
+      tr.appendChild(el('th', null, sp.label || ''));
+      tr.appendChild(el('td', null, sp.value || ''));
+      tbl.appendChild(tr);
     });
     return wrap;
   }
@@ -984,10 +1047,62 @@
   // La galería es SOLO la galería. La nota es su propia sección y se ve
   // únicamente si está en la lista de la experiencia: pintarla también aquí
   // dejaba texto bajo las fotos que no había forma de quitar.
+  // ── Galería 'panel': la foto elegida a un lado usando TODO el alto, sin
+  // marco de fondo ni flechas; el resto como MOSAICO que llena el ancho y el
+  // alto restantes, con la elegida marcada. El mosaico va a la derecha (o a
+  // la izquierda con panelLado: 'izq'). Con ancho de sección "contenedor",
+  // usa todo el ancho disponible del contenedor.
+  function renderPhotosPanel(images, pc, altDe) {
+    var wrap = el('div', 'kc-fotos kc-fotos-panel');
+    if (pc.panelLado === 'izq') wrap.setAttribute('data-lado', 'izq');
+    wrap.setAttribute('data-main', ['s', 'l', 'xl', 'auto'].indexOf(pc.mainSize) !== -1 ? pc.mainSize : 'm');
+    // El panel también honra el resto del estilo: el ANCHO del bloque
+    // (data-size), el TAMAÑO de miniaturas (data-thumb) y el ENCAJE
+    // (data-fit) — sin estos atributos el CSS no puede aplicarlos y los
+    // controles del editor quedaban muertos en este layout.
+    wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
+    wrap.setAttribute('data-thumb', ['s', 'l'].indexOf(pc.thumbSize) !== -1 ? pc.thumbSize : 'm');
+    wrap.setAttribute('data-fit', pc.fit === 'cover' ? 'cover' : 'contain');
+    var big = el('img', 'kc-panel-big');
+    big.src = images[0] || '';
+    big.alt = altDe(images[0], 0);
+    var mos = el('div', 'kc-panel-mosaico');
+    // Columnas del mosaico: manda "Fotos por fila" del estilo si está fijado
+    // (el usuario puso 2 y salían 3 — el control tiene que mandar); sin
+    // fijar, el "tamaño de miniaturas" decide (pequeñas = 3, medianas = 2,
+    // grandes = 1). Las filas se reparten TODO el alto, sin scroll interno.
+    var cols = pc.cols > 0 ? Math.min(6, Math.round(pc.cols))
+      : (pc.thumbSize === 's' ? 3 : pc.thumbSize === 'l' ? 1 : 2);
+    mos.style.setProperty('--kc-panel-cols', String(cols));
+    mos.style.setProperty('--kc-panel-filas', String(Math.max(1, Math.ceil(images.length / cols))));
+    var tiles = [];
+    var mostrar = function (i) {
+      big.src = images[i];
+      big.alt = altDe(images[i], i);
+      tiles.forEach(function (t, k) { t.classList[k === i ? 'add' : 'remove']('on'); });
+    };
+    images.forEach(function (u, i) {
+      var t = el('button', 'kc-panel-tile' + (i === 0 ? ' on' : ''));
+      t.type = 'button';
+      t.setAttribute('aria-label', 'Ver foto ' + (i + 1));
+      var im = el('img');
+      im.src = u; im.alt = altDe(u, i); im.loading = 'lazy';
+      t.appendChild(im);
+      t.addEventListener('click', function () { mostrar(i); });
+      mos.appendChild(t);
+      tiles.push(t);
+    });
+    wrap.appendChild(big);
+    if (images.length > 1) wrap.appendChild(mos);
+    else wrap.setAttribute('data-sola', '1');
+    return wrap;
+  }
+
   function renderPhotos(images, cfg, altDe) {
     altDe = altDe || function () { return ''; };
-    var wrap = el('div', 'kc-fotos');
     var pc = cfg || {};
+    if (pc.layout === 'panel') return renderPhotosPanel(images, pc, altDe);
+    var wrap = el('div', 'kc-fotos');
     wrap.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(pc.size) !== -1 ? pc.size : 'm');
     // Disposición: 'visor' (foto grande + miniaturas debajo), 'lado'
     // (miniaturas en columna a la izquierda) o 'mosaico' (solo la grilla, sin
@@ -1053,6 +1168,43 @@
   // Sección `imagen` (contrato v2): UNA foto a lo ancho con su ALTO NATURAL
   // (height auto, sin recortes). `width:'full'` sangra hasta el borde del
   // viewport; con `link` la imagen entera es un enlace. Repetible.
+  // ── Preguntas frecuentes: acordeón donde cada pregunta se pliega sola ────
+  // (varias pueden quedar abiertas a la vez; todo arranca plegado).
+  function renderFaq(sec) {
+    var items = ((sec && sec.items) || []).filter(function (x) { return x && String(x.q || '').trim(); });
+    if (!items.length) return null;
+    var wrap = el('div', 'kc-faq');
+    // El TÍTULO ya no se pinta aquí: lo pone la caja kc-sec (paint), con el
+    // mismo sistema de tamaño/alineación/fondo que Fotos y Especificaciones —
+    // antes salía con un estilo propio distinto al resto de la página.
+    // Diseño editable del acordeón: letra, alineación y ancho del bloque.
+    wrap.setAttribute('data-fsize', ['s', 'l'].indexOf(sec.textSize) !== -1 ? sec.textSize : 'm');
+    if (sec.align === 'center') wrap.setAttribute('data-align', 'center');
+    if (['s', 'm', 'l'].indexOf(sec.boxWidth) !== -1) wrap.setAttribute('data-w', sec.boxWidth);
+    items.forEach(function (it) {
+      var fila = el('div', 'kc-faq-i');
+      var q = el('button', 'kc-faq-q');
+      q.type = 'button';
+      q.setAttribute('aria-expanded', 'false');
+      q.appendChild(el('span', 'kc-faq-qt', String(it.q).trim()));
+      q.appendChild(el('span', 'kc-faq-car', '▸'));
+      var a = el('div', 'kc-faq-a', String(it.a || '').trim());
+      a.style.display = 'none';
+      q.addEventListener('click', function () {
+        var abrir = a.style.display === 'none';
+        a.style.display = abrir ? '' : 'none';
+        q.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+        q.className = 'kc-faq-q' + (abrir ? ' on' : '');
+        var car = q.querySelector('.kc-faq-car');
+        if (car) car.textContent = abrir ? '▾' : '▸';
+      });
+      fila.appendChild(q);
+      fila.appendChild(a);
+      wrap.appendChild(fila);
+    });
+    return wrap;
+  }
+
   function renderImagen(sec) {
     if (!sec || !sec.imageUrl) return null;
     // El ancho (auto/container/full) lo aplica anchoSeccion() al insertarla.
@@ -1137,6 +1289,18 @@
       var kg = kimosOf(entry, g);
       return !kg || isGroupVisible(entry, kg, selMap);
     });
+    // El ORDEN del paso a paso lo manda el CATÁLOGO (lo que el dueño ordenó
+    // en el Estudio), no el orden en que la tienda liste sus opciones
+    // nativas: una opción asociada tarde (Garantía, 2026-08-25) salía como
+    // PASO 01 en la ficha aunque en el Estudio fuera el último. Los pasos
+    // sin par en el catálogo conservan su orden nativo, al final.
+    var ordenK = {};
+    ((entry && entry.groups) || []).forEach(function (kg2, i) { ordenK[kg2.id] = i; });
+    visibles = visibles.map(function (g, i) {
+      var kg2 = kimosOf(entry, g);
+      var k = kg2 && ordenK[kg2.id] != null ? ordenK[kg2.id] : 1000 + i;
+      return { g: g, k: k };
+    }).sort(function (a, b) { return a.k - b.k; }).map(function (x) { return x.g; });
     // Estado de colapso persistente entre repintados.
     if (!ctx.stepsOpen) {
       ctx.stepsOpen = {};
@@ -2730,6 +2894,9 @@
                 if (ev.key === 'Escape' && grande) alternar();
               });
               confView.appendChild(exp);
+              // Cómo se sale, dicho en pantalla: solo visible en pantalla
+              // completa (CSS). El ✕ chico dejaba gente atrapada en el 3D.
+              confView.appendChild(el('span', 'kc-3d-full-hint', 'Esc o ✕ para volver'));
               return ponerModelo(viewer, entry.model3d).then(function () {
                 viewer.setFinishes(entry.model3d.finishes || []);
                 viewer.setState(build3dState(entry, groups));
@@ -2772,6 +2939,14 @@
             expandir.textContent = abierto ? '▼' : '▲';
           });
           panelBox.appendChild(expandir);
+          // El panel CRECE solo después de pintado (la entrega estimada llega
+          // más tarde, los textos parten en dos líneas, el detalle se
+          // despliega): cada cambio de tamaño re-mide el hueco al pie de los
+          // pasos. Sin esto --kc-panel-h quedaba con la medida vieja hasta el
+          // próximo scroll y el último paso aparecía tapado por la barra.
+          if (window.ResizeObserver) {
+            try { new ResizeObserver(alVueloBarra).observe(panelBox); } catch (e) {}
+          }
           confPanel.appendChild(confSteps);
           confPanel.appendChild(panelBox);
       }
@@ -2888,6 +3063,32 @@
       confSteps.appendChild(renderSteps(entry, groups, ctx));
     }
 
+    // ── Dónde vive el visor 3D según la pantalla ─────────────────────────────
+    // En escritorio va en el panel derecho. En MÓVIL ese panel es la barra
+    // inferior y su canvas queda oculto (solo aparecía desplegando el asa ▲):
+    // el cliente configuraba a ciegas. Con 3D, el visor se muda ARRIBA de los
+    // pasos, a todo el ancho — se ve girar el mueble mientras se eligen los
+    // colores, que es el punto de todo esto.
+    function colocarVisor() {
+      if (!confView || !confPanel || !panelBox) return;
+      var movil = window.matchMedia && window.matchMedia('(max-width: 991px)').matches;
+      var reencuadrar = function () {
+        if (viewer && viewer.resize) setTimeout(function () { viewer.resize(); }, 60);
+      };
+      if (movil && has3d) {
+        if (confView.parentNode !== confPanel) {
+          confView.classList.add('kc-3d-inline');
+          confPanel.insertBefore(confView, confPanel.firstChild);
+          reencuadrar();
+        }
+      } else if (confView.parentNode !== panelBox) {
+        confView.classList.remove('kc-3d-inline');
+        panelBox.insertBefore(confView, panelBox.firstChild);
+        reencuadrar();
+      }
+    }
+    window.addEventListener('resize', function () { colocarVisor(); });
+
     function paint() {
       paintBar();
       body.innerHTML = '';
@@ -2905,9 +3106,29 @@
           var n = null;
           if (s.kind === 'hero') n = renderHero(s, ctx);
           else if (s.kind === 'imagen') n = renderImagen(s);
+          else if (s.kind === 'faq') n = renderFaq(s);
           else if (s.kind === 'specs' && hasSpecs) { n = renderSpecsTable(sf.specs); anclas.specs = n; }
           else if (s.kind === 'fotos' && hasFotos) { n = renderPhotos(imagesTienda, style.photos, altDe); anclas.fotos = n; }
           else if (s.kind === 'note' && sf.photosNote) n = el('div', 'kc-note', sf.photosNote);
+          // Título propio y/o fondo de la sección (Fotos, Especificaciones y
+          // Preguntas frecuentes): la caja envuelve al contenido para que el
+          // fondo cubra el bloque entero y el título comparta lenguaje con el
+          // resto de la página.
+          if (n && (s.kind === 'specs' || s.kind === 'fotos' || s.kind === 'faq')
+              && (String(s.title || '').trim() || String(s.bgColor || '').trim())) {
+            var caja = el('div', 'kc-sec');
+            if (String(s.bgColor || '').trim()) { caja.classList.add('kc-sec-bg'); caja.style.background = String(s.bgColor).trim(); }
+            if (String(s.title || '').trim()) {
+              var tt = el('div', 'kc-sec-title', String(s.title).trim());
+              tt.setAttribute('data-size', ['s', 'l', 'xl'].indexOf(s.titleSize) !== -1 ? s.titleSize : 'm');
+              tt.style.textAlign = s.titleAlign === 'center' ? 'center' : s.titleAlign === 'right' ? 'right' : 'left';
+              caja.appendChild(tt);
+            }
+            caja.appendChild(n);
+            if (s.kind === 'specs') anclas.specs = caja;
+            if (s.kind === 'fotos') anclas.fotos = caja;
+            n = caja;
+          }
           if (n) { anchoSeccion(n, s.width); body.appendChild(n); }
         });
       } else if (conPasos) {
@@ -2916,6 +3137,7 @@
         construirConf();
         body.appendChild(confPanel);
         hostearPanel();
+        colocarVisor();
         pintarPanel();
       }
       if (viewer && enConf) {

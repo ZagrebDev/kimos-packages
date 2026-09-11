@@ -1,0 +1,52 @@
+{
+  "id": "aiep.inscripcion",
+  "name": "AIEP INSCRIPCIÓN",
+  "version": "3.2.1",
+  "description": "Totem de acreditación del Seminario «IA y Protección de Datos» en la Sede AIEP San Joaquín, para vitrina: se abre y ya manda: trae puesto el código de la instancia de AIEP GESTIÓN, así que el asistente marca su RUT, confirma sus datos y su acreditación llega en segundos. Solo se acredita quien está en el padrón. Cola local a prueba de cortes de red. Mismo sistema visual que ANFITRIÓN AIEP.",
+  "icon": "🪪",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control"
+  ],
+  "configSchema": {
+    "title": "Aspecto del totem",
+    "fields": [
+      {
+        "key": "modo",
+        "label": "Disposición",
+        "type": "select",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Automática (totem si la pantalla es vertical y grande)"
+          },
+          {
+            "value": "totem",
+            "label": "Forzar totem (tipografía y botones XL)"
+          },
+          {
+            "value": "escritorio",
+            "label": "Forzar escritorio"
+          }
+        ]
+      },
+      {
+        "key": "segundosInactividad",
+        "label": "Segundos sin tocar antes de volver al inicio",
+        "type": "number",
+        "min": 15,
+        "max": 600
+      }
+    ]
+  },
+  "defaultConfig": {
+    "modo": "auto",
+    "segundosInactividad": 60
+  }
+}

@@ -226,6 +226,10 @@ export default function mount(shell) {
       // defecto. Vacío = cada producto con su estilo propio.
       styleTemplates: [],
       styleDefaultId: '',
+      // Plantillas de HERO/secciones del builder: una sección guardada una
+      // vez y reutilizable en cualquier producto (se inserta como COPIA:
+      // después se le cambia el fondo o los textos sin afectar a los demás).
+      heroTemplates: [],
       // Bloque leído por el gateway público (theme de la tienda):
       public: { enabled: false, channels: [], data: null },
     };
@@ -1118,7 +1122,12 @@ export default function mount(shell) {
           cols: Math.max(0, Math.min(6, num(f.cols, 0))),   // 0 = automático
           // visor = foto grande + miniaturas debajo · lado = miniaturas en
           // columna a la izquierda · mosaico = solo la grilla, sin visor
-          layout: ['lado', 'mosaico'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          layout: ['lado', 'mosaico', 'panel'].indexOf(f.layout) !== -1 ? f.layout : 'visor',
+          // 'panel': la foto elegida a un lado usando TODO el alto, sin marco
+          // ni flechas, y el resto como mosaico que llena el ancho y alto
+          // restantes (la elegida queda marcada). El mosaico puede ir a la
+          // derecha o a la izquierda.
+          panelLado: f.panelLado === 'izq' ? 'izq' : 'der',
           mainSize: ['s', 'l', 'xl', 'auto'].indexOf(f.mainSize) !== -1 ? f.mainSize : 'm',
           thumbSize: ['s', 'l'].indexOf(f.thumbSize) !== -1 ? f.thumbSize : 'm',
           // contain = la foto entera · cover = recortada a un formato común
@@ -1149,6 +1158,43 @@ export default function mount(shell) {
       name: s(t && t.name).trim() || 'Plantilla',
       style: normalizeStyle(t && t.style),
     })).filter((t) => t.name);
+  }
+  // ── Plantillas de HERO/secciones del builder (def.heroTemplates) ─────────
+  // Una sección de la Experiencia guardada UNA vez y reutilizable en todos
+  // los productos de la instancia. Se inserta como COPIA (ids regenerados):
+  // después se cambia el fondo o los textos sin afectar a quien la originó.
+  function heroTemplatesList() {
+    const raw = (model.def && Array.isArray(model.def.heroTemplates)) ? model.def.heroTemplates : [];
+    return raw
+      .map((t) => ({ id: s(t && t.id).trim() || newId('htpl'), name: s(t && t.name).trim() || 'Plantilla',
+        section: normalizePageSection(t && t.section) }))
+      .filter((t) => t.section && (t.section.kind === 'hero' || t.section.kind === 'imagen' || t.section.kind === 'faq'));
+  }
+  // Copia profunda con TODOS los ids regenerados: insertar la misma plantilla
+  // dos veces en un producto no puede duplicar ids (keys de React, selección
+  // del builder y drag&drop se guían por ellos).
+  function clonarSeccionConIdsNuevos(secc) {
+    const c = JSON.parse(JSON.stringify(secc));
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o && typeof o === 'object') {
+        if (typeof o.id === 'string' && o.id) o.id = newId(o.id.split('-')[0] || 'ps');
+        Object.keys(o).forEach((k) => walk(o[k]));
+      }
+    };
+    walk(c);
+    return c;
+  }
+  async function guardarHeroTemplate(secc, nombre) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : [])
+      .concat([{ id: newId('htpl'), name: s(nombre).trim(), section: clonarSeccionConIdsNuevos(secc) }]);
+    return saveDefinition(next, ['heroTemplates']);
+  }
+  async function borrarHeroTemplate(id) {
+    const next = Object.assign({}, model.def || defaultDefinition());
+    next.heroTemplates = (Array.isArray(next.heroTemplates) ? next.heroTemplates : []).filter((t) => t && t.id !== id);
+    return saveDefinition(next, ['heroTemplates']);
   }
   function styleTemplateById(id) {
     const k = s(id).trim();
@@ -1396,7 +1442,46 @@ export default function mount(shell) {
   function normalizePageSection(x) {
     if (!x || typeof x !== 'object') return null;
     if (x.kind === 'specs' || x.kind === 'note' || x.kind === 'fotos') {
-      return { id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width) };
+      return {
+        id: x.id || newId('ps'), kind: x.kind, show: x.show !== false, width: sectionWidth(x.width),
+        // Título propio de la sección (contenido, tamaño y alineación) y
+        // color de fondo del bloque — pedidos para integrar Fotos y
+        // Especificaciones al lenguaje del resto de la experiencia. Vacíos =
+        // como siempre. (Allowlist: lo que no esté aquí, se pierde al guardar.)
+        title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+      };
+    }
+    // Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas que el
+    // cliente despliega una a una. Repetible, como los heros. (Pasa por esta
+    // normalización en CADA guardado: campo que no esté aquí, campo que se
+    // pierde — la lección del allowlist.)
+    if (x.kind === 'faq') {
+      return {
+        id: x.id || newId('ps'),
+        kind: 'faq',
+        // Título con el MISMO sistema que Fotos/Especificaciones (tamaño,
+        // alineación, fondo) + diseño propio del acordeón: tamaño de letra,
+        // alineación del texto y ancho del bloque. (Allowlist: campo que no
+        // esté aquí, campo que se pierde al guardar.)
+        title: s(x.title).trim(),
+        titleSize: ['s', 'm', 'l', 'xl'].indexOf(x.titleSize) !== -1 ? x.titleSize : 'm',
+        titleAlign: ['left', 'center', 'right'].indexOf(x.titleAlign) !== -1 ? x.titleAlign : 'left',
+        bgColor: s(x.bgColor).trim(),
+        textSize: ['s', 'l'].indexOf(x.textSize) !== -1 ? x.textSize : 'm',
+        align: x.align === 'center' ? 'center' : 'left',
+        boxWidth: ['s', 'm', 'l'].indexOf(x.boxWidth) !== -1 ? x.boxWidth : '',
+        width: sectionWidth(x.width),
+        items: (Array.isArray(x.items) ? x.items : []).filter(Boolean)
+          .map((it) => ({
+            id: it.id || newId('fq'),
+            q: s(it.q != null ? it.q : it.pregunta).trim(),
+            a: s(it.a != null ? it.a : it.respuesta).trim(),
+          }))
+          .filter((it) => it.q),
+      };
     }
     // Sección IMAGEN (ProductLab): solo una foto, a lo ancho, cuyo ALTO se
     // adapta a la imagen (sin recortes) — ideal para descripciones hechas de
@@ -1584,10 +1669,18 @@ export default function mount(shell) {
         .map((v) => ({
           id: v.id || newId('val'),
           label: s(v.label).trim(),
+          // Detalle manual bajo el nombre en la tienda (vacío = automático).
+          // OJO: esta lista es un ALLOWLIST — un campo nuevo del valor que no
+          // se agregue aquí se PIERDE en cada guardado (pasó con este mismo:
+          // el usuario escribía el detalle y Guardar lo recortaba, 2026-08-25).
+          detalle: s(v.detalle).trim(),
           imageUrl: s(v.imageUrl).trim(),
           // Color del "puntito" (swatch) en la tienda para pasos de color.
           swatchColor: s(v.swatchColor).trim(),
           componentIds: (v.componentIds || []).filter((id) => compById(id)),
+          // Candado "componente exacto" (no acepta alternativos) — otro campo
+          // que este allowlist perdía en cada guardado.
+          soloExacto: (Array.isArray(v.soloExacto) ? v.soloExacto : []).filter((id) => compById(id)),
           // Cantidad de unidades del componente elegido (ej. 2 para "2×8GB");
           // multiplica el precio y exige stock suficiente.
           qty: Math.max(1, Math.round(num(v.qty, 1)) || 1),
@@ -1612,6 +1705,13 @@ export default function mount(shell) {
         id: g.id || newId('grp'),
         typeId: s(g.typeId) || 'other',
         label: s(g.label).trim(),
+        // Comentario del paso (bajo el título en la tienda). Mismo aviso que
+        // en los valores: campo fuera de este allowlist = campo que Guardar
+        // recorta.
+        nota: s(g.nota).trim(),
+        // Paso COMPONENTE BASE (el cliente no lo elige) — también faltaba en
+        // el allowlist: marcarlo y guardar lo desmarcaba.
+        baseStep: g.baseStep === true,
         // photoStep: la selección de este paso cambia la foto del producto en
         // la tienda (ej. color) usando la imagen del valor elegido.
         photoStep: g.photoStep === true,
@@ -1641,7 +1741,7 @@ export default function mount(shell) {
       const seen = {};
       const out = (Array.isArray(sf.pageSections) ? sf.pageSections : [])
         .map(normalizePageSection).filter(Boolean)
-        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
+        .filter((x) => ((x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq') ? true : (seen[x.kind] ? false : (seen[x.kind] = true))));
       // Solo la primera vez, y solo si tampoco hay hero clásico con contenido:
       // si el usuario ya escribió titular ahí, sembrar otro sería duplicar.
       const heroClasico = s(hero.headline).trim() || s(hero.bgImageUrl).trim();
@@ -2435,7 +2535,7 @@ export default function mount(shell) {
       // mismos del KIT MANUAL). El kit del theme la compara con la suya y
       // grita en consola si quedó viejo — un theme activado desde un zip
       // puede traer assets antiguos. Mantener sincronizada en cada release.
-      kitExpected: '6.1.0',
+      kitExpected: '6.8.1',
       // Vencimiento local del kit (licencia, opción b del usuario): días de
       // gracia desde la última publicación; pasado el plazo el kit del theme
       // deja de montar la experiencia y queda la ficha nativa (que cobra
@@ -3663,7 +3763,7 @@ export default function mount(shell) {
             textColor: { type: 'string', description: '#hex del texto (vacío = automático)' },
             heroIndex: { type: 'number', description: 'SOLO para REEMPLAZAR un hero existente: cuál (1 = el primero). OMÍTELO para AGREGAR un hero nuevo detrás de los que ya hay — que es lo que corresponde cuando piden "otra sección" o "un hero debajo". Reemplazar pisa el contenido anterior y no se puede deshacer.' },
           }, required: ['producto'] } },
-        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
+        { name: 'SET_STOREFRONT', description: 'Edita la EXPERIENCIA (ficha visual) de un producto: pageSections (builder: secciones hero/imagen/faq/specs/fotos/note), specs (tabla), photosNote (nota), tabs (pestañas) y style (estilo del configurador por producto). OJO — esto NO es la "descripción del producto" (el texto del campo description de Jumpseller: eso se lee en productos[].storeDescription y se escribe con SET_DESCRIPCION_TIENDA), y la GALERÍA de fotos tampoco se edita aquí ni con ninguna tool (se gestiona en la app; la sección fija "fotos" solo se muestra/oculta/reordena). No inventes datos técnicos en los bloques: si la información vive en las fotos, léelas antes con LEER_FOTO. El contrato EXACTO de pageSections está en snapshot.builderRef: sectionShape (forma de la sección), blockSchema (campos de cada tipo de bloque), example (sección de ejemplo) y patterns[].containers (celdas válidas por patrón); el estado actual está en productos[].storefront.pageSections — para editar, parte de ese estado y modifícalo. pageSections REEMPLAZA la lista completa; secciones o bloques mal formados se rechazan con detalle (nada se pierde en silencio). Solo se reemplaza lo que envíes; todo pasa por la normalización de la app y se republica solo.',
           inputSchema: { type: 'object', properties: {
             producto: { type: 'string' },
             pageSections: { type: 'array', items: { type: 'object' }, description: 'lista COMPLETA de secciones según builderRef.sectionShape; bloques en slots:{contenedor:[…]} según builderRef.blockSchema' },
@@ -3918,7 +4018,7 @@ export default function mount(shell) {
           // Contrato EXACTO de SET_STOREFRONT.pageSections. Los bloques que no
           // calcen con este esquema se RECHAZAN completos (nunca se pierden en
           // silencio), así el agente puede corregir y reintentar.
-          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false}.',
+          sectionShape: 'Sección hero: {"kind":"hero","pattern":<patterns[].id>,"height":"s|m|l|xl|auto","bgColor":"#hex opcional","bgImageUrl":"https opcional (tapa el color)","textColor":"#hex opcional (vacío = automático según fondo)","overlay":true,"slots":{<containerId>:[bloque,…]}}. Los containerId válidos son EXACTAMENTE los containers del pattern elegido (ver patterns[]). Sección imagen (repetible; solo una foto cuyo ALTO se adapta a la imagen, sin recortes): {"kind":"imagen","imageUrl":"https…","width":"content|full","alt":"opcional","link":"opcional"}. Sección faq (repetible; acordeón de preguntas frecuentes que el cliente despliega): {"kind":"faq","title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional","textSize":"s|m|l (letra de preguntas/respuestas)","align":"left|center (texto)","boxWidth":"\'\' todo el ancho|s 560px|m 720px|l 900px (centrado)","items":[{"q":"pregunta","a":"respuesta"},…]}. Secciones fijas (existen siempre, solo se reordenan u ocultan): {"kind":"specs"|"fotos"|"note","show":true|false} — specs y fotos aceptan además título y fondo propios: {"title":"opcional","titleSize":"s|m|l|xl","titleAlign":"left|center|right","bgColor":"#hex opcional"}.',
           blockSchema: {
             photo: '{"type":"photo","size":"s|m|l|xl|auto","anim":"none|float|zoom|sway","align":"left|center|right"} — foto del producto enlazado (auto = alto natural de la foto)',
             title: '{"type":"title","align":"left|center|right"} — nombre del producto',
@@ -4415,8 +4515,13 @@ export default function mount(shell) {
                   if (!s(sec.imageUrl).trim()) issues.push('sección ' + (i + 1) + ' (imagen): falta imageUrl (usa IMPORT_IMAGE para subir una imagen y obtener su URL)');
                   return;
                 }
+                if (sec.kind === 'faq') {
+                  const its = Array.isArray(sec.items) ? sec.items.filter((x) => x && s(x.q != null ? x.q : x.pregunta).trim()) : [];
+                  if (!its.length) issues.push('sección ' + (i + 1) + ' (faq): necesita items [{q, a}] con al menos una pregunta no vacía');
+                  return;
+                }
                 const tag = 'sección ' + (i + 1);
-                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, specs, fotos, note)');
+                if (sec.kind !== undefined && sec.kind !== 'hero') issues.push(tag + ': kind inválido "' + s(sec.kind) + '" (válidos: hero, imagen, faq, specs, fotos, note)');
                 ['blocks', 'content', 'children', 'elements', 'bloques', 'body', 'sections'].forEach((wk) => {
                   if (sec[wk] !== undefined) issues.push(tag + ': la clave "' + wk + '" no existe — los bloques van en "slots": {contenedor: [bloques]}');
                 });
@@ -5840,7 +5945,13 @@ export default function mount(shell) {
               h('option', { key: 'v', value: 'visor' }, 'Foto grande + miniaturas debajo'),
               h('option', { key: 'l', value: 'lado' }, 'Miniaturas en columna a la izquierda'),
               h('option', { key: 'm', value: 'mosaico' }, 'Mosaico (solo la grilla, sin foto grande)'),
+              h('option', { key: 'p', value: 'panel' }, 'Panel: foto grande a todo alto + mosaico al lado'),
             ])),
+          ph.layout === 'panel' ? h(Row, { key: 'plado', label: 'Lado del mosaico (panel)' },
+            h('select', { className: 'gp-select', value: ph.panelLado === 'izq' ? 'izq' : 'der', onChange: (ev) => upPh({ panelLado: ev.target.value }) }, [
+              h('option', { key: 'd', value: 'der' }, 'Mosaico a la derecha'),
+              h('option', { key: 'i', value: 'izq' }, 'Mosaico a la izquierda'),
+            ])) : null,
           h(Row, { key: 'sz', label: 'Ancho del bloque' },
             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (ev) => upPh({ size: ev.target.value }) }, [
               h('option', { key: 's', value: 's' }, 'Estrecho (560 px)'),
@@ -5848,8 +5959,17 @@ export default function mount(shell) {
               h('option', { key: 'l', value: 'l' }, 'Ancho (1200 px)'),
               h('option', { key: 'xl', value: 'xl' }, 'Sin límite'),
             ])),
-          h(Row, { key: 'ms', label: 'Alto de la foto grande' },
-            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, [
+          h(Row, { key: 'ms', label: ph.layout === 'panel' ? 'Tamaño de la foto principal' : 'Alto de la foto grande' },
+            // En el panel este control mueve el alto de la sección Y el
+            // reparto del ancho (foto más grande = mosaico más angosto): con
+            // fotos apaisadas subir solo el alto no se notaba.
+            h('select', { className: 'gp-select', value: ph.mainSize || 'm', onChange: (ev) => upPh({ mainSize: ev.target.value }) }, ph.layout === 'panel' ? [
+              h('option', { key: 's', value: 's' }, 'Pequeña'),
+              h('option', { key: 'm', value: 'm' }, 'Media'),
+              h('option', { key: 'l', value: 'l' }, 'Grande'),
+              h('option', { key: 'xl', value: 'xl' }, 'Muy grande (80% de la pantalla)'),
+              h('option', { key: 'a', value: 'auto' }, 'Según la pantalla'),
+            ] : [
               h('option', { key: 's', value: 's' }, 'Baja (300 px)'),
               h('option', { key: 'm', value: 'm' }, 'Media (460 px)'),
               h('option', { key: 'l', value: 'l' }, 'Alta (620 px)'),
@@ -5870,10 +5990,14 @@ export default function mount(shell) {
               h('option', { key: 'c', value: 'contain' }, 'Completa (se ve entera)'),
               h('option', { key: 'v', value: 'cover' }, 'Recortada (todas del mismo formato)'),
             ])),
-          h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
-            h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
-            h('span', { key: 's' }, 'Marco alrededor de las fotos'),
-          ]),
+          ph.layout === 'panel'
+            // El panel va sin marcos por diseño (solo se marca la elegida):
+            // mostrar el switch aquí sería un control muerto.
+            ? h('div', { key: 'fr', className: 'gp-muted', style: { alignSelf: 'end' } }, 'El panel va sin marcos: solo se marca la foto elegida.')
+            : h('label', { key: 'fr', className: 'gp-switch', style: { alignSelf: 'end' } }, [
+                h('input', { key: 'c', type: 'checkbox', checked: ph.frame !== false, onChange: (ev) => upPh({ frame: ev.target.checked }) }),
+                h('span', { key: 's' }, 'Marco alrededor de las fotos'),
+              ]),
         ]),
       ]),
     ]);
@@ -6184,6 +6308,7 @@ export default function mount(shell) {
     const [baseSel, setBaseSel] = useState('');
     // La pestaña activa llega del header (nav store): setNav({ tab }) cambia.
     const [heroSel, setHeroSel] = useState({});   // builder: sección id → contenedor seleccionado
+    const [tplSel, setTplSel] = useState('');     // builder: plantilla/sección elegida para insertar
     const [blockSel, setBlockSel] = useState({}); // builder: sección id → tipo de bloque a agregar
     const [viewMode, setViewMode] = useState('desk'); // preview: escritorio | móvil
     const dragRef = useState({ current: null })[0];   // bloque en arrastre (drag & drop)
@@ -7039,6 +7164,66 @@ export default function mount(shell) {
         // edición SOBRE ella: ⚙ por paso abre el editor completo inline,
         // "+ Valor" agrega en el paso y "+ Agregar paso" al final. ──
         h('div', { key: 'p', style: sec === 'pasos' ? null : { display: 'none' } }, [
+          // ── AL ABRIR EL PERSONALIZADOR: la combinación predeterminada como
+          // conjunto, con su precio contra el "desde" de la tienda. El
+          // predeterminado por paso ya existía (el círculo junto a cada
+          // valor), pero era invisible como COMBINACIÓN: la tienda anuncia
+          // "desde" (la más económica) y el personalizador podía abrirse en
+          // otro precio sin que el dueño viera dónde cambiarlo.
+          (function () {
+            const pasosP = gruposPersonalizables(d)
+              .map((g) => ({ g, vals: groupValues(g).filter(valueAvailable).filter((v) => v.fallback !== true) }))
+              .filter((x) => x.vals.length > 0);
+            if (!pasosP.length) return null;
+            const extraDe = (g, v) => (v.sintetico ? 0 : valueExtra(d, g, v));
+            const masBarato = (g, vals) => {
+              let best = null, e0 = null;
+              vals.forEach((v) => { const e = extraDe(g, v); if (e0 == null || e < e0) { e0 = e; best = v; } });
+              return best;
+            };
+            const precioAbre = productoComputedPrice(d);
+            // El "desde" se calcula con el MISMO motor que el precio de
+            // apertura (dependencias y redondeo incluidos): un clon del
+            // producto con el valor más económico como default de cada paso.
+            const gruposMin = (d.groups || []).map((g) => {
+              if (g.baseStep === true) return g;
+              const px = pasosP.find((x) => x.g.id === g.id);
+              const b = px ? masBarato(g, px.vals) : null;
+              return b && b.id !== g.defaultValueId ? Object.assign({}, g, { defaultValueId: b.id }) : g;
+            });
+            const precioDesde = productoComputedPrice(Object.assign({}, d, { groups: gruposMin }));
+            const iguales = precioAbre === precioDesde;
+            return h('div', { key: 'defsel', className: 'gp-group', style: { marginBottom: 10 } }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'AL ABRIR EL PERSONALIZADOR'),
+                h('span', { key: 'pp', className: 'gp-muted' },
+                  'Se abre en ' + fmtMoney(precioAbre) + (iguales
+                    ? ' — la combinación más económica (el "desde" de la tienda)'
+                    : ' · la tienda anuncia "desde ' + fmtMoney(precioDesde) + '"')),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+                !iguales ? h('button', { key: 'min', className: 'gp-btn gp-btn-sm',
+                  title: 'Poner como predeterminado el valor más económico de cada paso: el personalizador se abrirá exactamente en el precio "desde" que anuncia la tienda.',
+                  onClick: () => up({ groups: gruposMin }) }, '⤓ Usar la más económica') : null,
+              ]),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'Con qué valor llega preseleccionado cada paso cuando el cliente entra a configurar (también se marca con el círculo junto a cada valor, dentro del paso). Guarda y Rearma para llevarlo a la tienda.'
+                  + (priceModeOf(d) !== 'auto' ? ' OJO: con precio ' + (priceModeOf(d) === 'store' ? 'de la tienda' : 'fijo') + ' los recargos se calculan CONTRA el predeterminado — tras cambiarlo, vuelve a aplicar $ Precios.' : '')),
+                h('div', { key: 'g', className: 'gp-grid3' }, pasosP.map(({ g, vals }) => {
+                  let min0 = null;
+                  vals.forEach((v) => { const e = extraDe(g, v); min0 = min0 == null ? e : Math.min(min0, e); });
+                  const sel = vals.find((v) => v.id === g.defaultValueId) || vals[0];
+                  return h(Row, { key: g.id, label: s(g.label || typeLabel(g.typeId)).trim() },
+                    h('select', { className: 'gp-select', value: sel ? sel.id : '',
+                      onChange: (e) => upGroup(g.id, { defaultValueId: e.target.value }) },
+                      vals.map((v) => {
+                        const dd = Math.round(extraDe(g, v) - min0);
+                        return h('option', { key: v.id, value: v.id }, v.label + (dd > 0 ? ' · +' + fmtMoney(dd) : ' · más económico'));
+                      })));
+                })),
+              ]),
+            ]);
+          })(),
           h(ConfigPreview, { key: 'vivo', draft: d, edit: {
             abierto: pasoEdit,
             abrir: (gid) => setPasoEdit(pasoEdit === gid ? null : gid),
@@ -7280,6 +7465,31 @@ export default function mount(shell) {
           ];
           // ── Secciones fijas: especificaciones y nota (orden + mostrar) ──
           if (sec2.kind === 'specs' || sec2.kind === 'note' || sec2.kind === 'fotos') {
+            // Título propio (contenido/tamaño/alineación) y fondo de la
+            // sección: integran Fotos y Especificaciones al lenguaje del
+            // resto de la experiencia.
+            const controlesTitulo = (sec2.kind === 'fotos' || sec2.kind === 'specs')
+              ? h('div', { key: 'titbg', className: 'gp-grid2', style: { marginBottom: 8 } }, [
+                  h(Row, { key: 't', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: sec2.kind === 'fotos' ? 'Ej: Galería' : 'Ej: Especificaciones',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                ])
+              : null;
             return h('div', { key: sec2.id, className: 'gp-group' }, [
               h('div', { key: 'h', className: 'gp-group-head' }, [
                 h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
@@ -7307,7 +7517,9 @@ export default function mount(shell) {
                       const upPh = (patch) => up({ storefront: Object.assign({}, sf, { style: Object.assign({}, st, { photos: Object.assign({}, ph, patch) }) }) });
                       return h('div', { key: 'ft' }, [
                         h('div', { key: 'h', className: 'gp-muted', style: { marginBottom: 8 } },
-                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven.'),
+                          'Grilla de fotos del producto con visor grande. Las fotos viven en Galería; aquí solo cómo se ven. '
+                          + 'La DISPOSICIÓN (visor, mosaico, panel lateral…) se elige en el estilo: pestaña Estilos → Galería de fotos.'),
+                        controlesTitulo,
                         h('div', { key: 'g', className: 'gp-grid2' }, [
                           h(Row, { key: 'sz', label: 'Tamaño de las fotos' },
                             h('select', { className: 'gp-select', value: ph.size || 'm', onChange: (e) => upPh({ size: e.target.value }) }, [
@@ -7323,13 +7535,16 @@ export default function mount(shell) {
                       ]);
                     })()
                   : sec2.kind === 'specs'
-                  ? (specRows.length
+                  ? h('div', { key: 'sp2' }, [
+                      controlesTitulo,
+                      (specRows.length
                       ? h('div', { key: 'pv', style: { maxWidth: viewMode === 'mob' ? 375 : 560 } },
                           specRows.slice(0, 6).map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
                             h('span', { key: 'l', className: 'gp-muted', style: { width: '40%' } }, sp.label),
                             h('span', { key: 'v' }, sp.value),
                           ])).concat(specRows.length > 6 ? [h('div', { key: 'more', className: 'gp-muted' }, '… +' + (specRows.length - 6) + ' filas')] : []))
-                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.'))
+                      : h('span', { key: 'e', className: 'gp-muted' }, 'Sin filas aún: se editan en la card "Tabla de especificaciones" más abajo.')),
+                    ])
                   : h('div', { key: 'note' }, [
                       h('div', { key: 'h2', className: 'gp-muted', style: { marginBottom: 6 } },
                         'Nota discreta (letra chica) con separador fino: condiciones o aclaraciones. Vacía = no se muestra.'),
@@ -7337,6 +7552,102 @@ export default function mount(shell) {
                         placeholder: 'Ej: Las fotos son referenciales; la configuración interna corresponde a lo seleccionado en el personalizador.',
                         onChange: (e) => up({ storefront: Object.assign({}, sf, { photosNote: e.target.value }) }) }),
                     ])),
+            ]);
+          }
+          // ── Sección PREGUNTAS FRECUENTES: acordeón de preguntas/respuestas ──
+          if (sec2.kind === 'faq') {
+            const faqItems = Array.isArray(sec2.items) ? sec2.items : [];
+            const upFaq = (items) => upPageX(sec2.id, { items });
+            return h('div', { key: sec2.id, className: 'gp-group' }, [
+              h('div', { key: 'h', className: 'gp-group-head' }, [
+                h('span', { key: 's', className: 'gp-step' }, 'SECCIÓN ' + String(si2 + 1).padStart(2, '0')),
+                h('span', { key: 'k', className: 'gp-chip fuc' }, 'PREGUNTAS'),
+                (function (secId, val) {
+                  return h('select', { key: 'w', className: 'gp-select', style: { width: 'auto' },
+                    title: 'Ancho de ESTA sección en la tienda (independiente del resto de la ficha)',
+                    value: val || 'auto', onChange: (e) => upPageX(secId, { width: e.target.value }) }, [
+                    h('option', { key: 'a', value: 'auto' }, 'Ancho: según la ficha'),
+                    h('option', { key: 'c', value: 'container' }, 'Ancho: contenedor'),
+                    h('option', { key: 'f', value: 'full' }, 'Ancho: completo'),
+                  ]);
+                })(sec2.id, sec2.width),
+                h('span', { key: 'sp', style: { flex: 1 } }),
+              ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar estas preguntas como PLANTILLA reutilizable en cualquier producto (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Preguntas frecuentes — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
+                h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
+              ])),
+              h('div', { key: 'b', className: 'gp-group-body' }, [
+                h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 6 } },
+                  'En la tienda salen plegadas y el cliente las despliega una a una. Una pregunta sin texto no se publica.'),
+                // Título con el MISMO sistema que Fotos/Especificaciones y
+                // diseño propio del acordeón (letra, alineación, ancho).
+                h('div', { key: 'dz', className: 'gp-grid3' }, [
+                  h(Row, { key: 'tt', label: 'Título de la sección (vacío = sin título)' },
+                    h(TextInput, { value: sec2.title || '', placeholder: 'Preguntas frecuentes',
+                      onChange: (e) => upPageX(sec2.id, { title: e.target.value }) })),
+                  h(Row, { key: 'ts', label: 'Tamaño del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleSize || 'm', onChange: (e) => upPageX(sec2.id, { titleSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeño'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediano'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                      h('option', { key: 'xl', value: 'xl' }, 'Extra grande'),
+                    ])),
+                  h(Row, { key: 'ta', label: 'Alineación del título' },
+                    h('select', { className: 'gp-select', value: sec2.titleAlign || 'left', onChange: (e) => upPageX(sec2.id, { titleAlign: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                      h('option', { key: 'r', value: 'right' }, 'Derecha'),
+                    ])),
+                  h(Row, { key: 'bg', label: 'Color de fondo de la sección' },
+                    h(ColorField, { label: null, value: sec2.bgColor || '', onChange: (v) => upPageX(sec2.id, { bgColor: v }), placeholder: 'vacío = sin fondo' })),
+                  h(Row, { key: 'fs', label: 'Tamaño de la letra' },
+                    h('select', { className: 'gp-select', value: sec2.textSize || 'm', onChange: (e) => upPageX(sec2.id, { textSize: e.target.value }) }, [
+                      h('option', { key: 's', value: 's' }, 'Pequeña'),
+                      h('option', { key: 'm', value: 'm' }, 'Mediana'),
+                      h('option', { key: 'l', value: 'l' }, 'Grande'),
+                    ])),
+                  h(Row, { key: 'al', label: 'Alineación del texto' },
+                    h('select', { className: 'gp-select', value: sec2.align || 'left', onChange: (e) => upPageX(sec2.id, { align: e.target.value }) }, [
+                      h('option', { key: 'l', value: 'left' }, 'Izquierda'),
+                      h('option', { key: 'c', value: 'center' }, 'Centrado'),
+                    ])),
+                  h(Row, { key: 'bw', label: 'Ancho del bloque' },
+                    h('select', { className: 'gp-select', value: sec2.boxWidth || '', onChange: (e) => upPageX(sec2.id, { boxWidth: e.target.value }) }, [
+                      h('option', { key: 'a', value: '' }, 'Todo el ancho de la sección'),
+                      h('option', { key: 's', value: 's' }, 'Estrecho (560 px, centrado)'),
+                      h('option', { key: 'm', value: 'm' }, 'Medio (720 px, centrado)'),
+                      h('option', { key: 'l', value: 'l' }, 'Ancho (900 px, centrado)'),
+                    ])),
+                ]),
+                h(React.Fragment, { key: 'items' }, faqItems.map((it, fi) => h('div', { key: it.id, style: { borderTop: '1px dashed var(--gp-linea)', padding: '8px 0' } }, [
+                  h('div', { key: 'l1', className: 'gp-compline', style: { borderBottom: 0 } }, [
+                    h(TextInput, { key: 'q', value: it.q || '', placeholder: 'Pregunta (ej: ¿Cuánto demora el armado?)', style: { flex: 1, minWidth: 220 },
+                      onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { q: e.target.value }) : x))) }),
+                    fi > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi - 1]; xs[fi - 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↑') : null,
+                    fi < faqItems.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar', onClick: () => {
+                      const xs = faqItems.slice(); const t = xs[fi + 1]; xs[fi + 1] = xs[fi]; xs[fi] = t; upFaq(xs);
+                    } }, '↓') : null,
+                    h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', title: 'Quitar pregunta',
+                      onClick: () => upFaq(faqItems.filter((x) => x.id !== it.id)) }, '✕'),
+                  ]),
+                  h('textarea', { key: 'a', className: 'gp-textarea', rows: 2, value: it.a || '',
+                    placeholder: 'Respuesta (los saltos de línea se respetan en la tienda)…',
+                    onChange: (e) => upFaq(faqItems.map((x) => (x.id === it.id ? Object.assign({}, x, { a: e.target.value }) : x))) }),
+                ]))),
+                h('button', { key: 'add', className: 'gp-btn gp-btn-sm', style: { marginTop: 8 },
+                  onClick: () => upFaq(faqItems.concat([{ id: newId('fq'), q: '', a: '' }])) }, '+ Pregunta'),
+              ]),
             ]);
           }
           // ── Sección IMAGEN (ProductLab): una foto, alto según la imagen ──
@@ -7356,6 +7667,16 @@ export default function mount(shell) {
               })(sec2.id, sec2.width),
                 h('span', { key: 'sp', style: { flex: 1 } }),
               ].concat(moveBtns).concat([
+                h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                  title: 'Guardar esta sección como PLANTILLA reutilizable: podrás insertarla en cualquier producto desde "Insertar desde plantilla" (se inserta como copia editable).',
+                  onClick: async () => {
+                    const nombre = window.prompt('Nombre de la plantilla:', 'Imagen — ' + s(d.name));
+                    if (!nombre || !s(nombre).trim()) return;
+                    const r = await guardarHeroTemplate(sec2, nombre);
+                    shell.notify(r.success !== false
+                      ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                      : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                  } }, '⧉ Plantilla'),
                 h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== sec2.id)) }, 'Quitar'),
               ])),
               h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7541,6 +7862,16 @@ export default function mount(shell) {
               ]),
               h('span', { key: 'sp', style: { flex: 1 } }),
             ].concat(moveBtns).concat([
+              h('button', { key: 'tpl', className: 'gp-btn gp-btn-sm',
+                title: 'Guardar este hero como PLANTILLA reutilizable: podrás insertarlo en cualquier producto desde "Insertar desde plantilla" (se inserta como copia — cámbiale el fondo o los textos sin afectar a los demás).',
+                onClick: async () => {
+                  const nombre = window.prompt('Nombre de la plantilla:', 'Hero — ' + s(d.name));
+                  if (!nombre || !s(nombre).trim()) return;
+                  const r = await guardarHeroTemplate(hx, nombre);
+                  shell.notify(r.success !== false
+                    ? { level: 'success', text: 'Plantilla «' + s(nombre).trim() + '» guardada: insértala en cualquier producto desde "Insertar desde plantilla".' }
+                    : { level: 'error', text: (r && r.error) || 'No se pudo guardar la plantilla.' });
+                } }, '⧉ Plantilla'),
               h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upPage(sfPage.filter((y) => y.id !== hx.id)) }, 'Quitar'),
             ])),
             h('div', { key: 'b', className: 'gp-group-body' }, [
@@ -7710,17 +8041,83 @@ export default function mount(shell) {
           h('button', { key: 'addi', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
             title: 'Sección de solo foto: el alto se adapta a la imagen, sin recortes. Encadena varias para descripciones hechas de fotos apiladas.',
             onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'imagen', imageUrl: '', alt: '', width: 'content', link: '' }])) }, '+ Sección imagen'),
+          h('button', { key: 'addf', className: 'gp-vivo-addval gp-vivo-addpaso', style: { flex: 1, minWidth: 200 },
+            title: 'Acordeón de preguntas y respuestas: el cliente las despliega una a una.',
+            onClick: () => upPage(sfPage.concat([{ id: newId('ps'), kind: 'faq', title: 'Preguntas frecuentes', width: 'auto',
+              items: [{ id: newId('fq'), q: '', a: '' }] }])) }, '+ Sección preguntas'),
         ]),
+        // ── Insertar desde PLANTILLA o copiando de otro producto ──────────
+        // Las plantillas se crean con "⧉ Plantilla" en cualquier sección
+        // hero/imagen. Todo se inserta como COPIA: cámbiale el fondo o los
+        // textos sin afectar al producto o plantilla de origen.
+        (function () {
+          const tpls = heroTemplatesList();
+          const otros = model.productos.filter((e) => e.id !== d.id)
+            .map((e) => ({ e, hs: (((e.storefront || {}).pageSections) || []).filter((x) => x && (x.kind === 'hero' || x.kind === 'imagen' || x.kind === 'faq')) }))
+            .filter((x) => x.hs.length);
+          if (!tpls.length && !otros.length) {
+            return h('div', { key: 'fromtpl', className: 'gp-muted', style: { marginTop: 8, fontSize: 12 } },
+              'Tip: con "⧉ Plantilla" en cualquier sección hero/imagen la guardas como plantilla reutilizable para tus otros productos.');
+          }
+          const resolver = (clave) => {
+            if (clave.indexOf('tpl:') === 0) return (tpls.find((t) => t.id === clave.slice(4)) || {}).section || null;
+            if (clave.indexOf('prod:') === 0) {
+              const [eid, secId] = clave.slice(5).split('::');
+              const otro = otros.find((x) => x.e.id === eid);
+              return otro ? otro.hs.find((x) => x.id === secId) || null : null;
+            }
+            return null;
+          };
+          return h('div', { key: 'fromtpl', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
+            h('select', { key: 'sel', className: 'gp-select', style: { minWidth: 260, maxWidth: 420 }, value: tplSel,
+              onChange: (e) => setTplSel(e.target.value) }, [
+              h('option', { key: '', value: '' }, 'Insertar desde plantilla o desde otro producto…'),
+              tpls.length ? h('optgroup', { key: 'gt', label: 'Plantillas' },
+                tpls.map((t) => h('option', { key: t.id, value: 'tpl:' + t.id },
+                  t.name + ' (' + (t.section.kind === 'hero' ? (t.section.pattern || 'hero') : t.section.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))) : null,
+              otros.length ? h('optgroup', { key: 'gp', label: 'Copiar de otro producto' },
+                otros.reduce((acc, x) => acc.concat(x.hs.map((hs2, hi) =>
+                  h('option', { key: x.e.id + '::' + hs2.id, value: 'prod:' + x.e.id + '::' + hs2.id },
+                    s(x.e.name) + ' — sección ' + (hi + 1) + ' (' + (hs2.kind === 'hero' ? (hs2.pattern || 'hero') : hs2.kind === 'faq' ? 'preguntas' : 'imagen') + ')'))), [])) : null,
+            ]),
+            h('button', { key: 'ins', className: 'gp-btn gp-btn-sm gp-btn-dark', disabled: !tplSel,
+              title: 'Inserta una COPIA al final de la página: edítala libremente sin afectar el origen.',
+              onClick: () => {
+                const secc = resolver(tplSel);
+                if (!secc) { shell.notify({ level: 'error', text: 'La plantilla o sección elegida ya no existe.' }); setTplSel(''); return; }
+                upPage(sfPage.concat([clonarSeccionConIdsNuevos(secc)]));
+                shell.notify({ level: 'success', text: 'Sección insertada al final (como copia editable). Recuerda Guardar.' });
+              } }, 'Insertar'),
+            tplSel.indexOf('tpl:') === 0 ? h('button', { key: 'del', className: 'gp-btn gp-btn-sm gp-btn-danger',
+              title: 'Eliminar esta plantilla del catálogo (no toca las secciones ya insertadas: son copias).',
+              onClick: async () => {
+                const t = tpls.find((x) => 'tpl:' + x.id === tplSel);
+                if (!t || !window.confirm('¿Eliminar la plantilla «' + t.name + '»? Las secciones ya insertadas no se tocan (son copias).')) return;
+                const r = await borrarHeroTemplate(t.id);
+                setTplSel('');
+                shell.notify(r.success !== false ? { level: 'success', text: 'Plantilla eliminada.' } : { level: 'error', text: (r && r.error) || 'No se pudo eliminar.' });
+              } }, '✕ plantilla') : null,
+          ]);
+        })(),
       ]),
       // ── Ficha de tienda: tabla de especificaciones ──
       h('div', { key: 'specs', className: 'gp-card' }, [
         h('div', { key: 't', className: 'gp-card-title' }, [h('span', { key: 'n', className: 'gp-num' }, 'FICHA'), 'Tabla de especificaciones']),
         h('div', { key: 'help', className: 'gp-muted', style: { marginBottom: 8 } },
-          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras.'),
-        h(React.Fragment, { key: 'rows' }, specRows.map((sp) => h('div', { key: sp.id, className: 'gp-compline' }, [
-          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 }, onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
+          '"Generar desde componentes" siembra las filas desde la configuración por defecto; después edita lo que quieras. '
+          + 'Una fila SIN grupo pertenece al último grupo nombrado arriba de ella — el orden de aquí es el orden de la ficha (muévelas con ↑/↓).'),
+        h(React.Fragment, { key: 'rows' }, specRows.map((sp, si) => h('div', { key: sp.id, className: 'gp-compline' }, [
+          h(TextInput, { key: 'g', value: sp.group, placeholder: 'Grupo', style: { width: 130 },
+            title: 'Vacío = la fila sigue en el grupo de arriba. Escribe un nombre para abrir un grupo nuevo desde esta fila.',
+            onChange: (e) => upSpecRow(sp.id, { group: e.target.value }) }),
           h(TextInput, { key: 'l', value: sp.label, placeholder: 'Etiqueta (ej: Material)', style: { width: 180 }, onChange: (e) => upSpecRow(sp.id, { label: e.target.value }) }),
           h(TextInput, { key: 'v', value: sp.value, placeholder: 'Valor (ej: 100% algodón · Roble macizo 18mm)', style: { flex: 1, minWidth: 160 }, onChange: (e) => upSpecRow(sp.id, { value: e.target.value }) }),
+          si > 0 ? h('button', { key: 'up', className: 'gp-btn gp-btn-sm', title: 'Subir esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si - 1]; xs[si - 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↑') : null,
+          si < specRows.length - 1 ? h('button', { key: 'dn', className: 'gp-btn gp-btn-sm', title: 'Bajar esta fila', onClick: () => {
+            const xs = specRows.slice(); const t = xs[si + 1]; xs[si + 1] = xs[si]; xs[si] = t; upSpecs(xs);
+          } }, '↓') : null,
           h('button', { key: 'x', className: 'gp-btn gp-btn-sm gp-btn-danger', onClick: () => upSpecs(specRows.filter((x) => x.id !== sp.id)) }, '✕'),
         ]))),
         h('div', { key: 'act', className: 'gp-compline', style: { borderBottom: 0, marginTop: 4 } }, [
@@ -8456,7 +8853,7 @@ export default function mount(shell) {
             h('div', { key: 'fila', className: 'gp-compline', style: { borderBottom: 0 } }, [
               h('span', { key: 'l', className: 'gp-label' }, 'KIT MANUAL (Assets del theme)'),
               h('span', { key: 'm', className: 'gp-muted', style: { fontSize: 12 } },
-                'descarga los 3 archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s))'),
+                'descarga los archivos y súbelos a Assets — custom.js sale con TODAS las instancias de abajo (' + urlsTodas().length + ' catálogo(s)); el motor 3D solo hace falta si algún producto publica visor 3D'),
               h('span', { key: 'sp', className: 'grow' }),
               h('button', { key: 'c', className: 'gp-btn gp-btn-sm gp-btn-dark',
                 title: 'custom.js configurado con las URLs de todos los catálogos listados (solo súbelo a Assets). Sale con una marca de caché nueva: al subirlo, la tienda recarga los archivos del kit al instante.',
@@ -8471,6 +8868,11 @@ export default function mount(shell) {
                 onClick: () => bajarAsset('kimos-configurador.js') }, 'kimos-configurador.js'),
               h('button', { key: 's', className: 'gp-btn gp-btn-sm',
                 onClick: () => bajarAsset('kimos-configurador.css') }, 'kimos-configurador.css'),
+              // El motor 3D faltaba en esta lista: quien seguía "descarga los
+              // archivos y súbelos" quedaba con ficha pero sin visor 3D.
+              h('button', { key: 'e3d', className: 'gp-btn gp-btn-sm',
+                title: 'Motor 3D del kit (three.js empaquetado). Súbelo a Assets si algún producto publica visor 3D: sin él la ficha funciona pero el 3D no se puede dibujar.',
+                onClick: () => bajarAsset('kimos-engine3d.js') }, 'kimos-engine3d.js (motor 3D)'),
             ]),
             // Otras instancias de ProductLab de esta misma tienda: sus URLs de
             // definición, para que el kit las fusione todas.
@@ -8925,7 +9327,11 @@ export default function mount(shell) {
     // Tabs del contexto: raíz → secciones; detalle → sus pestañas; config → sus 4.
     let tabs, activo, onTab;
     if (n.det && n.det.tipo === 'producto') {
-      tabs = PROD_TABS.concat((n.det.draft && n.det.draft.model3d) || n.tab === 'modelo3d' ? [['modelo3d', 'Visor 3D']] : []);
+      // La pestaña Visor 3D va SIEMPRE: condicionarla a que el producto ya
+      // tuviera model3d era un huevo-y-gallina — un producto sin 3D nunca
+      // mostraba la pestaña donde se activa (la card vacía ya explica que es
+      // opcional y trae el botón "+ Activar visor 3D").
+      tabs = PROD_TABS.concat([['modelo3d', 'Visor 3D']]);
       activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
     } else if (n.det && n.det.tipo === 'componente') {
       tabs = COMP_TABS; activo = n.tab || 'general'; onTab = (id) => setNav({ tab: id });
