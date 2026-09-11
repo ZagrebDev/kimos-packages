@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.6.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -2800,7 +2800,7 @@ export default function mount(shell) {
   ];
   const DEFAULT_MAX_MB = 40;
 
-  const cloudAvailable = () => !!(shell.authFetch && API);
+  const cloudAvailable = () => !!((shell.authFetch && API) || (shell.files && shell.files.upload));
 
   /** Nombre de archivo seguro: sin rutas, sin acentos, sin espacios. */
   function safeFileName(name, fallback) {
@@ -2823,7 +2823,13 @@ export default function mount(shell) {
   }
 
   /** URL con la que se abre un archivo ya subido. */
+  /** Un documento vive en el almacenamiento si tiene ruta propia (endpoint
+   *  crudo) o URL devuelta por shell.files. Un solo criterio evita que los
+   *  contadores y los chips discrepen según por dónde se subió. */
+  const isStored = (d) => !!(d && d.storage && (s(d.storage.path) || s(d.storage.url)));
+
   function storageUrl(storage) {
+    if (storage && s(storage.url)) return s(storage.url);
     if (!storage || !s(storage.path)) return '';
     if (s(storage.scope) === 'public') return API + PUBLIC_PREFIX + s(storage.path);
     const teamId = s(shell.app && shell.app.teamId);
@@ -2835,11 +2841,28 @@ export default function mount(shell) {
    *  storage o lanza con el error que dio el backend, sin adornarlo. */
   async function uploadToCloud(file, scope, projectId, maxMB) {
     if (!file) throw new Error('No hay archivo.');
-    if (!cloudAvailable()) throw new Error('Este host no expone shell.authFetch: no se puede subir al almacenamiento.');
     const limit = n(maxMB, DEFAULT_MAX_MB) || DEFAULT_MAX_MB;
     if (n(file.size, 0) > limit * 1024 * 1024) {
       throw new Error('"' + s(file.name) + '" pesa ' + fmtBytes(file.size) + ' y el límite es ' + limit + ' MB.');
     }
+    // Destino público: manda `shell.files` (§7.e del APP-SPEC). La ruta la
+    // decide el host —`imagenes/{appId}/{instanceId}/{folder}/`—, lo que da
+    // aislamiento por app, cuota atribuible y limpieza al desinstalar. La URL
+    // que devuelve es de lectura pública, que es justo lo que este destino
+    // significa.
+    if (scope === 'public' && shell.files && shell.files.upload) {
+      const url = await shell.files.upload(file, {
+        folder: s(projectId).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40) || 'proyecto',
+        maxMB: limit,
+      });
+      const href = typeof url === 'string' ? url : s(url && (url.url || url.href));
+      if (!href) throw new Error('shell.files.upload no devolvió una URL.');
+      return {
+        scope: 'public', via: 'shell.files', url: href, path: '',
+        uploadedAt: stamp(), size: n(file.size, 0), contentType: s(file.type),
+      };
+    }
+    if (!cloudAvailable()) throw new Error('Este host no expone shell.files ni shell.authFetch: no se puede subir al almacenamiento.');
     const path = storagePath(scope, projectId, file);
     const fd = new FormData();
     fd.append('path', path);
@@ -2854,7 +2877,7 @@ export default function mount(shell) {
       throw err3;
     }
     return {
-      scope: s(scope), path, uploadedAt: stamp(),
+      scope: s(scope), via: 'api/v2/files', path, uploadedAt: stamp(),
       size: n(file.size, 0), contentType: s(file.type),
     };
   }
@@ -4719,7 +4742,7 @@ export default function mount(shell) {
       shell.notify && shell.notify({ level: 'warn', text: 'Este documento no está en el almacenamiento: solo está indexado.' });
       return;
     }
-    if (s(doc.storage.scope) === 'public') {
+    if (s(doc.storage.scope) === 'public' || s(doc.storage.via) === 'shell.files') {
       try { window.open(url, '_blank', 'noopener'); } catch (e) { /* el navegador decide */ }
       return;
     }
@@ -4775,7 +4798,7 @@ export default function mount(shell) {
     }).sort((a, b) => s(b.addedAt).localeCompare(s(a.addedAt)));
     const kinds = DOC_KINDS.map(([k, label]) => ({ k, label, count: docs.filter((d) => d.kind === k).length })).filter((x) => x.count);
     const totalSize = sum(docs, (d) => n(d.size));
-    const cloudCount = docs.filter((d) => d.storage && s(d.storage.path)).length;
+    const cloudCount = docs.filter(isStored).length;
 
     const onDrop = async (e) => {
       e.preventDefault();
@@ -4892,14 +4915,14 @@ export default function mount(shell) {
                 labelOf(DOC_KINDS, d.kind) + (d.size ? ' · ' + fmtBytes(d.size) : '') + ' · ' + fmtWhen(d.addedAt)),
               d.path && d.path !== d.name ? h('div', { className: 'kp-doc-meta kp-mono kp-ellip', title: d.path }, d.path) : null,
               h('div', { className: 'kp-chips' },
-                d.storage && s(d.storage.path)
+                isStored(d)
                   ? Chip(s(d.storage.scope) === 'public' ? 'Enlace público' : 'En el equipo', {
                     tone: s(d.storage.scope) === 'public' ? 'warn' : 'ok', icon: I.cloud(11),
                     title: 'Subido ' + fmtWhen(d.storage.uploadedAt) + ' · ' + s(d.storage.path),
                     onClick: () => { void openStoredDoc(d); },
                   })
                   : Chip('Solo indexado', { title: 'La ficha está en la biblioteca, pero el archivo no se subió al almacenamiento.' }),
-                d.storage && s(d.storage.path)
+                isStored(d)
                   ? Chip('Abrir', { icon: I.download(11), onClick: () => { void openStoredDoc(d); } })
                   : null,
                 d.reviewed ? Chip('Revisado', { tone: 'ok', icon: I.check(11) }) : null,
@@ -6153,7 +6176,7 @@ export default function mount(shell) {
         Field('Etiquetas', Input(arr(data.tags).join(', '), (v) => upd({ tags: v.split(',').map((x) => x.trim()).filter(Boolean) }))),
         Field('Notas', TextArea(data.notes, (v) => upd({ notes: v }), { placeholder: 'Qué contiene y para qué sirve en este proyecto' }),
           'El analista lee estas notas: describir bien un documento mejora la propuesta de plan.'),
-        data.storage && s(data.storage.path)
+        isStored(data)
           ? h('div', null,
             Note(h('span', null,
               h('strong', null, s(data.storage.scope) === 'public'
@@ -6161,7 +6184,7 @@ export default function mount(shell) {
                 : 'Guardado en el almacenamiento del equipo'),
               ' · ' + fmtBytes(data.storage.size) + ' · subido ' + fmtWhen(data.storage.uploadedAt),
               h('br'),
-              h('span', { className: 'kp-mono kp-sec-note' }, s(data.storage.path)),
+              h('span', { className: 'kp-mono kp-sec-note' }, s(data.storage.path) || s(data.storage.url)),
               s(data.storage.scope) === 'public'
                 ? h('span', null, h('br'), 'Ese área se sirve sin autenticación: cualquiera con la URL abre el archivo.')
                 : null),
@@ -6633,8 +6656,8 @@ export default function mount(shell) {
         disponible: cloudAvailable(),
         destinoPorDefecto: s(liveConfig.storageScope) || 'team',
         endpoint: UPLOAD_ENDPOINT,
-        documentosSubidos: sum(model.projects, (p) => arr(p.documents).filter((d) => d.storage && s(d.storage.path)).length),
-        documentosSoloIndexados: sum(model.projects, (p) => arr(p.documents).filter((d) => !(d.storage && s(d.storage.path))).length),
+        documentosSubidos: sum(model.projects, (p) => arr(p.documents).filter(isStored).length),
+        documentosSoloIndexados: sum(model.projects, (p) => arr(p.documents).filter((d) => !isStored(d)).length),
         nota: 'El agente no puede subir bytes: la subida ocurre en el navegador de la persona, desde la pestaña Documentos. Con ADD_DOCUMENT se registra la ficha o un enlace ya existente.',
       },
       plantillasDePlan: PLAN_TEMPLATES.map((t) => ({ id: t.id, nombre: t.name })),
