@@ -21,6 +21,10 @@
   --sc-shadow-sm: var(--shadow-sm, 0 1px 2px 0 hsl(220 20% 10% / 0.05));
   --sc-shadow-md: var(--shadow-md, 0 4px 6px -1px hsl(220 20% 10% / 0.1));
   --sc-ok: #0B8A42;
+  /* Texto y señal sobre video: el cuadro es oscuro en cualquier tema, así que
+     estos dos no se invierten de noche. */
+  --sc-on-media: #FFFFFF;
+  --sc-live: #6EE7B7;
   --sc-warn: #B45309;
   --sc-err: hsl(var(--destructive, 0 84.2% 60.2%));
 
@@ -352,7 +356,7 @@
 .kimos-safe .sc-live-off span:first-child { font-size: 26px; }
 .kimos-safe .sc-live-bar {
   position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; gap: 8px;
-  padding: 6px 10px; font: 600 11px/1.2 'Inter', sans-serif; color: #fff;
+  padding: 6px 10px; font: 600 11px/1.2 'Inter', sans-serif; color: var(--sc-on-media);
   background: linear-gradient(to top, hsl(220 20% 8% / .75), transparent);
 }
 .kimos-safe .sc-live-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -424,11 +428,11 @@
 .kimos-safe .sc-mirror-bar {
   position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center;
   justify-content: space-between; gap: 8px; padding: 5px 8px;
-  font: 500 10.5px/1.2 'Inter', sans-serif; color: #fff;
+  font: 500 10.5px/1.2 'Inter', sans-serif; color: var(--sc-on-media);
   background: linear-gradient(to top, hsl(220 20% 8% / 0.72), transparent);
 }
 .kimos-safe .sc-mirror:not(.sc-mirror-on) .sc-mirror-bar { color: var(--sc-muted); background: none; }
-.kimos-safe .sc-mirror-live { display: inline-flex; align-items: center; gap: 4px; color: #6EE7B7; }
+.kimos-safe .sc-mirror-live { display: inline-flex; align-items: center; gap: 4px; color: var(--sc-live); }
 
 /* ── Teclado en pantalla ────────────────────────────────────────────────── */
 .kimos-safe .sc-tot-input { display: flex; align-items: center; gap: 6px; }

@@ -911,8 +911,44 @@
         "instance.write",
         "agent.control",
         "public.read",
-        "public.submit"
+        "public.submit",
+        "files.write"
       ],
+      "dataSchema": {
+        "fields": [
+          {
+            "key": "code",
+            "label": "Unidad (departamento, oficina o casa)",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "name",
+            "label": "Nombre del hogar u oficina",
+            "type": "string"
+          },
+          {
+            "key": "tower",
+            "label": "Torre o piso",
+            "type": "string"
+          },
+          {
+            "key": "phone",
+            "label": "Teléfono de contacto",
+            "type": "string"
+          },
+          {
+            "key": "email",
+            "label": "Correo de contacto",
+            "type": "email"
+          },
+          {
+            "key": "notes",
+            "label": "Notas del acceso",
+            "type": "string"
+          }
+        ]
+      },
       "configSchema": {
         "title": "Preferencias de KIMOS Safe Concierge",
         "fields": [

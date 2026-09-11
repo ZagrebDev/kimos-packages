@@ -1227,12 +1227,25 @@ export default function mount(shell) {
       + (s(folder) || 'general') + '/' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6) + '-' + safe;
   };
 
-  /** Sube un archivo al Cloud Storage y devuelve su ruta y su URL de lectura. */
+  /**
+   * Sube un archivo al Cloud Storage y devuelve su ruta y su URL de lectura.
+   *
+   * Con `shell.files` (AppShell v2, §7.e) la ruta la gestiona el host: eso da
+   * aislamiento por app, cuota atribuible y limpieza al desinstalar. En un host
+   * anterior se cae al endpoint de archivos del tenant, para que la app siga
+   * funcionando igual.
+   */
   async function uploadToStorage(file, folder) {
     if (!file) throw new Error('No hay archivo.');
-    if (!shell.authFetch) throw new Error('Este host no expone authFetch: no se puede subir al almacenamiento.');
     const mb = num(file.size, 0) / 1048576;
     if (mb > MAX_DOC_MB) throw new Error('El archivo pesa ' + mb.toFixed(1) + ' MB y el máximo son ' + MAX_DOC_MB + ' MB.');
+    if (shell.files && typeof shell.files.upload === 'function') {
+      const url = await shell.files.upload(file, { folder: s(folder) || 'general', maxMB: MAX_DOC_MB });
+      const href = s(typeof url === 'string' ? url : (url && (url.url || url.href)));
+      if (!href) throw new Error('El host no devolvió la URL del archivo.');
+      return { path: href.split('/files/').pop() || href, url: href, name: s(file.name), size: num(file.size, 0), type: s(file.type), hosted: true };
+    }
+    if (!shell.authFetch) throw new Error('Este host no expone shell.files ni authFetch: no se puede subir al almacenamiento.');
     const path = storagePath(file.name, folder);
     const fd = new FormData();
     fd.append('path', path);
@@ -1242,7 +1255,7 @@ export default function mount(shell) {
       const d = await res.json().catch(() => ({}));
       throw new Error(s(d.detail) || ('el almacenamiento respondió HTTP ' + res.status));
     }
-    return { path, url: API + '/api/public/files/' + path, name: s(file.name), size: num(file.size, 0), type: s(file.type) };
+    return { path, url: API + '/api/public/files/' + path, name: s(file.name), size: num(file.size, 0), type: s(file.type), hosted: false };
   }
 
   /** Sube y deja el archivo registrado (y sellado) en la bitácora. */
@@ -1251,7 +1264,7 @@ export default function mount(shell) {
     const up = await uploadToStorage(file, m.folder);
     const rec = await addRecord({
       kind: 'doc',
-      name: up.name || 'archivo', path: up.path, url: up.url, size: up.size, mime: up.type,
+      name: up.name || 'archivo', path: up.path, url: up.url, size: up.size, mime: up.type, hosted: !!up.hosted,
       folder: s(m.folder) || 'general',
       note: s(m.note),
       incidentId: s(m.incidentId), unit: s(m.unit), parcelId: s(m.parcelId),
@@ -1296,6 +1309,23 @@ export default function mount(shell) {
     } catch (e) {
       return { success: false, error: s((e && e.message) || e) };
     }
+  }
+
+  /**
+   * Borra el archivo del almacenamiento además de su ficha. Solo se ofrece
+   * donde el host gestiona la ruta (`shell.files.remove` borra dentro del
+   * espacio de esta app) y nunca sobre evidencia con retención legal activa.
+   */
+  async function deleteDoc(id) {
+    const d = (model.docs || []).find((x) => x.id === id);
+    if (!d) return { success: false, error: 'No existe ese archivo.' };
+    const inc = d.incidentId ? model.incidents.find((i) => i.id === d.incidentId) : null;
+    if (inc && inc.hold) return { success: false, error: 'Es evidencia de un incidente con retención legal activa: no se borra desde aquí.' };
+    if (d.hosted && shell.files && typeof shell.files.remove === 'function') {
+      try { await shell.files.remove(d.url); } catch (e) { return { success: false, error: s((e && e.message) || e) }; }
+    }
+    await removeRecord('docs', id);
+    return { success: true, message: d.hosted ? 'Archivo eliminado del almacenamiento.' : 'Ficha quitada de la bitácora.' };
   }
 
   const docsFor = (kind, id) => (model.docs || []).filter((d) => (kind === 'incident' ? d.incidentId === id : kind === 'unit' ? d.unit === id : d.parcelId === id));
@@ -2720,10 +2750,14 @@ export default function mount(shell) {
               d.incidentId ? 'incidente' : '', d.unit ? 'unidad ' + d.unit : '', s(d.note)].filter(Boolean).join(' · '))),
           h('a', { className: 'sc-btn sc-btn-link', href: s(d.url), target: '_blank', rel: 'noopener' }, 'Abrir'),
           d.incidentId ? btn({ onClick: () => setModel({ view: 'incidents', focus: d.incidentId }) }, 'Ver incidente') : null,
-          btn({ className: 'sc-btn sc-btn-no', onClick: () => removeRecord('docs', d.id) }, 'Quitar'))))
+          btn({ className: 'sc-btn sc-btn-no', onClick: async () => {
+            const r = await deleteDoc(d.id);
+            if (!r.success) shell.notify({ level: 'warn', text: r.error });
+          } }, d.hosted ? 'Eliminar' : 'Quitar'))))
           : h('p', { className: 'sc-empty' }, 'Nada en esta carpeta todavía.'),
-        h('p', { className: 'sc-note' }, '«Quitar» borra la ficha de la bitácora; el archivo en sí sigue en el almacenamiento del '
-          + 'equipo hasta que se elimine desde ahí. Es a propósito: la evidencia de un incidente no debe poder desaparecer con un clic.'),
+        h('p', { className: 'sc-note' }, 'Donde el host gestiona el almacenamiento, «Eliminar» borra el archivo de verdad; en un host '
+          + 'anterior «Quitar» saca la ficha de la bitácora y el archivo queda en el bucket del equipo. En ningún caso se borra la '
+          + 'evidencia de un incidente con retención legal activa: eso no debe poder desaparecer con un clic.'),
       ),
     );
   }
@@ -3002,7 +3036,7 @@ export default function mount(shell) {
         h('h3', null, f.id ? 'Editar unidad' : 'Nueva unidad'),
         h('div', { className: 'sc-form-grid' },
           field('Unidad', h('input', { className: 'sc-input', value: f.code, placeholder: '1204', onChange: (e) => set('code', e.target.value) })),
-          field('Nombre o razón social', h('input', { className: 'sc-input', value: f.name, onChange: (e) => set('name', e.target.value) })),
+          field('Nombre del hogar u oficina', h('input', { className: 'sc-input', value: f.name, onChange: (e) => set('name', e.target.value) })),
           field('Torre / piso', h('input', { className: 'sc-input', value: f.tower, onChange: (e) => set('tower', e.target.value) })),
           field('Teléfono', h('input', { className: 'sc-input', value: f.phone, onChange: (e) => set('phone', e.target.value) })),
           field('Correo', h('input', { className: 'sc-input', value: f.email, onChange: (e) => set('email', e.target.value) })),

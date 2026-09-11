@@ -84,9 +84,11 @@ escalamiento; el contacto se registra aparte, con quién lo autoriza.
 ## Archivos en el Cloud Storage
 
 Plan de emergencia, reglamento, actas, documentos de unidades, fotos de
-encomiendas y evidencia de incidentes van al almacenamiento de la plataforma
-(`POST /api/v2/files`, lectura por `/api/public/files/{path}`), no dentro del
-documento de la instancia. Se suben desde **📁 Documentos** (botón o arrastrando
+encomiendas y evidencia de incidentes van al almacenamiento de la plataforma,
+no dentro del documento de la instancia. Con `shell.files` (AppShell v2, §7.e)
+la ruta la gestiona el host —aislamiento por app, cuota atribuible y limpieza
+al desinstalar— y en un host anterior se cae al endpoint del tenant
+(`POST /api/v2/files`, lectura por `/api/public/files/{path}`). Se suben desde **📁 Documentos** (botón o arrastrando
 al recuadro) o desde el propio incidente, y el tótem puede **capturar un cuadro
 de la cámara** como evidencia sellada. Cada archivo deja su registro en la
 bitácora: quién lo subió, cuándo y a qué incidente o unidad pertenece.
@@ -160,8 +162,12 @@ autoriza.
 | `agent.control` | Operación por agente IA |
 | `public.read` | Publicar la definición del acceso (título y campos que acepta la ingesta) |
 | `public.submit` | Recibir detecciones de las cámaras de la comunidad |
+| `files.write` | Subir al Cloud Storage con la ruta gestionada por el host |
 
-No pide `data.read:*`: la app no lee datos de otras apps.
+No pide `data.read:*`: la app no lee datos de otras apps. Sí publica un
+`dataSchema` con el contrato de las **unidades** (unidad, nombre, torre,
+teléfono, correo, notas), para que una app de administración pueda mantener el
+directorio del acceso al día sin duplicarlo.
 
 ## Marco normativo (Chile)
 
