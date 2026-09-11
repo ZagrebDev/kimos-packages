@@ -304,6 +304,11 @@ function normalizeClient(raw) {
     phone: s(r.phone),
     address: s(r.address),
     notes: s(r.notes),
+    // Identidad del cliente en la plataforma (`kimos:record/account/…`), si
+    // se vinculó. Los campos de arriba siguen siendo la INSTANTÁNEA: una
+    // propuesta enviada hace ocho meses se imprime igual aunque el registro
+    // se renombre o desaparezca. Ver src/66-records.js y APP-SPEC §7.d.
+    recordRef: s(r.recordRef),
     // Origen si vino de la app Clientes: permite volver a la ficha.
     sourceApp: s(r.sourceApp),
     sourceInstanceId: s(r.sourceInstanceId),

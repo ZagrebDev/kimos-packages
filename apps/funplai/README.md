@@ -1,6 +1,6 @@
 # Kimos FunPlai (`funplai`)
 
-**Versión actual: 1.18.0** — la app la muestra en su portada (`v1.18.0`, junto
+**Versión actual: 1.19.0** — la app la muestra en su portada (`v1.19.0`, junto
 al nombre), así se sabe de un vistazo qué build quedó instalado al probar. El
 número vive en **cuatro** lugares que van siempre juntos:
 
@@ -192,7 +192,7 @@ Código fuente, documentación de hardware (cámaras RGB-D, cámaras de alta
 velocidad, pistolas IR), privacidad y roadmap: repositorio **kimos-funplai**.
 
 ```bash
-node tools/pack.mjs apps/funplai apps/funplai/funplai-1.18.0.kapp
+node tools/pack.mjs apps/funplai apps/funplai/funplai-1.19.0.kapp
 node tools/check-versions.mjs funplai
 ```
 
@@ -200,7 +200,8 @@ node tools/check-versions.mjs funplai
 
 | Versión | Qué trae |
 |---|---|
-| **1.18.0** | **Modo rítmico táctil** en Prueba de baile: la misma coreografía sin cámara, con las notas cayendo a una línea y el compás sacado del `bpm` y los `beats` que ya estaban escritos. Cierra la última excepción de accesibilidad —**los once juegos se juegan sin cámara**— con opción de un solo botón para pulsador único y ajuste de la latencia del panel. Versión visible en la portada. |
+| **1.19.0** | **El Kinect v2 se comporta como la webcam RGB que lleva dentro**: su cámara de color se transmite por el puente y sus mandos —encendido, ancho, fps, brillo, contraste y saturación— están en la app y se aplican en caliente, no en banderas de consola. El Diagnóstico informa si la imagen llega y a cuántos fps reales, y la prueba de campo se corre CON el sensor sin abrir ninguna webcam. Corregido cuál de sus dos lentes declara la app: el esqueleto llega en coordenadas de la cámara de color, y medir con el lente de profundidad ponía a 275 cm a alguien que estaba a 220. |
+| 1.18.0 | **Modo rítmico táctil** en Prueba de baile: la misma coreografía sin cámara, con las notas cayendo a una línea y el compás sacado del `bpm` y los `beats` que ya estaban escritos. Cierra la última excepción de accesibilidad —**los once juegos se juegan sin cámara**— con opción de un solo botón para pulsador único y ajuste de la latencia del panel. Versión visible en la portada. |
 | 1.17.0 | **Packs temáticos**: dieciochero, verano, navidad y neutro corporativo, aplicables con un toque y también como archivos versionados en `assets/packs/`. Un pack cambia cómo se ve y cómo se llaman las cosas, y **no toca** el montaje ni los datos. Import/export validado contra esquema. |
 | 1.16.0 | **Métricas de activación** con semáforo de datos: contadores agregados sin dato personal (verde), consentimiento granular después de jugar y QR de puntaje (amarillo), y nada de edad, emoción ni reidentificación (rojo). Panel del auspiciador con export a CSV. |
 | 1.15.0 | **Modo concurso**: vigilante de partida durante todo el juego, tres veredictos (limpia, señalada, inválida), desempate determinista, sello de auditoría por partida, tope de intentos y ventana de vigencia. |

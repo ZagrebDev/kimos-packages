@@ -4,7 +4,7 @@ App instalable de KIMOS para **dirigir proyectos de punta a punta, separados por
 cliente**: planificar, ejecutar, controlar y cerrar, con un tablero global de la
 cartera en la portada y un tablero propio dentro de cada proyecto.
 
-**Versión actual: 1.4.0**
+**Versión actual: 1.5.0**
 
 ---
 
@@ -135,9 +135,42 @@ pisa, porque el directorio no lo conoce.
 | Acción | Dónde |
 |---|---|
 | Ver el directorio y traer fichas | Clientes → *Traer del directorio* |
-| Evitar duplicados | Al traer una ficha, si ya existe un cliente con el mismo correo o nombre, se **vincula** en vez de crear otro |
+| Evitar duplicados | Al traer una ficha se **vincula** en vez de crear otra, por identidad del sistema, RUT, correo o nombre, en ese orden |
 | Actualizar los vinculados | Clientes → *Sincronizar* (informa qué cambió y qué enlaces quedaron huérfanos) |
 | Vincular o desvincular una ficha suelta | Editor del cliente |
+
+### La identidad, además del enlace (desde 1.4)
+
+El enlace al directorio dice *de qué ficha salió* este cliente. La **identidad
+del sistema** dice algo distinto y más fuerte: *quién es*.
+
+```
+client.link      → la ficha de origen en una instancia de Clientes
+client.recordRef → kimos:record/account/…  la identidad, compartida por TODAS las apps
+```
+
+Por qué importa: vincular por correo o por nombre es lo que había y es lo que
+falla. La misma empresa con dos correos son dos clientes; el mismo nombre
+escrito de dos formas, también. La identidad de la plataforma
+(`shell.records`, permiso `records.link`) normaliza las claves antes de
+comparar —`77.718.188-2` y `777181882` son el mismo RUT— y, sobre todo,
+permite cruzar apps: **el cliente de este proyecto es el mismo que el de esa
+cotización**, y «dame todo lo de Acme» incluye sus proyectos.
+
+En la ficha del cliente aparece su estado —*Cliente del sistema* o *Solo en
+esta cartera*— con el botón para vincularla o refrescarla. Se muestra siempre,
+también cuando no hay identidad: una ficha suelta es legítima, pero conviene
+verlo, porque es la situación que produce el duplicado meses después.
+
+Tres detalles que evitan sorpresas:
+
+- Se guarda la referencia **y** la copia de los campos. Si la identidad se
+  renombra o desaparece, la cartera sigue mostrando lo que tenía; refrescar es
+  un acto explícito.
+- Si dos identidades se fusionan, al refrescar la cartera se reapunta a la
+  correcta.
+- `shell.records` es opcional en el contrato: en un host que no lo exponga, la
+  app funciona igual que la 1.3 y lo dice.
 
 La lectura entre apps es de una sola dirección: lo que se corrija aquí no viaja
 de vuelta al directorio, y la app lo dice donde corresponde en vez de simular una
@@ -206,8 +239,25 @@ visión normal ΔE ≥ 15 en ambos modos), con su juego de pasos para fondo oscu
 
 | Versión | Qué trae |
 |---|---|
-| **1.4.0** | **Los archivos se suben al Cloud Storage del tenant** (`POST /api/v2/files`), con dos destinos: el área privada del equipo —la de por defecto, para documentación confidencial— y el enlace público, que solo se usa cuando la persona lo elige y con el aviso de que se sirve sin autenticación. Progreso de subida, apertura con credenciales de los archivos privados, reintento desde la ficha del documento y subida de una carpeta conectada completa. Lo que no se puede subir queda indexado igual, con el error del backend a la vista. Corregido: la miniatura de una imagen ya no puede dejar colgada la carga de un archivo (ahora tiene tiempo límite). |
+| **1.5.0** | **Los archivos se suben al Cloud Storage del tenant** (`POST /api/v2/files`), con dos destinos: el área privada del equipo —la de por defecto, para documentación confidencial— y el enlace público, que solo se usa cuando la persona lo elige y con el aviso de que se sirve sin autenticación. Progreso de subida, apertura con credenciales de los archivos privados, reintento desde la ficha del documento y subida de una carpeta conectada completa. Lo que no se puede subir queda indexado igual, con el error del backend a la vista. Corregido: la miniatura de una imagen ya no puede dejar colgada la carga de un archivo (ahora tiene tiempo límite). |
+| **1.4.0** | **Identidad del cliente compartida con todo KIMOS**: además del enlace a su ficha de origen, cada cliente guarda su `recordRef` (`shell.records`, permiso `records.link`), así que el cliente de un proyecto es el mismo que el de una cotización. Al traer del directorio se reconoce primero por identidad y por RUT —que se normaliza— antes que por correo o nombre, que es lo frágil. Se añade **RUT** a la ficha, el estado de la identidad con su acción en el editor del cliente, y dos herramientas de agente: `LINK_CLIENT_IDENTITY` y `REFRESH_CLIENT_IDENTITY`. En un host sin `shell.records` la app funciona igual que la 1.3. |
 | **1.3.0** | **Clientes unificados con la app Clientes de KIMOS**: la ficha de la cartera comparte los nombres de campo del directorio, se trae desde él con enlace a su registro de origen, se vincula en vez de duplicarse cuando ya existe un cliente con el mismo correo o nombre, y se re-sincroniza informando qué campos cambiaron y qué enlaces quedaron huérfanos. Nuevo permiso `data.read:customers` y cuatro herramientas de agente para operar el directorio. Las fichas escritas antes de la unificación migran solas: el correo y el teléfono de contacto pasan a los campos compartidos. |
 | **1.2.0** | **Conversor de moneda**: una tabla de tipos de cambio por proyecto con el dólar como base, actualizable con el valor del día desde tres proveedores públicos encadenados y editable a mano cuando la red del host no deja consultar. El tipo de cambio de cada centro se deriva de la tabla o se fija a mano; cada importe fuera del dólar muestra su equivalente en pequeño; y al cambiar la moneda de gestión la app ofrece reexpresar los importes o solo cambiar la etiqueta. Las cantidades y los costos unitarios ahora se escriben y se leen con **separador de miles**, con el valor crudo al enfocar el campo. Nueva herramienta de agente `UPDATE_FX`. Corregido: las bandas del margen recomendado se miden en dólares, así que ya no dependen de la moneda en que esté expresado el proyecto. |
 | **1.1.0** | Pestaña **Economía**: costeo separado en CAPEX y OPEX, partidas por centro y por moneda con prorrateo de lo compartido, línea base y puente que explica cada desvío, modelo de costeo del servicio post-venta con tres escenarios y aritmética del SLA, y motor de margen que lleva del costo al precio ofertable en la moneda de cada sede. El indicador de presupuesto se marca en rojo cuando el costeo lo supera por encima del umbral configurado, en la ficha, en el tablero del proyecto y en el panel global. **Modo preguntas del analista** con ocho análisis que responden con los números del proyecto, disponibles también para el agente IA con la herramienta `ASK`. Cinco herramientas nuevas de agente para la economía. El proyecto semilla de Parque Arauco trae sus centros, su línea base y su modelo de servicio. |
 | **1.0.0** | Primera publicación. Cartera por cliente; tablero global y por proyecto en vivo; plan con fases, tareas, hitos y línea temporal; matriz de riesgos 5×5; biblioteca de documentos con carpetas locales, Drive y enlaces; analista que propone planes de trabajo con seis plantillas; bitácora; costeo por partidas; consultas abiertas; ventanas bloqueadas; enlace con Planificación, Kanban y Cotizaciones; agente IA con 13 herramientas; colaboración multiusuario con fusión por entidad; proyecto semilla de Parque Arauco. |
+
+## Lo que otra app NO puede hacer aquí, y por qué
+
+Esta app **no publica `dataSchema`**, así que ninguna otra puede escribir en
+ella. No es una decisión de diseño sino una consecuencia de cómo guarda: el
+modelo completo vive en un solo documento (`shell.saveData`), y la pasarela de
+escritura entre apps opera sobre `shell.items`, no sobre ese documento.
+Publicar un contrato sería prometer una puerta que no existe.
+
+Si en el futuro conviene que Cotizaciones pueda abrir un proyecto al aceptarse
+una propuesta, el orden es: primero mover proyectos y clientes a
+`shell.items`, y el `dataSchema` después. Al revés no funciona.
+
+La dirección que **sí** existe ya está usada: esta app lee el directorio de
+Clientes (`data.read:customers`) y comparte la identidad del cliente con todo
+KIMOS (`records.link`).

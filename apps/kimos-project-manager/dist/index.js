@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -290,14 +290,22 @@ export default function mount(shell) {
    *  `link` guarda de qué instancia del directorio vino. */
   const newClient = (patch) => Object.assign({
     id: uid('cli'), name: '', code: '', industry: '',
+    taxId: '',
     email: '', phone: '', city: '', region: '', country: '', customerSince: '',
     contactName: '', contactEmail: '', contactPhone: '', notes: '',
+    // `link` apunta a la FICHA del directorio (una instancia de la app
+    // Clientes). `recordRef` apunta a la IDENTIDAD de la plataforma
+    // (`kimos:record/account/…`), que es la que cruza todas las apps: la
+    // misma empresa puede tener su ficha en Clientes, su cotización en
+    // Cotizaciones y su proyecto aquí, y `recordRef` es lo que dice que son
+    // la misma. Ver APP-SPEC §7.d.
+    recordRef: '',
     link: null, colorIndex: 0, createdAt: stamp(), updatedAt: stamp(),
   }, patch || {});
 
   /** Campos que manda el directorio: al re-sincronizar se copian tal cual y
    *  el resto de la ficha (código, rubro, color, notas propias) no se toca. */
-  const DIRECTORY_FIELDS = ['name', 'email', 'phone', 'city', 'region', 'country', 'customerSince'];
+  const DIRECTORY_FIELDS = ['name', 'taxId', 'email', 'phone', 'city', 'region', 'country', 'customerSince'];
   const DIRECTORY_APP = 'customers';
   const DIRECTORY_LABEL = 'Clientes';
 
@@ -3445,6 +3453,11 @@ export default function mount(shell) {
     instanceId: s(inst.id),
     instanceName: s(inst.name || inst.title || DIRECTORY_LABEL),
     name: s(it.name) || s(it.email) || s(it.id),
+    // El RUT lo publica Clientes desde su 2.1.0 y es la clave natural más
+    // fiable: el correo identifica a menudo a la persona que escribió, no a
+    // la empresa.
+    taxId: s(it.taxId || it.rut || it.documentNumber),
+    recordRef: s(it.recordRef),
     email: s(it.email),
     phone: s(it.phone),
     city: s(it.city),
@@ -3506,6 +3519,19 @@ export default function mount(shell) {
   function matchLocalClient(entry) {
     const byLink = model.clients.find((c) => c.link && s(c.link.itemId) === s(entry.itemId));
     if (byLink) return { client: byLink, reason: 'link' };
+    // La identidad de la plataforma manda sobre todo lo demás: es la única
+    // señal que no se equivoca. Correo y nombre siguen debajo porque una
+    // ficha puede no tener identidad todavía, pero cuando la hay, decide.
+    const ref = s(entry.recordRef);
+    if (ref) {
+      const byRef = model.clients.find((c) => s(c.recordRef) === ref);
+      if (byRef) return { client: byRef, reason: 'record' };
+    }
+    const rut = canon(entry.taxId).replace(/[^0-9a-z]/gi, '');
+    if (rut) {
+      const byRut = model.clients.find((c) => canon(c.taxId).replace(/[^0-9a-z]/gi, '') === rut);
+      if (byRut) return { client: byRut, reason: 'taxId' };
+    }
     const email = canon(entry.email);
     if (email) {
       const byEmail = model.clients.find((c) => canon(c.email) === email || canon(c.contactEmail) === email);
@@ -3552,7 +3578,11 @@ export default function mount(shell) {
   function importDirectoryClient(entry) {
     const match = matchLocalClient(entry);
     if (match) {
-      const updated = linkClientToDirectory(match.client.id, entry, { overwrite: match.reason === 'link' });
+      const updated = linkClientToDirectory(match.client.id, entry, { overwrite: match.reason === 'link' || match.reason === 'record' });
+      // Traerlo del directorio ya dice quién es, así que se le da su
+      // identidad sin preguntar. En silencio: se pidió importar un cliente,
+      // no gestionar identidades.
+      try { ensureClientRecord(match.client.id, { silent: true }); } catch (e) { /* opcional */ }
       return { client: updated, created: false, reason: match.reason };
     }
     const c = newClient(Object.assign({
@@ -3563,6 +3593,7 @@ export default function mount(shell) {
       link: linkOf(entry),
     }, directoryPatch(entry)));
     commit((m) => { m.clients = arr(m.clients).concat([c]); return m; });
+    try { ensureClientRecord(c.id, { silent: true }); } catch (e) { /* opcional */ }
     return { client: c, created: true, reason: 'new' };
   }
 
@@ -3603,6 +3634,142 @@ export default function mount(shell) {
     }
     commit((m) => m);
     return { ok: true, updated, unchanged, orphan };
+  }
+
+  // ── Identidad compartida entre apps (APP-SPEC §7.d) ────────────────────
+  // Vincular por correo o por nombre es lo que había antes y lo que falla: la
+  // misma empresa con dos correos son dos clientes, y el mismo nombre escrito
+  // de dos formas también. La identidad de la plataforma resuelve eso —las
+  // claves se normalizan antes de comparar— y además permite cruzar apps:
+  // «dame todo lo de Acme» incluye sus proyectos.
+  //
+  // Es opcional en los dos sentidos: si el host no expone `shell.records`, la
+  // app sigue funcionando igual que en la 1.3.
+
+  function registroNoDisponible() {
+    if (!shell.records || typeof shell.records.findOrCreate !== 'function') {
+      return 'Este host todavía no expone el registro de identidades del sistema; el cliente vive solo en esta cartera.';
+    }
+    return '';
+  }
+
+  /** Claves con las que se reconoce al cliente, en orden de fiabilidad. */
+  function clavesDeCliente(c) {
+    const keys = {};
+    if (s(c.taxId).trim()) keys.taxId = s(c.taxId).trim();
+    const correo = s(c.email).trim() || s(c.contactEmail).trim();
+    if (correo) keys.email = correo;
+    return keys;
+  }
+
+  /**
+   * Le da al cliente su identidad de plataforma: reutiliza la que ya exista o
+   * la crea. Devuelve `{ ref, created, warning }`, o `null` si no se pudo (y
+   * entonces la cartera sigue siendo perfectamente utilizable).
+   */
+  async function ensureClientRecord(clientId, opts) {
+    const o = Object.assign({ silent: false }, opts || {});
+    const c = findClient(clientId);
+    if (!c) return null;
+
+    const motivo = registroNoDisponible();
+    if (motivo) {
+      if (!o.silent) shell.notify && shell.notify({ level: 'warn', text: motivo });
+      return null;
+    }
+    if (!s(c.name).trim()) {
+      if (!o.silent) shell.notify && shell.notify({ level: 'warn', text: 'El cliente necesita un nombre antes de vincularlo.' });
+      return null;
+    }
+
+    let res;
+    try {
+      res = await shell.records.findOrCreate('account', { keys: clavesDeCliente(c), label: s(c.name).trim() });
+    } catch (e) {
+      if (!o.silent) {
+        shell.notify && shell.notify({ level: 'error', text: 'No se pudo vincular con el sistema: ' + ((e && e.message) || 'error') });
+      }
+      return null;
+    }
+    if (!res || !s(res.ref)) return null;
+
+    commit((m) => {
+      const actual = arr(m.clients).find((x) => x.id === clientId);
+      if (actual) m.clients = upsertIn(m.clients, Object.assign({}, actual, { recordRef: s(res.ref) }));
+      return m;
+    });
+
+    // El índice inverso es lo que responde «dame todo lo de Acme» desde
+    // cualquier app. Si falla, el vínculo directo ya está guardado.
+    try {
+      if (typeof shell.records.link === 'function' && s(instanceId)) {
+        await shell.records.link(s(res.ref), {
+          instanceId: s(instanceId), itemId: s(clientId),
+          kind: 'cliente-de-proyectos', label: s(c.name),
+        });
+      }
+    } catch (e) { /* comodidad, no condición */ }
+
+    if (!o.silent) {
+      // El aviso de la plataforma (claves que apuntaban a registros distintos,
+      // o un cliente sin ninguna clave natural) es la única señal temprana de
+      // un duplicado: se muestra tal cual.
+      if (s(res.warning)) shell.notify && shell.notify({ level: 'warn', text: s(res.warning) });
+      else if (res.created) shell.notify && shell.notify({ level: 'success', text: 'Cliente registrado en el sistema.' });
+      else {
+        const etiqueta = s(res.record && res.record.label) || s(c.name);
+        shell.notify && shell.notify({ level: 'success', text: 'Vinculado con «' + etiqueta + '», que ya existía en el sistema.' });
+      }
+    }
+    return { ref: s(res.ref), created: !!res.created, warning: s(res.warning), record: res.record || {} };
+  }
+
+  /**
+   * Refresca el nombre desde el registro y, si dos identidades se fusionaron,
+   * reapunta la referencia. Si el registro ya no existe NO se borra nada: la
+   * cartera conserva lo que tenía.
+   */
+  async function refreshClientRecord(clientId) {
+    const c = findClient(clientId);
+    if (!c || !s(c.recordRef)) return null;
+    const motivo = registroNoDisponible();
+    if (motivo || typeof shell.records.resolve !== 'function') {
+      shell.notify && shell.notify({ level: 'warn', text: motivo || 'Este host no permite refrescar la identidad.' });
+      return null;
+    }
+    let lista;
+    try { lista = arr(await shell.records.resolve([s(c.recordRef)])); }
+    catch (e) {
+      shell.notify && shell.notify({ level: 'error', text: 'No se pudo leer el registro: ' + ((e && e.message) || 'error') });
+      return null;
+    }
+    const r = lista[0];
+    if (!r || r.resolved === false) {
+      shell.notify && shell.notify({
+        level: 'warn',
+        text: 'Esa identidad ya no está en el sistema; la cartera conserva la ficha tal como estaba.',
+      });
+      return null;
+    }
+    const keys = (r && r.keys) || {};
+    commit((m) => {
+      const actual = arr(m.clients).find((x) => x.id === clientId);
+      if (!actual) return m;
+      m.clients = upsertIn(m.clients, Object.assign({}, actual, {
+        name: s(r.label) || s(actual.name),
+        taxId: s(keys.taxid) || s(actual.taxId),
+        email: s(keys.email) || s(actual.email),
+        recordRef: s(r.ref) || s(actual.recordRef),
+      }));
+      return m;
+    });
+    shell.notify && shell.notify({
+      level: s(r.replaces) ? 'info' : 'success',
+      text: s(r.replaces)
+        ? 'Esa identidad se había fusionado con otra; la cartera ya apunta a la correcta.'
+        : 'Cliente actualizado desde el registro del sistema.',
+    });
+    return findClient(clientId);
   }
 
   function unlinkClient(clientId) {
@@ -3822,6 +3989,49 @@ export default function mount(shell) {
   const TextArea = (value, onChange, opts) => h('textarea', Object.assign({
     className: 'kp-textarea', value: s(value), onChange: (e) => onChange(e.target.value),
   }, opts || {}));
+
+  /**
+   * Estado de la identidad del cliente en el sistema, con su acción.
+   *
+   * Se pinta siempre, también cuando no hay identidad: que un cliente viva
+   * solo en esta cartera es legítimo, pero conviene VERLO, porque es la
+   * situación que produce el segundo «Acme SpA» meses después.
+   */
+  /* Se monta con h(ClientRecordState, …), NUNCA se llama como función: usa
+   * useState, y una llamada suelta desde renderEditor añadiría un hook al
+   * componente raíz solo cuando el panel está abierto, que es justo lo que
+   * React prohíbe ("Rendered more hooks than during the previous render"). */
+  const ClientRecordState = ({ data, upd }) => {
+    const [ocupado, setOcupado] = useState('');
+    const motivo = registroNoDisponible();
+    if (motivo) return h('span', { className: 'kp-field-help', title: motivo }, 'sin registro en este host');
+    const ref = s(data.recordRef);
+    const correr = (nombre, fn) => {
+      setOcupado(nombre);
+      Promise.resolve().then(fn).then((r) => {
+        setOcupado('');
+        // La ficha abierta se refresca con lo que quedó guardado, o el panel
+        // seguiría mostrando el estado anterior.
+        const actual = findClient(data.id);
+        if (actual) upd({ recordRef: s(actual.recordRef), name: s(actual.name), taxId: s(actual.taxId), email: s(actual.email) });
+      }, () => setOcupado(''));
+    };
+    return h('span', { className: 'kp-rec' }, [
+      h('span', { key: 'd', className: cx('kp-rec-dot', ref && 'kp-rec-dot-on') }),
+      h('span', { key: 't', className: 'kp-rec-txt' }, ref ? 'Cliente del sistema' : 'Solo en esta cartera'),
+      ref
+        ? h('button', {
+          key: 'r', type: 'button', className: 'kp-btn kp-btn-sm', disabled: ocupado === 'ref',
+          title: 'Vuelve a leer la identidad por si cambió de nombre o se fusionó con otra',
+          onClick: () => correr('ref', () => refreshClientRecord(data.id)),
+        }, ocupado === 'ref' ? 'Actualizando…' : 'Actualizar')
+        : h('button', {
+          key: 'v', type: 'button', className: 'kp-btn kp-btn-sm', disabled: ocupado === 'link' || !s(data.name).trim(),
+          title: 'Reconoce a este cliente en todo KIMOS. Si ya existe, se reutiliza en vez de crear otro.',
+          onClick: () => correr('link', () => ensureClientRecord(data.id)),
+        }, ocupado === 'link' ? 'Vinculando…' : 'Vincular con el sistema'),
+    ]);
+  };
 
   const IconBtn = (iconEl, title, onClick, opts) => h('button', Object.assign({
     className: cx('kp-btn', 'kp-btn-icon', (opts || {}).tone === 'danger' && 'kp-btn-danger', (opts || {}).ghost && 'kp-btn-ghost'),
@@ -5712,7 +5922,7 @@ export default function mount(shell) {
                         level: 'success',
                         text: res.created
                           ? 'Cliente "' + res.client.name + '" traído del directorio.'
-                          : 'Ficha "' + res.client.name + '" vinculada con el directorio' + (res.reason === 'email' ? ' (coincidía por correo).' : res.reason === 'name' ? ' (coincidía por nombre).' : '.'),
+                          : 'Ficha "' + res.client.name + '" vinculada con el directorio' + (res.reason === 'record' ? ' (es la misma identidad del sistema).' : res.reason === 'taxId' ? ' (coincidía por RUT).' : res.reason === 'email' ? ' (coincidía por correo).' : res.reason === 'name' ? ' (coincidía por nombre).' : '.'),
                       });
                     },
                   }, match ? I.link(13) : I.plus(13), match ? 'Vincular' : 'Traer')));
@@ -5757,8 +5967,13 @@ export default function mount(shell) {
           : null,
         Field('Nombre' + (isLinked ? ' · del directorio' : ''), Input(data.name, (v) => upd({ name: v }), { placeholder: 'Razón social o nombre comercial', autoFocus: !isLinked })),
         h('div', { className: 'kp-row' },
-          Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera'),
-          Field('Rubro', Input(data.industry, (v) => upd({ industry: v }), { placeholder: 'Retail, minería, educación…' }), 'Propio de la cartera')),
+          Field('RUT / ID fiscal' + (isLinked ? ' · del directorio' : ''), Input(data.taxId, (v) => upd({ taxId: v }), { placeholder: '77.718.188-2' }),
+            'La clave más fiable para reconocer al cliente en todo KIMOS'),
+          Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera')),
+        h('div', { className: 'kp-row' },
+          Field('Rubro', Input(data.industry, (v) => upd({ industry: v }), { placeholder: 'Retail, minería, educación…' }), 'Propio de la cartera'),
+          Field('Identidad del sistema', h(ClientRecordState, { data, upd }),
+            'Un cliente es el mismo cliente en Cotizaciones, Clientes y aquí')),
         h('div', { className: 'kp-row' },
           Field('Correo' + (isLinked ? ' · del directorio' : ''), Input(data.email, (v) => upd({ email: v, contactEmail: v }), { type: 'email', placeholder: 'contacto@empresa.com' })),
           Field('Teléfono' + (isLinked ? ' · del directorio' : ''), Input(data.phone, (v) => upd({ phone: v, contactPhone: v })))),
@@ -6322,6 +6537,10 @@ export default function mount(shell) {
       inputSchema: { type: 'object', properties: { client: { type: 'string' }, directoryClient: { type: 'string' } }, required: ['client'] } },
     { name: 'SYNC_CLIENTS', description: 'Vuelve a copiar desde el directorio de la app Clientes los datos de todos los clientes vinculados. Informa qué cambió y qué enlaces quedaron huérfanos.',
       inputSchema: { type: 'object', properties: {} } },
+    { name: 'LINK_CLIENT_IDENTITY', description: 'Reconoce al cliente en todo KIMOS: si esa empresa ya existe (mismo RUT o correo) reutiliza su identidad, y si no, la registra. Es lo que hace que el cliente de un proyecto sea el mismo que el de una cotización.',
+      inputSchema: { type: 'object', properties: { client: { type: 'string' } }, required: ['client'] } },
+    { name: 'REFRESH_CLIENT_IDENTITY', description: 'Vuelve a leer la identidad del cliente en el sistema y refresca su ficha (por si cambió de nombre o se fusionó con otra).',
+      inputSchema: { type: 'object', properties: { client: { type: 'string' } }, required: ['client'] } },
     { name: 'UPDATE_FX', description: 'Conversor de moneda del proyecto. Con refresh=true consulta el tipo de cambio del día en un proveedor público y actualiza la tabla; con rates escribe valores a mano (unidades por 1 USD, p. ej. {"CLP": 947.5}); con currency cambia la moneda de gestión, y convert=true reexpresa además todos los importes al nuevo tipo de cambio.',
       inputSchema: { type: 'object', properties: { project: { type: 'string' }, refresh: { type: 'boolean' }, rates: { type: 'object' }, currency: { type: 'string' }, convert: { type: 'boolean' } }, required: ['project'] } },
     { name: 'SET_BASELINE', description: 'Congela el costeo actual como línea base (presupuesto de referencia). Desde ahí, cada cambio de partida queda explicado en el puente presupuesto vs. costeo.',
@@ -6347,12 +6566,14 @@ export default function mount(shell) {
         correo: c.email, telefono: c.phone, ciudad: c.city, pais: c.country,
         proyectos: model.projects.filter((p) => p.clientId === c.id).length,
         vinculadoAlDirectorio: !!(c.link && c.link.itemId),
+        identidadDelSistema: s(c.recordRef) || null,
         directorio: c.link && c.link.itemId ? { instancia: c.link.instanceName, ficha: c.link.itemId, sincronizado: c.link.syncedAt } : null,
       })),
       directorioDeClientes: {
         app: DIRECTORY_APP, nombre: DIRECTORY_LABEL, estado: directory.state,
         fichasLeidas: arr(directory.items).length,
         vinculados: model.clients.filter((c) => c.link && c.link.itemId).length,
+        conIdentidadDelSistema: model.clients.filter((c) => s(c.recordRef)).length,
         nota: 'La app ' + DIRECTORY_LABEL + ' es el registro de origen. Antes de crear un cliente a mano, usa LIST_DIRECTORY_CLIENTS para ver si su ficha ya existe.',
       },
       proyectos: model.projects.map((p) => {
@@ -6494,6 +6715,28 @@ export default function mount(shell) {
         if (!entry) return err('No encontré "' + ref + '" en el directorio de ' + DIRECTORY_LABEL + '.');
         const updated = linkClientToDirectory(c.id, entry, { overwrite: true });
         return ok('Cliente "' + (updated ? updated.name : c.name) + '" vinculado con su ficha del directorio y actualizado con sus datos.');
+      }
+      if (type === 'LINK_CLIENT_IDENTITY') {
+        const c = resolveClient(pl.client);
+        if (!c) return err('No encontré el cliente "' + s(pl.client) + '" en la cartera.');
+        const motivo = registroNoDisponible();
+        if (motivo) return err(motivo);
+        const res = await ensureClientRecord(c.id, { silent: true });
+        if (!res) return err('No se pudo vincular. Comprueba que el cliente tenga al menos un nombre.');
+        return ok(
+          res.created
+            ? 'Cliente "' + s(c.name) + '" registrado en el sistema.'
+            : 'Cliente "' + s(c.name) + '" vinculado con «' + (s(res.record && res.record.label) || s(c.name)) + '», que ya existía.',
+          { referencia: res.ref, creado: res.created, aviso: res.warning || undefined },
+        );
+      }
+      if (type === 'REFRESH_CLIENT_IDENTITY') {
+        const c = resolveClient(pl.client);
+        if (!c) return err('No encontré el cliente "' + s(pl.client) + '" en la cartera.');
+        if (!s(c.recordRef)) return err('Ese cliente no tiene identidad del sistema todavía; usa LINK_CLIENT_IDENTITY primero.');
+        const out = await refreshClientRecord(c.id);
+        if (!out) return err('No se pudo refrescar la identidad del cliente.');
+        return ok('Cliente "' + s(out.name) + '" actualizado desde el registro del sistema.', { referencia: s(out.recordRef) });
       }
       if (type === 'SYNC_CLIENTS') {
         const res = await syncLinkedClients({ silent: true });

@@ -6,6 +6,11 @@
   --buz-surface: hsl(var(--muted, 220 14% 94%) / 0.45);
   --buz-accent: hsl(var(--primary, 182 75% 40%));
   --buz-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  /* Semánticos, no identidad visual: un color detrás de un token con
+     nombre es una decisión en un solo sitio (APP-SPEC §9). */
+  --buz-danger: hsl(0 84% 60%);
+  --buz-code-bg: hsl(222 47% 11%);
+  --buz-code-fg: hsl(213 27% 84%);
 
   height: 100%;
   display: flex;
@@ -23,11 +28,14 @@
 .kimos-buzon .buz-muted { color: var(--buz-muted); font-size: 12px; }
 .kimos-buzon .buz-card { border: 1px solid var(--buz-border); border-radius: 12px; padding: 14px; }
 .kimos-buzon .buz-card-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
-.kimos-buzon .buz-code { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px; font-family: ui-monospace, monospace; overflow-x: auto; white-space: pre; margin: 0 0 8px; }
+.kimos-buzon .buz-code { background: var(--buz-code-bg); color: var(--buz-code-fg); border-radius: 8px; padding: 12px; font-size: 12px; font-family: ui-monospace, monospace; overflow-x: auto; white-space: pre; margin: 0 0 8px; }
 .kimos-buzon .buz-btn { border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .kimos-buzon .buz-btn-primary { background: var(--buz-accent); color: var(--buz-accent-fg); }
 .kimos-buzon .buz-btn-ghost { background: var(--buz-surface); color: var(--buz-fg); border: 1px solid var(--buz-border); padding: 4px 10px; }
-.kimos-buzon .buz-btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; padding: 4px 8px; }
+.kimos-buzon .buz-btn-danger { background: hsl(0 84% 60% / 0.12); color: var(--buz-danger); padding: 4px 8px; }
 .kimos-buzon .buz-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--buz-border); }
 .kimos-buzon .buz-item-text { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
 .kimos-buzon .buz-item-meta { display: flex; align-items: center; gap: 8px; color: var(--buz-muted); font-size: 11px; flex-shrink: 0; }
+
+/* La versión, siempre a la vista (APP-SPEC §7.a). */
+.kimos-buzon .buz-version { font-size: 10.5px; color: var(--buz-muted); font-variant-numeric: tabular-nums; }

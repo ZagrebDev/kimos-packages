@@ -4,7 +4,12 @@ Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y 
 
 > **¿Quieres crear tu propia app?** Empieza por **[`CREA-TU-APP.md`](CREA-TU-APP.md)**
 > (guía paso a paso, sin necesidad de backend). La referencia técnica completa
-> del contrato está en [`APP-SPEC.md`](APP-SPEC.md). Para terceros SIN acceso a
+> del contrato está en [`APP-SPEC.md`](APP-SPEC.md).
+>
+> **¿Traes una app YA HECHA?** Entonces el orden es otro:
+> **[`ALINEA-TU-APP.md`](ALINEA-TU-APP.md)** y `node tools/check-app.mjs apps/tu-app`.
+> Dice qué está resolviendo tu app por su cuenta que la plataforma ya resuelve
+> para todas —clientes, archivos, marca, colores— y cómo dejar de hacerlo. Para terceros SIN acceso a
 > este repo existe **`kimos-creator-pack.zip`** (guía + empaquetador + ejemplos),
 > descargable desde la Tienda de KIMOS o regenerable con
 > `node tools/build-creator-pack.mjs`.
@@ -64,6 +69,7 @@ Apps actualmente publicadas (la fuente de verdad es el array `apps[]` del
 | `lidaria` 🛰️ | **Consola de captura 3D**: qué puede escanear cada equipo (LiDAR, ToF, profundidad por movimiento), qué módulos cubre el parque de la organización, qué significa para cada rubro (base de conocimiento ampliable con packs `.krub`), preparación de visitas a prospectos y mapa honesto de vinculación con el resto del ecosistema. Ver [`apps/lidaria/`](apps/lidaria/). |
 | `estudio-mercado` 🎯 | **Estudios de mercado competitivo** como tablero interactivo, con modo dashboard, compacto y tema de KIMOS, adaptado de móvil a tótem. Trae hecho el de KIMOS —25 líneas contra 170 planes de precio de la competencia, con gráficos en vivo, precios editables, configurador de suscripción, mercado por país, unit economics y diagnóstico— y sirve para hacer el de **cualquier otra empresa**: nueve plantillas de rubro, editores de líneas y precios con fuente obligatoria, importar y exportar el estudio como JSON, control de vigencia de la evidencia y un protocolo de investigación que el agente IA puede ejecutar solo. Ver [`apps/estudio-mercado/`](apps/estudio-mercado/). |
 | `cotizaciones` 🧾 | **Cotizaciones y propuestas comerciales de punta a punta**: líneas escritas a mano, del banco propio de ítems y servicios prefijados, o traídas del catálogo de la app Productos y de los productos configurables de ProductLab (eligiendo su combinación de pasos, con el precio resuelto y congelado en la línea); cotizaciones tipo, duplicación y revisiones enlazadas; editor visual de bloques en cuadrícula que es el mismo maquetador del PDF; envío por correo con el SMTP del tenant desde plantillas con variables; y tablero de seguimiento del embudo. Ver [`apps/cotizaciones/`](apps/cotizaciones/). |
+| `marcas` | El sistema visual del tenant: gestiona las marcas del registro de la plataforma (`shell.brands`) y publica una hoja imprimible por marca. La instalan solo los tenants que administran marcas; el registro está disponible para todas las apps aunque no se instale. |
 | `kanban` · `gantt` · `products` · `orders` · `customers` · `contact-forms` · `web-agents` · `notas-equipo` · `fossflow` | Ver sus carpetas en `apps/` y el manifest raíz. |
 
 ## Fondos de pantalla
@@ -100,6 +106,18 @@ Antes de commitear, verificar (falla con código 1 si algo quedó desalineado):
 node tools/check-versions.mjs                # todas las apps
 node tools/check-versions.mjs notas-equipo   # una sola
 ```
+
+Y la revisión del contrato completo —incluida la alineación con los recursos
+compartidos de la plataforma— con:
+
+```bash
+node tools/check-app.mjs                     # todas las apps
+node tools/check-app.mjs apps/cotizaciones   # una sola
+```
+
+Separa **errores** (verificables, hay que corregirlos) de **avisos** (señales
+que se detectan leyendo el bundle como texto y pueden equivocarse). Solo los
+errores hacen que salga con código 1.
 
 Semver: parche para arreglos, menor para funciones nuevas compatibles, mayor si
 cambia el formato de datos o el contrato del agente. **Nunca reutilizar un

@@ -173,9 +173,19 @@ async function exportarPdf(doc, opts) {
  */
 async function publicarPropuesta(doc, opts) {
   const o = isObj(opts) ? opts : {};
-  if (!shell.authFetch) throw new Error('Este host no permite subir archivos.');
   const html = await construirHtmlPropuesta(doc, o);
+  const nombre = nombreArchivo(doc) + '.html';
+  const archivo = new File([html], nombre, { type: 'text/html' });
 
+  // Por `shell.files` cuando el host lo tenga: la ruta la decide él y así la
+  // propuesta publicada queda en el espacio de esta app, con cuota atribuible
+  // y limpieza al desinstalar (APP-SPEC §7.e).
+  if (shell.files && typeof shell.files.upload === 'function') {
+    return shell.files.upload(archivo, { folder: 'propuestas', maxMB: 10 });
+  }
+
+  // Respaldo para un host anterior: la app elige la ruta.
+  if (!shell.authFetch) throw new Error('Este host no permite subir archivos.');
   const path = 'imagenes/cotizaciones/propuestas/' + nombreArchivo(doc) + '-'
     + Date.now().toString(36) + '.html';
   const fd = new FormData();

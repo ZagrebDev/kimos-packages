@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.0.0**
+**Versión actual: 1.2.2**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -26,7 +26,14 @@ lo suyo.
   combinación quedan **congelados** en la línea —una cotización es una oferta
   con fecha— y se actualizan solo si se pide (⟳ en la fila).
 - **Clientes** traídos del directorio de la app **Clientes**, sin retipear la
-  ficha.
+  ficha — y, desde la 1.1, **un cliente es el mismo cliente en todo KIMOS**:
+  la cotización guarda la referencia a su identidad de plataforma
+  (`shell.records`, APP-SPEC §7.d) además de la copia que imprime. Si «Acme
+  SpA» ya existe, se reutiliza aunque el RUT venga escrito de otra forma; si
+  se escribió a mano y no existía, se le da identidad y se puede guardar su
+  ficha en la app Clientes sin salir de la cotización. La copia se conserva a
+  propósito: una propuesta enviada hace ocho meses se sigue imprimiendo igual
+  aunque el registro cambie o desaparezca.
 - **Editor visual**: además del formulario, cada cotización tiene un lienzo
   de bloques sobre una cuadrícula de 12 columnas —cabecera, tabla de ítems,
   totales, notas, datos de pago, textos libres, imágenes, separadores, aire y
@@ -62,6 +69,10 @@ lo suyo.
   del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
   vencimiento automático de las enviadas y bitácora por cotización.
+- **Marca del sistema**: el emisor se puede traer de la marca del tenant
+  (`shell.brand`, APP-SPEC §7.f) en vez de reescribir aquí razón social, RUT,
+  logo y datos de transferencia. Rellena; no impone: después se ajusta para
+  este cotizador.
 - **Emisor y reglas** configurables: razón social, RUT, logo, datos de
   transferencia, moneda, si los precios se escriben netos o con impuesto
   incluido, impuesto, vigencia por defecto, reparto abono/saldo, formato del
@@ -196,8 +207,25 @@ cotizar**.
 Una cotización guarda **su propia** moneda e impuesto al crearse: subir el IVA
 en Ajustes no reescribe lo que se cotizó el año pasado.
 
+## Avisos del revisor descartados, y por qué
+
+`node tools/check-app.mjs apps/cotizaciones` señala que **no publica
+`dataSchema`**, así que ninguna otra app puede escribir en ella. Es
+deliberado: una cotización es un documento comercial con número, precios y
+fecha, y que otra app pudiera crear o modificar uno sería emitir una oferta en
+nombre de alguien. El puente en la dirección útil sí existe —Cotizaciones
+escribe en Clientes con `data.write:customers`— y ese es el sentido correcto.
+
+Queda escrito aquí a propósito: un aviso descartado con motivo es una
+decisión; uno descartado en silencio es el que vuelve dentro de seis meses
+(ver `ALINEA-TU-APP.md`).
+
 ## Historial de versiones
 
 | Versión | Qué trae |
 |---|---|
+| 1.2.2 | Al día con el registro de marcas: `shell.brand` (una marca) pasó a `shell.brands` (varias), así que «Traer de la marca» usa la marca activa del nuevo registro y toma el logotipo por su atajo ya resuelto en vez de adivinar la variante. Sin esto el botón habría dejado de encontrar la marca. |
+| 1.2.1 | Las imágenes y la propuesta publicada se suben por `shell.files`: la ruta la decide el host, así que el almacenamiento queda aislado por app, con cuota atribuible y limpieza al desinstalar. El camino antiguo (la app elegía la ruta) queda solo como respaldo para un host que no exponga `shell.files`. Lo detectó `tools/check-app.mjs`. |
+| 1.2.0 | El emisor puede traerse de la **marca del sistema** (`shell.brand`): razón social, RUT, contacto, logo y datos de transferencia dejan de reescribirse aquí. La marca rellena y el usuario puede ajustar, para que una unidad de negocio pueda cotizar con otra razón social. Los colores no se copian: el host inyecta los de la marca como tokens del tema y esta app no cablea ninguno. |
+| 1.1.0 | El cliente deja de ser una copia suelta: la cotización guarda además su identidad compartida de KIMOS (`shell.records`), reutiliza el cliente que ya existe aunque el RUT venga escrito de otra forma, refresca la ficha cuando el registro cambia o se fusiona, y permite guardar en la app Clientes un cliente escrito a mano. Dos acciones nuevas del agente: `VINCULAR_CLIENTE` y `ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO`. En un host sin registro la app funciona exactamente como antes. |
 | 1.0.0 | Primera versión: cotizaciones con líneas, cliente, vigencia y estados; motor de totales (descuentos, exentos, opcionales, abono/saldo, precios netos o con impuesto incluido); numeración correlativa; cotizaciones tipo (con predeterminada), duplicación y revisiones enlazadas; banco de ítems prefijados; catálogo conectado a Productos, ProductLab y Clientes; editor visual de bloques en cuadrícula; exportación a PDF y enlace público; envío por correo con plantillas y variables; tablero de seguimiento; agente IA con paridad sobre la app; ajustes de emisor y reglas; colaboración multiusuario sin pérdidas. |

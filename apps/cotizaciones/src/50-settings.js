@@ -28,6 +28,8 @@ function SettingsTab(props) {
       h('div', { key: 'h', className: 'cz-card-hd' }, [
         h('h3', { key: 't' }, 'Emisor'),
         h('span', { key: 'n', className: 'cz-card-note' }, 'Encabeza y firma todas las cotizaciones.'),
+        h('span', { key: 'sp', className: 'cz-recbar-sp' }),
+        h(BrandImportBtn, { key: 'b' }),
       ]),
       h('div', { key: 'g', className: 'cz-grid2' }, [
         h(Field, { key: 'n', label: 'Razón social' },
@@ -171,4 +173,26 @@ function SettingsTab(props) {
       'Los ajustes viven en esta instancia del cotizador. Un equipo puede tener varios '
       + '(por marca o por unidad de negocio) y cada uno lleva su emisor, su correlativo y sus reglas.'),
   ]);
+}
+
+/**
+ * «Traer de la marca del sistema»: rellena el emisor con la marca del tenant
+ * en vez de reescribir aquí razón social, RUT y logo que ya están definidos
+ * una vez para todo KIMOS (APP-SPEC §7.f).
+ *
+ * Los colores NO se traen: el host ya inyecta los de la marca como tokens del
+ * tema, y esta app no cablea ninguno (APP-SPEC §9), así que se re-marca sola.
+ */
+function BrandImportBtn() {
+  const [ocupado, setOcupado] = useState(false);
+  const motivo = marcaNoDisponible();
+  if (motivo) return h('span', { className: 'cz-card-note', title: motivo }, 'sin marca del sistema');
+  return h(Btn, {
+    size: 'sm', disabled: ocupado,
+    title: 'Rellena estos campos con la marca definida para todo KIMOS. Después puedes ajustarlos solo para este cotizador.',
+    onClick: () => {
+      setOcupado(true);
+      Promise.resolve().then(actImportBrand).then(() => setOcupado(false), () => setOcupado(false));
+    },
+  }, ocupado ? 'Trayendo…' : '🏷 Traer de la marca');
 }

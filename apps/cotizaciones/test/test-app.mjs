@@ -24,6 +24,11 @@ const R = {
 };
 globalThis.React = R;
 
+// La versión que declara el manifest: es la fuente de verdad de la app.
+const MANIFEST_VERSION = JSON.parse(
+  (await import('node:fs')).readFileSync(
+    new URL('../manifest.json', import.meta.url), 'utf8')).version;
+
 const listeners = [];
 globalThis.window = {
   location: { origin: 'http://kimos.local', href: 'http://kimos.local/' },
@@ -132,9 +137,85 @@ const EXT = {
 // Integración de correo del tenant simulada.
 const SMTP = { status: { configured: true, fromEmail: 'buzon@metakut.cl' }, enviados: [], falla: '' };
 
+// ── Registro de identidades simulado (APP-SPEC §7.d) ─────────────────────
+// Reproduce lo único que la app necesita creerse: que las claves se
+// NORMALIZAN antes de comparar, así que dos formas del mismo RUT devuelven el
+// mismo registro en vez de crear el segundo «Acme SpA». Si esto no fuese
+// cierto, vincular no serviría de nada.
+const REG = { docs: new Map(), keys: new Map(), links: [], seq: 0, mergedInto: new Map() };
+const normKey = (nombre, valor) => {
+  const v = String(valor == null ? '' : valor).trim();
+  const n = String(nombre || '').toLowerCase();
+  if (n === 'taxid' || n === 'rut') return v.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  return v.toLowerCase();
+};
+const canonName = (n) => (String(n || '').toLowerCase() === 'rut' ? 'taxid' : String(n || '').toLowerCase());
+const regSalida = (d) => ({ ref: 'kimos:record/account/' + d.id, id: d.id, type: 'account', label: d.label, keys: d.keys });
+const regSeguir = (id) => {
+  let cur = id, saltos = 0;
+  while (REG.mergedInto.has(cur) && saltos++ < 5) cur = REG.mergedInto.get(cur);
+  return REG.docs.get(cur) || null;
+};
+const registroSimulado = {
+  types: async () => [{ id: 'account', description: 'Organización' }],
+  findOrCreate: async (type, opts) => {
+    const keys = {};
+    for (const [k, v] of Object.entries((opts && opts.keys) || {})) {
+      const nk = normKey(k, v);
+      if (nk) keys[canonName(k)] = nk;
+    }
+    const encontrados = new Set();
+    for (const [nombre, valor] of Object.entries(keys)) {
+      const hit = REG.keys.get(type + ':' + nombre + ':' + valor);
+      if (hit) encontrados.add(hit);
+    }
+    if (encontrados.size) {
+      const d = regSeguir([...encontrados][0]);
+      const salida = { ref: regSalida(d).ref, created: false, record: regSalida(d) };
+      if (encontrados.size > 1) salida.warning = 'Las claves apuntaban a registros distintos; se devolvió uno.';
+      return salida;
+    }
+    const id = 'rec' + (++REG.seq);
+    const d = { id, label: String((opts && opts.label) || ''), keys };
+    REG.docs.set(id, d);
+    for (const [nombre, valor] of Object.entries(keys)) REG.keys.set(type + ':' + nombre + ':' + valor, id);
+    const salida = { ref: regSalida(d).ref, created: true, record: regSalida(d) };
+    if (!Object.keys(keys).length) salida.warning = 'Registro creado sin clave natural: no se podrá deduplicar.';
+    return salida;
+  },
+  resolve: async (refs) => (refs || []).map((raw) => {
+    const m = /^kimos:record\/account\/([A-Za-z0-9_-]+)$/.exec(String(raw));
+    if (!m) return { ref: raw, resolved: false, reason: 'referencia mal formada' };
+    const d = regSeguir(m[1]);
+    if (!d) return { ref: raw, resolved: false, reason: 'no encontrado' };
+    const out = Object.assign({ resolved: true }, regSalida(d));
+    if (out.ref !== raw) out.replaces = raw;
+    return out;
+  }),
+  search: async () => [],
+  update: async (ref, patch) => {
+    const m = /account\/([A-Za-z0-9_-]+)$/.exec(String(ref));
+    const d = regSeguir(m && m[1]);
+    if (d && patch && patch.label) d.label = String(patch.label);
+    return regSalida(d);
+  },
+  link: async (ref, opts) => { REG.links.push(Object.assign({ ref }, opts)); },
+  unlink: async () => {},
+  links: async (ref) => ({ links: REG.links.filter((l) => l.ref === ref), porApp: {} }),
+};
+
 // ── Shell simulado ───────────────────────────────────────────────────────
 const store = new Map();          // items de la instancia
 const notices = [];
+// Los ocho campos que la app Clientes declara en su `dataSchema` (v2.1.0).
+const DATA_SCHEMA_CUSTOMERS = ['name', 'taxId', 'email', 'phone', 'city', 'region', 'country', 'notes'];
+const ESCRITURA = { creados: [], ignorados: [], seq: 100, falla: '' };
+// La marca activa del tenant. Empieza sin configurar a propósito: es el
+// estado de un KIMOS recién instalado.
+const MARCA = { actual: null };
+// Almacenamiento del host (APP-SPEC §7.e). Guarda la CARPETA que pidió la app
+// para poder comprobar que la app elige la carpeta lógica y no la ruta real.
+const ARCHIVOS = { subidos: [], falla: '' };
 let agentReg = null;
 
 const shell = {
@@ -161,6 +242,50 @@ const shell = {
       }
       return [];
     },
+    // Escritura gobernada (APP-SPEC §7.c): la pasarela solo deja pasar lo que
+    // la app dueña declara en su `dataSchema`. Aquí se simula ese filtro para
+    // que la prueba falle si la app manda campos que no le corresponden.
+    create: async (id, payload) => {
+      if (ESCRITURA.falla) throw new Error(ESCRITURA.falla);
+      const inst = (EXT.customers || []).find((x) => x.id === id);
+      if (!inst) throw new Error("La app 'customers' no tiene esa instancia.");
+      const limpio = {};
+      for (const k of Object.keys(payload || {})) {
+        if (DATA_SCHEMA_CUSTOMERS.includes(k)) limpio[k] = payload[k];
+        else ESCRITURA.ignorados.push(k);
+      }
+      if (!limpio.name) throw new Error('Faltan campos obligatorios del contrato: name.');
+      const item = Object.assign({ id: 'cli-' + (++ESCRITURA.seq), createdByApp: 'cotizaciones' }, limpio);
+      inst.items.push(item);
+      ESCRITURA.creados.push(item);
+      return item;
+    },
+    update: async (id, itemId, patch) => {
+      const inst = (EXT.customers || []).find((x) => x.id === id);
+      const it = inst && inst.items.find((x) => x.id === itemId);
+      if (!it) throw new Error('No existe ese item.');
+      Object.assign(it, patch, { updatedByApp: 'cotizaciones' });
+      return it;
+    },
+  },
+  records: registroSimulado,
+  // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
+  // configurada, que es un caso normal y no un error.
+  brands: { current: async () => MARCA.actual, list: async () => ({ brands: MARCA.actual ? [MARCA.actual] : [], currentId: '' }) },
+  // Archivos con ruta gestionada por el host: la app pasa un `folder` lógico
+  // y el host devuelve una URL que la app no compone.
+  files: {
+    upload: async (file, opts) => {
+      if (ARCHIVOS.falla) throw new Error(ARCHIVOS.falla);
+      const carpeta = (opts && opts.folder) || 'general';
+      const nombre = String((file && file.name) || 'archivo');
+      const url = 'http://kimos.local/api/public/files/imagenes/cotizaciones/inst-1/'
+        + carpeta + '/abc123-' + nombre;
+      ARCHIVOS.subidos.push({ carpeta, nombre, url, maxMB: opts && opts.maxMB });
+      return url;
+    },
+    list: async () => ARCHIVOS.subidos.map((a) => ({ name: a.nombre, url: a.url })),
+    remove: async (url) => { ARCHIVOS.subidos = ARCHIVOS.subidos.filter((a) => a.url !== url); },
   },
   config: { get: async () => ({}), set: async () => {}, onChange: () => () => {} },
   documents: { onSerialize: () => () => {}, onLoad: () => () => {} },
@@ -187,6 +312,12 @@ const shell = {
       return json(store.get(items[1]));
     }
     if (items && items[1] && method === 'DELETE') { store.delete(items[1]); return json({ deleted: true }); }
+    // El camino antiguo (la app elige la ruta). Se conserva solo como
+    // respaldo para un host sin `shell.files`, y por eso se prueba.
+    if (url.endsWith('/api/v2/files') && method === 'POST') {
+      ARCHIVOS.aMano = (ARCHIVOS.aMano || 0) + 1;
+      return json({ ok: true });
+    }
     if (url.match(/\/api\/app-instances\/[^/]+$/)) return json({ id: 'inst-1', name: 'Cotizador de prueba', config: {} });
     return json({}, 404);
   },
@@ -532,6 +663,242 @@ seccion('Cotizar una combinación del catálogo');
   eq(doc.client.name, 'Universidad Andrés Bello', 'la ficha se copia a la cotización');
   eq(doc.client.taxId, '99.555.444-3', 'con su identificación fiscal');
   eq(doc.client.sourceItemId, 'cli-unab', 'y queda anotado de qué ficha salió');
+  await esperar();
+  ok(doc.client.recordRef === '' || T.docById(q.id).client.recordRef !== '',
+    'traerlo del directorio le da además su identidad del sistema');
+}
+
+seccion('Identidad del cliente compartida con el resto de KIMOS');
+{
+  const T = mounted.__test;
+  const q = T.actNewQuote({ title: 'Propuesta identidad' });
+
+  // Cliente escrito a mano, como quien cotiza a alguien nuevo.
+  T.actPatchClient(q.id, { name: 'Acme SpA', taxId: '77.718.188-2', email: 'compras@acme.cl' });
+  eq(T.estadoVinculo(T.docById(q.id)).estado, 'suelto',
+    'una cotización con el cliente escrito a mano se ve como lo que es: suelta');
+
+  const r1 = await T.actLinkClientRecord(q.id);
+  ok(r1 && r1.created, 'vincularlo crea la identidad porque no existía');
+  const ref = T.docById(q.id).client.recordRef;
+  ok(/^kimos:record\/account\//.test(ref), 'y la cotización guarda la referencia', ref);
+  eq(T.estadoVinculo(T.docById(q.id)).estado, 'vinculado', 'el estado pasa a vinculado');
+  ok(REG.links.some((l) => l.itemId === q.id && l.kind === 'cotizacion'),
+    'queda anotado el vínculo inverso, que es lo que responde «dame todo lo de Acme»');
+
+  // El caso que justifica todo esto: OTRA cotización, el mismo RUT escrito
+  // de otra forma, y nadie crea un segundo Acme.
+  const q2 = T.actNewQuote({ title: 'Segunda propuesta' });
+  T.actPatchClient(q2.id, { name: 'ACME S.p.A.', taxId: '777181882' });
+  const r2 = await T.actLinkClientRecord(q2.id);
+  ok(r2 && !r2.created, 'el mismo RUT escrito de otra forma NO crea un segundo cliente');
+  eq(T.docById(q2.id).client.recordRef, ref, 'las dos cotizaciones apuntan a la misma identidad');
+
+  // La instantánea es lo que se imprime, y no la pisa el registro.
+  eq(T.docById(q2.id).client.name, 'ACME S.p.A.',
+    'la cotización conserva el nombre con el que se escribió: es lo que se envió');
+
+  // Refrescar sí trae el nombre bueno, porque se pide expresamente.
+  REG.docs.get(ref.split('/').pop()).label = 'Acme SpA (Chile)';
+  await T.actRefreshClientRecord(q2.id);
+  eq(T.docById(q2.id).client.name, 'Acme SpA (Chile)',
+    'y solo al pedir refrescar se trae el nombre actual del directorio');
+
+  // Fusión: la referencia vieja se reapunta sola al refrescar.
+  const viejo = ref.split('/').pop();
+  const nuevo = 'rec-fusionado';
+  REG.docs.set(nuevo, { id: nuevo, label: 'Acme Chile SpA', keys: { taxid: '777181882' } });
+  REG.mergedInto.set(viejo, nuevo);
+  await T.actRefreshClientRecord(q.id);
+  eq(T.docById(q.id).client.recordRef, 'kimos:record/account/' + nuevo,
+    'si dos identidades se fusionan, la cotización se reapunta a la buena');
+  REG.mergedInto.delete(viejo);
+
+  // Un registro que ya no está NO borra los datos de la cotización.
+  const q3 = T.actNewQuote({ title: 'Con referencia rota' });
+  T.actPatchClient(q3.id, { name: 'Cliente Histórico', taxId: '11.111.111-1', recordRef: 'kimos:record/account/no-existe' });
+  await T.actRefreshClientRecord(q3.id);
+  eq(T.docById(q3.id).client.name, 'Cliente Histórico',
+    'si el registro desapareció, la cotización sigue diciendo lo que decía');
+
+  // Sin nombre no hay a quién apuntar.
+  const q4 = T.actNewQuote({ title: 'Sin cliente' });
+  const r4 = await T.actLinkClientRecord(q4.id);
+  ok(r4 === null, 'un cliente sin nombre no se vincula');
+
+  seccion('Guardar el cliente en la app Clientes');
+  const q5 = T.actNewQuote({ title: 'Cliente nuevo al directorio' });
+  T.actPatchClient(q5.id, {
+    name: 'Nueva Empresa Ltda', taxId: '76.000.111-2',
+    email: 'pagos@nueva.cl', phone: '+56 9 8888', address: 'Av. Siempre Viva 742',
+  });
+  const creado = await T.actPushClientToDirectory(q5.id, 'cinst-1');
+  ok(!!creado, 'el cliente escrito a mano se puede guardar en el directorio');
+  eq(creado.name, 'Nueva Empresa Ltda', 'con su nombre');
+  eq(creado.taxId, '76.000.111-2', 'y su RUT');
+  ok(!('address' in creado),
+    'pero NO se cuela un campo que la app Clientes no declara en su contrato');
+  eq(T.docById(q5.id).client.sourceItemId, creado.id, 'la cotización anota de qué ficha quedó colgando');
+  await esperar();
+  ok(T.docById(q5.id).client.recordRef !== '', 'y al guardarlo también se le da identidad');
+
+  // El error de la pasarela llega a quien está cotizando, no se traga.
+  const antes = notices.length;
+  ESCRITURA.falla = 'La app customers no publica un dataSchema.';
+  const q6 = T.actNewQuote({ title: 'Directorio cerrado' });
+  T.actPatchClient(q6.id, { name: 'Otra Empresa' });
+  const nada = await T.actPushClientToDirectory(q6.id, 'cinst-1');
+  ESCRITURA.falla = '';
+  ok(nada === null, 'si la app dueña no publica contrato, no se escribe nada');
+  ok(notices.slice(antes).some((n) => n.indexOf('dataSchema') !== -1),
+    'y el motivo se le dice a quien está cotizando, no se traga');
+}
+
+seccion('Archivos por el almacenamiento del host');
+{
+  const T = mounted.__test;
+  const antesAMano = ARCHIVOS.aMano || 0;
+
+  // El logo del emisor: la app pasa una CARPETA lógica, no una ruta.
+  const url = await T.uploadImage(new File(['x'], 'Logo Metakut.png', { type: 'image/png' }), 'logos');
+  ok(/\/api\/public\/files\//.test(url), 'la subida devuelve una URL pública', url);
+  eq(ARCHIVOS.subidos.length, 1, 'y pasó por `shell.files`, no a mano');
+  eq(ARCHIVOS.subidos[0].carpeta, 'logos', 'con la carpeta lógica que pidió la app');
+  eq(ARCHIVOS.aMano || 0, antesAMano, 'sin tocar `/api/v2/files` a mano');
+  ok(url.indexOf('imagenes/cotizaciones/inst-1/') !== -1,
+    'la RUTA la decidió el host: aislada por app e instancia', url);
+
+  // Los límites los sigue poniendo la app: la plataforma no adivina qué
+  // formato es aceptable para una propuesta comercial.
+  let err = '';
+  try { await T.uploadImage(new File(['x'], 'virus.exe', { type: 'application/x-msdownload' }), 'logos'); }
+  catch (e) { err = e.message; }
+  ok(err.indexOf('Formato no admitido') !== -1, 'un formato que no es imagen se rechaza antes de subir', err);
+
+  err = '';
+  const grande = new File([new Uint8Array(9 * 1024 * 1024)], 'enorme.png', { type: 'image/png' });
+  try { await T.uploadImage(grande, 'logos'); } catch (e) { err = e.message; }
+  ok(err.indexOf('MB') !== -1, 'y una imagen desmesurada también', err);
+
+  // El error del host llega a quien está subiendo.
+  ARCHIVOS.falla = 'Sin cuota de almacenamiento.';
+  err = '';
+  try { await T.uploadImage(new File(['x'], 'otra.png', { type: 'image/png' }), 'items'); }
+  catch (e) { err = e.message; }
+  ARCHIVOS.falla = '';
+  ok(err.indexOf('cuota') !== -1, 'un fallo del almacenamiento no se traga', err);
+
+  // Publicar la propuesta (`actPublishQuote`) usa este mismo camino, pero no
+  // se prueba aquí: para construir la hoja necesita un iframe real con su
+  // `contentDocument` y ReactDOM pintando dentro, y el DOM simulado de este
+  // banco no llega ahí. Lo que sí se prueba es que un fallo al publicar no
+  // rompe la app: devuelve '' y avisa.
+  const q = T.actNewQuote({ title: 'Propuesta publicable' });
+  T.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
+  const antesAvisos = notices.length;
+  const enlace = await T.actPublishQuote(q.id);
+  eq(enlace, '', 'si la hoja no se puede construir, publicar devuelve cadena vacía');
+  ok(notices.slice(antesAvisos).some((n) => n.indexOf('error') === 0),
+    'y lo dice en pantalla en vez de fallar en silencio', notices.slice(antesAvisos));
+  eq(T.docById(q.id).publicUrl, '', 'sin dejar un enlace a medias en la cotización');
+}
+
+seccion('La marca del sistema rellena el emisor');
+{
+  const T = mounted.__test;
+  eq(T.marcaNoDisponible(), '', 'el host expone la marca del sistema');
+
+  // Un KIMOS sin marca configurada: no es un error, y el emisor escrito a
+  // mano no se toca.
+  const antesNombre = T.issuerOf().name;
+  let antes = notices.length;
+  ok(await T.actImportBrand() === null, 'sin marca configurada no se trae nada');
+  ok(notices.slice(antes).some((n) => n.indexOf('marca configurada') !== -1),
+    'y se explica que la define un administrador');
+  eq(T.issuerOf().name, antesNombre, 'el emisor que ya había no se borra');
+
+  // La marca tal como la devuelve el registro (APP-SPEC §7.f): paleta con
+  // roles, logotipos con su fondo, y los atajos ya resueltos.
+  MARCA.actual = {
+    id: 'b1', name: 'Metakut', tagline: '', description: '',
+    legalName: 'METAKUT SPA', taxId: '77.718.188-2',
+    email: 'info@kimos.dev', phone: '', website: 'kimos.dev', address: 'Santiago',
+    footer: '', bankDetails: 'Banco de Chile · Cuenta Vista · 2532924267',
+    palette: [{ key: 'base', name: 'Base', hex: '#00e5d0', role: 'base', token: '174 100% 45%', foreground: '220 25% 6%' }],
+    logos: [{ key: 'claro', name: 'Claro', url: 'https://cdn/logo-claro.png', background: 'light' }],
+    typography: [], ecosystems: [], principles: [], warnings: [],
+    logoLight: 'https://cdn/logo-claro.png', logoDark: '',
+    themeTokens: { '--primary': '174 100% 45%', '--primary-foreground': '220 25% 6%' },
+  };
+  T.actPatchIssuer({ phone: '+56 9 5555 4444' });
+
+  ok(!!(await T.actImportBrand()), 'con marca configurada, el emisor se rellena');
+  const em = T.issuerOf();
+  eq(em.name, 'METAKUT SPA', 'con la razón social de la marca, no el nombre comercial');
+  eq(em.taxId, '77.718.188-2', 'y su RUT');
+  eq(em.logoUrl, 'https://cdn/logo-claro.png', 'y su logo');
+  eq(em.paymentInfo, 'Banco de Chile · Cuenta Vista · 2532924267', 'y los datos de transferencia');
+  eq(em.phone, '+56 9 5555 4444',
+    'un campo que la marca NO trae no borra lo que ya estaba escrito aquí');
+
+  // La marca rellena, no impone: después se puede ajustar.
+  T.actPatchIssuer({ name: 'METAKUT SPA — Unidad Retail' });
+  eq(T.issuerOf().name, 'METAKUT SPA — Unidad Retail',
+    'y lo traído se puede cambiar: una unidad de negocio cotiza con otra razón social');
+
+  // Los colores NO se copian al emisor: el host ya inyecta los de la marca
+  // como tokens del tema y esta app no cablea ninguno (APP-SPEC §9). Copiarlos
+  // aquí crearía una segunda fuente que se desincroniza.
+  eq(T.issuerOf().accentColor, '', 'el color de la marca no se copia al emisor');
+}
+
+seccion('En un host sin registro de identidades la app sigue funcionando');
+{
+  // `shell.records` es OPCIONAL en el contrato (APP-SPEC §7.d). Un tenant que
+  // no haya actualizado el shell tiene que poder cotizar igual: esta es la
+  // prueba de que la app no se apoya en algo que puede no estar.
+  const almacen = new Map();
+  const viejo = Object.assign({}, shell, {
+    items: {
+      list: async () => Array.from(almacen.values()).map((x) => JSON.parse(JSON.stringify(x))),
+      create: async (it) => { almacen.set(it.id, it); return it; },
+      update: async (id, patch) => { almacen.set(id, Object.assign({}, almacen.get(id), patch)); return almacen.get(id); },
+      remove: async (id) => { almacen.delete(id); },
+    },
+    data: { listInstances: shell.data.listInstances, listItems: shell.data.listItems },
+  });
+  delete viejo.records;
+  delete viejo.brands;
+  delete viejo.files;
+
+  const app2 = mod.default(viejo);
+  const V = app2.__test;
+  await V.load();
+  await esperar();
+
+  ok(V.registroNoDisponible() !== '', 'la app detecta que este host no tiene registro');
+  const q = V.actNewQuote({ title: 'Cotización en host antiguo' });
+  V.actPatchClient(q.id, { name: 'Cliente de Siempre', taxId: '77.718.188-2' });
+  const antes = notices.length;
+  const r = await V.actLinkClientRecord(q.id);
+  ok(r === null, 'vincular no rompe: simplemente no se puede');
+  ok(notices.slice(antes).some((n) => n.indexOf('registro de identidades') !== -1),
+    'y se explica por qué, en vez de fallar en silencio');
+  eq(V.estadoVinculo(V.docById(q.id)).estado, 'suelto', 'la cotización queda suelta, que es lo correcto');
+  ok(V.marcaNoDisponible() !== '', 'y tampoco hay marca del sistema, sin que eso rompa nada');
+
+  // El respaldo de subida: sin `shell.files`, la app vuelve al camino antiguo
+  // (elige ella la ruta). Se conserva para no dejar sin logo a un tenant que
+  // no haya actualizado el shell.
+  const antesAMano = ARCHIVOS.aMano || 0;
+  const urlVieja = await V.uploadImage(new File(['x'], 'logo.png', { type: 'image/png' }), 'logos');
+  ok((ARCHIVOS.aMano || 0) === antesAMano + 1, 'sin `shell.files` se sube por el camino antiguo');
+  ok(urlVieja.indexOf('imagenes/cotizaciones/logos/') !== -1,
+    'y entonces la ruta la elige la app, que es justo lo que shell.files vino a quitarle', urlVieja);
+  eq(V.docById(q.id).client.name, 'Cliente de Siempre', 'pero el cliente se guarda igual');
+  V.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
+  eq(V.computeTotals(V.docById(q.id), V.rulesOf()).total > 0, true, 'y la cotización se calcula igual');
+  app2.unmount();
 }
 
 seccion('Plantillas predeterminadas y revisiones');
@@ -786,7 +1153,10 @@ seccion('Agente IA');
     'la descripción avisa de que enviar correo manda un correo real');
 
   const snap = agentReg.getSnapshot();
-  eq(snap.version, '1.0.0', 'el retrato dice qué build está corriendo');
+  // Contra el manifest, no contra una constante: así la prueba comprueba lo
+  // que importa —que el retrato dice la versión REAL— y no hay que tocarla en
+  // cada bump (APP-SPEC §7.a).
+  eq(snap.version, MANIFEST_VERSION, 'el retrato dice qué build está corriendo');
   ok(Array.isArray(snap.cotizaciones) && snap.cotizaciones.length > 0, 'lista las cotizaciones');
   ok(snap.cotizaciones.every((x) => x.id), 'con sus ids, que es lo que hace falta para actuar');
   ok(!!snap.cotizador.siguienteNumero, 'y el siguiente correlativo');
@@ -830,6 +1200,22 @@ seccion('Agente IA');
 
   r = await call('CREAR_REVISION', { cotizacion: id });
   ok(r.success && r.cotizacion.numero.indexOf('-R2') !== -1, 'emite revisiones', r.error || r.cotizacion.numero);
+
+  // Identidad del cliente desde el agente (APP-SPEC §7.d).
+  r = await call('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', { cotizacion: id });
+  ok(!r.success && r.error.indexOf('VINCULAR_CLIENTE') !== -1,
+    'refrescar sin haber vinculado dice qué hacer antes, en vez de fallar seco', r.error);
+  r = await call('VINCULAR_CLIENTE', { cotizacion: id });
+  ok(r.success && /^kimos:record\/account\//.test(r.referencia || ''),
+    'el agente puede darle identidad al cliente', r.error || r.referencia);
+  const refAgente = r.referencia;
+  r = await call('VINCULAR_CLIENTE', { cotizacion: id });
+  ok(r.success && r.creado === false && r.referencia === refAgente,
+    'y hacerlo dos veces no crea un segundo cliente');
+  r = await call('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', { cotizacion: id });
+  ok(r.success, 'ya vinculado, refrescar funciona', r.error);
+  r = await call('VINCULAR_CLIENTE', { cotizacion: id, guardarEnDirectorio: true, directorio: 'cinst-1' });
+  ok(r.success && !!r.fichaId, 'y puede además dejar la ficha en la app Clientes', r.error);
 
   // Referencias ambiguas: no se elige al azar.
   await call('CREAR_COTIZACION', { nombre: 'Propuesta agente', cliente: 'Otro cliente' });

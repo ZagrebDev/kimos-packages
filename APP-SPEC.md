@@ -43,9 +43,10 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`. |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` / `brand.write` (§7.f). |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
+| `dataSchema` | object | – | Qué campos acepta tu app de OTRAS apps, y qué identidad representa. Sin esto, nadie escribe en la tuya. Ver §7.c. |
 
 **Persistencia y permisos:** `saveData/loadData` y `shell.items` requieren
 `teamId`+`instanceId`, que **solo existen en apps `multiInstance`**. Una app
@@ -140,7 +141,14 @@ export default function mount(shell) {
 | `shell.loadData(scope?)` | Carga la config guardada. |
 | `shell.items` | CRUD de subcolección por instancia: `list/create/update/remove`. |
 | `shell.agent.register({...})` | Control por agente autorizado (ver §6). |
-| 🔭 `shell.config` / `shell.documents` / `shell.files` | Capacidades v2 (ver plan). |
+| `shell.config` / `shell.documents` | Parámetros y documentos de la instancia (AppShell v2, §3.1). |
+| `shell.data` | Leer y escribir datos de OTRAS apps, con permiso declarado (§7.c). |
+| `shell.records` | Identidades compartidas entre apps: clientes, contactos, proyectos (§7.d). |
+| `shell.files` | Subir/listar/borrar archivos con ruta gestionada por el host (§7.e). |
+| `shell.brands` | Marcas del tenant: logotipos, paleta con roles, tipografías (§7.f). |
+
+Los tres últimos dependen de permisos declarados en el manifest y, en hosts
+anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
 
 ### Reglas de oro
 
@@ -161,7 +169,9 @@ export default function mount(shell) {
 |------------|-----|----------------|
 | Un documento JSON (estado completo) | `saveData({ ... })` / `loadData()` | blob GCS por instancia |
 | Listas/colecciones (tarjetas, filas) | `shell.items` CRUD | subcolección Firestore de la instancia |
-| Parámetros de la app | `defaultConfig` + 🔭 `shell.config` | `config` de la instancia |
+| Parámetros de la app | `defaultConfig` + `shell.config` | `config` de la instancia |
+| Archivos (fotos, adjuntos) | `shell.files.upload()` | bucket del tenant, bajo la carpeta de tu app |
+| A quién pertenece un item (cliente, proyecto) | `shell.records` + `recordRef` | identidad en la plataforma, datos en tu app |
 
 Patrón recomendado (FossFLOW/Kanban): **un objeto modelo** en el closure,
 `loadData()` al montar, y `saveData()` con *debounce* tras cada mutación. UI del
@@ -372,24 +382,17 @@ backend propio, para apps oficiales curadas): `contact-forms` y `web-agents`.
 
 ---
 
-## 7.c Leer datos de OTRAS apps (`shell.data`)
+## 7.c Datos de OTRAS apps (`shell.data`)
 
-> ⚠️ **En revisión.** Esta sección describe el contrato **vigente** (solo
-> lectura) y sigue siendo válida. Está en curso una ampliación que añade
-> escritura gobernada, un registro de identidades compartidas entre apps
-> (`shell.records`), almacenamiento de archivos (`shell.files`) y marca global
-> (`shell.brand`). Antes de construir sobre lo que aquí se llama «evoluciones
-> futuras», lee el plan:
-> `kimos-enterprice/docs/plan-datos-entre-apps.md`.
-
-Tu app puede leer datos de otras apps (oficiales o de terceros) declarando el
-permiso en su manifest — el superadmin lo ve y aprueba al instalar:
+Cada app es **dueña de sus datos**. Otra app no entra en su Firestore: pasa
+por una pasarela que exige un permiso declarado en el manifest, que el
+superadmin ve y aprueba al instalar.
 
 ```jsonc
 "permissions": ["instance.read", "instance.write", "data.read:contact-forms"]
 ```
 
-En el bundle:
+### Leer
 
 ```js
 if (shell.data) {
@@ -398,18 +401,304 @@ if (shell.data) {
 }
 ```
 
-Reglas:
 - `data.read:{templateId}` por cada template que leas (o `data.read:*` — pide
   solo lo que necesites: el instalador lo verá).
 - El **RBAC del usuario es siempre el techo**: solo ves instancias de equipos
   a los que el usuario ya tiene acceso. El permiso de la app nunca lo supera.
-- Solo lectura (los denegados quedan auditados). Escritura y suscripción a
-  cambios: evoluciones futuras del contrato.
+
+### Escribir
+
+Escribir en la app de otro es más delicado que leer, así que hay dos
+condiciones y ninguna es opcional:
+
+1. Tu app declara `data.write:{templateId}`.
+2. **La app dueña publica un `dataSchema`** en su manifest. Si no lo publica,
+   la escritura se rechaza (falla cerrado). Nadie escribe en una app que no
+   ha dicho qué acepta.
+
+```js
+const nuevo = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '77.718.188-2' });
+await shell.data.update(instanciaClientes, nuevo.id, { phone: '+56 9 1234 5678' });
+```
+
+Reglas que aplica la pasarela, no tu código:
+
+- Solo pasan los campos **declarados** en el `dataSchema`; el resto se ignora
+  y se te devuelve la lista de ignorados.
+- **Nunca** se aceptan objetos ni listas. Reemplazar un array desde fuera
+  rompería la fusión sin pérdida que la app dueña hace entre sus usuarios
+  (§5.1).
+- Al crear se exigen los `required`; al parchear no, porque es un parche.
+- Todo lo escrito queda marcado con quién y desde qué app
+  (`createdByApp` / `updatedByApp`), y auditado.
+
+### Publicar tu contrato (`dataSchema`)
+
+Si quieres que otras apps puedan escribir en la tuya, declara **qué aceptas**:
+
+```jsonc
+"dataSchema": {
+  "recordType": "account",              // opcional, ver §7.d
+  "naturalKeys": ["taxId", "email"],    // opcional, ver §7.d
+  "fields": [
+    { "key": "name",  "label": "Razón social", "type": "string", "required": true },
+    { "key": "taxId", "label": "RUT",          "type": "string" },
+    { "key": "email", "label": "Correo",       "type": "email"  }
+  ]
+}
+```
+
+Lo que **no** declares, no se puede escribir desde fuera. Los campos que
+gestiona la plataforma (`id`, `createdAt`, `updatedAt`, `createdBy`,
+`updatedBy`, `createdByApp`, `updatedByApp`, `recordRef`) no se habilitan
+aunque los declares por error.
+
+---
+
+## 7.d Identidades compartidas (`shell.records`)
+
+El problema que resuelve: si Clientes, Cotizaciones y Prospección guardan
+cada una su propio «Acme SpA», el sistema tiene tres Acmes y ninguna vista
+del cliente completo.
+
+La solución **no** es mover los datos a un sitio central. Es separar
+**identidad** de **datos**:
+
+- La **identidad** («esta empresa es esta») vive en la plataforma: un id
+  estable, una etiqueta y sus claves naturales (RUT, correo, dominio).
+- Los **datos** siguen en la app dueña: la ficha comercial en Clientes, la
+  oportunidad en Prospección, la propuesta en Cotizaciones.
+
+Cada app guarda la **referencia** más una **instantánea** de lo que necesita
+mostrar. Si el registro cambia de nombre, tu app puede refrescar; si
+desaparece, tu app sigue pintando lo que guardó. Nunca te quedas con un
+hueco.
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "records.link"]
+```
+
+```js
+if (shell.records) {
+  // Devuelve la identidad existente o la crea. Esto es lo que mantiene
+  // unitaria la base: si «Acme» ya existe con ese RUT, no se crea otra.
+  const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
+    keys:  { taxId: '77.718.188-2', email: 'compras@acme.cl' },
+    label: 'Acme SpA',
+  });
+
+  // Guarda la referencia + una instantánea en TU item.
+  cotizacion.recordRef = ref;
+  cotizacion.cliente   = { nombre: record.label, rut: record.keys.taxid || '' };
+
+  // Anota que este item apunta a esa identidad (alimenta «todo lo de Acme»).
+  await shell.records.link(ref, { instanceId, itemId: cotizacion.id, kind: 'cotizacion', label: cotizacion.numero });
+}
+```
+
+El resto de la superficie:
+
+| Método | Para qué |
+|--------|----------|
+| `types()` | Tipos que entiende la plataforma. |
+| `findOrCreate(type, {keys, label})` | La operación central: reutiliza o crea. |
+| `resolve(refs)` | Valores actuales de varias referencias de golpe. |
+| `search({type, q, limit})` | Alimenta un selector de cliente. |
+| `update(ref, {label, keys})` | Cambia la etiqueta o **añade** claves (nunca las quita). |
+| `link` / `unlink` / `links(ref)` | Índice inverso: qué apunta a esa identidad, en todas las apps. |
+
+Detalles que conviene saber antes de construir encima:
+
+- **Tipos**: `account`, `contact`, `product`, `opportunity`, `project`. Un
+  tipo es tipo solo si **más de una app** toca esa identidad; si solo la usa
+  tu app, no es un tipo, es un item tuyo.
+- No hay `cliente` y `prospecto` por separado: **`account` es uno solo**,
+  porque la misma empresa puede ser cliente, prospecto y proveedor a la vez.
+  El rol y la etapa son datos de la app a la que le importan.
+- **Las claves se normalizan** antes de comparar: `77.718.188-2`,
+  `77718188-2` y `777181882` son la misma; `rut`, `taxId` y `documentNumber`
+  son el mismo nombre de clave. De eso depende que la deduplicación funcione.
+- `findOrCreate` puede devolver `warning` (claves que apuntaban a registros
+  distintos, o un registro sin ninguna clave natural). **Muéstralo**: es la
+  única señal temprana de un duplicado.
+- Si la referencia que guardaste apuntaba a un registro que luego se fusionó
+  con otro, `resolve` te devuelve el bueno con `replaces`. Actualiza tu
+  referencia cuando lo veas.
+
+### Cómo lo declara la app dueña
+
+Una app que es **fuente** de una identidad (Clientes lo es de `account`) lo
+dice en su `dataSchema` con `recordType` y `naturalKeys` (§7.c). Con eso, la
+plataforma sabe qué campos de sus items son claves naturales y puede
+enlazarlos con el registro.
+
+---
+
+## 7.e Archivos (`shell.files`)
+
+Para fotos, logos, adjuntos o cualquier cosa que el usuario suba. Antes cada
+app se inventaba dónde guardarlos; ahora la **ruta la decide el host**.
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "files.write"]
+```
+
+```js
+if (shell.files) {
+  const url = await shell.files.upload(archivo, { folder: 'portadas', maxMB: 8 });
+  bloque.imagen = url;                       // URL pública, sirve en <img src>
+
+  const subidos = await shell.files.list({ folder: 'portadas' });
+  await shell.files.remove(url);
+}
+```
+
+- Tú eliges la **carpeta lógica** (`folder`), no la ruta real: el host guarda
+  bajo `imagenes/{appId}/{instanceId}/{folder}/`. Eso da aislamiento por app,
+  cuota atribuible y limpieza al desinstalar.
+- La URL devuelta es **pública de lectura** (funciona en `<img src>`, en CSS
+  y en un correo). No subas ahí nada que no pueda serlo.
+- `remove` solo borra dentro del espacio de tu app.
+- `upload` acota el tamaño (`maxMB`, 10 MB por defecto). Valida el tipo tú:
+  la plataforma no adivina qué es aceptable para tu app.
+
+## 7.f Marcas del tenant (`shell.brands`)
+
+Tercera pieza compartida, y la que mejor enseña el reparto: **el registro es
+de plataforma, la gestión es una app**.
+
+```
+REGISTRO (plataforma)          GESTIÓN (app «Marcas», opcional)
+shell.brands.list/get          crear, editar, la hoja del sistema visual
+siempre disponible             se instala solo si el tenant la necesita
+```
+
+Tu app lee marcas aunque nadie haya instalado el editor. Eso es deliberado: si
+las marcas vivieran dentro de una app, emitir una propuesta con la marca
+correcta dependería de que esa app estuviera instalada.
+
+```jsonc
+"permissions": ["brand.read"]
+```
+
+### Lo mejor es que casi nunca hace falta llamarla
+
+Si tu app cumple §9 —ningún color cableado, todo desde los tokens del tema del
+host—, **el host inyecta los colores de la marca activa y tu app se re-marca
+sola**. No hay nada que programar. Ese es el pago de haber respetado §9.
+
+Lo que sí se duplicaba hasta ahora son los **datos**: Cotizaciones tenía su
+«Emisor», Tarjetas el suyo, ProductLab su acento aparte.
+
+```js
+if (shell.brands) {
+  const { brands, currentId } = await shell.brands.list();   // para un selector
+  const marca = await shell.brands.current();                // null si no hay ninguna
+  if (marca) {
+    cabecera.logo   = marca.logoLight || marca.logoDark;
+    cabecera.emisor = marca.legalName || marca.name;
+    cabecera.color  = (marca.baseColor || {}).hex || '';
+  }
+}
+```
+
+### Qué trae una marca
+
+| Pieza | Lo que la hace utilizable desde tu app |
+|---|---|
+| `palette[]` | Cada color con su **rol** (`base`, `accent`, `text`, `border`…), su `hex`, su `token` HSL y el `foreground` que se lee encima. Un color sin rol es decoración: no sabrás dónde usarlo. |
+| `logos[]` | Cada uno con el **fondo** sobre el que va (`dark`, `light`, `color`, `transparent`). |
+| `typography[]` | Cada familia con su **uso** (`headings`, `body`, `data`) y de dónde sale la fuente. |
+| `form` | La **forma**: `cornerStyle`, `radius`, `borderWidth`, `elevation`, `density`. Vacío si la marca no declara ninguna. |
+| `ecosystems[]` | Variantes de la misma marca; apuntan a la paleta por clave. |
+| `principles[]` | Las reglas, en texto. |
+| Identidad | `name`, `tagline`, `legalName`, `taxId`, contacto, `footer`, `bankDetails`. |
+
+### La forma: por qué NO va en tu app
+
+Si tu app tiene su propio ajuste de «esquinas redondeadas» o «con sombra»,
+quítalo. Eso no es de tu app: es el lenguaje visual de la empresa, tanto como
+su paleta. Y hay una razón concreta para que viva en la marca:
+
+```
+tailwind.config:  rounded-lg → var(--radius)     shadow-md → var(--shadow-md)
+```
+
+En el tema de KIMOS, `rounded-*` y `shadow-*` cuelgan de esos tokens, y las
+apps derivan su radio de `var(--radius)`. Cuando la marca define su forma, el
+host los inyecta y **cambian el escritorio, el chat del agente y tu app a la
+vez, sin que toques nada**. Tres apps con su propio ajuste de esquinas no
+forman un sistema; forman tres.
+
+Lo que **no** es de la marca es la maqueta de tu app: dónde van las
+miniaturas, si la barra es pegajosa, qué dice el botón. Eso sigue siendo tuyo.
+La línea está en si otra app tendría el mismo campo: `radius` sí, `photos.layout` no.
+
+| Token | Qué tienes que hacer |
+|---|---|
+| `--radius`, `--shadow-sm/md/lg` | **Nada**, si ya cumples §9. |
+| `--border-width` | Leerlo en vez de cablear `1px`: `border: var(--border-width, 1px) solid var(--mi-borde);` |
+| `--font-sans`, `--font-mono` | Leerlos en vez de cablear `'Inter'`. |
+| `--brand-corner`, `--brand-density` | Honrarlos si tu app puede. `--brand-corner: cut` pide un `clip-path`, que no sale gratis. |
+
+Y los **atajos ya resueltos**, para no recorrer nada: `baseColor`,
+`accentColor`, `logoLight`, `logoDark`, `themeTokens`.
+
+- `current()` devuelve **`null`** cuando el tenant no ha configurado ninguna
+  marca. No es un error: tu app tiene que poder seguir con sus valores.
+- El color principal llega en **`--primary`** (con su `--primary-foreground`).
+  El segundo en **`--brand-accent`**, no en `--accent`: `--accent` es la
+  superficie de *hover* del tema y pisarla con un color de marca no re-marca
+  la app, le pinta cada hover del color de la empresa.
+- Un color que la marca no fija se queda con el del tema del tenant.
+- `warnings[]` trae las incoherencias que la marca sigue teniendo. No
+  invalidan la marca; muéstralas si tu app la deja elegir.
+
+### Elegir marca por documento, no por tenant
+
+El caso que hace falta más a menudo no es «la marca de la empresa» sino «la
+marca de ESTA propuesta» o «el estilo de ESTE producto». Guarda el `id` de la
+marca en tu documento y resuélvelo con `get(id)` al pintar:
+
+```js
+propuesta.brandId = elegida.id;
+const marca = await shell.brands.get(propuesta.brandId);   // null si se borró
+```
+
+Guarda además una **instantánea** de lo que imprimes, por lo mismo que con los
+clientes (§7.d): una propuesta enviada hace ocho meses no puede cambiar de
+logo sola.
+
+### Escribir marcas
+
+`brand.write` existe, y **solo la app de gestión debería pedirlo**: cambiar una
+marca cambia cómo se ven las salidas de todas las apps. Además del permiso, el
+backend exige que la persona sea administradora.
+
+---
+
+### Antes de usar cualquiera de los tres
+
+`shell.records`, `shell.files` y `shell.brands` son **opcionales en el
+contrato**, para que tu app siga funcionando en un host que no los tenga.
+Comprueba siempre antes de usarlos:
+
+```js
+if (!shell.records) { /* pide el cliente a mano y sigue */ }
+```
+
+Y ten en cuenta que «existe» no es «hay algo»: `brands.current()` devuelve
+`null` en un tenant que no configuró su marca, y `records.resolve()` devuelve
+`resolved: false` para una identidad que ya no está. En los dos casos tu app
+sigue: por eso guardas siempre tu propia instantánea.
 
 ---
 
 ## 8. Checklist antes de publicar
 
+- [ ] **`node tools/check-app.mjs apps/{id}` sin errores.** Revisa el contrato
+      y, además, si la app se está resolviendo por su cuenta algo que la
+      plataforma ya resuelve (clientes, archivos, marca, colores).
 - [ ] **Versión subida en los cuatro lugares** (§7.a) y `node tools/check-versions.mjs` en verde.
 - [ ] La app **muestra su versión** en pantalla (`APP_VERSION` en la cabecera).
 - [ ] `manifest.json` (app + entrada en el raíz) con `version` correcta.
@@ -419,6 +708,8 @@ Reglas:
 - [ ] Persistencia probada (`multiInstance` si guardas datos).
 - [ ] Si hay agente: `getSnapshot` útil + validación de inputs + dedupe.
 - [ ] Carga sin red en runtime (recursos embebidos o por URL explícita del usuario).
+- [ ] Si usas `shell.records`, `shell.files` o `shell.brands`: comprobado `if (shell.records)` para no romper en un host anterior.
+- [ ] Si otras apps deben escribir en la tuya: `dataSchema` declarado (§7.c).
 - [ ] Verificación: `node --input-type=module -e "import('./apps/{id}/dist/index.js')…"`.
 
 ---
@@ -457,6 +748,25 @@ alineadas. Copia su hoja de estilos como plantilla. Reglas:
    estilo shadcn (outline por defecto, `--primary` para la acción principal).
 5. **Angosto**: a `max-width: 860px` el header pasa a dos filas y las pestañas
    ocupan el ancho completo con scroll horizontal.
+
+---
+
+## 9.a ¿Vienes con una app ya hecha?
+
+Si la app existe y toca entrarla al repositorio oficial, el orden es al revés
+que en esta especificación: primero mira qué le falta, luego lee la sección
+que corresponda.
+
+```bash
+node tools/check-app.mjs apps/tu-app
+```
+
+**`ALINEA-TU-APP.md`** explica qué hacer con cada aviso, con el antes y el
+después. Cubre lo que una app hecha aparte casi siempre resuelve por su
+cuenta: su propia base de clientes (§7.d), su propio almacenamiento de
+archivos (§7.e), sus propios datos de marca (§7.f) y los colores cableados
+(§9), que son los que impiden que la app se re-marque con la marca del
+tenant.
 
 ---
 
