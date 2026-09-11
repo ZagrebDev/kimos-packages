@@ -1,0 +1,369 @@
+/* src/styles.css */
+.kimos-licitai {
+  --kl-accent: hsl(var(--primary, 178 96% 40%));
+  --kl-accent-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kl-bg: hsl(var(--background, 0 0% 100%));
+  --kl-fg: hsl(var(--foreground, 222 20% 12%));
+  --kl-muted: hsl(var(--muted-foreground, 220 9% 46%));
+  --kl-border: hsl(var(--border, 220 13% 88%));
+  --kl-card: hsl(var(--card, 0 0% 100%));
+  --kl-danger: hsl(var(--destructive, 0 72% 51%));
+  --kl-ok: #128a4a;
+  --kl-warn: #b45309;
+  --kl-soft: hsl(var(--muted, 220 14% 96%));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--kl-fg);
+  background: var(--kl-bg);
+  font:
+    14px/1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+.kimos-licitai.kl-center {
+  align-items: center;
+  justify-content: center;
+}
+.kimos-licitai .kl-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--kl-border);
+  flex-wrap: wrap;
+}
+.kimos-licitai .kl-logo {
+  font-size: 20px;
+}
+.kimos-licitai .kl-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+.kimos-licitai .kl-brand {
+  color: var(--kl-muted);
+  font-size: 13px;
+}
+.kimos-licitai .kl-ver {
+  font-size: 11px;
+  color: var(--kl-muted);
+  border: 1px solid var(--kl-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.kimos-licitai .kl-spacer {
+  flex: 1;
+}
+.kimos-licitai .kl-nav {
+  display: flex;
+  gap: 4px;
+}
+.kimos-licitai .kl-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--kl-fg);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.kimos-licitai .kl-tab.kl-on {
+  background: var(--kl-soft);
+  font-weight: 600;
+}
+.kimos-licitai .kl-main {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+.kimos-licitai .kl-h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.kimos-licitai .kl-h3 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--kl-muted);
+}
+.kimos-licitai .kl-muted {
+  color: var(--kl-muted);
+  margin: 4px 0;
+}
+.kimos-licitai .kl-error {
+  color: var(--kl-danger);
+  background: hsl(var(--destructive, 0 72% 51%) / 0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.kimos-licitai .kl-card {
+  background: var(--kl-card);
+  border: 1px solid var(--kl-border);
+  border-radius: 10px;
+  padding: 18px;
+}
+.kimos-licitai .kl-login {
+  max-width: 340px;
+  margin: 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kimos-licitai .kl-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--kl-border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font: inherit;
+  background: var(--kl-bg);
+  color: var(--kl-fg);
+}
+.kimos-licitai .kl-input:focus {
+  outline: 2px solid var(--kl-accent);
+  outline-offset: 1px;
+}
+.kimos-licitai .kl-btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 15px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kimos-licitai .kl-btn:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.kimos-licitai .kl-primary {
+  background: var(--kl-accent);
+  color: var(--kl-accent-fg);
+}
+.kimos-licitai .kl-ghost {
+  background: transparent;
+  color: var(--kl-fg);
+  border-color: var(--kl-border);
+}
+.kimos-licitai .kl-back {
+  margin-bottom: 12px;
+}
+.kimos-licitai .kl-searchbar {
+  display: flex;
+  gap: 8px;
+}
+.kimos-licitai .kl-searchbar .kl-input {
+  flex: 1;
+}
+.kimos-licitai .kl-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.kimos-licitai .kl-item {
+  position: relative;
+  border: 1px solid var(--kl-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.kimos-licitai .kl-item:hover {
+  border-color: var(--kl-accent);
+}
+.kimos-licitai .kl-item-name {
+  font-weight: 600;
+  padding-right: 120px;
+}
+.kimos-licitai .kl-item-meta {
+  color: var(--kl-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.kimos-licitai .kl-code {
+  font-family:
+    ui-monospace,
+    "SFMono-Regular",
+    monospace;
+}
+.kimos-licitai .kl-chip {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid var(--kl-border);
+  margin-top: 6px;
+}
+.kimos-licitai .kl-item .kl-chip {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  margin: 0;
+}
+.kimos-licitai .kl-sem-green {
+  color: var(--kl-ok);
+  border-color: var(--kl-ok);
+}
+.kimos-licitai .kl-sem-amber {
+  color: var(--kl-warn);
+  border-color: var(--kl-warn);
+}
+.kimos-licitai .kl-sem-red {
+  color: var(--kl-danger);
+  border-color: var(--kl-danger);
+}
+.kimos-licitai .kl-sem-none {
+  color: var(--kl-muted);
+}
+.kimos-licitai .kl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 18px;
+  margin: 12px 0 0;
+}
+.kimos-licitai .kl-dato dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--kl-muted);
+}
+.kimos-licitai .kl-dato dd {
+  margin: 1px 0 0;
+  font-weight: 500;
+}
+.kimos-licitai .kl-sec {
+  border-top: 1px solid var(--kl-border);
+  margin-top: 14px;
+}
+.kimos-licitai .kl-crono {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+.kimos-licitai .kl-crono li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.kimos-licitai .kl-items {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+.kimos-licitai .kl-items li {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--kl-border);
+  font-size: 13px;
+}
+.kimos-licitai .kl-desc {
+  white-space: pre-line;
+  font-size: 13px;
+}
+.kimos-licitai .kl-detalle a {
+  color: var(--kl-accent);
+}
+.kimos-licitai .kl-actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+.kimos-licitai .kl-post {
+  margin-bottom: 10px;
+  padding: 0;
+  overflow: hidden;
+}
+.kimos-licitai .kl-post-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.kimos-licitai .kl-post-head .kl-chip {
+  margin: 0;
+}
+.kimos-licitai .kl-post-body {
+  border-top: 1px solid var(--kl-border);
+  padding: 12px 14px;
+  background: var(--kl-soft);
+}
+.kimos-licitai .kl-post-sec {
+  margin-bottom: 10px;
+}
+.kimos-licitai .kl-post-sec h4 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--kl-muted);
+}
+.kimos-licitai .kl-post-sec ul {
+  margin: 2px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.kimos-licitai .kl-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.kimos-licitai .kl-chat-log {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+.kimos-licitai .kl-msg {
+  max-width: 80%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  white-space: pre-line;
+}
+.kimos-licitai .kl-msg-user {
+  align-self: flex-end;
+  background: var(--kl-accent);
+  color: var(--kl-accent-fg);
+}
+.kimos-licitai .kl-msg-bot {
+  align-self: flex-start;
+  background: var(--kl-soft);
+  border: 1px solid var(--kl-border);
+}
+.kimos-licitai .kl-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+.kimos-licitai .kl-sources .kl-chip {
+  margin: 0;
+}
+.kimos-licitai .kl-bases-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.kimos-licitai .kl-upload {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+.kimos-licitai .kl-upload.kl-dis {
+  opacity: .6;
+  pointer-events: none;
+}
