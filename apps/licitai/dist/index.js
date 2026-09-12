@@ -84,6 +84,25 @@ function makeApi(base, tokens) {
       }
       return this.login(email, password);
     },
+    // SSO nativo KIMOS (paso A): canjea el JWT de identidad que emite el host por
+    // el par de tokens de LicitAI (POST /auth/sso/kimos; el backend verifica firma,
+    // iss/aud y aprovisiona la org). Devuelve null si el SSO no está configurado
+    // (501) o el token no vale → el kapp cae al login por email/clave.
+    async ssoKimos(token) {
+      try {
+        const r = await fetch(`${root}/auth/sso/kimos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token })
+        });
+        if (!r.ok) return null;
+        const d = await r.json();
+        current = { access: d.access_token, refresh: d.refresh_token };
+        return current;
+      } catch {
+        return null;
+      }
+    },
     // Puente de identidad v1: renueva la sesión sin pedir clave. Devuelve los
     // tokens nuevos (para re-persistirlos) o null si el refresh ya no vale.
     async refresh(refreshToken) {
@@ -678,7 +697,20 @@ function Chat(props) {
 }
 
 // src/mount.tsx
-var APP_VERSION = "0.7.1";
+var APP_VERSION = "0.8.0";
+var SSO_TOKEN_PATH = "/apps/licitai/sso-token";
+async function trySsoLogin(apiUrl, shell) {
+  if (!shell.authFetch) return null;
+  try {
+    const r = await shell.authFetch(SSO_TOKEN_PATH);
+    if (!r || !r.ok) return null;
+    const { token } = await r.json();
+    if (!token) return null;
+    return await makeApi(apiUrl, null).ssoKimos(token);
+  } catch {
+    return null;
+  }
+}
 function mount(shell) {
   let saved = {};
   const ready = Promise.resolve(shell.loadData()).then((d) => {
@@ -699,14 +731,18 @@ function mount(shell) {
         const url = (cfg?.apiUrl || DEFAULT_API).replace(/\/+$/, "");
         setApiUrl(url);
         if (brand) setBrandName(brand.legalName || brand.name || null);
+        let session = null;
         const stored = saved.tokens;
         if (stored?.refresh) {
-          const fresh = await makeApi(url, null).refresh(stored.refresh);
-          if (alive && fresh) {
-            setTokens(fresh);
-            saved = { ...saved, tokens: fresh };
-            shell.saveData(saved);
-          }
+          session = await makeApi(url, null).refresh(stored.refresh);
+        }
+        if (alive && !session) {
+          session = await trySsoLogin(url, shell);
+        }
+        if (alive && session) {
+          setTokens(session);
+          saved = { ...saved, tokens: session };
+          shell.saveData(saved);
         }
         if (alive) setBooted(true);
       });
