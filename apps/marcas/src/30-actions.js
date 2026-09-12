@@ -7,6 +7,29 @@
 
 const avisar = (level, text) => { if (shell.notify) shell.notify({ level, text }); };
 
+/**
+ * Traduce el fallo de una escritura y, si resulta que la app no puede
+ * escribir, lo APRENDE.
+ *
+ * El host siempre expone `shell.brands.update`, así que la app no puede saber
+ * de antemano si el permiso está concedido: solo lo descubre al primer 403. Sin
+ * esto, la interfaz seguiría ofreciendo botones que fallan uno tras otro.
+ *
+ * El caso que lo motivó: un permiso declarado en el manifest pero descartado al
+ * instalar, porque el KIMOS de ese momento no lo reconocía. El manifest está
+ * bien y la app parece rota.
+ */
+function fallóPorPermiso(e) {
+  const msg = s(e && e.message);
+  if (!/permiso|permission|403/i.test(msg)) return false;
+  setModel({ readonly: true });
+  avisar('error', /brand\.write/.test(msg)
+    ? 'Esta instalación de Marcas no tiene concedido «brand.write», así que la app queda en solo lectura. '
+      + 'El manifest lo declara: actualiza la app desde la Tienda para volver a guardar los permisos.'
+    : msg);
+  return true;
+}
+
 // ── Navegación ──────────────────────────────────────────────────────────
 
 function actSetTab(tab) {
@@ -79,7 +102,7 @@ async function actNuevaMarca(nombre) {
     return creada;
   } catch (e) {
     setModel({ saving: false });
-    avisar('error', 'No se pudo crear la marca: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo crear la marca: ' + ((e && e.message) || 'error'));
     return null;
   }
 }
@@ -103,7 +126,8 @@ async function actGuardar() {
     return guardada;
   } catch (e) {
     setModel({ saving: false });
-    avisar('error', 'No se pudo guardar: ' + ((e && e.message) || 'error'));
+    // El borrador NO se descarta: perder el trabajo por un 403 sería peor.
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo guardar: ' + ((e && e.message) || 'error'));
     return null;
   }
 }
@@ -124,7 +148,7 @@ async function actActivar(id) {
     avisar('success', '«' + b.name + '» es ahora la marca activa del sistema.');
     return true;
   } catch (e) {
-    avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
     return false;
   }
 }
@@ -139,7 +163,7 @@ async function actBorrar(id) {
     avisar('success', 'Marca «' + b.name + '» eliminada.');
     return true;
   } catch (e) {
-    avisar('error', 'No se pudo eliminar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo eliminar: ' + ((e && e.message) || 'error'));
     return false;
   }
 }
@@ -159,7 +183,7 @@ async function actDuplicar(id, nombre) {
     avisar('success', 'Marca duplicada como «' + creada.name + '».');
     return creada;
   } catch (e) {
-    avisar('error', 'No se pudo duplicar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo duplicar: ' + ((e && e.message) || 'error'));
     return null;
   }
 }

@@ -1,6 +1,6 @@
 # 🎨 Marcas (app oficial)
 
-**Versión actual: 1.1.0**
+**Versión actual: 1.1.1**
 
 El sistema visual de la empresa, en **dos láminas** por marca. Se edita aquí
 y se imprime desde aquí.
@@ -169,7 +169,7 @@ caro y en silencio.
 
 ```bash
 node tools/build.mjs      # src/*.js → dist/index.js
-node test/test-app.mjs    # 160 pruebas
+node test/test-app.mjs    # 166 pruebas
 ```
 
 Las fuentes viven en `src/` y se concatenan dentro del closure de
@@ -179,5 +179,6 @@ Las fuentes viven en `src/` y se concatenan dentro del closure de
 
 | Versión | Qué trae |
 |---|---|
+| 1.1.1 | Si el permiso `brand.write` no está concedido, la app lo APRENDE en el primer intento y pasa a solo lectura diciendo qué hacer, en vez de seguir ofreciendo botones que fallan. Pasa cuando el permiso se descartó al instalar porque ese KIMOS no lo conocía todavía: el manifest está bien y la app parecía rota. |
 | 1.1.0 | **La forma entra en la marca** y con ella la segunda lámina. Esquinas, radio, grosor del borde, elevación y densidad dejan de ser cosa de cada app: `--radius` y las sombras cuelgan de la marca en todo KIMOS, así que cambiarlas cambia el escritorio, el chat del agente y las demás apps sin tocar su código. Cinco plantillas de forma como punto de partida, con la muestra de cada una. La lámina 2 enseña componentes reales —botón, tarjeta, campo y burbuja de chat— porque «radio 0, sin sombra» no se entiende leyéndolo. Tres acciones nuevas del agente: `DEFINIR_FORMA`, `APLICAR_PLANTILLA_FORMA` y `QUITAR_FORMA`. Al imprimir salen las dos láminas, una por página. |
 | 1.0.0 | Primera versión: cartera de marcas sobre el registro de la plataforma; editor de identidad, paleta con roles, logotipos con fondo, tipografías con uso, ecosistemas y principios; hoja del sistema visual imprimible en A4 apaisado con secciones elegibles; avisos de lo que impide aplicar la marca (sin rol base, referencias rotas, acento sin contraste); subida de logotipos por `shell.files`; solo lectura sin `brand.write`; agente con paridad sobre la app. |

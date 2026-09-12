@@ -1,5 +1,5 @@
 /**
- * Marcas v1.1.0 — app oficial de KIMOS.
+ * Marcas v1.1.1 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.1.1';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -839,6 +839,29 @@ function LogoBox(props) {
 
 const avisar = (level, text) => { if (shell.notify) shell.notify({ level, text }); };
 
+/**
+ * Traduce el fallo de una escritura y, si resulta que la app no puede
+ * escribir, lo APRENDE.
+ *
+ * El host siempre expone `shell.brands.update`, así que la app no puede saber
+ * de antemano si el permiso está concedido: solo lo descubre al primer 403. Sin
+ * esto, la interfaz seguiría ofreciendo botones que fallan uno tras otro.
+ *
+ * El caso que lo motivó: un permiso declarado en el manifest pero descartado al
+ * instalar, porque el KIMOS de ese momento no lo reconocía. El manifest está
+ * bien y la app parece rota.
+ */
+function fallóPorPermiso(e) {
+  const msg = s(e && e.message);
+  if (!/permiso|permission|403/i.test(msg)) return false;
+  setModel({ readonly: true });
+  avisar('error', /brand\.write/.test(msg)
+    ? 'Esta instalación de Marcas no tiene concedido «brand.write», así que la app queda en solo lectura. '
+      + 'El manifest lo declara: actualiza la app desde la Tienda para volver a guardar los permisos.'
+    : msg);
+  return true;
+}
+
 // ── Navegación ──────────────────────────────────────────────────────────
 
 function actSetTab(tab) {
@@ -911,7 +934,7 @@ async function actNuevaMarca(nombre) {
     return creada;
   } catch (e) {
     setModel({ saving: false });
-    avisar('error', 'No se pudo crear la marca: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo crear la marca: ' + ((e && e.message) || 'error'));
     return null;
   }
 }
@@ -935,7 +958,8 @@ async function actGuardar() {
     return guardada;
   } catch (e) {
     setModel({ saving: false });
-    avisar('error', 'No se pudo guardar: ' + ((e && e.message) || 'error'));
+    // El borrador NO se descarta: perder el trabajo por un 403 sería peor.
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo guardar: ' + ((e && e.message) || 'error'));
     return null;
   }
 }
@@ -956,7 +980,7 @@ async function actActivar(id) {
     avisar('success', '«' + b.name + '» es ahora la marca activa del sistema.');
     return true;
   } catch (e) {
-    avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
     return false;
   }
 }
@@ -971,7 +995,7 @@ async function actBorrar(id) {
     avisar('success', 'Marca «' + b.name + '» eliminada.');
     return true;
   } catch (e) {
-    avisar('error', 'No se pudo eliminar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo eliminar: ' + ((e && e.message) || 'error'));
     return false;
   }
 }
@@ -991,7 +1015,7 @@ async function actDuplicar(id, nombre) {
     avisar('success', 'Marca duplicada como «' + creada.name + '».');
     return creada;
   } catch (e) {
-    avisar('error', 'No se pudo duplicar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo duplicar: ' + ((e && e.message) || 'error'));
     return null;
   }
 }
@@ -2176,7 +2200,9 @@ function App() {
       text: 'Una marca guarda los logotipos, la paleta y las tipografías de la empresa, y queda disponible para que Cotizaciones, ProductLab y el resto de apps emitan con ella.',
       action: puedeEditar()
         ? h(Btn, { variant: 'primary', onClick: () => actNuevaMarca() }, 'Crear la primera marca')
-        : h('span', { className: 'mk-nota' }, 'Pídele a un administrador que cree la primera.'),
+        : h('span', { className: 'mk-nota' }, m.readonly
+          ? 'Esta instalación no puede crear marcas. Actualiza la app desde la Tienda, o pídeselo a un administrador.'
+          : 'Pídele a un administrador que cree la primera.'),
     }));
   }
 
@@ -2560,6 +2586,7 @@ function registrarAgente() {
       colorPorRol, colorPorClave, logoParaFondo, marcaPorId, seleccionada,
       normalizeHex, esHexValido, hexToRgb, hexToHslToken, textoLegible, contraste, slug,
       puedeEditar, registroNoDisponible, abrirBorrador, editarBorrador,
+      fallóPorPermiso,
       COLOR_ROLES, LOGO_BACKGROUNDS, TYPE_USAGES, SECCIONES,
       actSeleccionar, actNuevaMarca, actGuardar, actDescartar, actBorrar,
       actActivar, actDuplicar, actSetCampo,

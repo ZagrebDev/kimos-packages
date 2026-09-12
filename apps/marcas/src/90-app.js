@@ -122,7 +122,9 @@ function App() {
       text: 'Una marca guarda los logotipos, la paleta y las tipografías de la empresa, y queda disponible para que Cotizaciones, ProductLab y el resto de apps emitan con ella.',
       action: puedeEditar()
         ? h(Btn, { variant: 'primary', onClick: () => actNuevaMarca() }, 'Crear la primera marca')
-        : h('span', { className: 'mk-nota' }, 'Pídele a un administrador que cree la primera.'),
+        : h('span', { className: 'mk-nota' }, m.readonly
+          ? 'Esta instalación no puede crear marcas. Actualiza la app desde la Tienda, o pídeselo a un administrador.'
+          : 'Pídele a un administrador que cree la primera.'),
     }));
   }
 

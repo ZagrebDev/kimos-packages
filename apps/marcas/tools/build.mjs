@@ -91,6 +91,7 @@ parts.push(`
       colorPorRol, colorPorClave, logoParaFondo, marcaPorId, seleccionada,
       normalizeHex, esHexValido, hexToRgb, hexToHslToken, textoLegible, contraste, slug,
       puedeEditar, registroNoDisponible, abrirBorrador, editarBorrador,
+      fallóPorPermiso,
       COLOR_ROLES, LOGO_BACKGROUNDS, TYPE_USAGES, SECCIONES,
       actSeleccionar, actNuevaMarca, actGuardar, actDescartar, actBorrar,
       actActivar, actDuplicar, actSetCampo,

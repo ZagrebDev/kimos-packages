@@ -540,6 +540,36 @@ seccion('Errores del registro');
   ok(T.getModel().dirty, 'el borrador se conserva: perder el trabajo por un 403 sería peor');
 }
 
+seccion('Un permiso concedido a medias');
+{
+  // El caso real que lo motivó: el manifest declara `brand.write`, pero el
+  // permiso se descartó al INSTALAR porque ese KIMOS no lo conocía todavía.
+  // El host expone `shell.brands.update` igual, así que la app se cree que
+  // puede escribir y solo lo descubre en el primer 403.
+  await T.cargar();
+  ok(T.puedeEditar(), 'la app parte creyendo que puede escribir: el host expone el método');
+
+  REG.falla = "La app 'marcas' no tiene concedido el permiso 'brand.write'. "
+    + 'Los permisos se guardan al INSTALAR: actualiza la app desde la Tienda.';
+  const antes = notices.length;
+  const r = await T.actNuevaMarca('No debería');
+  REG.falla = '';
+
+  eq(r, null, 'la creación falla');
+  ok(!T.puedeEditar(), 'y la app APRENDE que está en solo lectura, en vez de seguir ofreciendo botones que fallan');
+  const dicho = notices.slice(antes).join(' | ');
+  ok(dicho.indexOf('Tienda') >= 0,
+    'el aviso dice qué hacer -actualizar desde la Tienda- y no culpa al manifest', dicho);
+  ok(dicho.indexOf('solo lectura') >= 0, 'y en qué estado queda la app');
+
+  // Un fallo que NO es de permisos no debe dejar la app en solo lectura.
+  await T.cargar();
+  REG.falla = 'Se cayó la red.';
+  await T.actNuevaMarca('Otra');
+  REG.falla = '';
+  ok(T.puedeEditar(), 'un fallo cualquiera no la deja en solo lectura: eso sería peor que el error');
+}
+
 seccion('Agente IA');
 {
   await T.cargar();
