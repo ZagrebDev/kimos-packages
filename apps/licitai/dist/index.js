@@ -13,7 +13,7 @@ var Fragment = R.Fragment;
 var createElement = R.createElement;
 
 // src/api.ts
-var DEFAULT_API = "https://licitai-api-334947263282.southamerica-west1.run.app/api/v1";
+var DEFAULT_API = "https://licitai-api-405763028067.southamerica-west1.run.app/api/v1";
 var ApiError = class extends Error {
   constructor(status, message) {
     super(message);
@@ -678,7 +678,7 @@ function Chat(props) {
 }
 
 // src/mount.tsx
-var APP_VERSION = "0.7.0";
+var APP_VERSION = "0.7.1";
 function mount(shell) {
   let saved = {};
   const ready = Promise.resolve(shell.loadData()).then((d) => {

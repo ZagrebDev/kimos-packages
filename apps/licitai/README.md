@@ -7,7 +7,7 @@ agentes de IA (Claude), embeddings/pgvector y el aislamiento multi-tenant (RLS).
 Este bundle es solo la **interfaz**, que corre en el navegador dentro del shell y
 llama al motor por `fetch` (CORS habilitado). Ver `docs/architecture/kimos-kapp.md`.
 
-**Versión actual:** 0.7.0
+**Versión actual:** 0.7.1
 
 ## Cómo se construye
 
@@ -38,6 +38,7 @@ propio del tenant).
 
 | Versión | Cambios |
 |---|---|
+| 0.7.1 | **Backend nuevo**: la URL por defecto apunta al motor LicitAI redeployado en el proyecto GCP `kimos-licitai` (Cloud Run `405763028067`). Sin cambios de UI; solo `DEFAULT_API`/`defaultConfig.apiUrl`. |
 | 0.7.0 | **Registro** en la pantalla de acceso: alterna Ingresar/Crear cuenta (POST /auth/register + login), para que un cliente nuevo pueda estrenar su empresa desde el kapp. |
 | 0.6.0 | **Credenciales seguras por fuente** en la pestaña Fuentes: campo tipo password para la clave de API (ticket de Mercado Público u otra plataforma), guardada CIFRADA por el backend (write-only, nunca se vuelve a mostrar; `PUT /sources/connections/{id}/credentials`) con estado "🔒 configurada" y borrado. Cada empresa usa su propia clave. |
 | 0.5.0 | **Pantalla Fuentes**: gestiona las conexiones de fuente y sus **keywords** (crear/editar/habilitar) y botón **Recalcular matches** — desbloquea el flujo de Matches desde el kapp (`/sources/connections`, `/matches/refresh`). |
