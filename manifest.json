@@ -1579,7 +1579,7 @@
       "name": "LicitAI",
       "description": "Gestión inteligente de licitaciones (públicas y privadas, Chile e internacional): búsqueda del catálogo, ficha completa, matches por empresa y agente de postulación con IA. La UI vive en el shell de KIMOS y usa el motor LicitAI (backend) como servicio.",
       "icon": "📑",
-      "version": "0.4.0",
+      "version": "0.7.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

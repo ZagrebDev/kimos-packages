@@ -66,6 +66,24 @@ function makeApi(base, tokens) {
       current = { access: d.access_token, refresh: d.refresh_token };
       return current;
     },
+    // Registra una cuenta nueva (crea empresa propia) y deja la sesión iniciada.
+    async register(email, password, fullName) {
+      const r = await fetch(`${root}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, full_name: fullName || null })
+      });
+      if (!r.ok) {
+        let msg = "No se pudo crear la cuenta.";
+        try {
+          const b = await r.json();
+          if (typeof b.detail === "string") msg = b.detail;
+        } catch {
+        }
+        throw new ApiError(r.status, msg);
+      }
+      return this.login(email, password);
+    },
     // Puente de identidad v1: renueva la sesión sin pedir clave. Devuelve los
     // tokens nuevos (para re-persistirlos) o null si el refresh ya no vale.
     async refresh(refreshToken) {
@@ -93,6 +111,34 @@ function makeApi(base, tokens) {
     },
     async matches() {
       return req(`/matches`);
+    },
+    async refreshMatches() {
+      return req(`/matches/refresh`, jsonPost({}));
+    },
+    async sources() {
+      return req(`/sources`);
+    },
+    async connections() {
+      return req(`/sources/connections`);
+    },
+    async createConnection(source, keywords) {
+      return req(`/sources/connections`, jsonPost({ source, keywords }));
+    },
+    async updateConnection(id, patch) {
+      return req(`/sources/connections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+    },
+    // Guarda (cifrada) la clave de API de la empresa para esta fuente. Write-only:
+    // el backend nunca devuelve el valor, solo `has_credentials`. null = borrar.
+    async setCredentials(id, credentials) {
+      return req(`/sources/connections/${id}/credentials`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credentials })
+      });
     },
     async chat(messages) {
       return req(`/agent/chat`, jsonPost({ messages }));
@@ -147,6 +193,7 @@ function makeApi(base, tokens) {
 var TABS = [
   { id: "buscar", label: "Buscar" },
   { id: "matches", label: "Matches" },
+  { id: "fuentes", label: "Fuentes" },
   { id: "postulaciones", label: "Postulaciones" },
   { id: "chat", label: "Chat IA" }
 ];
@@ -175,7 +222,7 @@ function App(props) {
       onBack: () => setView({ ...view, codigo: null }),
       onPrepared: () => setView({ tab: "postulaciones", codigo: null })
     }
-  ) : view.tab === "buscar" ? /* @__PURE__ */ react_shim_default.createElement(Buscar, { api, onExpired, onOpen: (c) => setView({ tab: "buscar", codigo: c }) }) : view.tab === "matches" ? /* @__PURE__ */ react_shim_default.createElement(Matches, { api, onExpired, onOpen: (c) => setView({ tab: "matches", codigo: c }) }) : view.tab === "postulaciones" ? /* @__PURE__ */ react_shim_default.createElement(Postulaciones, { api, shell, onExpired }) : /* @__PURE__ */ react_shim_default.createElement(Chat, { api, onExpired })));
+  ) : view.tab === "buscar" ? /* @__PURE__ */ react_shim_default.createElement(Buscar, { api, onExpired, onOpen: (c) => setView({ tab: "buscar", codigo: c }) }) : view.tab === "matches" ? /* @__PURE__ */ react_shim_default.createElement(Matches, { api, onExpired, onOpen: (c) => setView({ tab: "matches", codigo: c }) }) : view.tab === "fuentes" ? /* @__PURE__ */ react_shim_default.createElement(Fuentes, { api, shell, onExpired }) : view.tab === "postulaciones" ? /* @__PURE__ */ react_shim_default.createElement(Postulaciones, { api, shell, onExpired }) : /* @__PURE__ */ react_shim_default.createElement(Chat, { api, onExpired })));
 }
 function fmtFecha(f, conHora = false) {
   if (!f) return "\u2014";
@@ -218,16 +265,20 @@ async function linkRecords(shell, d) {
 }
 function Login(props) {
   const { api, shell, onTokens } = props;
+  const [mode, setMode] = react_shim_default.useState("login");
   const [email, setEmail] = react_shim_default.useState("");
   const [password, setPassword] = react_shim_default.useState("");
+  const [fullName, setFullName] = react_shim_default.useState("");
   const [busy, setBusy] = react_shim_default.useState(false);
   const [error, setError] = react_shim_default.useState(null);
+  const isReg = mode === "register";
   async function submit(e) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      onTokens(await api.login(email, password));
+      const t = isReg ? await api.register(email, password, fullName) : await api.login(email, password);
+      onTokens(t);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "No se pudo conectar al motor LicitAI.";
       setError(msg);
@@ -236,7 +287,16 @@ function Login(props) {
       setBusy(false);
     }
   }
-  return /* @__PURE__ */ react_shim_default.createElement("form", { className: "kl-card kl-login", onSubmit: submit }, /* @__PURE__ */ react_shim_default.createElement("h2", { className: "kl-h2" }, "Ingresar"), /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted" }, "Con\xE9ctate al motor LicitAI con tu cuenta de la plataforma."), error ? /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-error" }, error) : null, /* @__PURE__ */ react_shim_default.createElement(
+  return /* @__PURE__ */ react_shim_default.createElement("form", { className: "kl-card kl-login", onSubmit: submit }, /* @__PURE__ */ react_shim_default.createElement("h2", { className: "kl-h2" }, isReg ? "Crear cuenta" : "Ingresar"), /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted" }, isReg ? "Crea tu cuenta de LicitAI (estrenas tu propia empresa)." : "Con\xE9ctate al motor LicitAI con tu cuenta de la plataforma."), error ? /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-error" }, error) : null, isReg ? /* @__PURE__ */ react_shim_default.createElement(
+    "input",
+    {
+      className: "kl-input",
+      type: "text",
+      placeholder: "Nombre y apellido",
+      value: fullName,
+      onChange: (e) => setFullName(e.target.value)
+    }
+  ) : null, /* @__PURE__ */ react_shim_default.createElement(
     "input",
     {
       className: "kl-input",
@@ -251,12 +311,24 @@ function Login(props) {
     {
       className: "kl-input",
       type: "password",
-      placeholder: "Contrase\xF1a",
+      placeholder: isReg ? "Contrase\xF1a (m\xEDn. 6 caracteres)" : "Contrase\xF1a",
       value: password,
+      minLength: isReg ? 6 : void 0,
       onChange: (e) => setPassword(e.target.value),
       required: true
     }
-  ), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", type: "submit", disabled: busy }, busy ? "Ingresando\u2026" : "Ingresar"));
+  ), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", type: "submit", disabled: busy }, busy ? isReg ? "Creando\u2026" : "Ingresando\u2026" : isReg ? "Crear cuenta" : "Ingresar"), /* @__PURE__ */ react_shim_default.createElement(
+    "button",
+    {
+      type: "button",
+      className: "kl-linkbtn",
+      onClick: () => {
+        setError(null);
+        setMode(isReg ? "login" : "register");
+      }
+    },
+    isReg ? "\xBFYa tienes cuenta? Ingresa" : "\xBFSin cuenta? Reg\xEDstrate"
+  ));
 }
 function ItemRow(props) {
   const { it, onOpen, extra } = props;
@@ -315,6 +387,139 @@ function Matches(props) {
       extra: `relevancia ${m.score}${m.matched_keywords ? " \xB7 " + m.matched_keywords : ""}`
     }
   )));
+}
+function Fuentes(props) {
+  const { api, shell, onExpired } = props;
+  const [conns, setConns] = react_shim_default.useState(null);
+  const [sources, setSources] = react_shim_default.useState([]);
+  const [error, setError] = react_shim_default.useState(null);
+  const [busy, setBusy] = react_shim_default.useState(false);
+  const load = react_shim_default.useCallback(() => {
+    setError(null);
+    Promise.all([api.connections(), api.sources()]).then(([c, s]) => {
+      setConns(c);
+      setSources(s);
+    }).catch((err) => handleErr(err, onExpired, setError));
+  }, [api, onExpired]);
+  react_shim_default.useEffect(load, [load]);
+  const fail = (err) => {
+    if (err instanceof ApiError && err.status === 401) return onExpired();
+    shell.notify({ level: "error", text: err instanceof Error ? err.message : "Error." });
+  };
+  async function patch(c, p) {
+    try {
+      await api.updateConnection(c.id, p);
+      load();
+    } catch (err) {
+      fail(err);
+    }
+  }
+  async function recalcular() {
+    setBusy(true);
+    try {
+      const r = await api.refreshMatches();
+      shell.notify({ level: "success", text: `${r.matched} oportunidad(es) matchearon.` });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (error) return /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-error" }, error);
+  if (conns == null) return /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted" }, "Cargando fuentes\u2026");
+  const missing = sources.filter((s) => !conns.some((c) => c.source === s.key));
+  return /* @__PURE__ */ react_shim_default.createElement("div", null, /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-actions" }, /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", disabled: busy, onClick: recalcular }, busy ? "Recalculando\u2026" : "\u{1F504} Recalcular matches")), /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted" }, "Las palabras clave definen qu\xE9 oportunidades del cat\xE1logo aparecen en Matches. Sep\xE1ralas por coma."), conns.map((c) => /* @__PURE__ */ react_shim_default.createElement(
+    ConnRow,
+    {
+      key: c.id,
+      conn: c,
+      onSave: (kw) => patch(c, { keywords: kw }),
+      onToggle: () => patch(c, { enabled: !c.enabled }),
+      onCreds: async (ticket) => {
+        try {
+          await api.setCredentials(c.id, ticket ? { ticket } : null);
+          load();
+          shell.notify({
+            level: "success",
+            text: ticket ? "Clave guardada de forma segura." : "Clave eliminada."
+          });
+        } catch (err) {
+          fail(err);
+        }
+      }
+    }
+  )), missing.length > 0 ? /* @__PURE__ */ react_shim_default.createElement(
+    NuevaConexion,
+    {
+      sources: missing,
+      onCreate: async (src, kw) => {
+        try {
+          await api.createConnection(src, kw);
+          load();
+        } catch (err) {
+          fail(err);
+        }
+      }
+    }
+  ) : null);
+}
+function ConnRow(props) {
+  const { conn, onSave, onToggle, onCreds } = props;
+  const [kw, setKw] = react_shim_default.useState(conn.keywords || "");
+  const [key, setKey] = react_shim_default.useState("");
+  const dirty = kw !== (conn.keywords || "");
+  return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-card kl-conn" }, /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-conn-head" }, /* @__PURE__ */ react_shim_default.createElement("strong", null, conn.source), /* @__PURE__ */ react_shim_default.createElement("label", { className: "kl-muted" }, /* @__PURE__ */ react_shim_default.createElement("input", { type: "checkbox", checked: conn.enabled, onChange: onToggle }), " habilitada")), /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-searchbar" }, /* @__PURE__ */ react_shim_default.createElement(
+    "input",
+    {
+      className: "kl-input",
+      placeholder: "keywords (ej: conservaci\xF3n vial, t\xF3tem, salud)",
+      value: kw,
+      onChange: (e) => setKw(e.target.value)
+    }
+  ), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", disabled: !dirty, onClick: () => onSave(kw) }, "Guardar")), /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-creds" }, /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-creds-head" }, "\u{1F511} Clave de API de esta fuente", " ", conn.has_credentials ? /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-chip kl-sem-green" }, "\u{1F512} configurada") : /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-muted" }, "no configurada")), /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-searchbar" }, /* @__PURE__ */ react_shim_default.createElement(
+    "input",
+    {
+      className: "kl-input",
+      type: "password",
+      autoComplete: "off",
+      placeholder: conn.has_credentials ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 (ingresa una nueva para reemplazar)" : "ticket / clave de la fuente",
+      value: key,
+      onChange: (e) => setKey(e.target.value)
+    }
+  ), /* @__PURE__ */ react_shim_default.createElement(
+    "button",
+    {
+      className: "kl-btn kl-primary",
+      disabled: !key.trim(),
+      onClick: () => {
+        onCreds(key.trim());
+        setKey("");
+      }
+    },
+    "Guardar clave"
+  ), conn.has_credentials ? /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-ghost", onClick: () => onCreds(null) }, "Borrar") : null), /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted kl-creds-note" }, "Se guarda ", /* @__PURE__ */ react_shim_default.createElement("strong", null, "cifrada"), "; el sistema nunca la vuelve a mostrar. Cada empresa usa su propia clave.")));
+}
+function NuevaConexion(props) {
+  const { sources, onCreate } = props;
+  const [src, setSrc] = react_shim_default.useState(sources[0]?.key || "");
+  const [kw, setKw] = react_shim_default.useState("");
+  return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-card kl-conn" }, /* @__PURE__ */ react_shim_default.createElement("h4", { className: "kl-h3" }, "Agregar fuente"), /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-searchbar" }, /* @__PURE__ */ react_shim_default.createElement(
+    "select",
+    {
+      className: "kl-input",
+      value: src,
+      onChange: (e) => setSrc(e.target.value)
+    },
+    sources.map((s) => /* @__PURE__ */ react_shim_default.createElement("option", { key: s.key, value: s.key }, s.key))
+  ), /* @__PURE__ */ react_shim_default.createElement(
+    "input",
+    {
+      className: "kl-input",
+      placeholder: "keywords",
+      value: kw,
+      onChange: (e) => setKw(e.target.value)
+    }
+  ), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", onClick: () => onCreate(src, kw) }, "Agregar")));
 }
 function Dato(props) {
   if (props.children == null || props.children === "" || props.children === "\u2014") return null;
@@ -473,7 +678,7 @@ function Chat(props) {
 }
 
 // src/mount.tsx
-var APP_VERSION = "0.4.0";
+var APP_VERSION = "0.7.0";
 function mount(shell) {
   let saved = {};
   const ready = Promise.resolve(shell.loadData()).then((d) => {

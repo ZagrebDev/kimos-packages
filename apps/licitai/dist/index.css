@@ -367,3 +367,49 @@
   opacity: .6;
   pointer-events: none;
 }
+.kimos-licitai .kl-conn {
+  margin-bottom: 10px;
+}
+.kimos-licitai .kl-conn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.kimos-licitai .kl-conn-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.kimos-licitai select.kl-input {
+  max-width: 220px;
+}
+.kimos-licitai .kl-creds {
+  border-top: 1px dashed var(--kl-border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.kimos-licitai .kl-creds-head {
+  font-size: 12px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kimos-licitai .kl-creds-head .kl-chip {
+  margin: 0;
+}
+.kimos-licitai .kl-creds-note {
+  font-size: 11px;
+}
+.kimos-licitai .kl-linkbtn {
+  background: none;
+  border: none;
+  color: var(--kl-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px;
+  text-align: center;
+}

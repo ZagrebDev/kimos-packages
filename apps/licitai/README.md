@@ -7,7 +7,7 @@ agentes de IA (Claude), embeddings/pgvector y el aislamiento multi-tenant (RLS).
 Este bundle es solo la **interfaz**, que corre en el navegador dentro del shell y
 llama al motor por `fetch` (CORS habilitado). Ver `docs/architecture/kimos-kapp.md`.
 
-**Versión actual:** 0.4.0
+**Versión actual:** 0.7.0
 
 ## Cómo se construye
 
@@ -38,6 +38,9 @@ propio del tenant).
 
 | Versión | Cambios |
 |---|---|
+| 0.7.0 | **Registro** en la pantalla de acceso: alterna Ingresar/Crear cuenta (POST /auth/register + login), para que un cliente nuevo pueda estrenar su empresa desde el kapp. |
+| 0.6.0 | **Credenciales seguras por fuente** en la pestaña Fuentes: campo tipo password para la clave de API (ticket de Mercado Público u otra plataforma), guardada CIFRADA por el backend (write-only, nunca se vuelve a mostrar; `PUT /sources/connections/{id}/credentials`) con estado "🔒 configurada" y borrado. Cada empresa usa su propia clave. |
+| 0.5.0 | **Pantalla Fuentes**: gestiona las conexiones de fuente y sus **keywords** (crear/editar/habilitar) y botón **Recalcular matches** — desbloquea el flujo de Matches desde el kapp (`/sources/connections`, `/matches/refresh`). |
 | 0.4.0 | **`shell.records`**: al preparar una postulación, la licitación se registra como `opportunity` (clave = código) y el organismo como `account` en el grafo de identidades compartido de KIMOS (opcional/guardado). **`shell.files` + bases**: sección "📎 Bases y documentos" en la ficha — sube al motor (`/knowledge/upload`, escaneo + indexado que usa el agente) y espeja al almacenamiento del host si expone `shell.files`; lista los adjuntos. Permisos `records.link`, `files.write`. |
 | 0.3.0 | **Agente de postulación**: botón "Preparar postulación con IA" en la ficha (`/applications/prepare`), pestaña **Postulaciones** con borrador por secciones y aprobar/rechazar (human-in-the-loop); maneja 402 (plan) / 403 (permiso). **Chat IA (RAG)**: conversación anclada en el conocimiento cargado, con fuentes (`/agent/chat`). |
 | 0.2.0 | **Puente de identidad v1**: refresh silencioso del JWT (login una vez, sesión persistente por instancia; 401 → re-login). **Ficha completa** de la licitación (tipo, comprador con teléfono/correo, cronograma, ítems/especificaciones, garantías seriedad+fiel cumplimiento, adjudicación con acta, objeto/bases). **Matches** por empresa. Navegación Buscar/Matches/Ficha con semáforo por urgencia. Lee `shell.brand` (nombre del tenant en la cabecera). |
