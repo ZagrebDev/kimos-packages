@@ -50,6 +50,8 @@ Cada paso se cerró con su verificación antes de empezar el siguiente.
 | 3 | `src/20-formula.js` | Motor de fórmulas: tokenizador, parser, evaluador, formatos | `test/formula.test.mjs` (86 pruebas) |
 | 4 | `src/30-sheets.js` | Grilla virtualizada, selección, edición, hojas, CSV, deshacer | render + integración |
 | 5 | `src/35-kimos-data.js` | Puente `shell.data` con Productos, Clientes, Pedidos, Planificación y Notas de Equipo | degradación sin `shell.data` probada |
+| 5b | `src/36-storage.js` | Cloud Storage: subir, releer, descargar y borrar archivos reales | `test/storage.test.mjs` (23 pruebas) |
+| 5c | `src/38-files.js` | Módulo Archivos, arrastrar y soltar, previsualización, selector de adjuntos | render |
 | 6 | `src/40-docs.js` | Documentos por bloques, Markdown de ida y vuelta, índice, combinación de correspondencia | render |
 | 7 | `src/50-slides.js` | Diapositivas, plantillas, notas del orador, modo presentación | render |
 | 8 | `src/60-notes.js` | Tablero de notas, colores, etiquetas, pestaña del equipo | render |
@@ -165,6 +167,49 @@ las fórmulas copiadas de Excel.
 
 ---
 
+## 6.b El Cloud Storage
+
+El contrato **no está en APP-SPEC**: se tomó del código de `productlab`, que ya
+sube en producción.
+
+```
+ESCRITURA   POST {API}/api/v2/files      FormData { path, file }   · shell.authFetch
+LECTURA     GET  {API}/api/public/files/{path}                     (área pública)
+            GET  {API}/api/storage/teams/{teamId}/files/download?path=…   (área del equipo)
+```
+
+**Dos destinos, y el privado manda.** ProductLab cuelga todo de `imagenes/`
+porque ese prefijo se sirve **sin autenticación**. Para fotos de catálogo está
+bien; para una suite ofimática sería un fallo grave. Por eso:
+
+| Destino | Ruta | Quién lo ve |
+|---|---|---|
+| 🔒 **Privado del equipo** (por defecto) | `equipos/{teamId}/workoffice/{instanceId}/…` | Solo quien tiene acceso al equipo |
+| 🌐 **Enlace público** (explícito) | `imagenes/workoffice/{instanceId}/…` | Cualquiera con el enlace |
+
+**Verificación de ida y vuelta.** La escritura está confirmada; que el área del
+equipo se pueda *releer* por ese camino depende de cómo esté cableado el
+backend, y eso no se deduce leyendo otra app. Así que la primera subida de cada
+destino se sube **y se vuelve a leer**. Si la relectura falla, el destino se
+marca no disponible y se dice en pantalla — nunca queda un adjunto que parece
+guardado y no se puede abrir.
+
+**Cómo se ve un archivo privado.** No se puede poner en un `src` a secas: hace
+falta la sesión. Se descarga con `authFetch`, se convierte en URL de objeto y se
+cachea por ruta; `teardown()` las libera todas.
+
+**El adjunto es un archivo del espacio** (`kind: 'attach'`): el item guarda ruta
+y metadatos, no el binario. Así hereda buscador, favoritos y papelera, y la
+misma imagen se usa en varios documentos sin duplicar bytes.
+
+**Lo que no se pudo confirmar** y por eso se maneja con honestidad: el endpoint
+de **borrado**. Se intenta `DELETE /api/v2/files?path=…`; si el servidor no lo
+soporta, el adjunto sale del espacio de trabajo pero se avisa de que el binario
+puede seguir ocupando almacenamiento. Prometer un borrado que no ocurrió sería
+peor que no borrar.
+
+---
+
 ## 7. Qué queda fuera, a propósito
 
 | Fuera | Por qué | Camino si se pide |
@@ -172,7 +217,8 @@ las fórmulas copiadas de Excel.
 | Leer/escribir `.docx`, `.xlsx`, `.pptx` | Librerías pesadas ejecutándose en la sesión del usuario | Conversión en el backend, no en el bundle |
 | Edición concurrente carácter a carácter | No hay push del servidor (APP-SPEC §5.1) | Requiere contrato nuevo — ver INTEGRACION-KIMOS §5 |
 | Gráficos en la hoja | Alcance; el motor y el documento ya lo permiten | Un tipo de bloque `chart` sobre el modelo actual |
-| Imágenes dentro de documentos y diapositivas | Los assets solo llegan por `.kapp` hoy | `shell.files` de AppShell v2 |
+| Miniaturas generadas en el servidor | Hoy la imagen se descarga entera para verla | Un endpoint de *thumbnail* en el backend |
+| Versionado de un adjunto (subir una revisión) | Alcance; el modelo ya lo admite | Una lista de rutas por adjunto en vez de una |
 | Carpetas | Decisión de producto | Etiquetas para todos los tipos |
 
 ---
@@ -188,3 +234,4 @@ las fórmulas copiadas de Excel.
 | Cambiar el aspecto | `styles/index.css` (solo tokens del tema, nunca colores fijos) |
 | Añadir una preferencia ⚙️ | `manifest.json` → `configSchema` + `DEFAULT_CFG` en `src/00-core.js` |
 | Integrar otra app de KIMOS | `src/35-kimos-data.js` + permiso `data.read:` en el manifest |
+| Cambiar cómo se suben archivos | `src/36-storage.js` (contrato) y `src/38-files.js` (interfaz) |
