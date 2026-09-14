@@ -112,6 +112,27 @@ documentos reales.
 - **El borrado se informa con la verdad**: si el servidor no confirma que borró
   el binario, se dice que puede seguir ocupando espacio.
 
+## 5.c Archivos OpenDocument que llegan de fuera
+
+Un `.ods` es un ZIP con XML dentro: dos formatos que históricamente han sido
+vectores de ataque. Por eso:
+
+- **El lector XML es propio y no entiende DOCTYPE.** Un archivo con
+  `<!DOCTYPE … <!ENTITY …>>` se **rechaza** antes de procesarse, así que no hay
+  expansión de entidades («billion laughs») ni entidades externas (XXE). Hay una
+  prueba dedicada.
+- **No se usa `DOMParser`** justamente para no heredar su comportamiento con
+  entidades.
+- **El ZIP se lee por su directorio central**, con las longitudes de la cabecera
+  local, y solo se aceptan los métodos 0 (store) y 8 (deflate); cualquier otro
+  se rechaza con un motivo.
+- **Tope de 20 MB** por archivo importado.
+- Lo importado entra como **datos**: los valores de celda pasan por el
+  normalizador de siempre, y una fórmula importada se re-analiza con nuestro
+  motor —que nunca ejecuta código— en vez de confiar en la que traía.
+- La exportación **escapa** todo el texto del usuario y elimina los caracteres
+  de control que harían inválido el XML.
+
 ## 6. Nombres de archivo y descargas
 
 `download()` sanea el nombre (`[^\w.\- ]` → `_`, máximo 120 caracteres): un
@@ -133,6 +154,8 @@ archivo llamado `../../algo` no puede salir como ruta. El contenido va en un
 | Tamaño de un archivo subido | 25 MB |
 | Adjuntos por espacio de trabajo | 200 |
 | Adjuntos enlazados a una nota o evento | 20 |
+| Archivo OpenDocument importado | 20 MB |
+| Filas/columnas repetidas al importar ODF | 1 000 por entrada |
 
 Todo dato que llega del servidor pasa por un normalizador
 (`normalizeFile`, `sheetDoc`, `docDoc`, `deckDoc`, `noteDoc`, `eventDoc`) que
@@ -167,7 +190,7 @@ datos corruptos.
 
 ```bash
 node tools/build.mjs --check     # dist/ al día respecto de src/
-node tools/test.mjs              # 162 pruebas
+node tools/test.mjs              # 209 pruebas
 node tools/audit.mjs             # innerHTML, eval, esquemas de enlace
 node tools/check-versions.mjs workoffice   # desde kimos-packages
 ```
