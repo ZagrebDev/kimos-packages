@@ -4,11 +4,23 @@
  * y genera un comprimido `.kapp` (ZIP) instalable por sideload desde la Tienda.
  *
  * Uso:
- *   node tools/pack.mjs apps/fossflow [salida.kapp]
+ *   node tools/pack.mjs apps/fossflow [salida.kapp] [--force]
  *
  * El `.kapp` contiene en su raíz: manifest.json + dist/** + assets/** (+ README).
  * Sin dependencias: implementa un ZIP por método "store" (sin compresión), que
  * el backend (zipfile) lee sin problema.
+ *
+ * GUARDA DE VERSIÓN: si ya existe un `.kapp` de esta misma versión con OTRO
+ * contenido, esto falla en vez de sobrescribirlo. El motivo es un fallo real:
+ * la Tienda identifica una app por `id` + `version`, así que reinstalar una
+ * versión ya instalada no hace nada y sigue sirviendo el bundle anterior —sin
+ * error y sin aviso—. Publicar un `dist/` nuevo con la versión sin tocar es
+ * trabajo que no llega a nadie, y el síntoma aparece lejos de la causa. Aquí
+ * salta donde todavía se puede arreglar: sube `version` y vuelve a empaquetar.
+ *
+ * Esta guarda cubre el sideload. Para la vía del catálogo raíz, lo equivalente
+ * es `tools/check-versions.mjs`: las dos vigilan el mismo error desde extremos
+ * distintos (§7.a de APP-SPEC.md).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -77,6 +89,47 @@ function buildZip(entries) {
   return Buffer.concat([localPart, centralPart, eocd]);
 }
 
+/**
+ * Índice de un ZIP ya escrito: `nombre:crc:tamaño` por entrada, ordenado.
+ *
+ * Sirve para comparar dos `.kapp` por su CONTENIDO. Comparar los bytes del
+ * archivo no vale: la cabecera lleva fecha y hora, así que dos empaquetados
+ * del mismo `dist/` nunca son idénticos byte a byte.
+ *
+ * Devuelve `null` si el archivo no es un ZIP legible; quien llama decide.
+ */
+function zipIndex(buf) {
+  // El EOCD va al final, pero puede llevar comentario detrás: se busca hacia atrás.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 0xffff; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) return null;
+    const crc = buf.readUInt32LE(p + 16);
+    const size = buf.readUInt32LE(p + 24);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    out.push(buf.toString('utf8', p + 46, p + 46 + nameLen) + ':' + crc + ':' + size);
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out.sort();
+}
+
+const sameContent = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Lo que la Tienda ejecuta: manifiesto, bundle y assets. El README viaja
+ * dentro del `.kapp` pero no cambia el comportamiento de nada, así que
+ * reescribirlo no obliga a publicar una versión nueva.
+ */
+const esEjecutable = (linea) => !linea.startsWith('README.md:');
+
 // ── Recolección de archivos ───────────────────────────────────────────────────
 function walk(dir, rel, out) {
   for (const name of fs.readdirSync(dir)) {
@@ -89,8 +142,10 @@ function walk(dir, rel, out) {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-const appDir = process.argv[2];
-if (!appDir) fail('Uso: node tools/pack.mjs <carpeta-app> [salida.kapp]');
+const argv = process.argv.slice(2).filter((a) => a !== '--force');
+const force = process.argv.slice(2).includes('--force');
+const appDir = argv[0];
+if (!appDir) fail('Uso: node tools/pack.mjs <carpeta-app> [salida.kapp] [--force]');
 if (!fs.existsSync(path.join(appDir, 'manifest.json'))) fail(`No existe ${appDir}/manifest.json`);
 
 let manifest;
@@ -122,9 +177,47 @@ for (const top of fs.readdirSync(appDir)) {
   else entries.push({ name: top, data: fs.readFileSync(abs) });
 }
 
-const out = process.argv[3] || `${id}-${version}.kapp`;
-fs.writeFileSync(out, buildZip(entries));
+const out = argv[1] || `${id}-${version}.kapp`;
+const zip = buildZip(entries);
+
+// ── Guarda de versión ─────────────────────────────────────────────────────────
+// Si ya hay un .kapp de esta versión y su contenido es OTRO, alguien cambió
+// `dist/` sin subir `version`. Empaquetarlo igual produce un archivo que la
+// Tienda ignorará en silencio.
+if (fs.existsSync(out) && !force) {
+  const previo = zipIndex(fs.readFileSync(out));
+  const nuevo = zipIndex(zip);
+  if (!previo) {
+    fail(`Ya existe '${out}' y no se puede leer para compararlo.\n`
+      + '  Bórralo si sobra, o repite con --force para sobrescribirlo.');
+  }
+  const previoExe = previo.filter(esEjecutable);
+  const nuevoExe = nuevo.filter(esEjecutable);
+  if (!sameContent(previoExe, nuevoExe)) {
+    const dif = nuevoExe.filter((x) => !previoExe.includes(x)).map((x) => x.split(':')[0]);
+    fail(`'${out}' ya existe y su contenido es DISTINTO del que se acaba de construir.\n\n`
+      + `  Han cambiado: ${[...new Set(dif)].join(', ') || '(archivos retirados)'}\n\n`
+      + `  La Tienda identifica una app por id + version: si publicas este bundle\n`
+      + `  como v${version}, que ya está instalada, la instalación no hará nada y\n`
+      + `  seguirá sirviendo el bundle anterior. Sin error y sin aviso.\n\n`
+      + `  Sube \`version\` en los cuatro sitios del §7.a de APP-SPEC.md —empezando\n`
+      + `  por ${path.join(appDir, 'manifest.json')} y el catálogo raíz— y reempaqueta.\n`
+      + `  Compruébalo con: node tools/check-versions.mjs ${path.basename(appDir)}\n`
+      + `  Si de verdad quieres sobrescribirlo, repite con --force.`);
+  }
+}
+
+fs.writeFileSync(out, zip);
 const kb = (fs.statSync(out).size / 1024).toFixed(1);
 console.log(`✔ ${out} (${entries.length} archivos, ${kb} KB)`);
 console.log(`  id=${id} v${version} · entry=${entry} · permisos=[${perms.join(', ')}]`);
+
+// Dos .kapp del mismo id en la misma carpeta es la forma más fácil de instalar
+// el que no era. No es un error, pero conviene decirlo.
+const viejos = fs.readdirSync(path.dirname(path.resolve(out)))
+  .filter((f) => f.startsWith(id + '-') && f.endsWith('.kapp') && f !== path.basename(out));
+if (viejos.length) {
+  console.log(`⚠ Quedan .kapp de otras versiones: ${viejos.join(', ')}`);
+  console.log(`  Bórralos para no instalar el que no era.`);
+}
 console.log(`  Instálalo en la Tienda → "Instalar desde archivo" (superadmin).`);
