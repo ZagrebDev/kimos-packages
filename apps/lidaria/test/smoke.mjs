@@ -50,7 +50,7 @@ ok(typeof app.Component === 'function', 'devuelve Component');
 ok(typeof app.unmount === 'function', 'devuelve unmount');
 ok(titulo === 'LiDARia', 'fija el título de la ventana', titulo);
 ok(!!agente, 'registra agente', agente && agente.tools.length + ' tools');
-ok(agente && agente.tools.length === 20, 'veinte herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
+ok(agente && agente.tools.length === 22, 'veintidós herramientas declaradas', agente && agente.tools.map((t) => t.name).join(', '));
 
 console.log('\nDatos embebidos');
 const snap0 = agente.getSnapshot();
@@ -303,6 +303,38 @@ for (const t of ['laboratorio', 'gratuito']) {
   let arbol = null;
   try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' con datos lanza: ' + e.message); continue; }
   ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con ensayos cargados');
+}
+
+/* ---------------------- 1.6.0: emparejamiento y QR ---------------------- */
+
+console.log('\nEnlazar');
+
+const rEnlace = await agente.dispatchAction({ type: 'COMO_ENLAZAR', payload: { dispositivo: 'movil-companero', plataforma: 'ios' } });
+ok(rEnlace.success && /cámara normal del teléfono/.test(rEnlace.message), 'en iPhone la vía de QR es la cámara del sistema', rEnlace.message.slice(0, 120));
+
+const rBle = await agente.dispatchAction({ type: 'COMO_ENLAZAR', payload: { dispositivo: 'sensor-ble', plataforma: 'android' } });
+ok(rBle.success && /OJO/.test(rBle.message), 'el sensor Bluetooth avisa del toque obligatorio');
+ok(/NO completa el emparejamiento/.test(rBle.message), 'y deja claro que escanear no basta', rBle.message.slice(-120));
+
+const rBleIos = await agente.dispatchAction({ type: 'COMO_ENLAZAR', payload: { dispositivo: 'sensor-ble', plataforma: 'ios' } });
+ok(rBleIos.success && /No hay ninguna vía/.test(rBleIos.message), 'en iPhone un sensor Bluetooth no se finge', rBleIos.message.slice(0, 110));
+
+const rDispMal = await agente.dispatchAction({ type: 'COMO_ENLAZAR', payload: { dispositivo: 'inventado' } });
+ok(!rDispMal.success && /Disponibles/.test(rDispMal.error), 'un dispositivo que no existe se rechaza nombrando los que sí');
+
+const rQR = await agente.dispatchAction({ type: 'GENERAR_QR', payload: { dispositivo: 'camara-ip' } });
+ok(rQR.success && /código corto [A-Z0-9]{6}/.test(rQR.message), 'genera QR y código corto', rQR.message.slice(0, 130));
+ok(/Caduca a las/.test(rQR.message), 'y dice cuándo caduca');
+
+const snapE = agente.getSnapshot();
+ok(snapE.enlaces && snapE.enlaces.enlazables.length > 0, 'el snapshot dice qué se puede enlazar', snapE.enlaces.enlazables.join(', '));
+ok(Array.isArray(snapE.enlaces.sinVia), 'y qué no, con su motivo');
+
+for (const t of ['enlazar']) {
+  await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
+  let arbol = null;
+  try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' lanza: ' + e.message); continue; }
+  ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con dispositivo elegido');
 }
 
 console.log('');
