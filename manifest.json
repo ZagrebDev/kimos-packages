@@ -785,9 +785,9 @@
     {
       "id": "workoffice",
       "name": "Kimos WorkOffice",
-      "description": "Suite ofimática de KIMOS: un espacio de trabajo con Documentos, Hojas de cálculo con motor de fórmulas, Presentaciones con modo presentador, Notas, Calendario y Archivos, todo dentro de la misma ventana y guardado archivo por archivo (dos personas editando archivos distintos nunca se pisan). Sube documentos, PDF e imágenes al Cloud Storage de KIMOS arrastrándolos a la ventana, con dos destinos explícitos: privado del equipo (por defecto) o enlace público; los adjuntos se insertan en documentos y diapositivas y se enlazan a notas y eventos. Explorador con recientes, favoritos, búsqueda global y papelera; paleta de comandos (Ctrl+K); autoguardado con estado a la vista; exportación e importación en CSV, Markdown y HTML; impresión y modo presentación. Se integra con el resto de KIMOS: trae filas de Productos, Clientes y Pedidos a una hoja, muestra las tareas de Planificación en el calendario y las Notas de Equipo junto a las personales, siempre en solo lectura y respetando el RBAC del usuario. Control total por agente IA.",
+      "description": "Suite ofimática de KIMOS: un espacio de trabajo con Documentos, Hojas de cálculo con motor de fórmulas, Presentaciones con modo presentador, Notas, Calendario y Archivos, todo dentro de la misma ventana y guardado archivo por archivo (dos personas editando archivos distintos nunca se pisan). Interoperabilidad real con OpenDocument: exporta e importa .ods, .odt y .odp —los formatos que abren LibreOffice, ONLYOFFICE, Microsoft Office y Google Workspace— conservando las fórmulas en OpenFormula. Cinta de opciones con pestañas, autocorrección tipográfica en español, ordenar por columna e inmovilizar la primera fila. Sube documentos, PDF e imágenes al Cloud Storage de KIMOS arrastrándolos a la ventana, con dos destinos explícitos: privado del equipo (por defecto) o enlace público; los adjuntos se insertan en documentos y diapositivas y se enlazan a notas y eventos. Explorador con recientes, favoritos, búsqueda global y papelera; paleta de comandos (Ctrl+K); autoguardado con estado a la vista; impresión y modo presentación. Se integra con el resto de KIMOS: trae filas de Productos, Clientes y Pedidos a una hoja, muestra las tareas de Planificación en el calendario y las Notas de Equipo junto a las personales, siempre en solo lectura y respetando el RBAC del usuario. Control total por agente IA.",
       "icon": "🧰",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "multiInstance": true,
@@ -915,6 +915,12 @@
             "label": "Traer datos de otras apps de KIMOS",
             "type": "boolean",
             "help": "Muestra las tareas de Planificación en el calendario y permite importar Productos, Clientes y Pedidos a una hoja. Siempre en solo lectura."
+          },
+          {
+            "key": "autocorrect",
+            "label": "Autocorrección tipográfica",
+            "type": "boolean",
+            "help": "Comillas curvas, puntos suspensivos, raya, ×, ½ y ordinales (1.º) mientras escribes. Nunca dentro de código ni de una URL."
           }
         ]
       },
@@ -925,7 +931,8 @@
         "weekStart": "1",
         "currency": "CLP",
         "kimosData": true,
-        "uploadScope": "team"
+        "uploadScope": "team",
+        "autocorrect": true
       },
       "appShellApi": "1.x"
     },

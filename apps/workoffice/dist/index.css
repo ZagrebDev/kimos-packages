@@ -781,3 +781,59 @@
   padding: 34px 48px; background: var(--wo-glass-solid); box-shadow: var(--wo-shadow-md);
 }
 .kimos-workoffice .wo-drop-i { font-size: 34px; }
+
+/* ── Cinta de opciones (pestañas + grupos) ──────────────────────────────── */
+.kimos-workoffice .wo-ribbon { flex: 0 0 auto; border-bottom: 1px solid var(--wo-soft); background: var(--wo-glass); backdrop-filter: blur(10px); }
+.kimos-workoffice .wo-rb-tabs {
+  display: flex; align-items: center; gap: 2px; padding: 4px 10px 0;
+  border-bottom: 1px solid var(--wo-soft);
+}
+.kimos-workoffice .wo-rb-tab {
+  border: 1px solid transparent; border-bottom: 0; background: none; cursor: pointer;
+  color: var(--wo-muted); padding: 6px 14px; font: 500 13px/1.2 'Inter', sans-serif;
+  border-radius: var(--wo-radius) var(--wo-radius) 0 0; white-space: nowrap;
+}
+.kimos-workoffice .wo-rb-tab:hover { color: var(--wo-fg); background: var(--wo-accent-soft); }
+.kimos-workoffice .wo-rb-tab-on {
+  color: var(--wo-fg); font-weight: 600;
+  background: hsl(var(--background, 220 20% 97%)); border-color: var(--wo-soft);
+  margin-bottom: -1px; padding-bottom: 7px;
+}
+.kimos-workoffice .wo-rb-hint { font-size: 11.5px; padding-right: 6px; }
+.kimos-workoffice .wo-rb-band {
+  display: flex; align-items: stretch; gap: 0; padding: 6px 10px;
+  overflow-x: auto; scrollbar-width: thin;
+}
+.kimos-workoffice .wo-rb-group {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 0 10px; border-right: 1px solid var(--wo-soft); flex: 0 0 auto;
+}
+.kimos-workoffice .wo-rb-group:last-child { border-right: 0; }
+.kimos-workoffice .wo-rb-items { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; }
+.kimos-workoffice .wo-rb-glabel { font: 400 10.5px/1 'Inter', sans-serif; color: var(--wo-muted); }
+.kimos-workoffice .wo-rb-big {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer;
+  border: 1px solid transparent; background: none; color: var(--wo-fg);
+  border-radius: var(--wo-radius); padding: 5px 9px; min-width: 58px;
+  font: 400 11px/1.2 'Inter', sans-serif;
+}
+.kimos-workoffice .wo-rb-big:hover:not(:disabled) { background: var(--wo-silver); }
+.kimos-workoffice .wo-rb-big:disabled { opacity: 0.4; cursor: not-allowed; }
+.kimos-workoffice .wo-rb-big-i { font-size: 17px; line-height: 1.1; }
+.kimos-workoffice .wo-rb-big-t { white-space: nowrap; }
+.kimos-workoffice .wo-ribbon-min .wo-rb-tabs { border-bottom: 0; }
+
+/* Fila inmovilizada: se queda pegada bajo los encabezados */
+.kimos-workoffice .wo-grid-frozen {
+  position: sticky; top: 30px; z-index: 2;
+  background: var(--wo-glass-solid); backdrop-filter: blur(10px);
+  border-bottom: 2px solid var(--wo-accent);
+}
+.kimos-workoffice .wo-grid-frozen .wo-gr { position: relative; top: 0 !important; }
+.kimos-workoffice .wo-new-import { border-style: dashed; }
+
+@media (max-width: 900px) {
+  .kimos-workoffice .wo-rb-big { min-width: 46px; padding: 5px 6px; }
+  .kimos-workoffice .wo-rb-big-t { display: none; }
+  .kimos-workoffice .wo-rb-glabel { display: none; }
+}

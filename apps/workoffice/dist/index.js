@@ -1,5 +1,5 @@
 /**
- * Kimos WorkOffice v1.1.0 — suite ofimática de KIMOS.
+ * Kimos WorkOffice v1.2.0 — suite ofimática de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -22,7 +22,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // Se sincroniza sola desde manifest.json al compilar (APP-SPEC §7.a).
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -160,6 +160,7 @@ const DEFAULT_CFG = {
   startModule: 'drive', autosave: true, dense: false,
   weekStart: '1', currency: 'CLP', kimosData: true,
   uploadScope: 'team',    // dónde van los archivos subidos: 'team' | 'public'
+  autocorrect: true,      // comillas curvas, …, ×, ½ mientras se escribe
 };
 
 // ── Estado observable ───────────────────────────────────────────────────
@@ -903,6 +904,198 @@ function FileTitle(p) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/12-ribbon.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ CINTA DE OPCIONES ═════════════════════════════════════════════════════
+ *
+ * Barra de herramientas con **pestañas y grupos con nombre**, al estilo de la
+ * que usan ONLYOFFICE y Microsoft Office.
+ *
+ * Por qué cambiar la barra plana de la v1.0: en Documentos y Hojas los botones
+ * ya no cabían de un vistazo y acabaron escondidos en menús «⋯», que es donde
+ * las funciones van a morir. Con pestañas, cada acción tiene un sitio
+ * **previsible**: si busco cómo insertar algo, voy a Insertar. La barra plana
+ * sigue en los módulos que no la necesitan (Notas, Calendario, Archivos): una
+ * cinta con dos botones sería ceremonia sin beneficio.
+ *
+ * Tres detalles que se copiaron del comportamiento, no del código:
+ *   · **Se puede plegar** (doble clic en la pestaña activa, o el botón ⌃). Quien
+ *     ya se sabe los atajos recupera el alto para el documento.
+ *   · **Los grupos llevan etiqueta** debajo: enseñan el vocabulario de la app
+ *     sin necesidad de un manual.
+ *   · **La pestaña activa se recuerda por módulo** mientras dura la sesión, así
+ *     que ir y volver no te devuelve al principio.
+ */
+
+// Pestaña activa y plegado, recordados por módulo mientras dura la ventana.
+const ribbonState = { tab: {}, collapsed: false };
+
+function Ribbon(p) {
+  const scope = s(p.scope) || 'x';
+  const tabs = (p.tabs || []).filter((t) => t && t.groups && t.groups.length);
+  const [, force] = useState(0);
+  if (!tabs.length) return null;
+
+  const activeId = ribbonState.tab[scope] && tabs.some((t) => t.id === ribbonState.tab[scope])
+    ? ribbonState.tab[scope] : tabs[0].id;
+  const active = tabs.find((t) => t.id === activeId) || tabs[0];
+  const collapsed = !!ribbonState.collapsed;
+  const setTab = (id) => { ribbonState.tab[scope] = id; force((x) => x + 1); };
+  const toggle = () => { ribbonState.collapsed = !ribbonState.collapsed; force((x) => x + 1); };
+
+  return h('div', { className: cx('wo-ribbon', collapsed && 'wo-ribbon-min') },
+    h('div', { className: 'wo-rb-tabs', role: 'tablist' },
+      tabs.map((t) => h('button', {
+        key: t.id, type: 'button', role: 'tab',
+        'aria-selected': t.id === active.id,
+        className: cx('wo-rb-tab', t.id === active.id && 'wo-rb-tab-on'),
+        onClick: () => { if (t.id === active.id && collapsed) toggle(); else setTab(t.id); },
+        onDoubleClick: toggle,
+        title: t.hint || t.label,
+      }, t.label)),
+      h('span', { className: 'wo-grow' }),
+      p.right || null,
+      h(IconBtn, {
+        icon: collapsed ? '⌄' : '⌃',
+        title: collapsed ? 'Mostrar la cinta' : 'Plegar la cinta (doble clic en la pestaña)',
+        onClick: toggle,
+      })),
+    collapsed ? null : h('div', { className: 'wo-rb-band', role: 'tabpanel', 'aria-label': active.label },
+      active.groups.filter(Boolean).map((g, i) => h('div', { key: g.label || i, className: 'wo-rb-group' },
+        h('div', { className: 'wo-rb-items' }, g.items.filter(Boolean)),
+        g.label ? h('div', { className: 'wo-rb-glabel' }, g.label) : null))));
+}
+
+/** Botón grande de la cinta: icono arriba, texto debajo. Para lo principal. */
+function RibbonBtn(p) {
+  return h('button', {
+    type: 'button',
+    className: cx('wo-rb-big', p.active && 'wo-btn-on'),
+    onClick: p.onClick, disabled: !!p.disabled,
+    title: p.title || p.label,
+  },
+    h('span', { className: 'wo-rb-big-i', 'aria-hidden': 'true' }, p.icon),
+    h('span', { className: 'wo-rb-big-t' }, p.label));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// src/14-autocorrect.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ AUTOCORRECCIÓN TIPOGRÁFICA ════════════════════════════════════════════
+ *
+ * Arregla mientras se escribe lo que separa un texto de oficina de un texto
+ * de terminal: comillas curvas, guiones de diálogo, elipsis, fracciones y el
+ * signo de multiplicar.
+ *
+ * ── De dónde viene ────────────────────────────────────────────────────────
+ * Es la idea de la **autocorrección de LibreOffice** (`extras/source/autocorr/`
+ * y las opciones de Herramientas ▸ Corrección automática). No se copió ni su
+ * código ni sus tablas —que son MPL-2.0 y están pensadas para su motor—: aquí
+ * hay una tabla propia, corta y adaptada al español, con las sustituciones que
+ * de verdad se notan al escribir en castellano.
+ *
+ * ── Reglas de la casa ─────────────────────────────────────────────────────
+ *   · **Nunca dentro de un bloque de código.** Convertir `"` en `“` en un
+ *     fragmento de código lo rompería.
+ *   · **Nunca dentro de una URL.** `https://…--algo` se queda como está.
+ *   · **Se puede apagar** desde ⚙️ Configurar; quien escribe documentación
+ *     técnica lo agradece.
+ *   · **Solo sustituciones cerradas**: se actúa cuando el patrón ya está
+ *     completo, para no cambiar el texto bajo el cursor mientras se teclea.
+ */
+
+/** Sustituciones simples, aplicadas en este orden. */
+const AUTOCORRECT_RULES = [
+  // Puntuación
+  { re: /(^|[^.])\.\.\.(?!\.)/g, to: '$1…', why: 'puntos suspensivos' },
+  { re: /(\w)---(\w)/g, to: '$1—$2', why: 'raya' },
+  { re: /(\s)---(\s)/g, to: '$1—$2', why: 'raya entre espacios' },
+  { re: /(\s)--(\s)/g, to: '$1—$2', why: 'raya entre espacios' },
+  { re: /(\d)-(\d)/g, to: '$1–$2', why: 'guion corto entre cifras' },
+  // Símbolos
+  { re: /\(c\)/gi, to: '©', why: 'copyright' },
+  { re: /\(r\)/gi, to: '®', why: 'marca registrada' },
+  { re: /\(tm\)/gi, to: '™', why: 'marca comercial' },
+  { re: /(^|\s)->(\s|$)/g, to: '$1→$2', why: 'flecha' },
+  { re: /(^|\s)<-(\s|$)/g, to: '$1←$2', why: 'flecha' },
+  { re: /(^|\s)\+\/-(\s|$)/g, to: '$1±$2', why: 'más menos' },
+  // Fracciones y multiplicación
+  { re: /(^|\s)1\/2(\s|$|[.,;:!?])/g, to: '$1½$2', why: 'fracción' },
+  { re: /(^|\s)1\/4(\s|$|[.,;:!?])/g, to: '$1¼$2', why: 'fracción' },
+  { re: /(^|\s)3\/4(\s|$|[.,;:!?])/g, to: '$1¾$2', why: 'fracción' },
+  { re: /(\d)\s?[xX]\s?(\d)/g, to: '$1×$2', why: 'signo de multiplicar' },
+  // Ordinales en español: 1o → 1.º · 2a → 2.ª
+  { re: /\b(\d+)o\b/g, to: '$1.º', why: 'ordinal masculino' },
+  { re: /\b(\d+)a\b/g, to: '$1.ª', why: 'ordinal femenino' },
+  // Dos espacios seguidos: en tipografía moderna sobra uno
+  { re: /(\S)  +(\S)/g, to: '$1 $2', why: 'espacio doble' },
+];
+
+/** Trozos que NO se tocan: código entre acentos graves y URLs. */
+const AUTOCORRECT_SKIP = /(`[^`]*`|\bhttps?:\/\/\S+|\bmailto:\S+)/g;
+
+/**
+ * Comillas tipográficas. Una `"` abre si va tras un espacio, un signo de
+ * apertura o el principio; si no, cierra. Es la misma regla que aplican los
+ * procesadores de texto, y la que acierta en el 99 % de los casos reales.
+ */
+function curlyQuotes(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c !== '"') { out += c; continue; }
+    const prev = i === 0 ? '' : text[i - 1];
+    const opens = !prev || /[\s(¿¡«—–-]/.test(prev);
+    out += opens ? '“' : '”';
+  }
+  return out;
+}
+
+/**
+ * Aplica la autocorrección a un texto completo, respetando lo intocable.
+ * Devuelve el texto corregido (o el mismo, si no había nada que hacer).
+ */
+function autocorrect(text, opts) {
+  const o = opts || {};
+  const src = s(text);
+  if (!src) return src;
+
+  // Se parte el texto en trozos intocables y trozos corregibles, y solo se
+  // corrigen los segundos.
+  const parts = src.split(AUTOCORRECT_SKIP);
+  for (let i = 0; i < parts.length; i++) {
+    // Los índices impares son los grupos capturados (código y URLs).
+    if (i % 2 === 1) continue;
+    let t = parts[i];
+    if (o.quotes !== false) t = curlyQuotes(t);
+    AUTOCORRECT_RULES.forEach((rule) => { t = t.replace(rule.re, rule.to); });
+    parts[i] = t;
+  }
+  return parts.join('');
+}
+
+/**
+ * Versión para «mientras se escribe»: solo corrige lo que queda **detrás** del
+ * cursor y solo si el último carácter cierra una palabra (espacio, salto o
+ * puntuación). Así nunca se transforma lo que se está tecleando, que es el
+ * motivo por el que la autocorrección agresiva molesta.
+ *
+ * Devuelve `{ value, caret }` o `null` si no hubo cambios.
+ */
+function autocorrectAtCaret(value, caret, opts) {
+  const v = s(value);
+  const at = Math.max(0, Math.min(v.length, Math.floor(num(caret, v.length))));
+  const last = at > 0 ? v[at - 1] : '';
+  // Se dispara al terminar una palabra, no en mitad de ella.
+  if (!/[\s.,;:!?)\]"»]/.test(last)) return null;
+  const head = v.slice(0, at);
+  const tail = v.slice(at);
+  const fixed = autocorrect(head, opts);
+  if (fixed === head) return null;
+  return { value: fixed + tail, caret: at + (fixed.length - head.length) };
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/20-formula.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ MOTOR DE FÓRMULAS ═════════════════════════════════════════════════════
@@ -1400,7 +1593,17 @@ const flat = (v) => { const out = []; eachValue([v], (x) => out.push(x)); return
  * la copie desde Excel o desde Sheets.
  */
 const FN = {};
-function defFn(names, spec) { names.split(' ').forEach((n) => { FN[n] = spec; }); }
+/**
+ * Nombre canónico en inglés de cada función, para exportar a OpenFormula
+ * (ODF parte 2), que solo entiende los nombres ingleses. La convención de
+ * `defFn` es escribir primero el nombre en español y último el inglés.
+ */
+const FN_CANON = {};
+function defFn(names, spec) {
+  const list = names.split(' ');
+  const canon2 = list[list.length - 1];
+  list.forEach((n) => { FN[n] = spec; FN_CANON[n] = canon2; });
+}
 
 defFn('SUMA SUM', { min: 1, fn: (a) => { const n1 = numbersOf(a); return isErr(n1) ? n1 : n1.reduce((x, y) => x + y, 0); } });
 defFn('PRODUCTO PRODUCT', { min: 1, fn: (a) => { const n1 = numbersOf(a); return isErr(n1) ? n1 : (n1.length ? n1.reduce((x, y) => x * y, 1) : 0); } });
@@ -1532,6 +1735,11 @@ defFn('O OR', {
   },
 });
 defFn('NO NOT', { min: 1, max: 1, fn: (a) => { const b = toBool(a[0]); return isErr(b) ? b : !b; } });
+// Forma de función de los booleanos. Sin ellas, una hoja importada de
+// LibreOffice o Excel con `FALSE()` daría #NAME?, porque OpenFormula escribe
+// así las constantes lógicas.
+defFn('VERDADERO TRUE', { min: 0, max: 0, fn: () => true });
+defFn('FALSO FALSE', { min: 0, max: 0, fn: () => false });
 defFn('ESERROR ISERROR', { min: 1, max: 1, lazy: true, fn: (n1, ctx) => isErr(evalAst(n1[0], ctx)) });
 defFn('ESNUMERO ISNUMBER', { min: 1, max: 1, fn: (a) => typeof a[0] === 'number' || isDate(a[0]) });
 defFn('ESTEXTO ISTEXT', { min: 1, max: 1, fn: (a) => typeof a[0] === 'string' && a[0] !== '' });
@@ -1927,6 +2135,763 @@ function shiftFormula(formula, dr, dc) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/22-odf.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ INTEROPERABILIDAD ODF (OpenDocument) ══════════════════════════════════
+ *
+ * Exporta e importa **.ods, .odt y .odp reales**: los formatos que abren
+ * LibreOffice, ONLYOFFICE, Microsoft Office y Google Workspace.
+ *
+ * ── De dónde sale esto, y por qué está escrito a mano ─────────────────────
+ * Se revisaron los dos repositorios pedidos:
+ *
+ *   · **LibreOffice core** (github.com/LibreOffice/core) — MPL-2.0, C++,
+ *     ~149 000 archivos. Ahí están `schema/odf1.3/` (los esquemas OASIS que
+ *     usa) y `filter/source/odfflatxml/` (su filtro de ODF plano).
+ *   · **ONLYOFFICE** — los editores y DocumentServer son **AGPL-3.0**.
+ *
+ * Copiar código de cualquiera de los dos era inviable: el AGPL contagiaría su
+ * licencia a toda la app de KIMOS, y el MPL obliga a mantener esos archivos
+ * bajo MPL — además de que ninguno cabe en un bundle que debe seguir siendo
+ * autocontenido y sin dependencias (APP-SPEC §3).
+ *
+ * Lo que sí se puede adoptar, y es lo que de verdad da la interoperabilidad,
+ * es el **formato**: OpenDocument es un estándar abierto OASIS/ISO 26300, no
+ * propiedad de LibreOffice. Este archivo implementa ODF 1.3 desde la
+ * especificación, y las pruebas lo validan contra el **esquema RelaxNG oficial
+ * de OASIS**. Ver docs/ADOPCION-ONLYOFFICE-LIBREOFFICE.md.
+ *
+ * ── Qué hay aquí dentro, sin dependencias ─────────────────────────────────
+ *   1. Un escritor ZIP (método «store») y un lector ZIP.
+ *   2. Un lector XML propio y minúsculo — a propósito, en vez de `DOMParser`:
+ *      no procesa DOCTYPE ni entidades, así que un .ods hostil no puede montar
+ *      un ataque de expansión de entidades ni leer archivos del servidor.
+ *   3. Conversión de fórmulas a OpenFormula (`of:=SUM([.B2:.B3])`) y de vuelta.
+ */
+
+// ── ZIP ─────────────────────────────────────────────────────────────────
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n1 = 0; n1 < 256; n1++) {
+    let c = n1;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n1] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+const utf8 = (t) => new TextEncoder().encode(s(t));
+const fromUtf8 = (bytes) => new TextDecoder('utf-8').decode(bytes);
+
+/**
+ * Empaqueta entradas en un ZIP sin comprimir (método 0, «store»).
+ *
+ * Sin comprimir a propósito: ODF lo admite, el código cabe en 40 líneas y
+ * evita traer una librería de deflate al bundle. Un documento de oficina pesa
+ * kilobytes; ahorrar unos pocos no justifica la dependencia.
+ *
+ * El orden importa: `mimetype` tiene que ir **primero y sin comprimir** para
+ * que un lector pueda identificar el paquete leyendo los primeros bytes
+ * (OpenDocument §3.3).
+ */
+function zipStore(entries) {
+  const locals = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const time = ((now.getHours() & 0x1f) << 11) | ((now.getMinutes() & 0x3f) << 5) | ((now.getSeconds() / 2) & 0x1f);
+  const date = (((now.getFullYear() - 1980) & 0x7f) << 9) | (((now.getMonth() + 1) & 0xf) << 5) | (now.getDate() & 0x1f);
+
+  for (const e of entries) {
+    const name = utf8(e.name);
+    const data = e.data;
+    const crc = crc32(data);
+    const lh = new Uint8Array(30);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true); lv.setUint16(6, 0, true); lv.setUint16(8, 0, true);
+    lv.setUint16(10, time, true); lv.setUint16(12, date, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, data.length, true); lv.setUint32(22, data.length, true);
+    lv.setUint16(26, name.length, true); lv.setUint16(28, 0, true);
+    locals.push(lh, name, data);
+
+    const ch = new Uint8Array(46);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true); cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true); cv.setUint16(14, date, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true); cv.setUint32(24, data.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);
+    central.push(ch, name);
+    offset += 30 + name.length + data.length;
+  }
+
+  const centralSize = central.reduce((a, b) => a + b.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, entries.length, true); ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true); ev.setUint32(16, offset, true);
+
+  const parts = locals.concat(central, [end]);
+  const total = parts.reduce((a, b) => a + b.length, 0);
+  const out = new Uint8Array(total);
+  let p = 0;
+  for (const part of parts) { out.set(part, p); p += part.length; }
+  return out;
+}
+
+/** Lee un ZIP por su directorio central. Devuelve `{ nombre: Uint8Array }`. */
+async function zipRead(buffer) {
+  const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  // El fin del directorio central va al final; puede llevar comentario detrás.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= 0 && i > buf.length - 22 - 65536; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('no parece un archivo ZIP');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = {};
+  for (let n1 = 0; n1 < count; n1++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true);
+    const compSize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const commentLen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = fromUtf8(buf.subarray(p + 46, p + 46 + nameLen));
+    // Cabecera local: sus longitudes de nombre/extra son las que valen.
+    const lNameLen = dv.getUint16(local + 26, true);
+    const lExtraLen = dv.getUint16(local + 28, true);
+    const start = local + 30 + lNameLen + lExtraLen;
+    const raw = buf.subarray(start, start + compSize);
+    if (method === 0) out[name] = raw;
+    else if (method === 8) out[name] = await inflateRaw(raw);
+    else throw new Error('el archivo usa una compresión no soportada (' + method + ')');
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
+/** Descomprime deflate con la API del navegador; no hay librería que traer. */
+async function inflateRaw(bytes) {
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('este navegador no puede descomprimir el archivo');
+  }
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const chunks = [];
+  const reader = stream.getReader();
+  for (;;) {
+    const r = await reader.read();
+    if (r.done) break;
+    chunks.push(r.value);
+  }
+  const total = chunks.reduce((a, b) => a + b.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+// ── XML ─────────────────────────────────────────────────────────────────
+const xmlEsc = (t) => s(t)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  // Los caracteres de control no son XML válido; se quitan en vez de generar
+  // un archivo que ningún lector abre.
+  .replace(/[ --]/g, '');
+
+const xmlUnesc = (t) => s(t)
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'")
+  .replace(/&#(\d+);/g, (m0, d) => String.fromCharCode(parseInt(d, 10)))
+  .replace(/&#x([0-9a-fA-F]+);/g, (m0, hx) => String.fromCharCode(parseInt(hx, 16)))
+  .replace(/&amp;/g, '&');       // el ampersand, al final
+
+/**
+ * Lector XML mínimo. Devuelve `{ name, attrs, kids }`, donde `kids` mezcla
+ * nodos y cadenas de texto.
+ *
+ * Se escribió a mano en vez de usar `DOMParser` por seguridad: no entiende
+ * DOCTYPE ni entidades externas, así que un documento hostil no puede montar
+ * una expansión de entidades ni pedirle al navegador que abra otra cosa. Si
+ * aparece un DOCTYPE, se rechaza el archivo.
+ */
+function xmlParse(text) {
+  const t = s(text);
+  if (/<!DOCTYPE/i.test(t)) throw new Error('el archivo declara un DOCTYPE y no se procesa por seguridad');
+  let i = 0;
+  const root = { name: '#root', attrs: {}, kids: [] };
+  const stack = [root];
+  const top = () => stack[stack.length - 1];
+
+  while (i < t.length) {
+    const lt = t.indexOf('<', i);
+    if (lt < 0) break;
+    if (lt > i) {
+      const txt = t.slice(i, lt);
+      if (txt.trim() || /[^\s]/.test(txt)) top().kids.push(xmlUnesc(txt));
+      else if (txt) top().kids.push(txt);
+    }
+    if (t.startsWith('<!--', lt)) { i = t.indexOf('-->', lt) + 3; if (i < 3) break; continue; }
+    if (t.startsWith('<?', lt)) { i = t.indexOf('?>', lt) + 2; if (i < 2) break; continue; }
+    if (t.startsWith('<![CDATA[', lt)) {
+      const end = t.indexOf(']]>', lt);
+      top().kids.push(t.slice(lt + 9, end < 0 ? t.length : end));
+      i = end < 0 ? t.length : end + 3;
+      continue;
+    }
+    const gt = t.indexOf('>', lt);
+    if (gt < 0) break;
+    const inner = t.slice(lt + 1, gt);
+    if (inner.charAt(0) === '/') {
+      if (stack.length > 1) stack.pop();
+      i = gt + 1;
+      continue;
+    }
+    const selfClose = inner.charAt(inner.length - 1) === '/';
+    const body = selfClose ? inner.slice(0, -1) : inner;
+    const sp = body.search(/\s/);
+    const name = sp < 0 ? body : body.slice(0, sp);
+    const attrs = {};
+    if (sp >= 0) {
+      const re = /([\w:.-]+)\s*=\s*"([^"]*)"|([\w:.-]+)\s*=\s*'([^']*)'/g;
+      let m;
+      while ((m = re.exec(body.slice(sp))) !== null) {
+        attrs[m[1] || m[3]] = xmlUnesc(m[2] !== undefined ? m[2] : m[4]);
+      }
+    }
+    const node = { name, attrs, kids: [] };
+    top().kids.push(node);
+    if (!selfClose) stack.push(node);
+    i = gt + 1;
+  }
+  return root;
+}
+
+const xmlKids = (node, name) => (node && node.kids ? node.kids : [])
+  .filter((k) => k && typeof k === 'object' && (!name || k.name === name));
+function xmlFirst(node, name) { return xmlKids(node, name)[0] || null; }
+/** Busca en profundidad el primer nodo con ese nombre. */
+function xmlDeep(node, name) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.name === name) return node;
+  for (const k of (node.kids || [])) {
+    const hit = xmlDeep(k, name);
+    if (hit) return hit;
+  }
+  return null;
+}
+/** Todo el texto contenido en un nodo, con los saltos de párrafo respetados. */
+function xmlText(node) {
+  if (node == null) return '';
+  if (typeof node === 'string') return node;
+  let out = '';
+  for (const k of (node.kids || [])) {
+    if (typeof k === 'string') out += k;
+    else if (k.name === 'text:s') out += ' '.repeat(Math.max(1, Math.floor(num(k.attrs['text:c'], 1))));
+    else if (k.name === 'text:tab') out += '\t';
+    else if (k.name === 'text:line-break') out += '\n';
+    else out += xmlText(k);
+  }
+  return out;
+}
+
+// ── OpenFormula ─────────────────────────────────────────────────────────
+/*
+ * ODF guarda las fórmulas en OpenFormula (parte 2 del estándar):
+ *   nuestra:  =SUMA(B2:B3)*2
+ *   ODF:      of:=SUM([.B2:.B3])*2
+ * Las referencias van entre corchetes con un punto delante de la celda, los
+ * argumentos se separan con `;` y los nombres de función van en inglés.
+ */
+function toOpenFormula(formula) {
+  const t = s(formula);
+  if (t.charAt(0) !== '=') return '';
+  const lex = tokenize(t.slice(1));
+  if (lex.error) return '';
+  const BOOL_WORDS = { VERDADERO: 'TRUE', TRUE: 'TRUE', FALSO: 'FALSE', FALSE: 'FALSE' };
+  let out = 'of:=';
+  for (let i = 0; i < lex.tokens.length; i++) {
+    const tok = lex.tokens[i];
+    if (tok.t === T.ref) out += '[.' + s(tok.v).toUpperCase() + ']';
+    else if (tok.t === T.range) out += '[.' + s(tok.a).toUpperCase() + ':.' + s(tok.b).toUpperCase() + ']';
+    else if (tok.t === T.str) out += '"' + s(tok.v).replace(/"/g, '""') + '"';
+    else if (tok.t === T.num) out += String(tok.v);
+    else if (tok.t === T.name) {
+      // OpenFormula escribe las constantes lógicas como funciones: TRUE().
+      const next = lex.tokens[i + 1];
+      const bare = BOOL_WORDS[tok.v] && !(next && next.t === T.open);
+      out += bare ? BOOL_WORDS[tok.v] + '()' : (FN_CANON[tok.v] || tok.v);
+    }
+    else if (tok.t === T.open) out += '(';
+    else if (tok.t === T.close) out += ')';
+    else if (tok.t === T.sep) out += ';';
+    else out += tok.v;
+  }
+  return out;
+}
+
+/** Y la vuelta: de OpenFormula a lo que entiende nuestro motor. */
+function fromOpenFormula(text) {
+  let t = s(text).trim();
+  if (!t) return '';
+  t = t.replace(/^of:/, '').replace(/^msoxl:/, '');
+  if (t.charAt(0) !== '=') return '';
+  // [.B2:.B3] → B2:B3 · [.A1] → A1 · [$Hoja.A1] → A1 (otra hoja: se pierde el
+  // nombre, pero el valor calculado ya viaja en la celda).
+  t = t.replace(/\[([^\]]*)\]/g, (m0, inner) => s(inner)
+    .split(':')
+    .map((part) => s(part).replace(/^\$?[^.]*\./, '').replace(/\$/g, ''))
+    .join(':'));
+  return t;
+}
+
+// ── Escritura: hoja de cálculo (.ods) ───────────────────────────────────
+const ODF_NS = [
+  'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"',
+  'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"',
+  'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"',
+  'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"',
+  'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"',
+  'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"',
+  'xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0"',
+  'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"',
+  'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2"',
+  'xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0"',
+].join('\n  ');
+
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n';
+
+function odfContent(bodyType, inner, autoStyles) {
+  return XML_HEAD
+    + '<office:document-content\n  ' + ODF_NS + '\n  office:version="1.3">\n'
+    + '<office:automatic-styles>\n' + (autoStyles || '') + '</office:automatic-styles>\n'
+    + '<office:body><office:' + bodyType + '>\n' + inner
+    + '</office:' + bodyType + '></office:body>\n'
+    + '</office:document-content>\n';
+}
+
+function odfStyles() {
+  return XML_HEAD
+    + '<office:document-styles\n  ' + ODF_NS + '\n  office:version="1.3">\n'
+    + '<office:styles>\n'
+    + '<style:style style:name="Standard" style:family="paragraph"/>\n'
+    + '</office:styles>\n'
+    + '<office:master-styles>\n'
+    + '<style:master-page style:name="Standard" style:page-layout-name="pm1"/>\n'
+    + '</office:master-styles>\n'
+    + '</office:document-styles>\n';
+}
+
+function odfManifest(mimetype, extra) {
+  const files = ['content.xml', 'styles.xml', 'meta.xml'].concat(extra || []);
+  return XML_HEAD
+    + '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">\n'
+    + '<manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="' + mimetype + '"/>\n'
+    + files.map((f) => '<manifest:file-entry manifest:full-path="' + f + '" manifest:media-type="text/xml"/>').join('\n')
+    + '\n</manifest:manifest>\n';
+}
+
+function odfMeta(title) {
+  return XML_HEAD
+    + '<office:document-meta\n  ' + ODF_NS + '\n'
+    + '  xmlns:dc="http://purl.org/dc/elements/1.1/"\n'
+    + '  xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"\n'
+    + '  office:version="1.3">\n'
+    + '<office:meta>\n'
+    + '<meta:generator>Kimos WorkOffice ' + xmlEsc(APP_VERSION) + '</meta:generator>\n'
+    + '<dc:title>' + xmlEsc(title) + '</dc:title>\n'
+    + '<dc:date>' + xmlEsc(new Date().toISOString().slice(0, 19)) + '</dc:date>\n'
+    + '</office:meta>\n</office:document-meta>\n';
+}
+
+/** Arma el paquete ODF completo, con `mimetype` primero y sin comprimir. */
+function odfPackage(mimetype, content, title) {
+  return zipStore([
+    { name: 'mimetype', data: utf8(mimetype) },
+    { name: 'META-INF/manifest.xml', data: utf8(odfManifest(mimetype)) },
+    { name: 'content.xml', data: utf8(content) },
+    { name: 'styles.xml', data: utf8(odfStyles()) },
+    { name: 'meta.xml', data: utf8(odfMeta(title)) },
+  ]);
+}
+
+const ODF_MIME = {
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odt: 'application/vnd.oasis.opendocument.text',
+  odp: 'application/vnd.oasis.opendocument.presentation',
+};
+
+/** Estilos de celda: uno por combinación de negrita/cursiva/alineación. */
+function odsCellStyles(sheets) {
+  const seen = new Map();
+  const key = (c) => [c.b ? 'b' : '', c.i ? 'i' : '', c.a || ''].join('|');
+  sheets.forEach((sh) => Object.keys(sh.cells).forEach((addr) => {
+    const c = sh.cells[addr];
+    if (!c || (!c.b && !c.i && !c.a)) return;
+    const k = key(c);
+    if (!seen.has(k)) seen.set(k, 'ce' + (seen.size + 1));
+  }));
+  let xml = '';
+  seen.forEach((name, k) => {
+    const parts = k.split('|');
+    xml += '<style:style style:name="' + name + '" style:family="table-cell" style:parent-style-name="Default">'
+      + (parts[2] ? '<style:paragraph-properties fo:text-align="' + (parts[2] === 'right' ? 'end' : parts[2] === 'center' ? 'center' : 'start') + '"/>' : '')
+      + '<style:text-properties'
+      + (parts[0] ? ' fo:font-weight="bold"' : '')
+      + (parts[1] ? ' fo:font-style="italic"' : '')
+      + '/></style:style>\n';
+  });
+  return { xml, nameOf: (c) => (c && (c.b || c.i || c.a) ? seen.get(key(c)) : '') };
+}
+
+function sheetFileToOds(file) {
+  const doc = sheetDoc(file.data);
+  const styles = odsCellStyles(doc.sheets);
+  let body = '';
+  doc.sheets.forEach((sh) => {
+    const ev = makeSheetEval(sh.cells, {});
+    let maxR = -1; let maxC = -1;
+    Object.keys(sh.cells).forEach((a) => {
+      const at = parseAddr(a);
+      if (!at) return;
+      if (at.r > maxR) maxR = at.r;
+      if (at.c > maxC) maxC = at.c;
+    });
+    body += '<table:table table:name="' + xmlEsc(sh.name) + '">\n'
+      + '<table:table-column table:number-columns-repeated="' + Math.max(1, maxC + 1) + '"/>\n';
+    for (let r = 0; r <= maxR; r++) {
+      body += '<table:table-row>';
+      for (let c = 0; c <= maxC; c++) {
+        const cell = sh.cells[addrOf(r, c)];
+        const raw = cell ? s(cell.v) : '';
+        const styleName = styles.nameOf(cell);
+        const attrsStyle = styleName ? ' table:style-name="' + styleName + '"' : '';
+        if (!raw) { body += '<table:table-cell' + attrsStyle + '/>'; continue; }
+        const value = ev.get(r, c);
+        const formula = raw.charAt(0) === '=' ? toOpenFormula(raw) : '';
+        const fAttr = formula ? ' table:formula="' + xmlEsc(formula) + '"' : '';
+        body += '<table:table-cell' + attrsStyle + fAttr + odsValueAttrs(value, cell) + '>'
+          + '<text:p>' + xmlEsc(formatValue(value, (cell && cell.f) || '', model.cfg.currency)) + '</text:p>'
+          + '</table:table-cell>';
+      }
+      body += '</table:table-row>\n';
+    }
+    body += '</table:table>\n';
+  });
+  return odfPackage(ODF_MIME.ods, odfContent('spreadsheet', body, styles.xml), file.name);
+}
+
+/** Tipo y valor de la celda tal y como los espera ODF. */
+function odsValueAttrs(value, cell) {
+  if (isErr(value)) return ' office:value-type="string"';
+  if (isDate(value)) return ' office:value-type="date" office:date-value="' + daysToIso(value.__d) + '"';
+  if (typeof value === 'boolean') return ' office:value-type="boolean" office:boolean-value="' + (value ? 'true' : 'false') + '"';
+  if (typeof value === 'number') {
+    const pct = cell && cell.f === 'percent';
+    return ' office:value-type="' + (pct ? 'percentage' : 'float') + '" office:value="' + value + '"';
+  }
+  return ' office:value-type="string"';
+}
+
+// ── Escritura: documento (.odt) ─────────────────────────────────────────
+/** Texto con marcas → `<text:span>` con los estilos declarados arriba. */
+function odtInline(text) {
+  let out = '';
+  let last = 0;
+  let m;
+  INLINE_RE.lastIndex = 0;
+  const t = s(text);
+  while ((m = INLINE_RE.exec(t)) !== null) {
+    if (m.index > last) out += xmlEsc(t.slice(last, m.index));
+    const tok = m[0];
+    if (tok.indexOf('**') === 0) out += '<text:span text:style-name="Tb">' + xmlEsc(tok.slice(2, -2)) + '</text:span>';
+    else if (tok.indexOf('~~') === 0) out += '<text:span text:style-name="Ts">' + xmlEsc(tok.slice(2, -2)) + '</text:span>';
+    else if (tok.charAt(0) === '`') out += '<text:span text:style-name="Tc">' + xmlEsc(tok.slice(1, -1)) + '</text:span>';
+    else if (tok.charAt(0) === '[') {
+      const cut = tok.indexOf('](');
+      const href = safeHref(tok.slice(cut + 2, -1));
+      const label = xmlEsc(tok.slice(1, cut));
+      out += href ? '<text:a xlink:href="' + xmlEsc(href) + '">' + label + '</text:a>' : label;
+    } else out += '<text:span text:style-name="Ti">' + xmlEsc(tok.slice(1, -1)) + '</text:span>';
+    last = m.index + tok.length;
+  }
+  if (last < t.length) out += xmlEsc(t.slice(last));
+  return out;
+}
+
+const ODT_TEXT_STYLES = [
+  '<style:style style:name="Tb" style:family="text"><style:text-properties fo:font-weight="bold"/></style:style>',
+  '<style:style style:name="Ti" style:family="text"><style:text-properties fo:font-style="italic"/></style:style>',
+  '<style:style style:name="Ts" style:family="text"><style:text-properties style:text-line-through-style="solid"/></style:style>',
+  '<style:style style:name="Tc" style:family="text"><style:text-properties style:font-name="Courier New"/></style:style>',
+  '<style:style style:name="Pq" style:family="paragraph"><style:paragraph-properties fo:margin-left="1cm"/></style:style>',
+].join('\n') + '\n';
+
+function docFileToOdt(file) {
+  const doc = docDoc(file.data);
+  let body = '';
+  let list = null;      // 'ul' | 'ol' | null
+  const closeList = () => { if (list) { body += '</text:list>\n'; list = null; } };
+
+  doc.blocks.forEach((b) => {
+    const kind = b.t === 'ul' || b.t === 'todo' ? 'ul' : (b.t === 'ol' ? 'ol' : null);
+    if (kind) {
+      if (list !== kind) { closeList(); body += '<text:list>\n'; list = kind; }
+      const prefix = b.t === 'todo' ? (b.c ? '[x] ' : '[ ] ') : '';
+      body += '<text:list-item><text:p>' + xmlEsc(prefix) + odtInline(b.x) + '</text:p></text:list-item>\n';
+      return;
+    }
+    closeList();
+    if (b.t === 'h1' || b.t === 'h2' || b.t === 'h3') {
+      const lvl = b.t.charAt(1);
+      body += '<text:h text:outline-level="' + lvl + '">' + odtInline(b.x) + '</text:h>\n';
+      return;
+    }
+    if (b.t === 'hr') { body += '<text:p/>\n'; return; }
+    if (b.t === 'quote') { body += '<text:p text:style-name="Pq">' + odtInline(b.x) + '</text:p>\n'; return; }
+    if (b.t === 'code') {
+      s(b.x).split('\n').forEach((line) => {
+        body += '<text:p><text:span text:style-name="Tc">' + xmlEsc(line) + '</text:span></text:p>\n';
+      });
+      return;
+    }
+    if (b.t === 'img') {
+      // La imagen vive en el Cloud Storage: se exporta su pie y el nombre del
+      // archivo, no el binario (el documento seguiría apuntando a KIMOS).
+      const f2 = b.a ? getFile(b.a) : null;
+      body += '<text:p>' + xmlEsc('[' + (b.x || (f2 ? f2.name : 'imagen')) + ']') + '</text:p>\n';
+      return;
+    }
+    body += '<text:p>' + odtInline(b.x) + '</text:p>\n';
+  });
+  closeList();
+  return odfPackage(ODF_MIME.odt, odfContentText(body), file.name);
+}
+
+/** El cuerpo de texto necesita el espacio de nombres de los enlaces. */
+function odfContentText(inner) {
+  return XML_HEAD
+    + '<office:document-content\n  ' + ODF_NS + '\n  xmlns:xlink="http://www.w3.org/1999/xlink"\n  office:version="1.3">\n'
+    + '<office:automatic-styles>\n' + ODT_TEXT_STYLES + '</office:automatic-styles>\n'
+    + '<office:body><office:text>\n' + inner
+    + '</office:text></office:body>\n'
+    + '</office:document-content>\n';
+}
+
+// ── Escritura: presentación (.odp) ──────────────────────────────────────
+function deckFileToOdp(file) {
+  const doc = deckDoc(file.data);
+  let body = '';
+  doc.slides.forEach((sl, i) => {
+    body += '<draw:page draw:name="' + xmlEsc('Diapositiva ' + (i + 1)) + '" draw:master-page-name="Standard">\n';
+    const lines = [];
+    if (sl.t) lines.push(sl.t);
+    bulletsOf(sl.b).forEach((x) => lines.push(x));
+    if (sl.l === 'two') bulletsOf(sl.b2).forEach((x) => lines.push(x));
+    body += '<draw:frame draw:layer="layout" svg:width="24cm" svg:height="12cm" svg:x="2cm" svg:y="3cm">\n'
+      + '<draw:text-box>\n'
+      + lines.map((x) => '<text:p>' + odtInline(x) + '</text:p>').join('\n')
+      + '\n</draw:text-box>\n</draw:frame>\n';
+    if (sl.n) {
+      body += '<presentation:notes><draw:frame draw:layer="layout" svg:width="16cm" svg:height="8cm" svg:x="2cm" svg:y="14cm">'
+        + '<draw:text-box><text:p>' + odtInline(sl.n) + '</text:p></draw:text-box>'
+        + '</draw:frame></presentation:notes>\n';
+    }
+    body += '</draw:page>\n';
+  });
+  return odfPackage(ODF_MIME.odp, odfContentText2(body), file.name);
+}
+
+function odfContentText2(inner) {
+  return XML_HEAD
+    + '<office:document-content\n  ' + ODF_NS + '\n  xmlns:xlink="http://www.w3.org/1999/xlink"\n  office:version="1.3">\n'
+    + '<office:automatic-styles>\n' + ODT_TEXT_STYLES + '</office:automatic-styles>\n'
+    + '<office:body><office:presentation>\n' + inner
+    + '</office:presentation></office:body>\n'
+    + '</office:document-content>\n';
+}
+
+// ── Lectura ─────────────────────────────────────────────────────────────
+/** Detecta qué trae el paquete por su `mimetype`. */
+function odfKindOf(files) {
+  const mt = files['mimetype'] ? fromUtf8(files['mimetype']).trim() : '';
+  if (mt === ODF_MIME.ods) return 'sheet';
+  if (mt === ODF_MIME.odt) return 'doc';
+  if (mt === ODF_MIME.odp) return 'deck';
+  return '';
+}
+
+/** `.ods` → documento de hoja de cálculo nuestro. */
+function odsToSheetDoc(root) {
+  const sheets = [];
+  const body = xmlDeep(root, 'office:spreadsheet');
+  xmlKids(body, 'table:table').forEach((tbl, idx) => {
+    const sh = newSheet(s(tbl.attrs['table:name']) || ('Hoja ' + (idx + 1)));
+    const cells = {};
+    let r = 0;
+    xmlKids(tbl, 'table:table-row').forEach((row) => {
+      const rowRepeat = Math.min(1000, Math.max(1, Math.floor(num(row.attrs['table:number-rows-repeated'], 1))));
+      let c = 0;
+      const rowCells = [];
+      xmlKids(row, 'table:table-cell').forEach((cell) => {
+        const rep = Math.min(1000, Math.max(1, Math.floor(num(cell.attrs['table:number-columns-repeated'], 1))));
+        const formula = fromOpenFormula(cell.attrs['table:formula']);
+        const type = s(cell.attrs['office:value-type']);
+        let v = '';
+        if (formula) v = formula;
+        else if (type === 'float' || type === 'percentage' || type === 'currency') v = s(cell.attrs['office:value']);
+        else if (type === 'date') v = s(cell.attrs['office:date-value']).slice(0, 10);
+        else if (type === 'boolean') v = s(cell.attrs['office:boolean-value']) === 'true' ? 'VERDADERO' : 'FALSO';
+        else v = xmlKids(cell, 'text:p').map(xmlText).join('\n');
+        rowCells.push({ v, rep });
+        c += rep;
+      });
+      for (let rr = 0; rr < rowRepeat && r < MAX_ROWS; rr++) {
+        let cc = 0;
+        rowCells.forEach((entry) => {
+          for (let k = 0; k < entry.rep && cc < MAX_COLS; k++) {
+            if (s(entry.v)) cells[addrOf(r, cc)] = { v: s(entry.v) };
+            cc++;
+          }
+        });
+        r++;
+      }
+    });
+    sheets.push(withCells(sh, cells));
+  });
+  return { sheets: sheets.length ? sheets : [newSheet('Hoja 1')], active: 0 };
+}
+
+/** `.odt` → documento por bloques nuestro. */
+function odtToDocDoc(root) {
+  const body = xmlDeep(root, 'office:text');
+  const blocks = [];
+  const walk = (node) => {
+    xmlKids(node).forEach((k) => {
+      if (k.name === 'text:h') {
+        const lvl = Math.max(1, Math.min(3, Math.floor(num(k.attrs['text:outline-level'], 1))));
+        blocks.push(newBlock('h' + lvl, xmlText(k)));
+      } else if (k.name === 'text:p') {
+        const txt = xmlText(k);
+        if (txt.trim()) blocks.push(newBlock('p', txt));
+      } else if (k.name === 'text:list') {
+        xmlKids(k, 'text:list-item').forEach((li) => {
+          const txt = xmlText(li).replace(/^\[[ xX]\]\s*/, '');
+          const done = /^\[[xX]\]/.test(xmlText(li));
+          const b = newBlock(/^\[[ xX]\]/.test(xmlText(li)) ? 'todo' : 'ul', txt);
+          if (done) b.c = true;
+          blocks.push(b);
+        });
+      } else if (k.name === 'text:section' || k.name === 'table:table') {
+        walk(k);
+      }
+    });
+  };
+  walk(body);
+  return { blocks: blocks.length ? blocks : newDocDoc().blocks };
+}
+
+/**
+ * Importa un archivo de oficina. Devuelve `{ kind, name, data }` listo para
+ * `createFile`, o lanza con un motivo legible.
+ */
+async function importOfficeBuffer(buffer, filename) {
+  const name = s(filename);
+  if (/\.(docx|xlsx|pptx)$/i.test(name)) {
+    throw new Error('Los formatos de Microsoft (.docx, .xlsx, .pptx) todavía no se leen aquí. '
+      + 'Ábrelo en LibreOffice u ONLYOFFICE y guárdalo como .odt, .ods u .odp.');
+  }
+  let files;
+  try {
+    files = await zipRead(buffer);
+  } catch (e) {
+    throw new Error('No se pudo abrir el archivo: ' + s((e && e.message) || 'formato desconocido'));
+  }
+  const kind = odfKindOf(files);
+  if (!kind) throw new Error('El archivo no es un documento OpenDocument (.ods, .odt u .odp).');
+  if (!files['content.xml']) throw new Error('El paquete no trae content.xml: está incompleto.');
+  const root = xmlParse(fromUtf8(files['content.xml']));
+  const base = name.replace(/\.[^.]+$/, '') || 'Importado';
+  if (kind === 'sheet') return { kind: 'sheet', name: base, data: odsToSheetDoc(root) };
+  if (kind === 'doc') return { kind: 'doc', name: base, data: odtToDocDoc(root) };
+  throw new Error('Las presentaciones .odp todavía solo se exportan, no se importan.');
+}
+
+/** Exporta el archivo abierto al formato ODF que le corresponda. */
+function exportOdf(file) {
+  try {
+    let bytes; let ext;
+    if (file.kind === 'sheet') { bytes = sheetFileToOds(file); ext = 'ods'; }
+    else if (file.kind === 'doc') { bytes = docFileToOdt(file); ext = 'odt'; }
+    else if (file.kind === 'deck') { bytes = deckFileToOdp(file); ext = 'odp'; }
+    else { notify('warn', 'Este tipo de archivo no tiene formato OpenDocument.'); return false; }
+    const blob = new Blob([bytes], { type: ODF_MIME[ext] });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = s(file.name).replace(/[^\w.\- ]+/g, '_').slice(0, 110) + '.' + ext;
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    notify('success', 'Exportado como .' + ext + ' — se abre en LibreOffice, ONLYOFFICE, Excel o Google.');
+    return true;
+  } catch (e) {
+    notify('error', 'No se pudo exportar: ' + s((e && e.message) || 'error'));
+    return false;
+  }
+}
+
+/** Abre el selector del sistema y crea un archivo con lo importado. */
+function pickAndImportOffice() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.ods,.odt,.odp,.csv,.tsv,.txt';
+  input.onchange = async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    if (f.size > 20 * 1024 * 1024) { notify('error', 'El archivo supera los 20 MB.'); return; }
+    if (/\.(csv|tsv|txt)$/i.test(f.name)) {
+      const text = await f.text();
+      const rows = parseDelimited(text, guessDelim(text));
+      const sh = newSheet('Hoja 1');
+      const changes = {};
+      rows.forEach((row, r) => row.forEach((v, c) => {
+        if (r >= MAX_ROWS || c >= MAX_COLS) return;
+        const val = s(v).charAt(0) === '=' ? "'" + s(v) : s(v);
+        if (val) changes[addrOf(r, c)] = Object.assign({ v: val }, r === 0 ? { b: true } : {});
+      }));
+      const created = await createFile('sheet', nextFreeName('sheet', f.name.replace(/\.[^.]+$/, '')), { sheets: [withCells(sh, changes)], active: 0 });
+      if (created) { openFileInModule(created); notify('success', 'CSV importado como hoja de cálculo.'); }
+      return;
+    }
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const out = await importOfficeBuffer(buf, f.name);
+      const created = await createFile(out.kind, nextFreeName(out.kind, out.name), out.data);
+      if (created) { openFileInModule(created); notify('success', '"' + created.name + '" importado desde OpenDocument.'); }
+    } catch (e) {
+      notify('error', s((e && e.message) || 'No se pudo importar el archivo.'));
+    }
+  };
+  input.click();
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/30-sheets.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ HOJA DE CÁLCULO ═══════════════════════════════════════════════════════
@@ -1981,6 +2946,7 @@ function sheetDoc(data) {
     cols: x.cols && typeof x.cols === 'object' ? x.cols : {},
     rows: Math.max(1, Math.min(MAX_ROWS, Math.floor(num(x.rows, DEFAULT_ROWS)) || DEFAULT_ROWS)),
     ncols: Math.max(1, Math.min(MAX_COLS, Math.floor(num(x.ncols, DEFAULT_COLS)) || DEFAULT_COLS)),
+    frozen: x.frozen ? 1 : 0,      // 1 = la primera fila queda fija al desplazarse
   }));
   if (!sheets.length) sheets = [newSheet('Hoja 1')];
   const active = Math.max(0, Math.min(sheets.length - 1, Math.floor(num(d.active, 0))));
@@ -2104,8 +3070,11 @@ function SheetEditor(p) {
   }, [sheet.cols, sheet.ncols]);
 
   // Ventana visible: solo estas filas se montan (ReactGrid §docs).
-  const first = Math.max(0, Math.floor(scrollTop / rowH) - OVERSCAN);
+  // Con la primera fila inmovilizada, esa fila deja de formar parte del área
+  // que se desplaza: las demás se dibujan una posición más arriba.
+  const frozen = sheet.frozen ? 1 : 0;
   const visible = Math.ceil(viewport / rowH) + OVERSCAN * 2;
+  const first = Math.max(frozen, Math.floor(scrollTop / rowH) + frozen - OVERSCAN);
   const last = Math.min(sheet.rows - 1, first + visible);
 
   useEffect(() => {
@@ -2276,6 +3245,61 @@ function SheetEditor(p) {
     return snap;
   }
 
+  /**
+   * Ordena por la columna activa. Con una sola celda seleccionada ordena el
+   * rango usado **saltándose la primera fila**, que casi siempre es el
+   * encabezado; con un rango seleccionado ordena exactamente ese rango. En los
+   * dos casos se dice en pantalla qué se ordenó, porque ordenar mal una tabla y
+   * no enterarse es de los errores más caros de una planilla.
+   */
+  const sortByActiveColumn = (dir) => {
+    const n1 = normSel(sel);
+    const wide = selSize(sel) > 1;
+    const col = n1.c1;
+    const lastRow = lastUsedRow(sheet);
+    const r0 = wide ? n1.r1 : 1;
+    const r1 = wide ? n1.r2 : lastRow;
+    const c0 = wide ? n1.c1 : 0;
+    const c1 = wide ? n1.c2 : Math.max(0, sheet.ncols - 1);
+    if (r1 <= r0) { notify('warn', 'Hacen falta al menos dos filas para ordenar.'); return; }
+
+    const ev = makeSheetEval(sheet.cells, {});
+    const rowsOut = [];
+    for (let r = r0; r <= r1; r++) {
+      const cells = [];
+      for (let c = c0; c <= c1; c++) cells.push(sheet.cells[addrOf(r, c)] || null);
+      rowsOut.push({ key: ev.get(r, col), cells });
+    }
+    // Números antes que texto, y los vacíos siempre al final: es lo que hacen
+    // Calc y Excel, y lo que la gente espera al mirar el resultado.
+    const rank = (v) => (v === '' || v == null ? 3 : (isErr(v) ? 2 : (typeof v === 'string' ? 1 : 0)));
+    rowsOut.sort((a, b) => {
+      const ra = rank(a.key); const rb = rank(b.key);
+      if (ra !== rb) return ra - rb;
+      if (ra === 3) return 0;
+      if (ra === 0) { const x = toNumber(a.key); const y = toNumber(b.key); return (x - y) * dir; }
+      const x = canon(toText(a.key)); const y = canon(toText(b.key));
+      return (x < y ? -1 : x > y ? 1 : 0) * dir;
+    });
+
+    const changes = {};
+    rowsOut.forEach((row, i) => {
+      row.cells.forEach((cell, j) => {
+        changes[addrOf(r0 + i, c0 + j)] = cell ? Object.assign({}, cell) : null;
+      });
+    });
+    applyChanges(changes);
+    notify('success', 'Ordenado por la columna ' + colName(col) + ' ('
+      + (dir > 0 ? 'A→Z' : 'Z→A') + '), filas ' + (r0 + 1) + '–' + (r1 + 1)
+      + (wide ? '' : ' (se respetó la fila 1 como encabezado)') + '.');
+  };
+
+  const toggleFreeze = () => {
+    const sheets = doc.sheets.slice();
+    sheets[si] = Object.assign({}, sheet, { frozen: sheet.frozen ? 0 : 1 });
+    patchFile(file.id, { data: { sheets, active: si } });
+  };
+
   // ── Portapapeles ──────────────────────────────────────────────────────
   const selectionTsv = (raw) => {
     const n1 = normSel(sel);
@@ -2351,7 +3375,8 @@ function SheetEditor(p) {
   const ensureVisible = (r) => {
     const el = scroller.current;
     if (!el) return;
-    const top = r * rowH;
+    if (frozen && r < frozen) return;      // la fila fija siempre se ve
+    const top = (r - frozen) * rowH;
     if (top < el.scrollTop) el.scrollTop = top;
     else if (top + rowH > el.scrollTop + el.clientHeight - HEAD_H) el.scrollTop = top + rowH - el.clientHeight + HEAD_H;
   };
@@ -2561,8 +3586,8 @@ function SheetEditor(p) {
       })));
   }
 
-  const rows = [];
-  for (let r = first; r <= last; r++) {
+  /** Dibuja una fila completa en la posición vertical indicada. */
+  const buildRow = (r, topPx) => {
     const cellsOfRow = [];
     for (let c = 0; c < sheet.ncols; c++) {
       const cell = cellAt(sheet, r, c);
@@ -2600,16 +3625,20 @@ function SheetEditor(p) {
         })
         : text));
     }
-    rows.push(h('div', {
-      key: 'r' + r, className: 'wo-gr', style: { height: rowH + 'px', top: (r * rowH) + 'px' },
+    return h('div', {
+      key: 'r' + r, className: 'wo-gr', style: { height: rowH + 'px', top: topPx + 'px' },
     },
       h('div', {
         className: cx('wo-gn', r >= n.r1 && r <= n.r2 && 'wo-gh-on'),
         onMouseDown: () => setSel({ r1: r, c1: 0, r2: r, c2: Math.max(0, sheet.ncols - 1) }),
         title: 'Fila ' + (r + 1),
       }, r + 1),
-      cellsOfRow));
-  }
+      cellsOfRow);
+  };
+
+  const rows = [];
+  for (let r = first; r <= last; r++) rows.push(buildRow(r, (r - frozen) * rowH));
+  const frozenRow = frozen ? buildRow(0, 0) : null;
 
   const fmtOptions = CELL_FORMATS;
   const selLabel = selSize(sel) > 1
@@ -2617,52 +3646,142 @@ function SheetEditor(p) {
     : addrOf(active.r, active.c);
 
   return h('div', { className: 'wo-sheet' },
-    // Barra de herramientas
-    h('div', { className: 'wo-tools' },
-      h(IconBtn, { icon: '↶', title: 'Deshacer (Ctrl+Z)', onClick: undo }),
-      h(IconBtn, { icon: '↷', title: 'Rehacer (Ctrl+Y)', onClick: redo }),
-      h(Sep),
-      h(IconBtn, { icon: 'B', title: 'Negrita (Ctrl+B)', active: !!activeCell.b, onClick: () => toggleStyle('b'), className: 'wo-ibtn-b' }),
-      h(IconBtn, { icon: 'I', title: 'Cursiva (Ctrl+I)', active: !!activeCell.i, onClick: () => toggleStyle('i'), className: 'wo-ibtn-it' }),
-      h(Sep),
-      h(IconBtn, { icon: '⇤', title: 'Alinear a la izquierda', active: activeCell.a === 'left', onClick: () => styleSelection({ a: 'left' }) }),
-      h(IconBtn, { icon: '↔', title: 'Centrar', active: activeCell.a === 'center', onClick: () => styleSelection({ a: 'center' }) }),
-      h(IconBtn, { icon: '⇥', title: 'Alinear a la derecha', active: activeCell.a === 'right', onClick: () => styleSelection({ a: 'right' }) }),
-      h(Sep),
-      h(Select, {
-        value: activeCell.f || '', options: fmtOptions, ariaLabel: 'Formato de celda',
-        title: 'Formato de las celdas seleccionadas',
-        onChange: (v) => styleSelection({ f: v }),
-      }),
-      h(Sep),
-      h(Menu, {
-        icon: '＋', title: 'Insertar y eliminar',
-        items: [
-          { icon: '⬆️', label: 'Insertar fila encima', onClick: () => shiftRowsCols('row', n.r1, 1) },
-          { icon: '⬇️', label: 'Insertar fila debajo', onClick: () => shiftRowsCols('row', n.r2 + 1, 1) },
-          { icon: '⬅️', label: 'Insertar columna a la izquierda', onClick: () => shiftRowsCols('col', n.c1, 1) },
-          { icon: '➡️', label: 'Insertar columna a la derecha', onClick: () => shiftRowsCols('col', n.c2 + 1, 1) },
-          { divider: true },
-          { icon: '🗑️', label: 'Eliminar fila(s)', danger: true, onClick: () => shiftRowsCols('row', n.r1, -(n.r2 - n.r1 + 1)) },
-          { icon: '🗑️', label: 'Eliminar columna(s)', danger: true, onClick: () => shiftRowsCols('col', n.c1, -(n.c2 - n.c1 + 1)) },
-        ],
-      }),
-      h(Menu, {
-        icon: '⇄', title: 'Importar y exportar',
-        items: [
-          { icon: '📥', label: 'Importar CSV…', onClick: pickFile },
-          { icon: '📤', label: 'Exportar CSV', onClick: exportCsv },
-          { icon: '📋', label: 'Copiar como texto', onClick: () => { void copyText(selectionTsv(false)); notify('success', 'Selección copiada.'); } },
-          { divider: true },
-          {
-            icon: '🔗', label: 'Traer datos de KIMOS…',
-            disabled: cfg.kimosData === false,
-            onClick: () => setDialog('kimos'),
-          },
-          { divider: true },
-          { icon: '🖨️', label: 'Imprimir / PDF', onClick: () => printSheet(file, sheet, evalSheet, cfg) },
-        ],
-      })),
+    // Cinta de opciones (ver src/12-ribbon.js)
+    h(Ribbon, {
+      scope: 'sheet',
+      right: h('span', { className: 'wo-muted wo-rb-hint' }, selSize(sel) > 1 ? selLabel : ''),
+      tabs: [
+        {
+          id: 'inicio', label: 'Inicio',
+          groups: [
+            {
+              label: 'Deshacer',
+              items: [
+                h(RibbonBtn, { key: 'u', icon: '↶', label: 'Deshacer', title: 'Ctrl+Z', onClick: undo }),
+                h(RibbonBtn, { key: 'r', icon: '↷', label: 'Rehacer', title: 'Ctrl+Y', onClick: redo }),
+              ],
+            },
+            {
+              label: 'Fuente',
+              items: [
+                h(IconBtn, { key: 'b', icon: 'B', title: 'Negrita (Ctrl+B)', active: !!activeCell.b, onClick: () => toggleStyle('b'), className: 'wo-ibtn-b' }),
+                h(IconBtn, { key: 'i', icon: 'I', title: 'Cursiva (Ctrl+I)', active: !!activeCell.i, onClick: () => toggleStyle('i'), className: 'wo-ibtn-it' }),
+              ],
+            },
+            {
+              label: 'Alineación',
+              items: [
+                h(IconBtn, { key: 'l', icon: '⇤', title: 'Alinear a la izquierda', active: activeCell.a === 'left', onClick: () => styleSelection({ a: 'left' }) }),
+                h(IconBtn, { key: 'c', icon: '↔', title: 'Centrar', active: activeCell.a === 'center', onClick: () => styleSelection({ a: 'center' }) }),
+                h(IconBtn, { key: 'r', icon: '⇥', title: 'Alinear a la derecha', active: activeCell.a === 'right', onClick: () => styleSelection({ a: 'right' }) }),
+              ],
+            },
+            {
+              label: 'Número',
+              items: [
+                h(Select, {
+                  key: 'f', value: activeCell.f || '', options: CELL_FORMATS, ariaLabel: 'Formato de celda',
+                  title: 'Formato de las celdas seleccionadas', onChange: (v) => styleSelection({ f: v }),
+                }),
+              ],
+            },
+            {
+              label: 'Celdas',
+              items: [
+                h(IconBtn, { key: 'x', icon: '🧹', title: 'Borrar el contenido de la selección (Supr)', onClick: clearSelection }),
+              ],
+            },
+          ],
+        },
+        {
+          id: 'insertar', label: 'Insertar',
+          groups: [
+            {
+              label: 'Filas y columnas',
+              items: [
+                h(RibbonBtn, { key: 'ra', icon: '⬆️', label: 'Fila encima', onClick: () => shiftRowsCols('row', n.r1, 1) }),
+                h(RibbonBtn, { key: 'rb', icon: '⬇️', label: 'Fila debajo', onClick: () => shiftRowsCols('row', n.r2 + 1, 1) }),
+                h(RibbonBtn, { key: 'cl', icon: '⬅️', label: 'Columna izq.', onClick: () => shiftRowsCols('col', n.c1, 1) }),
+                h(RibbonBtn, { key: 'cr', icon: '➡️', label: 'Columna der.', onClick: () => shiftRowsCols('col', n.c2 + 1, 1) }),
+              ],
+            },
+            {
+              label: 'Eliminar',
+              items: [
+                h(RibbonBtn, { key: 'dr', icon: '🗑️', label: 'Filas', title: 'Eliminar las filas seleccionadas', onClick: () => shiftRowsCols('row', n.r1, -(n.r2 - n.r1 + 1)) }),
+                h(RibbonBtn, { key: 'dc', icon: '🗑️', label: 'Columnas', title: 'Eliminar las columnas seleccionadas', onClick: () => shiftRowsCols('col', n.c1, -(n.c2 - n.c1 + 1)) }),
+              ],
+            },
+            {
+              label: 'Hoja',
+              items: [h(RibbonBtn, { key: 'ns', icon: '＋', label: 'Nueva hoja', onClick: addSheet })],
+            },
+          ],
+        },
+        {
+          id: 'datos', label: 'Datos',
+          groups: [
+            {
+              label: 'Ordenar',
+              items: [
+                h(RibbonBtn, { key: 'az', icon: '🔼', label: 'A → Z', title: 'Ordenar por la columna activa, de menor a mayor', onClick: () => sortByActiveColumn(1) }),
+                h(RibbonBtn, { key: 'za', icon: '🔽', label: 'Z → A', title: 'Ordenar por la columna activa, de mayor a menor', onClick: () => sortByActiveColumn(-1) }),
+              ],
+            },
+            {
+              label: 'OpenDocument',
+              items: [
+                h(RibbonBtn, { key: 'ods', icon: '📊', label: 'Exportar .ods', title: 'Abre en LibreOffice, ONLYOFFICE, Excel o Google', onClick: () => exportOdf(file) }),
+                h(RibbonBtn, { key: 'imp', icon: '📥', label: 'Importar', title: 'Abrir un .ods o un CSV', onClick: pickAndImportOffice }),
+              ],
+            },
+            {
+              label: 'CSV',
+              items: [
+                h(RibbonBtn, { key: 'ic', icon: '📥', label: 'CSV aquí', title: 'Importar un CSV en esta hoja', onClick: pickFile }),
+                h(RibbonBtn, { key: 'ec', icon: '📤', label: 'CSV', title: 'Exportar esta hoja a CSV', onClick: exportCsv }),
+              ],
+            },
+            {
+              label: 'KIMOS',
+              items: [
+                h(RibbonBtn, {
+                  key: 'k', icon: '🔗', label: 'Traer datos', disabled: cfg.kimosData === false,
+                  title: 'Productos, Clientes o Pedidos', onClick: () => setDialog('kimos'),
+                }),
+              ],
+            },
+          ],
+        },
+        {
+          id: 'ver', label: 'Ver',
+          groups: [
+            {
+              label: 'Ventana',
+              items: [
+                h(RibbonBtn, {
+                  key: 'fz', icon: '🧊', label: sheet.frozen ? 'Liberar fila' : 'Inmovilizar fila',
+                  active: !!sheet.frozen,
+                  title: 'La primera fila se queda fija al desplazarse',
+                  onClick: toggleFreeze,
+                }),
+              ],
+            },
+            {
+              label: 'Selección',
+              items: [
+                h(RibbonBtn, { key: 'cp', icon: '📋', label: 'Copiar', title: 'Copiar la selección como texto', onClick: () => { void copyText(selectionTsv(false)); notify('success', 'Selección copiada.'); } }),
+              ],
+            },
+            {
+              label: 'Salida',
+              items: [h(RibbonBtn, { key: 'pr', icon: '🖨️', label: 'Imprimir', onClick: () => printSheet(file, sheet, evalSheet, cfg) })],
+            },
+          ],
+        },
+      ],
+    }),
+
 
     // Barra de fórmulas
     h('div', { className: 'wo-fbar' },
@@ -2691,9 +3810,15 @@ function SheetEditor(p) {
       h('div', { className: 'wo-grid-head', style: { width: (ROWNUM_W + totalW) + 'px' } },
         h('div', { className: 'wo-gh wo-gh-corner', style: { width: ROWNUM_W + 'px' }, onMouseDown: () => setSel({ r1: 0, c1: 0, r2: sheet.rows - 1, c2: sheet.ncols - 1 }), title: 'Seleccionar todo' }),
         colHeads),
+      frozenRow
+        ? h('div', {
+          className: 'wo-grid-frozen',
+          style: { width: (ROWNUM_W + totalW) + 'px', height: rowH + 'px' },
+        }, frozenRow)
+        : null,
       h('div', {
         className: 'wo-grid-body',
-        style: { height: (sheet.rows * rowH) + 'px', width: (ROWNUM_W + totalW) + 'px' },
+        style: { height: ((sheet.rows - frozen) * rowH) + 'px', width: (ROWNUM_W + totalW) + 'px' },
       }, rows)),
 
     // Pestañas de hojas + resumen
@@ -3912,6 +5037,16 @@ function DocEditor(p) {
         return;
       }
     }
+    // Autocorrección tipográfica (src/14-autocorrect.js). Nunca en código.
+    if (model.cfg.autocorrect !== false && b.t !== 'code') {
+      const el = refs.current[b.id];
+      const fix = autocorrectAtCaret(value, el ? el.selectionStart : value.length);
+      if (fix) {
+        setBlock(b.id, { x: fix.value });
+        pendingFocus.current = { id: b.id, at: fix.caret };
+        return;
+      }
+    }
     setBlock(b.id, { x: value });
   };
 
@@ -3984,43 +5119,113 @@ function DocEditor(p) {
   });
 
   return h('div', { className: 'wo-doc' },
-    h('div', { className: 'wo-tools' },
-      h(Select, {
-        value: cur ? cur.t : 'p', ariaLabel: 'Tipo de bloque', title: 'Tipo del bloque actual',
-        options: BLOCK_TYPES.map((b) => ({ value: b.id, label: b.label })),
-        onChange: (v) => { if (cur) setBlock(cur.id, { t: v }); },
-      }),
-      h(Sep),
-      h(IconBtn, { icon: 'B', title: 'Negrita (Ctrl+B)', className: 'wo-ibtn-b', onClick: () => cur && applyMark(cur.id, '**') }),
-      h(IconBtn, { icon: 'I', title: 'Cursiva (Ctrl+I)', className: 'wo-ibtn-it', onClick: () => cur && applyMark(cur.id, '*') }),
-      h(IconBtn, { icon: 'S', title: 'Tachado', className: 'wo-ibtn-s', onClick: () => cur && applyMark(cur.id, '~~') }),
-      h(IconBtn, { icon: '‹›', title: 'Código', onClick: () => cur && applyMark(cur.id, '`') }),
-      h(IconBtn, { icon: '🔗', title: 'Enlace', onClick: () => cur && applyMark(cur.id, '[', '](https://)') }),
-      h(Sep),
-      h(IconBtn, { icon: '⬆', title: 'Subir el bloque', onClick: () => cur && moveBlock(cur.id, -1) }),
-      h(IconBtn, { icon: '⬇', title: 'Bajar el bloque', onClick: () => cur && moveBlock(cur.id, 1) }),
-      h(Sep),
-      h(IconBtn, {
-        icon: '🖼️', title: 'Insertar una imagen del almacenamiento',
-        onClick: () => setPicker(true),
-      }),
-      h(IconBtn, { icon: '📎', title: 'Adjuntar un archivo al documento', onClick: () => setPicker('any') }),
-      h(Sep),
-      h(IconBtn, { icon: '📑', title: 'Índice del documento', active: outline, onClick: () => setOutline(!outline) }),
-      h(Menu, {
-        icon: '⇄', title: 'Exportar',
-        items: [
-          { icon: '📝', label: 'Exportar Markdown', onClick: exportMd },
-          { icon: '📋', label: 'Copiar todo como texto', onClick: () => { void copyText(docToMarkdown(doc)); notify('success', 'Documento copiado.'); } },
-          { icon: '🖨️', label: 'Imprimir / PDF', onClick: print },
-          { divider: true },
-          {
-            icon: '👥', label: 'Combinar con Clientes…',
-            disabled: !kimosAvailable(),
-            onClick: () => setMerge(true),
-          },
-        ],
-      })),
+    h(Ribbon, {
+      scope: 'doc',
+      right: h('span', { className: 'wo-muted wo-rb-hint' },
+        (BLOCK_BY_ID[cur ? cur.t : 'p'] || {}).label || ''),
+      tabs: [
+        {
+          id: 'inicio', label: 'Inicio',
+          groups: [
+            {
+              label: 'Estilo del bloque',
+              items: [
+                h(Select, {
+                  key: 'bt', value: cur ? cur.t : 'p', ariaLabel: 'Tipo de bloque',
+                  title: 'Tipo del bloque actual',
+                  options: BLOCK_TYPES.map((b) => ({ value: b.id, label: b.label })),
+                  onChange: (v) => { if (cur) setBlock(cur.id, { t: v }); },
+                }),
+              ],
+            },
+            {
+              label: 'Formato',
+              items: [
+                h(IconBtn, { key: 'b', icon: 'B', title: 'Negrita (Ctrl+B)', className: 'wo-ibtn-b', onClick: () => cur && applyMark(cur.id, '**') }),
+                h(IconBtn, { key: 'i', icon: 'I', title: 'Cursiva (Ctrl+I)', className: 'wo-ibtn-it', onClick: () => cur && applyMark(cur.id, '*') }),
+                h(IconBtn, { key: 's', icon: 'S', title: 'Tachado', className: 'wo-ibtn-s', onClick: () => cur && applyMark(cur.id, '~~') }),
+                h(IconBtn, { key: 'c', icon: '‹›', title: 'Código', onClick: () => cur && applyMark(cur.id, '`') }),
+                h(IconBtn, { key: 'l', icon: '🔗', title: 'Enlace', onClick: () => cur && applyMark(cur.id, '[', '](https://)') }),
+              ],
+            },
+            {
+              label: 'Orden',
+              items: [
+                h(IconBtn, { key: 'u', icon: '⬆', title: 'Subir el bloque', onClick: () => cur && moveBlock(cur.id, -1) }),
+                h(IconBtn, { key: 'd', icon: '⬇', title: 'Bajar el bloque', onClick: () => cur && moveBlock(cur.id, 1) }),
+              ],
+            },
+          ],
+        },
+        {
+          id: 'insertar', label: 'Insertar',
+          groups: [
+            {
+              label: 'Del almacenamiento',
+              items: [
+                h(RibbonBtn, { key: 'im', icon: '🖼️', label: 'Imagen', title: 'Insertar una imagen subida a KIMOS', onClick: () => setPicker(true) }),
+                h(RibbonBtn, { key: 'at', icon: '📎', label: 'Adjunto', title: 'Insertar un archivo subido a KIMOS', onClick: () => setPicker('any') }),
+              ],
+            },
+            {
+              label: 'Bloques',
+              items: [
+                h(RibbonBtn, {
+                  key: 'hr', icon: '—', label: 'Separador',
+                  onClick: () => { if (cur) { const nb = newBlock('hr', ''); const bs = doc.blocks.slice(); bs.splice(indexOfBlock(cur.id) + 1, 0, nb); write(bs); } },
+                }),
+                h(RibbonBtn, {
+                  key: 'td', icon: '☑', label: 'Tarea',
+                  onClick: () => { if (cur) setBlock(cur.id, { t: 'todo' }); },
+                }),
+              ],
+            },
+            {
+              label: 'Datos de KIMOS',
+              items: [
+                h(RibbonBtn, {
+                  key: 'mm', icon: '👥', label: 'Combinar', disabled: !kimosAvailable(),
+                  title: 'Un documento por cliente, sustituyendo {{campos}}',
+                  onClick: () => setMerge(true),
+                }),
+              ],
+            },
+          ],
+        },
+        {
+          id: 'archivo', label: 'Archivo',
+          groups: [
+            {
+              label: 'OpenDocument',
+              items: [
+                h(RibbonBtn, { key: 'odt', icon: '📄', label: 'Exportar .odt', title: 'Abre en LibreOffice, ONLYOFFICE, Word o Google', onClick: () => exportOdf(file) }),
+                h(RibbonBtn, { key: 'imp', icon: '📥', label: 'Importar', title: 'Abrir un .odt', onClick: pickAndImportOffice }),
+              ],
+            },
+            {
+              label: 'Otros formatos',
+              items: [
+                h(RibbonBtn, { key: 'md', icon: '📝', label: 'Markdown', onClick: exportMd }),
+                h(RibbonBtn, { key: 'cp', icon: '📋', label: 'Copiar', title: 'Copiar todo el documento como texto', onClick: () => { void copyText(docToMarkdown(doc)); notify('success', 'Documento copiado.'); } }),
+                h(RibbonBtn, { key: 'pr', icon: '🖨️', label: 'Imprimir', onClick: print }),
+              ],
+            },
+          ],
+        },
+        {
+          id: 'ver', label: 'Ver',
+          groups: [
+            {
+              label: 'Navegación',
+              items: [
+                h(RibbonBtn, { key: 'ol', icon: '📑', label: 'Índice', active: outline, title: 'Mostrar el índice del documento', onClick: () => setOutline(!outline) }),
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+
 
     h('div', { className: 'wo-doc-body' },
       outline ? h('nav', { className: 'wo-outline', 'aria-label': 'Índice' },
@@ -4471,6 +5676,8 @@ function DeckEditor(p) {
       h(Menu, {
         icon: '⇄', title: 'Exportar',
         items: [
+          { icon: '🖼️', label: 'Exportar OpenDocument (.odp)', onClick: () => exportOdf(file) },
+          { divider: true },
           { icon: '📝', label: 'Exportar Markdown', onClick: exportMd },
           { icon: '🖨️', label: 'Imprimir / PDF', onClick: print },
         ],
@@ -4725,7 +5932,20 @@ function NoteCard(p) {
       ? h('textarea', {
         ref: ta, className: 'wo-note-in', value: note.x, rows: 6,
         placeholder: 'Escribe la nota. **negrita**, *cursiva*, #etiqueta',
-        onChange: (e) => p.onChange({ x: e.target.value }),
+        onChange: (e) => {
+          const el = e.target;
+          if (model.cfg.autocorrect !== false) {
+            const fix = autocorrectAtCaret(el.value, el.selectionStart);
+            if (fix) {
+              p.onChange({ x: fix.value });
+              // Devolver el cursor a su sitio tras el repintado.
+              const at = fix.caret;
+              setTimeout(() => { try { el.setSelectionRange(at, at); } catch (e2) { /* noop */ } }, 0);
+              return;
+            }
+          }
+          p.onChange({ x: el.value });
+        },
         onBlur: () => p.onEdit(false),
         'aria-label': 'Texto de la nota',
       })
@@ -5154,6 +6374,13 @@ function DriveView(p) {
 
   return h('div', { className: 'wo-drive' },
     h('div', { className: 'wo-newbar' },
+      h('button', {
+        type: 'button', className: 'wo-new wo-new-import', onClick: pickAndImportOffice,
+        title: 'Abrir un .ods, .odt o CSV hecho en LibreOffice, ONLYOFFICE, Excel o Google',
+      },
+        h('span', { className: 'wo-new-i', 'aria-hidden': 'true' }, '📥'),
+        h('span', { className: 'wo-new-t' }, 'Importar'),
+        h('span', { className: 'wo-new-n' }, '.ods · .odt · CSV')),
       Object.keys(KINDS).map((k) => h('button', {
         key: k, type: 'button', className: 'wo-new', onClick: () => ctx.create(k),
         title: 'Crear ' + KINDS[k].label.toLowerCase(),

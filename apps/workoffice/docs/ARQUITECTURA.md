@@ -47,7 +47,10 @@ Cada paso se cerró con su verificación antes de empezar el siguiente.
 |---|---|---|---|
 | 1 | `src/00-core.js` | Estado, almacén sobre `shell.items`, autoguardado, sincronización, ciclo de vida | `test/app.test.mjs` (persistencia real contra un `shell` simulado) |
 | 2 | `src/10-ui.js` | Botones, menús, diálogos, vacíos, texto con marcas, impresión, descargas | `test/render.test.mjs` |
+| 2b | `src/12-ribbon.js` | Cinta de opciones con pestañas y grupos | render |
+| 2c | `src/14-autocorrect.js` | Autocorrección tipográfica | `test/autocorrect.test.mjs` (19 pruebas) |
 | 3 | `src/20-formula.js` | Motor de fórmulas: tokenizador, parser, evaluador, formatos | `test/formula.test.mjs` (86 pruebas) |
+| 3b | `src/22-odf.js` | OpenDocument: ZIP, XML, OpenFormula, .ods/.odt/.odp | `test/odf.test.mjs` (26 pruebas, con esquema OASIS) |
 | 4 | `src/30-sheets.js` | Grilla virtualizada, selección, edición, hojas, CSV, deshacer | render + integración |
 | 5 | `src/35-kimos-data.js` | Puente `shell.data` con Productos, Clientes, Pedidos, Planificación y Notas de Equipo | degradación sin `shell.data` probada |
 | 5b | `src/36-storage.js` | Cloud Storage: subir, releer, descargar y borrar archivos reales | `test/storage.test.mjs` (23 pruebas) |
@@ -210,11 +213,41 @@ peor que no borrar.
 
 ---
 
+## 6.c OpenDocument
+
+Toda la interoperabilidad cabe en `src/22-odf.js`, sin una sola dependencia:
+
+```
+escritor ZIP («store»)  ·  lector ZIP (store + deflate vía DecompressionStream)
+lector XML propio       ·  OpenFormula ida y vuelta
+```
+
+**Por qué un lector XML propio y no `DOMParser`**: no entiende DOCTYPE ni
+entidades, así que un `.ods` hostil no puede montar una expansión de entidades
+ni pedirle al navegador que abra otra cosa. Si aparece un DOCTYPE, se rechaza el
+archivo.
+
+**Por qué ZIP sin comprimir**: ODF lo admite, cabe en 40 líneas y evita traer
+una librería de deflate. Un documento de oficina pesa kilobytes. `mimetype` va
+primero y sin comprimir, como exige OpenDocument §3.3.
+
+**Las fórmulas viajan de verdad.** `toOpenFormula` traduce `=SUMA(B2:B3)` a
+`of:=SUM([.B2:.B3])` —nombres al inglés canónico (`FN_CANON`), referencias entre
+corchetes, booleanos como `TRUE()`— y `fromOpenFormula` deshace el camino. Por
+eso el motor acepta también `TRUE()`/`FALSE()`: es como los escribe ODF.
+
+La decisión completa, con la matriz de qué se adoptó y qué se descartó de
+ONLYOFFICE y LibreOffice, está en
+[`ADOPCION-ONLYOFFICE-LIBREOFFICE.md`](ADOPCION-ONLYOFFICE-LIBREOFFICE.md).
+
+---
+
 ## 7. Qué queda fuera, a propósito
 
 | Fuera | Por qué | Camino si se pide |
 |---|---|---|
-| Leer/escribir `.docx`, `.xlsx`, `.pptx` | Librerías pesadas ejecutándose en la sesión del usuario | Conversión en el backend, no en el bundle |
+| Leer/escribir `.docx`, `.xlsx`, `.pptx` | OOXML necesita bastante más superficie y compresión real | El ZIP y el lector XML ya están: falta el mapeo de sus esquemas |
+| Imágenes dentro del ODF exportado | Alcance de la 1.2 | Empaquetar el binario en `Pictures/`, ahora que los adjuntos viven en el Storage |
 | Edición concurrente carácter a carácter | No hay push del servidor (APP-SPEC §5.1) | Requiere contrato nuevo — ver INTEGRACION-KIMOS §5 |
 | Gráficos en la hoja | Alcance; el motor y el documento ya lo permiten | Un tipo de bloque `chart` sobre el modelo actual |
 | Miniaturas generadas en el servidor | Hoy la imagen se descarga entera para verla | Un endpoint de *thumbnail* en el backend |
@@ -235,3 +268,6 @@ peor que no borrar.
 | Añadir una preferencia ⚙️ | `manifest.json` → `configSchema` + `DEFAULT_CFG` en `src/00-core.js` |
 | Integrar otra app de KIMOS | `src/35-kimos-data.js` + permiso `data.read:` en el manifest |
 | Cambiar cómo se suben archivos | `src/36-storage.js` (contrato) y `src/38-files.js` (interfaz) |
+| Tocar la exportación a ODF | `src/22-odf.js` + `test/odf.test.mjs` |
+| Añadir una regla de autocorrección | `AUTOCORRECT_RULES` en `src/14-autocorrect.js` |
+| Cambiar la cinta de un módulo | El array `tabs` que ese módulo pasa a `Ribbon` |

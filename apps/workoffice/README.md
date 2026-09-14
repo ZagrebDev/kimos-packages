@@ -4,7 +4,7 @@ Suite ofimática de KIMOS: **Documentos, Hojas de cálculo, Presentaciones, Nota
 y Calendario** en una sola ventana del escritorio, guardadas en la plataforma y
 manejables por el agente IA.
 
-Versión actual: **1.1.0**
+Versión actual: **1.2.0**
 
 - **Código fuente y pruebas**: repositorio [`Kimos-workoffice`](https://github.com/bvaldes-arch/Kimos-workoffice).
   Aquí vive el paquete publicable (`manifest.json` + `dist/` + `docs/`); `dist/`
@@ -32,12 +32,29 @@ pisan y el explorador puede listar sin abrir nada.
 | 📅 **Calendario** | Mes, semana y agenda; superpone las tareas de **Planificación** en solo lectura |
 | 📎 **Archivos** | Sube documentos, PDF e imágenes al **Cloud Storage de KIMOS** arrastrándolos a la ventana; previsualización, descarga y dos destinos explícitos |
 
+## Interoperabilidad: OpenDocument de verdad
+
+Exporta e importa **`.ods`, `.odt` y `.odp`** — los formatos que abren
+LibreOffice, ONLYOFFICE, Microsoft Office y Google Workspace. Las hojas viajan
+con sus **fórmulas** en OpenFormula (`=SUMA(B2:B3)` ⇄ `of:=SUM([.B2:.B3])`), no
+solo con los resultados.
+
+Escrito desde la especificación OASIS y **sin dependencias**: escritor y lector
+ZIP propios, lector XML propio —que rechaza DOCTYPE por seguridad— y conversión
+de fórmulas. Las pruebas lo **validan contra el esquema RelaxNG oficial de
+OASIS**.
+
+Qué se adoptó de ONLYOFFICE y de LibreOffice, qué se descartó y por qué
+(licencias incluidas): [`docs/ADOPCION-ONLYOFFICE-LIBREOFFICE.md`](docs/ADOPCION-ONLYOFFICE-LIBREOFFICE.md).
+
 Los archivos subidos se insertan como imagen en documentos y diapositivas y se
 enlazan a notas y eventos: el binario se guarda una vez y se referencia desde
 donde haga falta.
 
-Transversal: autoguardado con el estado siempre a la vista, paleta de comandos
-`Ctrl+K`, día y noche con el tema de KIMOS, y control total por agente IA.
+Transversal: **cinta de opciones con pestañas** (Inicio · Insertar · Datos ·
+Ver) en Documentos y Hojas, **autocorrección tipográfica** en español,
+autoguardado con el estado siempre a la vista, paleta de comandos `Ctrl+K`, día
+y noche con el tema de KIMOS, y control total por agente IA.
 
 ## Archivos en el Cloud Storage
 
@@ -104,9 +121,9 @@ concretas (nunca `data.read:*`) y todo esto se puede apagar desde ⚙️ Configu
 
 ## Preferencias (⚙️ Configurar)
 
-Módulo de inicio · autoguardado · destino de los archivos subidos · interfaz
-compacta · primer día de la semana · moneda de las hojas · traer datos de otras
-apps de KIMOS.
+Módulo de inicio · autoguardado · destino de los archivos subidos ·
+autocorrección tipográfica · interfaz compacta · primer día de la semana ·
+moneda de las hojas · traer datos de otras apps de KIMOS.
 
 ## Agente IA
 
@@ -124,11 +141,13 @@ tiene acceso al disco de nadie—: solo listar los ya subidos y adjuntarlos.
 - [`docs/INVESTIGACION-UX.md`](docs/INVESTIGACION-UX.md) — hallazgos, decisiones de diseño, lo descartado y qué medir
 - [`docs/INTEGRACION-KIMOS.md`](docs/INTEGRACION-KIMOS.md) — integración y análisis de redundancia app por app
 - [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — modelo de datos, módulos, guardado y sincronización
+- [`docs/ADOPCION-ONLYOFFICE-LIBREOFFICE.md`](docs/ADOPCION-ONLYOFFICE-LIBREOFFICE.md) — qué se adoptó de cada proyecto y qué se descartó
 - [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md) — reglas de seguridad y comprobaciones previas a publicar
 
 ## Historial
 
 | Versión | Qué trae |
 |---|---|
-| **1.1.0** | **Cloud Storage**: subida de archivos al almacenamiento de KIMOS arrastrándolos a la ventana, con destino privado del equipo (por defecto) o enlace público y verificación de relectura; módulo Archivos con previsualización y descarga; imágenes en documentos y diapositivas; adjuntos en notas y eventos; `LIST_UPLOADS` y `ATTACH_FILE` para el agente. 162 pruebas. |
+| **1.2.0** | **OpenDocument**: exportar e importar .ods, .odt y .odp con las fórmulas en OpenFormula, validado contra el esquema RelaxNG de OASIS; **cinta de opciones** con pestañas en Documentos y Hojas; **autocorrección tipográfica** en español; ordenar por columna e inmovilizar la primera fila. 209 pruebas. |
+| 1.1.0 | **Cloud Storage**: subida de archivos al almacenamiento de KIMOS arrastrándolos a la ventana, con destino privado del equipo (por defecto) o enlace público y verificación de relectura; módulo Archivos con previsualización y descarga; imágenes en documentos y diapositivas; adjuntos en notas y eventos; `LIST_UPLOADS` y `ATTACH_FILE` para el agente. 162 pruebas. |
 | 1.0.0 | Primera versión: los cinco módulos, motor de fórmulas propio (sin `eval`, con detección de ciclos), paleta de comandos, autoguardado con fusión por archivo, integración de solo lectura con Productos, Clientes, Pedidos, Planificación y Notas de Equipo, agente IA con 13 herramientas, y 127 pruebas automatizadas. |
