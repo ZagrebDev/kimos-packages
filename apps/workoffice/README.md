@@ -4,7 +4,7 @@ Suite ofimática de KIMOS: **Documentos, Hojas de cálculo, Presentaciones, Nota
 y Calendario** en una sola ventana del escritorio, guardadas en la plataforma y
 manejables por el agente IA.
 
-Versión actual: **1.0.0**
+Versión actual: **1.1.0**
 
 - **Código fuente y pruebas**: repositorio [`Kimos-workoffice`](https://github.com/bvaldes-arch/Kimos-workoffice).
   Aquí vive el paquete publicable (`manifest.json` + `dist/` + `docs/`); `dist/`
@@ -30,9 +30,38 @@ pisan y el explorador puede listar sin abrir nada.
 | 🖼️ **Presentaciones** | Seis plantillas, notas del orador y **modo presentación** a pantalla completa con reloj |
 | 🗒️ **Notas** | Tablero con colores, fijado y `#etiquetas`; pestaña de solo lectura con las **Notas de Equipo** |
 | 📅 **Calendario** | Mes, semana y agenda; superpone las tareas de **Planificación** en solo lectura |
+| 📎 **Archivos** | Sube documentos, PDF e imágenes al **Cloud Storage de KIMOS** arrastrándolos a la ventana; previsualización, descarga y dos destinos explícitos |
+
+Los archivos subidos se insertan como imagen en documentos y diapositivas y se
+enlazan a notas y eventos: el binario se guarda una vez y se referencia desde
+donde haga falta.
 
 Transversal: autoguardado con el estado siempre a la vista, paleta de comandos
 `Ctrl+K`, día y noche con el tema de KIMOS, y control total por agente IA.
+
+## Archivos en el Cloud Storage
+
+Se usa el almacenamiento asociado a KIMOS con la sesión del usuario
+(`shell.authFetch`), el mismo endpoint que ya usa ProductLab:
+
+```
+POST {API}/api/v2/files                                   FormData { path, file }
+GET  {API}/api/storage/teams/{teamId}/files/download?path=…    (área del equipo)
+GET  {API}/api/public/files/{path}                             (área pública)
+```
+
+| Destino | Ruta | Quién lo ve |
+|---|---|---|
+| 🔒 **Privado del equipo** (por defecto) | `equipos/{teamId}/workoffice/{instanceId}/…` | Solo quien tiene acceso al equipo |
+| 🌐 **Enlace público** (explícito, con aviso) | `imagenes/workoffice/{instanceId}/…` | Cualquiera con el enlace |
+
+El prefijo `imagenes/` se sirve **sin autenticación**; por eso el destino
+privado es el predeterminado y el público exige elegirlo a la vista. Cada
+archivo muestra siempre su chapa 🔒 o 🌐.
+
+La primera subida de cada destino se **verifica releyéndola**: si el binario no
+se puede recuperar, no se registra el adjunto y se explica el motivo, en vez de
+dejar un enlace roto. Topes: 25 MB por archivo, 200 adjuntos por espacio.
 
 ## Atajos
 
@@ -75,18 +104,20 @@ concretas (nunca `data.read:*`) y todo esto se puede apagar desde ⚙️ Configu
 
 ## Preferencias (⚙️ Configurar)
 
-Módulo de inicio · autoguardado · interfaz compacta · primer día de la semana ·
-moneda de las hojas · traer datos de otras apps de KIMOS.
+Módulo de inicio · autoguardado · destino de los archivos subidos · interfaz
+compacta · primer día de la semana · moneda de las hojas · traer datos de otras
+apps de KIMOS.
 
 ## Agente IA
 
-13 herramientas: `LIST_FILES`, `SEARCH`, `READ_FILE`, `CREATE_FILE`,
+15 herramientas: `LIST_FILES`, `SEARCH`, `READ_FILE`, `CREATE_FILE`,
 `RENAME_FILE`, `DELETE_FILE`, `OPEN_FILE`, `SHEET_SET`, `DOC_APPEND`,
-`SLIDE_ADD`, `NOTE_ADD`, `EVENT_ADD`, `GO_TO`.
+`SLIDE_ADD`, `NOTE_ADD`, `EVENT_ADD`, `GO_TO`, `LIST_UPLOADS`, `ATTACH_FILE`.
 
 El agente usa exactamente las mismas funciones que la interfaz, valida todo lo
 que recibe y **no tiene ninguna herramienta de borrado definitivo**:
-`DELETE_FILE` solo mueve a la papelera.
+`DELETE_FILE` solo mueve a la papelera. Tampoco puede **subir** archivos —no
+tiene acceso al disco de nadie—: solo listar los ya subidos y adjuntarlos.
 
 ## Documentación
 
@@ -99,4 +130,5 @@ que recibe y **no tiene ninguna herramienta de borrado definitivo**:
 
 | Versión | Qué trae |
 |---|---|
-| **1.0.0** | Primera versión: los cinco módulos, motor de fórmulas propio (sin `eval`, con detección de ciclos), paleta de comandos, autoguardado con fusión por archivo, integración de solo lectura con Productos, Clientes, Pedidos, Planificación y Notas de Equipo, agente IA con 13 herramientas, y 127 pruebas automatizadas. |
+| **1.1.0** | **Cloud Storage**: subida de archivos al almacenamiento de KIMOS arrastrándolos a la ventana, con destino privado del equipo (por defecto) o enlace público y verificación de relectura; módulo Archivos con previsualización y descarga; imágenes en documentos y diapositivas; adjuntos en notas y eventos; `LIST_UPLOADS` y `ATTACH_FILE` para el agente. 162 pruebas. |
+| 1.0.0 | Primera versión: los cinco módulos, motor de fórmulas propio (sin `eval`, con detección de ciclos), paleta de comandos, autoguardado con fusión por archivo, integración de solo lectura con Productos, Clientes, Pedidos, Planificación y Notas de Equipo, agente IA con 13 herramientas, y 127 pruebas automatizadas. |

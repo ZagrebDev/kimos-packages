@@ -86,10 +86,24 @@ la misma vía que `gantt` y son ~20 líneas.
 
 ### 2.4 App Archivos (sistema)
 
-Archivos guarda **ficheros** (PDF, imágenes, adjuntos). WorkOffice guarda
-**documentos vivos** que se editan dentro de la plataforma. La convivencia es
-clara: lo que se recibe de fuera vive en Archivos; lo que se redacta dentro vive
-en WorkOffice, y sale de ahí por exportación (CSV, Markdown, PDF).
+Con el módulo Archivos de WorkOffice (v1.1) el solapamiento pasa a ser real, así
+que conviene ser preciso:
+
+| | App Archivos (sistema) | Archivos de WorkOffice |
+|---|---|---|
+| Qué guarda | Los ficheros del escritorio, de cualquier origen | Los archivos **de este espacio de trabajo** |
+| Para qué | Almacén general del equipo | Material del documento que estás editando: la imagen del informe, el PDF del acta, el anexo de la reunión |
+| Dónde vive el binario | Cloud Storage de KIMOS | **El mismo Cloud Storage de KIMOS** |
+
+No hay duplicación de bytes: los dos escriben en el mismo almacenamiento por el
+mismo endpoint (`POST /api/v2/files`). Lo que cambia es el **contexto**: en
+WorkOffice un archivo subido queda enlazado al documento, la nota o el evento
+que lo usa, y aparece en el buscador del espacio junto al resto.
+
+**Mejora pendiente para la plataforma**: hoy WorkOffice no puede *listar* lo que
+hay en el área del equipo (solo descargar una ruta conocida). Con un endpoint de
+listado, «Insertar imagen» podría ofrecer lo que ya subió otra app en vez de
+pedir subirla otra vez. Anotado en §5.
 
 ---
 
@@ -163,3 +177,10 @@ Hallazgos que exceden a esta app y conviene que el equipo de KIMOS considere:
 4. **Un tipo de dato "archivo" compartido.** Si varias apps van a producir
    documentos, valdría un contrato común para que Archivos los liste sin conocer
    cada app.
+5. **Documentar el contrato del Cloud Storage en APP-SPEC.** Hoy
+   `POST /api/v2/files` y `/api/storage/teams/{teamId}/files/download` solo
+   existen en el código de `productlab`; cada app nueva los tiene que deducir
+   leyendo a otra. Faltan además, y se notan al usarlos:
+   **listar** un prefijo, **borrar** de forma confirmada (WorkOffice lo intenta
+   y avisa cuando el servidor no responde), y saber de antemano **qué prefijos
+   son públicos** en vez de inferirlo de un comentario.

@@ -680,3 +680,104 @@
     animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Archivos subidos al Cloud Storage ──────────────────────────────────── */
+.kimos-workoffice .wo-files { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.kimos-workoffice .wo-scope-hint {
+  flex: 0 0 auto; padding: 7px 16px; font-size: 12.5px; color: var(--wo-muted);
+  border-bottom: 1px solid var(--wo-soft); background: var(--wo-glass);
+}
+.kimos-workoffice .wo-scope-hint b { color: var(--wo-err); }
+.kimos-workoffice .wo-chip-warn { color: var(--wo-err); border-color: hsl(var(--destructive, 0 84% 60%) / 0.4); }
+
+.kimos-workoffice .wo-att-board { grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); }
+.kimos-workoffice .wo-att {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  border: 1px solid var(--wo-soft); border-radius: calc(var(--wo-radius) + 4px);
+  background: var(--wo-glass); backdrop-filter: blur(10px); box-shadow: var(--wo-shadow-sm);
+}
+.kimos-workoffice .wo-att-busy { opacity: 0.75; align-items: center; justify-content: center; text-align: center; }
+.kimos-workoffice .wo-att-main {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  border: 0; background: none; color: inherit; cursor: pointer; padding: 0; text-align: center;
+}
+.kimos-workoffice .wo-att-icon { font-size: 34px; line-height: 1.2; }
+.kimos-workoffice .wo-att-icon-xl { font-size: 56px; }
+.kimos-workoffice .wo-att-img {
+  width: 100%; height: 104px; object-fit: cover; border-radius: var(--wo-radius);
+  background: var(--wo-silver);
+}
+.kimos-workoffice .wo-att-img-big { height: auto; max-height: 320px; object-fit: contain; }
+.kimos-workoffice .wo-att-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; width: 100%; }
+.kimos-workoffice .wo-att-n {
+  font: 500 13px/1.35 'Inter', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kimos-workoffice .wo-att-m { font-size: 11.5px; color: var(--wo-muted); }
+.kimos-workoffice .wo-att-ft {
+  display: flex; align-items: center; gap: 6px;
+  border-top: 1px solid var(--wo-soft); padding-top: 7px;
+}
+.kimos-workoffice .wo-att-preview { display: flex; align-items: center; justify-content: center; min-height: 260px; }
+.kimos-workoffice .wo-att-full { max-width: 100%; max-height: 62vh; object-fit: contain; border-radius: var(--wo-radius); }
+.kimos-workoffice .wo-att-frame { width: 100%; height: 62vh; border: 1px solid var(--wo-soft); border-radius: var(--wo-radius); background: #fff; }
+.kimos-workoffice .wo-att-none { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--wo-muted); }
+.kimos-workoffice .wo-picklist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-top: 10px; }
+.kimos-workoffice .wo-picklist-grid .wo-pick { flex-direction: column; text-align: center; }
+.kimos-workoffice .wo-picklist-grid .wo-att-img { height: 76px; }
+
+/* Píldoras de adjuntos en notas y eventos */
+.kimos-workoffice .wo-attlist { display: flex; flex-wrap: wrap; gap: 5px; }
+.kimos-workoffice .wo-attpill {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  border: 1px solid var(--wo-soft); border-radius: 999px; padding: 2px 4px 2px 8px;
+  background: var(--wo-bg); font-size: 11.5px;
+}
+.kimos-workoffice .wo-attpill-add { cursor: pointer; color: var(--wo-muted); padding: 3px 10px; }
+.kimos-workoffice .wo-attpill-add:hover { color: var(--wo-fg); border-color: var(--wo-accent); }
+.kimos-workoffice .wo-attpill-n {
+  border: 0; background: none; color: inherit; cursor: pointer; padding: 0; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit;
+}
+.kimos-workoffice .wo-attpill-n:hover { text-decoration: underline; }
+.kimos-workoffice .wo-attpill-x {
+  border: 0; background: none; color: var(--wo-muted); cursor: pointer; padding: 0 3px; line-height: 1;
+}
+.kimos-workoffice .wo-attpill-x:hover { color: var(--wo-err); }
+
+/* Bloque de imagen dentro de un documento */
+.kimos-workoffice .wo-b-img { flex-direction: column; align-items: stretch; gap: 4px; margin: 12px 0; }
+.kimos-workoffice .wo-b-img-box {
+  border: 1px solid var(--wo-soft); background: var(--wo-glass); cursor: pointer;
+  border-radius: calc(var(--wo-radius) + 2px); padding: 8px; display: flex;
+  flex-direction: column; align-items: center; gap: 6px;
+}
+.kimos-workoffice .wo-b-img-box:hover { border-color: var(--wo-accent); }
+.kimos-workoffice .wo-b-img-name { font-size: 12.5px; color: var(--wo-muted); }
+.kimos-workoffice .wo-b-img-gone {
+  border: 1px dashed var(--wo-line); border-radius: var(--wo-radius);
+  padding: 12px; text-align: center; color: var(--wo-muted); font-size: 12.5px;
+}
+.kimos-workoffice .wo-b-cap {
+  border: 0; background: none; outline: none; color: var(--wo-muted);
+  font: italic 12.5px/1.5 'Inter', sans-serif; width: 100%; padding: 4px 2px; text-align: center;
+}
+.kimos-workoffice .wo-b-img figcaption { display: flex; align-items: center; gap: 4px; }
+
+/* Diapositiva con imagen */
+.kimos-workoffice .wo-sl-img {
+  flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.kimos-workoffice .wo-sl-img .wo-att-img-big { max-height: 100%; max-width: 100%; }
+
+/* Arrastrar y soltar sobre toda la ventana */
+.kimos-workoffice .wo-drop {
+  position: absolute; inset: 0; z-index: 90; display: grid; place-items: center;
+  background: hsl(var(--background, 220 20% 97%) / 0.82); backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.kimos-workoffice .wo-drop-box {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  border: 2px dashed var(--wo-accent); border-radius: calc(var(--wo-radius) + 8px);
+  padding: 34px 48px; background: var(--wo-glass-solid); box-shadow: var(--wo-shadow-md);
+}
+.kimos-workoffice .wo-drop-i { font-size: 34px; }

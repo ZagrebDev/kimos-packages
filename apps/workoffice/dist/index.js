@@ -1,5 +1,5 @@
 /**
- * Kimos WorkOffice v1.0.0 — suite ofimática de KIMOS.
+ * Kimos WorkOffice v1.1.0 — suite ofimática de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -22,7 +22,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // Se sincroniza sola desde manifest.json al compilar (APP-SPEC §7.a).
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -139,6 +139,9 @@ const KINDS = {
   deck: { id: 'deck', icon: '🖼️', label: 'Presentación', plural: 'Presentaciones', module: 'slides' },
   note: { id: 'note', icon: '🗒️', label: 'Nota', plural: 'Notas', module: 'notes' },
   event: { id: 'event', icon: '📅', label: 'Evento', plural: 'Calendario', module: 'calendar' },
+  // Un adjunto es un archivo REAL en el Cloud Storage de KIMOS; el item solo
+  // guarda su ruta y sus metadatos (ver src/36-storage.js).
+  attach: { id: 'attach', icon: '📎', label: 'Archivo subido', plural: 'Archivos', module: 'files' },
 };
 const MODULES = [
   { id: 'drive', icon: '🏠', label: 'Inicio', kind: null },
@@ -147,6 +150,7 @@ const MODULES = [
   { id: 'slides', icon: '🖼️', label: 'Presentaciones', kind: 'deck' },
   { id: 'notes', icon: '🗒️', label: 'Notas', kind: 'note' },
   { id: 'calendar', icon: '📅', label: 'Calendario', kind: 'event' },
+  { id: 'files', icon: '📎', label: 'Archivos', kind: 'attach' },
 ];
 const kindOf = (f) => (f && KINDS[f.kind] ? f.kind : 'doc');
 const isFile = (it) => !!(it && it.kind && KINDS[it.kind]);
@@ -155,6 +159,7 @@ const isFile = (it) => !!(it && it.kind && KINDS[it.kind]);
 const DEFAULT_CFG = {
   startModule: 'drive', autosave: true, dense: false,
   weekStart: '1', currency: 'CLP', kimosData: true,
+  uploadScope: 'team',    // dónde van los archivos subidos: 'team' | 'public'
 };
 
 // ── Estado observable ───────────────────────────────────────────────────
@@ -174,6 +179,7 @@ let model = {
   palette: false,
   cfg: Object.assign({}, DEFAULT_CFG),
   external: { gantt: [], notes: [], loadedAt: '' },
+  uploading: null,        // { name, phase } mientras sube un archivo al storage
 };
 const listeners = new Set();
 let emitScheduled = false;
@@ -532,6 +538,12 @@ function teardown() {
   if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onWake);
   if (typeof window !== 'undefined') window.removeEventListener('focus', onWake);
   listeners.clear();
+  // Las URLs de objeto de los adjuntos privados son memoria retenida por el
+  // navegador: si no se liberan, cerrar la ventana no la devuelve.
+  if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
+    blobUrls.forEach((url) => { try { URL.revokeObjectURL(url); } catch (e) { /* noop */ } });
+  }
+  blobUrls.clear();
   while (teardownTasks.length) {
     const fn = teardownTasks.pop();
     try { if (typeof fn === 'function') fn(); } catch (e) { /* limpiar nunca debe lanzar */ }
@@ -2983,6 +2995,669 @@ function KimosImportDialog(p) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/36-storage.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ CLOUD STORAGE ═════════════════════════════════════════════════════════
+ *
+ * Subida y lectura de archivos reales (PDF, imágenes, hojas de cálculo de
+ * fuera, lo que sea) contra el almacenamiento asociado a KIMOS.
+ *
+ * ── El contrato, y de dónde sale ──────────────────────────────────────────
+ * No está documentado en APP-SPEC, así que se tomó del código de la app
+ * `productlab`, que ya sube en producción:
+ *
+ *   ESCRITURA   POST {API}/api/v2/files
+ *               FormData { path, file }  ·  shell.authFetch
+ *               error → { detail: "…" }
+ *   LECTURA     GET  {API}/api/public/files/{path}              (área pública)
+ *               GET  {API}/api/storage/teams/{teamId}/files/download?path=…
+ *                                                               (área del equipo)
+ *
+ * ── La decisión que gobierna este archivo ─────────────────────────────────
+ * ProductLab cuelga todo de `imagenes/` **porque ese prefijo se sirve sin
+ * autenticación**: cualquiera con la URL ve el archivo. Para fotos de catálogo
+ * es lo correcto; para una suite ofimática sería un fallo grave — un contrato o
+ * una planilla de sueldos adjunta a una nota no puede quedar en una URL pública.
+ *
+ * Por eso hay **dos destinos explícitos** y el privado es el predeterminado:
+ *
+ *   🔒 equipo   `equipos/{teamId}/workoffice/{instanceId}/…`
+ *               Se lee con la sesión del usuario. Es el destino por defecto.
+ *   🌐 público  `imagenes/workoffice/{instanceId}/…`
+ *               Genera un enlace compartible. Solo si la persona lo pide, y
+ *               con el aviso a la vista.
+ *
+ * ── Verificación de ida y vuelta ──────────────────────────────────────────
+ * La escritura está confirmada; que el área del equipo se pueda **releer** por
+ * el mismo camino depende de cómo esté cableado el backend, y eso no se puede
+ * saber leyendo código de otra app. Así que la primera subida de cada destino
+ * se verifica: se sube y se vuelve a leer. Si la relectura falla, el destino se
+ * marca como no disponible y se dice en pantalla, en vez de dejar al usuario
+ * con un adjunto que cree guardado y no se puede abrir.
+ */
+
+const ATTACH_MAX_MB = 25;          // tope por archivo
+const ATTACH_MAX_TOTAL = 200;      // adjuntos por espacio de trabajo
+
+const SCOPES = {
+  team: {
+    id: 'team', icon: '🔒', label: 'Privado del equipo',
+    hint: 'Solo lo ve quien tiene acceso a este equipo. Recomendado.',
+    prefix: (teamId, instanceId) => 'equipos/' + teamId + '/workoffice/' + instanceId + '/',
+  },
+  public: {
+    id: 'public', icon: '🌐', label: 'Enlace público',
+    hint: 'Cualquiera con el enlace puede abrirlo, sin iniciar sesión.',
+    prefix: (teamId, instanceId) => 'imagenes/workoffice/' + instanceId + '/',
+  },
+};
+
+/** Estado de cada destino: '?' sin probar · 'ok' · 'no' (con el motivo). */
+const storageState = { team: '?', public: '?', reason: {} };
+
+const storageUsable = () => !!(shell.authFetch && instanceId && typeof FormData !== 'undefined');
+
+/** Nombre seguro para la ruta: sin acentos, sin espacios, sin travesías. */
+function safeStorageName(name, fallback) {
+  const base = s(name).split(/[\\/]/).pop();      // nunca una ruta, solo el nombre
+  const clean = base.toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 80);
+  return clean || (fallback || 'archivo');
+}
+
+function storagePath(scope, name) {
+  const sc = SCOPES[scope] || SCOPES.team;
+  const stem = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+  return sc.prefix(s(teamId) || 'sin-equipo', s(instanceId)) + stem + '-' + safeStorageName(name);
+}
+
+/** URL de lectura de un adjunto según dónde viva. */
+function storageReadUrl(att) {
+  if (!att || !att.path) return '';
+  if (att.scope === 'public') return API + '/api/public/files/' + att.path;
+  return API + '/api/storage/teams/' + encodeURIComponent(s(teamId))
+    + '/files/download?path=' + encodeURIComponent(att.path);
+}
+
+/** Sube un archivo. Devuelve `{ ok, att }` o `{ ok:false, error }`. */
+async function storageUpload(file, scope, onProgress) {
+  if (!storageUsable()) {
+    return { ok: false, error: 'Este host no permite subir archivos (falta authFetch o la app no tiene instancia).' };
+  }
+  const sc = SCOPES[scope] ? scope : 'team';
+  if (!file || !file.size) return { ok: false, error: 'El archivo está vacío.' };
+  const maxMB = ATTACH_MAX_MB;
+  if (file.size > maxMB * 1024 * 1024) {
+    return { ok: false, error: 'El archivo pesa ' + fmtBytes(file.size) + ' y el máximo son ' + maxMB + ' MB.' };
+  }
+  if (sc === 'team' && !teamId) {
+    return { ok: false, error: 'No hay equipo asociado a esta ventana: no se puede guardar en el área privada.' };
+  }
+  const path = storagePath(sc, file.name);
+  try {
+    if (onProgress) onProgress('subiendo');
+    const fd = new FormData();
+    fd.append('path', path);
+    fd.append('file', file);
+    const res = await shell.authFetch(API + '/api/v2/files', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      const why = s(d.detail) || ('HTTP ' + res.status);
+      storageState[sc] = 'no';
+      storageState.reason[sc] = why;
+      return { ok: false, error: 'El servidor rechazó la subida: ' + why };
+    }
+  } catch (e) {
+    return { ok: false, error: 'No se pudo subir: ' + s((e && e.message) || 'error de red') + '.' };
+  }
+
+  const att = {
+    path, scope: sc,
+    mime: s(file.type) || 'application/octet-stream',
+    size: file.size,
+    uploadedAt: stamp(), uploadedBy: meLabel(),
+  };
+  if (sc === 'public') att.publicUrl = API + '/api/public/files/' + path;
+
+  // Primera subida de este destino: se comprueba que lo escrito se pueda leer.
+  if (storageState[sc] !== 'ok') {
+    if (onProgress) onProgress('verificando');
+    const check = await storageProbe(att);
+    storageState[sc] = check.ok ? 'ok' : 'no';
+    if (!check.ok) {
+      storageState.reason[sc] = check.error;
+      return {
+        ok: false,
+        error: 'El archivo se subió pero no se pudo volver a leer (' + check.error + '). '
+          + 'No se guarda el adjunto para no dejarte un enlace roto.',
+        att,
+      };
+    }
+  }
+  return { ok: true, att };
+}
+
+/** Lee de vuelta lo recién subido: la única prueba fiable de que quedó bien. */
+async function storageProbe(att) {
+  try {
+    const res = await shell.authFetch(storageReadUrl(att), { cache: 'no-store' });
+    if (!res.ok) return { ok: false, error: 'HTTP ' + res.status + ' al releer' };
+    const blob = await res.blob();
+    if (!blob || !blob.size) return { ok: false, error: 'la relectura llegó vacía' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: s((e && e.message) || 'error de red') };
+  }
+}
+
+// ── Caché de URLs de objeto ─────────────────────────────────────────────
+/*
+ * Un adjunto privado no se puede poner en un `src` a secas: hace falta la
+ * sesión. Se descarga con authFetch y se convierte en una URL de objeto, que sí
+ * sirve para <img> y para abrir en otra pestaña. Se cachea por ruta y se libera
+ * en `teardown` — si no, cada repintado de la galería filtra memoria.
+ */
+const blobUrls = new Map();        // path -> objectURL
+const blobPending = new Map();     // path -> promesa en curso
+
+function attachmentSrc(att) {
+  if (!att || !att.path) return '';
+  if (att.scope === 'public') return att.publicUrl || storageReadUrl(att);
+  return blobUrls.get(att.path) || '';
+}
+
+/** Descarga (una sola vez) un adjunto privado y devuelve su URL de objeto. */
+async function loadAttachment(att) {
+  if (!att || !att.path) return '';
+  if (att.scope === 'public') return att.publicUrl || storageReadUrl(att);
+  if (blobUrls.has(att.path)) return blobUrls.get(att.path);
+  if (blobPending.has(att.path)) return blobPending.get(att.path);
+  if (!shell.authFetch) return '';
+  const job = (async () => {
+    try {
+      const res = await shell.authFetch(storageReadUrl(att));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      blobUrls.set(att.path, url);
+      return url;
+    } catch (e) {
+      return '';
+    } finally {
+      blobPending.delete(att.path);
+    }
+  })();
+  blobPending.set(att.path, job);
+  return job;
+}
+
+/** Descarga el adjunto al equipo del usuario, con su nombre original. */
+async function downloadAttachment(file) {
+  const att = attachDoc(file.data);
+  if (!att.path) { notify('error', 'El adjunto no tiene archivo asociado.'); return false; }
+  try {
+    const res = await shell.authFetch(storageReadUrl(att));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = s(file.name).replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'archivo';
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    return true;
+  } catch (e) {
+    notify('error', 'No se pudo descargar el archivo: ' + s((e && e.message) || 'error'));
+    return false;
+  }
+}
+
+/**
+ * Borra el binario del almacenamiento. El endpoint de borrado no está
+ * confirmado en ninguna app publicada, así que se intenta y se informa del
+ * resultado REAL: si el servidor no lo soporta, el adjunto desaparece del
+ * espacio de trabajo pero el binario sigue allí, y eso se dice — prometer un
+ * borrado que no ocurrió sería peor que no borrar.
+ */
+async function storageDelete(att) {
+  if (!att || !att.path || !shell.authFetch) return { ok: false, error: 'sin ruta' };
+  try {
+    const res = await shell.authFetch(API + '/api/v2/files?path=' + encodeURIComponent(att.path), { method: 'DELETE' });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: 'HTTP ' + res.status };
+  } catch (e) {
+    return { ok: false, error: s((e && e.message) || 'error de red') };
+  } finally {
+    const url = blobUrls.get(att.path);
+    if (url) { try { URL.revokeObjectURL(url); } catch (e2) { /* noop */ } blobUrls.delete(att.path); }
+  }
+}
+
+// ── El adjunto como archivo del espacio ─────────────────────────────────
+function attachDoc(data) {
+  const d = data && typeof data === 'object' ? data : {};
+  return {
+    path: s(d.path),
+    scope: SCOPES[d.scope] ? d.scope : 'team',
+    mime: s(d.mime) || 'application/octet-stream',
+    size: Math.max(0, Math.floor(num(d.size, 0))),
+    publicUrl: s(d.publicUrl),
+    uploadedAt: s(d.uploadedAt),
+    uploadedBy: s(d.uploadedBy),
+    note: s(d.note),
+  };
+}
+
+const isImageAttachment = (att) => /^image\//.test(s(att && att.mime));
+
+/** Tamaño legible: 1,4 MB en vez de 1468006. */
+function fmtBytes(n1) {
+  const b = Math.max(0, Math.floor(num(n1, 0)));
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return groupNum(b / 1024, 0) + ' KB';
+  return groupNum(b / (1024 * 1024), 1) + ' MB';
+}
+
+/** Icono según el tipo, para que la lista se lea de un vistazo. */
+function attachIcon(att) {
+  const m = s(att && att.mime);
+  const n = s(att && att.path);
+  if (/^image\//.test(m)) return '🖼️';
+  if (/pdf/.test(m) || /\.pdf$/i.test(n)) return '📕';
+  if (/spreadsheet|excel|csv/.test(m) || /\.(xlsx?|csv|tsv)$/i.test(n)) return '📊';
+  if (/word|document/.test(m) || /\.docx?$/i.test(n)) return '📝';
+  if (/presentation|powerpoint/.test(m) || /\.pptx?$/i.test(n)) return '🖼️';
+  if (/^video\//.test(m)) return '🎬';
+  if (/^audio\//.test(m)) return '🎵';
+  if (/zip|compressed|tar/.test(m) || /\.(zip|rar|7z|tar|gz)$/i.test(n)) return '🗜️';
+  if (/^text\//.test(m)) return '📃';
+  return '📎';
+}
+
+/**
+ * Sube una tanda de archivos y crea un adjunto por cada uno. Devuelve el
+ * resumen para informar de una sola vez, no con un toast por archivo.
+ */
+async function uploadFiles(fileList, scope) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return { added: [], failed: [] };
+  const existing = model.files.filter((f) => f.kind === 'attach' && !f.trashed).length;
+  const added = [];
+  const failed = [];
+  for (const raw of files) {
+    if (existing + added.length >= ATTACH_MAX_TOTAL) {
+      failed.push({ name: s(raw.name), error: 'se alcanzó el máximo de ' + ATTACH_MAX_TOTAL + ' adjuntos en el espacio' });
+      continue;
+    }
+    setModel({ uploading: { name: s(raw.name), phase: 'subiendo' } });
+    const res = await storageUpload(raw, scope, (phase) => setModel({ uploading: { name: s(raw.name), phase } }));
+    if (!res.ok) { failed.push({ name: s(raw.name), error: res.error }); continue; }
+    const created = await createFile('attach', nextFreeName('attach', s(raw.name) || 'Adjunto'), res.att);
+    if (created) added.push(created); else failed.push({ name: s(raw.name), error: 'no se pudo registrar en el espacio' });
+  }
+  setModel({ uploading: null });
+  if (added.length) notify('success', added.length + ' archivo(s) subidos al almacenamiento de KIMOS.');
+  if (failed.length) notify('error', 'No se pudo subir: ' + failed.map((f) => f.name + ' (' + f.error + ')').join(' · '));
+  return { added, failed };
+}
+
+/** Abre el selector de archivos del sistema. */
+function pickAndUpload(scope, accept) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  if (accept) input.accept = accept;
+  input.onchange = () => { void uploadFiles(input.files, scope); };
+  input.click();
+}
+
+textExtractors.attach = (f) => {
+  const att = attachDoc(f.data);
+  return [att.note, att.mime, att.scope === 'public' ? 'enlace público' : 'privado del equipo'].filter(Boolean).join(' ');
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// src/38-files.js
+// ══════════════════════════════════════════════════════════════════════
+/* ══ ARCHIVOS (adjuntos en el Cloud Storage) ═══════════════════════════════
+ *
+ * La cara visible de `src/36-storage.js`: subir, ver, descargar y adjuntar
+ * archivos reales. Un adjunto es un archivo más del espacio de trabajo, así que
+ * hereda gratis el buscador, los favoritos y la papelera.
+ *
+ * Tres decisiones de interfaz que importan:
+ *
+ *   1. **El destino se ve siempre.** Cada archivo lleva su chapa 🔒 o 🌐. Nadie
+ *      debería tener que adivinar si lo que subió es privado o tiene un enlace
+ *      público; y cambiar de destino es explícito, nunca automático.
+ *   2. **Arrastrar y soltar en cualquier parte de la app.** Es el gesto que la
+ *      gente ya trae aprendido de su escritorio.
+ *   3. **Se avisa de lo que NO se pudo hacer.** Si el binario no se pudo borrar
+ *      del servidor, se dice; si el destino no está disponible, se explica por
+ *      qué en vez de dejar un botón que falla en silencio.
+ */
+
+function scopeBadge(att) {
+  const sc = SCOPES[att.scope] || SCOPES.team;
+  return h('span', {
+    className: cx('wo-chip', att.scope === 'public' && 'wo-chip-warn'),
+    title: sc.label + ' — ' + sc.hint,
+  }, sc.icon, ' ', att.scope === 'public' ? 'Público' : 'Privado');
+}
+
+/** Miniatura de imagen; para lo demás, el icono del tipo. */
+function AttachThumb(p) {
+  const att = p.att;
+  const [src, setSrc] = useState(() => attachmentSrc(att));
+  useEffect(() => {
+    if (!isImageAttachment(att) || src) return undefined;
+    let alive = true;
+    loadAttachment(att).then((url) => { if (alive && url) setSrc(url); });
+    return () => { alive = false; };
+  }, [att.path]);
+  if (isImageAttachment(att) && src) {
+    return h('img', { className: cx('wo-att-img', p.big && 'wo-att-img-big'), src, alt: p.alt || '', loading: 'lazy' });
+  }
+  return h('span', { className: 'wo-att-icon', 'aria-hidden': 'true' }, attachIcon(att));
+}
+
+function FilesModule(p) {
+  const m = p.m;
+  const [q, setQ] = useState('');
+  const [scope, setScope] = useState(m.cfg.uploadScope === 'public' ? 'public' : 'team');
+  const [preview, setPreview] = useState('');
+  const [confirm, setConfirm] = useState(null);
+
+  const list = filesOfKind('attach');
+  const shown = q
+    ? list.filter((f) => canon(f.name).indexOf(canon(q)) >= 0 || canon(fileText(f)).indexOf(canon(q)) >= 0)
+    : list;
+  const total = list.reduce((acc, f) => acc + attachDoc(f.data).size, 0);
+  const usable = storageUsable();
+  const blocked = storageState[scope] === 'no';
+
+  const open = preview ? getFile(preview) : null;
+
+  return h('div', { className: 'wo-files' },
+    h('div', { className: 'wo-tools' },
+      h(Btn, {
+        icon: '⬆️', label: 'Subir archivos', variant: 'primary',
+        disabled: !usable,
+        title: usable ? 'Subir al almacenamiento de KIMOS' : 'Este host no permite subir archivos',
+        onClick: () => pickAndUpload(scope),
+      }),
+      h(Select, {
+        value: scope, ariaLabel: 'Dónde se guarda', title: 'Dónde se guardan los archivos que subas',
+        options: Object.keys(SCOPES).map((k) => ({ value: k, label: SCOPES[k].icon + ' ' + SCOPES[k].label })),
+        onChange: setScope,
+      }),
+      h(Sep),
+      h('input', {
+        className: 'wo-in wo-search', type: 'search', value: q, placeholder: 'Buscar archivos…',
+        onChange: (e) => setQ(e.target.value), 'aria-label': 'Buscar archivos',
+      }),
+      h('span', { className: 'wo-grow' }),
+      list.length ? h('span', { className: 'wo-muted' }, list.length + ' archivo(s) · ' + fmtBytes(total)) : null),
+
+    h('div', { className: 'wo-scope-hint' },
+      (SCOPES[scope] || SCOPES.team).icon, ' ', (SCOPES[scope] || SCOPES.team).hint,
+      scope === 'public'
+        ? h('b', null, ' No subas aquí nada confidencial.')
+        : null),
+
+    !usable
+      ? h(EmptyState, {
+        icon: '🔌', title: 'El almacenamiento no está disponible',
+        hint: 'Esta ventana no expone `authFetch` o la app no tiene instancia. '
+          + 'Instala la app desde la Tienda y ábrela dentro de un equipo para poder subir archivos.',
+      })
+      : blocked
+        ? h(EmptyState, {
+          icon: '⚠️', title: 'El destino "' + (SCOPES[scope] || SCOPES.team).label + '" no respondió',
+          hint: 'El servidor devolvió: ' + s(storageState.reason[scope] || 'error desconocido')
+            + '. Prueba el otro destino o avisa a quien administre KIMOS.',
+        })
+        : h('div', { className: 'wo-board wo-att-board' },
+          m.uploading
+            ? h('article', { className: 'wo-att wo-att-busy' },
+              h('span', { className: 'wo-att-icon' }, '⏳'),
+              h('div', { className: 'wo-att-t' },
+                h('b', null, m.uploading.name),
+                h('span', { className: 'wo-muted' }, m.uploading.phase === 'verificando'
+                  ? 'Comprobando que se pueda volver a leer…' : 'Subiendo…')))
+            : null,
+          shown.length
+            ? shown.map((f) => h(AttachCard, {
+              key: f.id, file: f,
+              onPreview: () => setPreview(f.id),
+              onRename: (name) => patchFile(f.id, { name }, { immediate: true }),
+              onTrash: () => setConfirm(f),
+            }))
+            : !m.uploading
+              ? h(EmptyState, {
+                icon: '📎',
+                title: q ? 'Ningún archivo coincide' : 'Sin archivos subidos',
+                hint: q
+                  ? 'Prueba con otras palabras.'
+                  : 'Arrastra archivos a la ventana o pulsa «Subir archivos». Quedan en el almacenamiento de KIMOS, no en este navegador.',
+                action: q ? null : h(Btn, { icon: '⬆️', label: 'Subir archivos', variant: 'primary', onClick: () => pickAndUpload(scope) }),
+              })
+              : null),
+
+    open ? h(AttachPreview, { file: open, onClose: () => setPreview('') }) : null,
+    confirm ? h(ConfirmModal, {
+      title: 'Eliminar el archivo',
+      message: '"' + confirm.name + '" se moverá a la papelera y se intentará borrar del almacenamiento de KIMOS.',
+      danger: true, okLabel: 'Eliminar',
+      onCancel: () => setConfirm(null),
+      onOk: async () => {
+        const f = confirm;
+        setConfirm(null);
+        trashFile(f.id);
+        const res = await storageDelete(attachDoc(f.data));
+        if (!res.ok) {
+          notify('warn', 'El archivo salió del espacio de trabajo, pero el servidor no confirmó el borrado del '
+            + 'binario (' + res.error + '). Puede seguir ocupando espacio en el almacenamiento.');
+        }
+      },
+    }) : null);
+}
+
+function AttachCard(p) {
+  const f = p.file;
+  const att = attachDoc(f.data);
+  return h('article', { className: 'wo-att' },
+    h('button', {
+      type: 'button', className: 'wo-att-main', onClick: p.onPreview,
+      title: 'Ver ' + f.name,
+    },
+      h(AttachThumb, { att, alt: f.name }),
+      h('div', { className: 'wo-att-t' },
+        h('span', { className: 'wo-att-n' }, f.name),
+        h('span', { className: 'wo-att-m' },
+          fmtBytes(att.size), ' · ', fmtWhen(att.uploadedAt || f.createdAt),
+          att.uploadedBy ? ' · ' + att.uploadedBy : ''))),
+    h('div', { className: 'wo-att-ft' },
+      scopeBadge(att),
+      h('span', { className: 'wo-grow' }),
+      h(Menu, {
+        items: [
+          { icon: '👁️', label: 'Ver', onClick: p.onPreview },
+          { icon: '⬇️', label: 'Descargar', onClick: () => { void downloadAttachment(f); } },
+          att.scope === 'public'
+            ? { icon: '🔗', label: 'Copiar enlace público', onClick: () => { void copyText(att.publicUrl); notify('success', 'Enlace copiado.'); } }
+            : null,
+          { icon: '✏️', label: 'Renombrar', onClick: () => p.onRename(window.prompt ? (window.prompt('Nuevo nombre', f.name) || f.name) : f.name) },
+          { divider: true },
+          { icon: '🗑️', label: 'Eliminar', danger: true, onClick: p.onTrash },
+        ].filter(Boolean),
+      })));
+}
+
+function AttachPreview(p) {
+  const f = p.file;
+  const att = attachDoc(f.data);
+  const [src, setSrc] = useState(() => attachmentSrc(att));
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadAttachment(att).then((url) => {
+      if (!alive) return;
+      if (url) setSrc(url); else setFailed(true);
+    });
+    return () => { alive = false; };
+  }, [att.path]);
+
+  const body = () => {
+    if (failed) {
+      return h('div', { className: 'wo-warn' },
+        'No se pudo leer el archivo desde el almacenamiento. Puede que se haya borrado o que tu sesión ya no tenga acceso.');
+    }
+    if (!src) return h('div', { className: 'wo-muted' }, 'Cargando…');
+    if (isImageAttachment(att)) return h('img', { className: 'wo-att-full', src, alt: f.name });
+    if (/^(application\/pdf|text\/)/.test(att.mime)) {
+      // Un PDF o un texto se ven en un marco aislado; el navegador decide cómo
+      // pintarlos y el contenido nunca toca el DOM del escritorio.
+      return h('iframe', {
+        className: 'wo-att-frame', src, title: f.name,
+        sandbox: 'allow-same-origin',
+      });
+    }
+    return h('div', { className: 'wo-att-none' },
+      h('span', { className: 'wo-att-icon wo-att-icon-xl' }, attachIcon(att)),
+      h('p', null, 'Este tipo de archivo no se puede previsualizar aquí.'),
+      h(Btn, { icon: '⬇️', label: 'Descargar', variant: 'primary', onClick: () => { void downloadAttachment(f); } }));
+  };
+
+  return h(Modal, {
+    title: f.name, wide: true, onClose: p.onClose,
+    actions: [
+      h('span', { key: 'meta', className: 'wo-muted' },
+        att.mime, ' · ', fmtBytes(att.size), ' · ', (SCOPES[att.scope] || SCOPES.team).label),
+      h('span', { key: 'g', className: 'wo-grow' }),
+      h(Btn, { key: 'd', icon: '⬇️', label: 'Descargar', onClick: () => { void downloadAttachment(f); } }),
+      h(Btn, { key: 'c', label: 'Cerrar', variant: 'primary', onClick: p.onClose }),
+    ],
+  }, h('div', { className: 'wo-att-preview' }, body()));
+}
+
+/** Selector de un adjunto ya subido, para insertarlo en un documento o nota. */
+function AttachPicker(p) {
+  const [q, setQ] = useState('');
+  const list = filesOfKind('attach').filter((f) => (p.onlyImages ? isImageAttachment(attachDoc(f.data)) : true));
+  const shown = q ? list.filter((f) => canon(f.name).indexOf(canon(q)) >= 0) : list;
+  const scope = model.cfg.uploadScope === 'public' ? 'public' : 'team';
+  return h(Modal, {
+    title: p.title || 'Elegir archivo', onClose: p.onClose,
+    actions: [
+      h(Btn, {
+        key: 'u', icon: '⬆️', label: 'Subir uno nuevo', disabled: !storageUsable(),
+        onClick: () => pickAndUpload(scope, p.onlyImages ? 'image/*' : ''),
+      }),
+      h('span', { key: 'g', className: 'wo-grow' }),
+      h(Btn, { key: 'c', label: 'Cancelar', onClick: p.onClose }),
+    ],
+  },
+    h('input', {
+      className: 'wo-in', type: 'search', value: q, autoFocus: true,
+      placeholder: 'Buscar entre los archivos subidos…',
+      onChange: (e) => setQ(e.target.value), 'aria-label': 'Buscar archivo',
+    }),
+    shown.length
+      ? h('div', { className: 'wo-picklist wo-picklist-grid' },
+        shown.map((f) => {
+          const att = attachDoc(f.data);
+          return h('button', {
+            key: f.id, type: 'button', className: 'wo-pick',
+            onClick: () => p.onPick(f),
+          },
+            h(AttachThumb, { att, alt: f.name }),
+            h('span', { className: 'wo-pick-t' },
+              h('b', null, f.name),
+              h('span', { className: 'wo-pick-h' }, fmtBytes(att.size))));
+        }))
+      : h(EmptyState, {
+        icon: '📎',
+        title: p.onlyImages ? 'No hay imágenes subidas' : 'No hay archivos subidos',
+        hint: 'Sube uno con el botón de abajo y quedará disponible en todo el espacio de trabajo.',
+      }));
+}
+
+/** Lista compacta de adjuntos enlazados a una nota o a un evento. */
+function AttachList(p) {
+  const ids = Array.isArray(p.ids) ? p.ids : [];
+  const files = ids.map(getFile).filter((f) => f && !f.trashed);
+  if (!files.length && !p.onAdd) return null;
+  return h('div', { className: 'wo-attlist' },
+    files.map((f) => {
+      const att = attachDoc(f.data);
+      return h('span', { key: f.id, className: 'wo-attpill', title: f.name + ' · ' + fmtBytes(att.size) },
+        h('span', { 'aria-hidden': 'true' }, attachIcon(att)),
+        h('button', {
+          type: 'button', className: 'wo-attpill-n',
+          onClick: () => { void downloadAttachment(f); },
+          title: 'Descargar ' + f.name,
+        }, f.name),
+        p.onRemove
+          ? h('button', { type: 'button', className: 'wo-attpill-x', title: 'Quitar', onClick: () => p.onRemove(f.id) }, '✕')
+          : null);
+    }),
+    p.onAdd ? h('button', { type: 'button', className: 'wo-attpill wo-attpill-add', onClick: p.onAdd }, '📎 Adjuntar') : null);
+}
+
+/**
+ * Zona de arrastrar y soltar que envuelve toda la app. Solo reacciona cuando
+ * lo arrastrado son archivos de verdad: arrastrar texto dentro de un documento
+ * no debe abrir el cartel de subida.
+ */
+function useDropZone(scope) {
+  const [over, setOver] = useState(false);
+  const depth = useRef(0);
+  useEffect(() => {
+    const hasFiles = (e) => {
+      const dt = e.dataTransfer;
+      if (!dt) return false;
+      const types = dt.types ? Array.prototype.slice.call(dt.types) : [];
+      return types.indexOf('Files') >= 0;
+    };
+    const onEnter = (e) => {
+      if (!hasFiles(e)) return;
+      depth.current++;
+      setOver(true);
+    };
+    const onOver = (e) => { if (hasFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; } };
+    const onLeave = (e) => {
+      if (!hasFiles(e)) return;
+      depth.current = Math.max(0, depth.current - 1);
+      if (!depth.current) setOver(false);
+    };
+    const onDrop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth.current = 0;
+      setOver(false);
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length) void uploadFiles(files, scope);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [scope]);
+  return over;
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/40-docs.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ DOCUMENTOS ════════════════════════════════════════════════════════════
@@ -3012,6 +3687,11 @@ const BLOCK_TYPES = [
   { id: 'quote', label: 'Cita', icon: '❝', tag: 'blockquote' },
   { id: 'code', label: 'Código', icon: '</>', tag: 'pre' },
   { id: 'hr', label: 'Separador', icon: '—', tag: 'hr' },
+  // Una imagen no se guarda dentro del documento: se guarda la REFERENCIA al
+  // adjunto que vive en el Cloud Storage (`b.a` = id del archivo subido). Así
+  // el documento sigue siendo JSON pequeño y la misma imagen se puede usar en
+  // varios sitios sin duplicar el binario.
+  { id: 'img', label: 'Imagen', icon: '🖼️', tag: 'figure' },
 ];
 const BLOCK_BY_ID = {};
 BLOCK_TYPES.forEach((b) => { BLOCK_BY_ID[b.id] = b; });
@@ -3027,6 +3707,7 @@ function docDoc(data) {
     t: BLOCK_BY_ID[b.t] ? b.t : 'p',
     x: s(b.x),
     c: !!b.c,
+    a: s(b.a),          // id del adjunto, en los bloques de imagen
   }));
   if (!blocks.length) blocks = newDocDoc().blocks;
   return { blocks };
@@ -3051,6 +3732,11 @@ function docToMarkdown(doc) {
       case 'quote': out.push('> ' + b.x); break;
       case 'code': out.push('```\n' + b.x + '\n```'); break;
       case 'hr': out.push('---'); break;
+      case 'img': {
+        const f = b.a ? getFile(b.a) : null;
+        out.push('![' + (b.x || (f ? f.name : 'imagen')) + '](' + (f ? f.name : '') + ')');
+        break;
+      }
       default: out.push(b.x);
     }
     out.push('');
@@ -3094,6 +3780,7 @@ function DocEditor(p) {
   const [focus, setFocus] = useState('');       // id del bloque con el cursor
   const [outline, setOutline] = useState(false);
   const [merge, setMerge] = useState(false);
+  const [picker, setPicker] = useState(false);
   const refs = useRef({});
   const pendingFocus = useRef(null);
 
@@ -3271,6 +3958,25 @@ function DocEditor(p) {
       }
       ulOpen = null;
       if (b.t === 'hr') { root.appendChild(d.createElement('hr')); return; }
+      if (b.t === 'img') {
+        const f2 = b.a ? getFile(b.a) : null;
+        const att = f2 ? attachDoc(f2.data) : null;
+        const fig = d.createElement('figure');
+        const srcUrl = att ? attachmentSrc(att) : '';
+        if (att && isImageAttachment(att) && srcUrl) {
+          const im = d.createElement('img');
+          im.setAttribute('src', srcUrl);
+          im.setAttribute('alt', s(b.x));
+          fig.appendChild(im);
+        }
+        if (b.x || f2) {
+          const cap = d.createElement('figcaption');
+          printInline(d, cap, b.x || (f2 ? f2.name : ''));
+          fig.appendChild(cap);
+        }
+        root.appendChild(fig);
+        return;
+      }
       const el = d.createElement(BLOCK_BY_ID[b.t] ? BLOCK_BY_ID[b.t].tag : 'p');
       if (b.t === 'code') el.textContent = b.x; else printInline(d, el, b.x);
       root.appendChild(el);
@@ -3293,6 +3999,12 @@ function DocEditor(p) {
       h(Sep),
       h(IconBtn, { icon: '⬆', title: 'Subir el bloque', onClick: () => cur && moveBlock(cur.id, -1) }),
       h(IconBtn, { icon: '⬇', title: 'Bajar el bloque', onClick: () => cur && moveBlock(cur.id, 1) }),
+      h(Sep),
+      h(IconBtn, {
+        icon: '🖼️', title: 'Insertar una imagen del almacenamiento',
+        onClick: () => setPicker(true),
+      }),
+      h(IconBtn, { icon: '📎', title: 'Adjuntar un archivo al documento', onClick: () => setPicker('any') }),
       h(Sep),
       h(IconBtn, { icon: '📑', title: 'Índice del documento', active: outline, onClick: () => setOutline(!outline) }),
       h(Menu, {
@@ -3345,7 +4057,25 @@ function DocEditor(p) {
         h('span', null, h('b', null, stats.chars), ' caracteres'),
         h('span', null, h('b', null, stats.blocks), ' bloques'))),
 
-    merge ? h(MailMergeDialog, { doc, file, onClose: () => setMerge(false) }) : null);
+    merge ? h(MailMergeDialog, { doc, file, onClose: () => setMerge(false) }) : null,
+
+    picker ? h(AttachPicker, {
+      title: picker === 'any' ? 'Adjuntar un archivo' : 'Insertar una imagen',
+      onlyImages: picker !== 'any',
+      onClose: () => setPicker(false),
+      onPick: (att) => {
+        setPicker(false);
+        const target = cur || doc.blocks[doc.blocks.length - 1];
+        const nb = newBlock('img', '');
+        nb.a = att.id;
+        // Un archivo que no es imagen se ve como una ficha descargable; la
+        // imagen, como imagen. El bloque es el mismo, cambia cómo se pinta.
+        const blocks = doc.blocks.slice();
+        const at = indexOfBlock(target ? target.id : '');
+        blocks.splice(at < 0 ? blocks.length : at + 1, 0, nb);
+        write(blocks);          // una sola escritura: no se lee estado obsoleto
+      },
+    }) : null);
 }
 
 /** Numeración de una lista numerada: reinicia cuando se corta la racha. */
@@ -3369,6 +4099,8 @@ function DocBlock(p) {
     el.style.height = 'auto';
     el.style.height = (el.scrollHeight + 2) + 'px';
   }, [b.x, b.t]);
+
+  if (b.t === 'img') return h(DocImageBlock, p);
 
   if (b.t === 'hr') {
     return h('div', { className: 'wo-b wo-b-hr', onClick: p.onFocus },
@@ -3404,6 +4136,38 @@ function DocBlock(p) {
       ? h('div', { className: 'wo-b-view', onMouseDown: (e) => { e.preventDefault(); if (ta.current) ta.current.focus(); } },
         h(MarkText, { text: b.x }))
       : null);
+}
+
+/**
+ * Bloque de imagen o adjunto: muestra el archivo del Cloud Storage y deja
+ * escribir un pie. Si el adjunto ya no existe (alguien lo borró), se dice en
+ * vez de dejar un hueco silencioso.
+ */
+function DocImageBlock(p) {
+  const b = p.block;
+  const file = b.a ? getFile(b.a) : null;
+  const att = file ? attachDoc(file.data) : null;
+  const missing = !file || file.trashed;
+  return h('figure', { className: cx('wo-b', 'wo-b-img', p.focused && 'wo-b-on') },
+    missing
+      ? h('div', { className: 'wo-b-img-gone' }, '📎 El archivo adjunto ya no está en el espacio de trabajo.')
+      : h('button', {
+        type: 'button', className: 'wo-b-img-box',
+        onClick: () => { void downloadAttachment(file); },
+        title: 'Descargar ' + file.name,
+      },
+        h(AttachThumb, { att, alt: b.x || file.name, big: true }),
+        !isImageAttachment(att)
+          ? h('span', { className: 'wo-b-img-name' }, file.name, ' · ', fmtBytes(att.size))
+          : null),
+    h('figcaption', null,
+      h('input', {
+        className: 'wo-b-cap', value: b.x, placeholder: 'Pie de imagen (opcional)',
+        onChange: (e) => p.onChange(e.target.value),
+        onFocus: p.onFocus,
+        'aria-label': 'Pie de imagen',
+      }),
+      h(IconBtn, { icon: '✕', title: 'Quitar del documento', onClick: p.onRemove })));
 }
 
 /**
@@ -3492,10 +4256,11 @@ const LAYOUTS = [
   { id: 'two', label: 'Dos columnas', hint: 'Compara dos cosas' },
   { id: 'quote', label: 'Cita', hint: 'Una frase que se recuerde' },
   { id: 'blank', label: 'Solo texto', hint: 'Sin título' },
+  { id: 'image', label: 'Imagen', hint: 'Una imagen del almacenamiento' },
 ];
 
 function newSlide(layout) {
-  return { id: uid('sl'), l: LAYOUTS.some((x) => x.id === layout) ? layout : 'bullets', t: '', b: '', b2: '', n: '' };
+  return { id: uid('sl'), l: LAYOUTS.some((x) => x.id === layout) ? layout : 'bullets', t: '', b: '', b2: '', n: '', a: '' };
 }
 function newDeckDoc() {
   const first = newSlide('title');
@@ -3510,6 +4275,7 @@ function deckDoc(data) {
     id: s(x.id) || uid('sl'),
     l: LAYOUTS.some((y) => y.id === x.l) ? x.l : 'bullets',
     t: s(x.t), b: s(x.b), b2: s(x.b2), n: s(x.n),
+    a: s(x.a),          // id del adjunto en las diapositivas de imagen
   }));
   if (!slides.length) slides = newDeckDoc().slides;
   const active = Math.max(0, Math.min(slides.length - 1, Math.floor(num(d.active, 0))));
@@ -3536,6 +4302,17 @@ function SlideView(p) {
         h('p', { key: 'a', className: 'wo-sl-by' }, h(MarkText, { text: sl.b }))];
     }
     if (sl.l === 'blank') return [h('div', { key: 'b', className: 'wo-sl-body' }, h(MarkText, { text: sl.b }))];
+    if (sl.l === 'image') {
+      const f = sl.a ? getFile(sl.a) : null;
+      const att = f && !f.trashed ? attachDoc(f.data) : null;
+      return [
+        sl.t ? h('h2', { key: 'h', className: 'wo-sl-h' }, h(MarkText, { text: sl.t })) : null,
+        h('div', { key: 'i', className: 'wo-sl-img' },
+          att ? h(AttachThumb, { att, alt: sl.t, big: true })
+            : h('span', { className: 'wo-muted' }, 'Elige una imagen del almacenamiento')),
+        sl.b ? h('p', { key: 'c', className: 'wo-sl-sub' }, h(MarkText, { text: sl.b })) : null,
+      ];
+    }
     const head = h('h2', { key: 'h', className: 'wo-sl-h' }, h(MarkText, { text: sl.t }));
     if (sl.l === 'bullets') {
       return [head, h('ul', { key: 'u', className: 'wo-sl-ul' },
@@ -3607,6 +4384,7 @@ function DeckEditor(p) {
   const idx = Math.min(doc.active, doc.slides.length - 1);
   const sl = doc.slides[idx];
   const [presenting, setPresenting] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   const write = (slides, active) => patchFile(file.id, { data: { slides, active: active == null ? idx : active } });
   const setSlide = (patch) => write(doc.slides.map((x, i) => (i === idx ? Object.assign({}, x, patch) : x)));
@@ -3668,7 +4446,8 @@ function DeckEditor(p) {
   };
 
   const bodyLabel = sl.l === 'title' ? 'Bajada' : sl.l === 'quote' ? 'Autor de la cita'
-    : sl.l === 'body' || sl.l === 'blank' ? 'Texto' : 'Viñetas (una por línea)';
+    : sl.l === 'image' ? 'Pie de imagen'
+      : sl.l === 'body' || sl.l === 'blank' ? 'Texto' : 'Viñetas (una por línea)';
   const titleLabel = sl.l === 'quote' ? 'Frase' : 'Título';
 
   return h('div', { className: 'wo-deck' },
@@ -3710,6 +4489,13 @@ function DeckEditor(p) {
       h('div', { className: 'wo-deck-main' },
         h('div', { className: 'wo-deck-stage' }, h(SlideView, { slide: sl })),
         h('div', { className: 'wo-deck-form' },
+          sl.l === 'image' ? h(Field, { label: 'Imagen', wide: true },
+            h('div', { className: 'wo-row' },
+              h(Btn, {
+                icon: '🖼️', label: sl.a ? 'Cambiar imagen' : 'Elegir imagen',
+                onClick: () => setPicking(true),
+              }),
+              sl.a ? h(Btn, { label: 'Quitar', onClick: () => setSlide({ a: '' }) }) : null)) : null,
           sl.l !== 'blank' ? h(Field, { label: titleLabel, wide: true },
             h(TextInput, { value: sl.t, onChange: (v) => setSlide({ t: v }), placeholder: titleLabel })) : null,
           h(Field, { label: bodyLabel, wide: true },
@@ -3735,7 +4521,13 @@ function DeckEditor(p) {
         h('span', null, 'Diapositiva ', h('b', null, idx + 1), ' de ', h('b', null, doc.slides.length)),
         h('span', { className: 'wo-muted' }, 'Presentar: ▶ o F5 · Salir: Esc'))),
 
-    presenting ? h(Presenter, { slides: doc.slides, start: idx, onClose: () => setPresenting(false) }) : null);
+    presenting ? h(Presenter, { slides: doc.slides, start: idx, onClose: () => setPresenting(false) }) : null,
+
+    picking ? h(AttachPicker, {
+      title: 'Imagen de la diapositiva', onlyImages: true,
+      onClose: () => setPicking(false),
+      onPick: (att) => { setPicking(false); setSlide({ a: att.id }); },
+    }) : null);
 }
 
 textExtractors.deck = (f) => deckPlain(deckDoc(f.data));
@@ -3766,7 +4558,7 @@ const NOTE_COLORS = [
   { id: 'violet', label: 'Violeta' },
 ];
 
-function newNoteDoc() { return { x: '', color: '', pin: false, tags: [] }; }
+function newNoteDoc() { return { x: '', color: '', pin: false, tags: [], att: [] }; }
 function noteDoc(data) {
   const d = data && typeof data === 'object' ? data : {};
   return {
@@ -3774,6 +4566,8 @@ function noteDoc(data) {
     color: NOTE_COLORS.some((c) => c.id === d.color) ? d.color : '',
     pin: !!d.pin,
     tags: Array.isArray(d.tags) ? d.tags.map((t) => s(t).slice(0, 24)).filter(Boolean).slice(0, 8) : [],
+    // Ids de los archivos subidos que cuelgan de esta nota.
+    att: Array.isArray(d.att) ? d.att.map((x) => s(x)).filter(Boolean).slice(0, 20) : [],
   };
 }
 /** Las etiquetas se escriben en el propio texto con #: nada que rellenar aparte. */
@@ -3791,6 +4585,7 @@ function NotesBoard(p) {
   const [tag, setTag] = useState('');
   const [tab, setTab] = useState('mine');
   const [editing, setEditing] = useState('');
+  const [picking, setPicking] = useState('');
 
   const notes = useMemo(() => {
     const list = filesOfKind('note').map((f) => ({ file: f, note: noteDoc(f.data) }));
@@ -3875,13 +4670,28 @@ function NotesBoard(p) {
             onChange: (patch) => setNote(n.file, patch),
             onRename: (name) => patchFile(n.file.id, { name }),
             onTrash: () => { trashFile(n.file.id); setEditing(''); },
+            onAttach: () => setPicking(n.file.id),
           }))
           : h(EmptyState, {
             icon: '🗒️',
             title: q || tag ? 'Ninguna nota coincide' : 'Sin notas todavía',
             hint: q || tag ? 'Prueba con otras palabras o quita el filtro.' : 'Escribe una idea rápida; usa #etiquetas para agruparlas.',
             action: h(Btn, { icon: '＋', label: 'Nueva nota', variant: 'primary', onClick: addNote }),
-          })));
+          })),
+
+    picking ? h(AttachPicker, {
+      title: 'Adjuntar a la nota',
+      onClose: () => setPicking(''),
+      onPick: (att) => {
+        const target = getFile(picking);
+        setPicking('');
+        if (!target) return;
+        const nd = noteDoc(target.data);
+        if (nd.att.indexOf(att.id) < 0) {
+          patchFile(target.id, { data: Object.assign({}, nd, { att: nd.att.concat([att.id]) }) });
+        }
+      },
+    }) : null);
 }
 
 function NoteCard(p) {
@@ -3924,6 +4734,11 @@ function NoteCard(p) {
         onKeyDown: (e) => { if (e.key === 'Enter') p.onEdit(true); },
         title: 'Clic para editar',
       }, note.x ? h(MarkText, { text: note.x }) : h('span', { className: 'wo-muted' }, 'Nota vacía. Clic para escribir.')),
+    h(AttachList, {
+      ids: note.att,
+      onAdd: p.onAttach,
+      onRemove: (id) => p.onChange({ att: note.att.filter((x) => x !== id) }),
+    }),
     h('div', { className: 'wo-note-ft' },
       tags.map((t) => h('span', { key: t, className: 'wo-chip' }, '#' + t)),
       h('span', { className: 'wo-grow' }),
@@ -3953,7 +4768,7 @@ textExtractors.note = (f) => noteDoc(f.data).x;
 const EVENT_COLORS = ['blue', 'green', 'amber', 'pink', 'violet'];
 
 function newEventDoc(day) {
-  return { day: s(day) || todayISO(), start: '09:00', end: '10:00', allDay: false, place: '', notes: '', color: 'blue' };
+  return { day: s(day) || todayISO(), start: '09:00', end: '10:00', allDay: false, place: '', notes: '', color: 'blue', att: [] };
 }
 function eventDoc(data) {
   const d = data && typeof data === 'object' ? data : {};
@@ -3967,6 +4782,8 @@ function eventDoc(data) {
     place: s(d.place).slice(0, 120),
     notes: s(d.notes),
     color: EVENT_COLORS.indexOf(s(d.color)) >= 0 ? s(d.color) : 'blue',
+    // Documentos del evento: el temario, el acta, la presentación.
+    att: Array.isArray(d.att) ? d.att.map((x) => s(x)).filter(Boolean).slice(0, 20) : [],
   };
 }
 const eventsOf = (files) => files.filter((f) => f.kind === 'event' && !f.trashed)
@@ -4173,6 +4990,7 @@ function AgendaList(p) {
 function EventDialog(p) {
   const ev = eventDoc(p.file.data);
   const badRange = !ev.allDay && ev.end <= ev.start;
+  const [picking, setPicking] = useState(false);
   return h(Modal, {
     title: 'Evento', onClose: p.onClose,
     actions: [
@@ -4208,7 +5026,21 @@ function EventDialog(p) {
       h('textarea', {
         className: 'wo-in wo-ta', value: ev.notes, rows: 3, placeholder: 'Temario, participantes, enlaces…',
         onChange: (e) => p.onChange({ notes: e.target.value }), 'aria-label': 'Notas del evento',
-      })));
+      })),
+    h(Field, { label: 'Documentos del evento', wide: true },
+      h(AttachList, {
+        ids: ev.att,
+        onAdd: () => setPicking(true),
+        onRemove: (id) => p.onChange({ att: ev.att.filter((x) => x !== id) }),
+      })),
+    picking ? h(AttachPicker, {
+      title: 'Adjuntar al evento',
+      onClose: () => setPicking(false),
+      onPick: (att) => {
+        setPicking(false);
+        if (ev.att.indexOf(att.id) < 0) p.onChange({ att: ev.att.concat([att.id]) });
+      },
+    }) : null);
 }
 
 textExtractors.event = (f) => {
@@ -4489,6 +5321,25 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: 'LIST_UPLOADS',
+    description: 'Lista los archivos subidos al almacenamiento de KIMOS (adjuntos): nombre, tipo, '
+      + 'tamaño y si son privados del equipo o de enlace público.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'ATTACH_FILE',
+    description: 'Adjunta un archivo YA SUBIDO a una nota, a un evento o a un documento. '
+      + 'El agente no puede subir archivos: eso lo hace la persona desde su equipo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        upload: { type: 'string', description: 'Nombre o id del archivo subido.' },
+        target: { type: 'string', description: 'Nombre o id de la nota, evento o documento de destino.' },
+      },
+      required: ['upload', 'target'],
+    },
+  },
+  {
     name: 'GO_TO',
     description: 'Cambia de módulo: inicio, documentos, hojas, presentaciones, notas o calendario.',
     inputSchema: { type: 'object', properties: { module: { type: 'string' } }, required: ['module'] },
@@ -4504,6 +5355,8 @@ const AGENT_ALIASES = {
   ADD_SLIDE: 'SLIDE_ADD', ADD_NOTE: 'NOTE_ADD', ADD_EVENT: 'EVENT_ADD',
   REMOVE_FILE: 'DELETE_FILE', TRASH_FILE: 'DELETE_FILE',
   GOTO: 'GO_TO', OPEN: 'OPEN_FILE', SHOW: 'OPEN_FILE',
+  LIST_ATTACHMENTS: 'LIST_UPLOADS', UPLOADS: 'LIST_UPLOADS',
+  ATTACH: 'ATTACH_FILE', LINK_FILE: 'ATTACH_FILE',
 };
 
 const KIND_WORDS = {
@@ -4511,6 +5364,8 @@ const KIND_WORDS = {
   sheet: 'sheet', hoja: 'sheet', hojas: 'sheet', planilla: 'sheet', calculo: 'sheet', excel: 'sheet',
   deck: 'deck', presentacion: 'deck', presentaciones: 'deck', diapositivas: 'deck', slides: 'deck',
   note: 'note', nota: 'note', notas: 'note',
+  attach: 'attach', adjunto: 'attach', adjuntos: 'attach', archivo: 'attach',
+  archivos: 'attach', subido: 'attach', subidos: 'attach',
   event: 'event', evento: 'event', eventos: 'event', calendario: 'event', reunion: 'event',
 };
 const normKind = (v) => KIND_WORDS[canon(v).replace(/ /g, '')] || null;
@@ -4534,6 +5389,13 @@ const fileNames = (kind) => {
 
 /** Texto legible de cualquier archivo, para READ_FILE y para el snapshot. */
 function fileToText(f) {
+  if (f.kind === 'attach') {
+    const att = attachDoc(f.data);
+    return [f.name, att.mime, fmtBytes(att.size),
+      att.scope === 'public' ? 'enlace público: ' + att.publicUrl : 'privado del equipo',
+      'subido ' + fmtWhen(att.uploadedAt) + (att.uploadedBy ? ' por ' + att.uploadedBy : ''),
+      'El contenido del binario no se puede leer desde aquí.'].filter(Boolean).join('\n');
+  }
   if (f.kind === 'doc') return docToMarkdown(docDoc(f.data));
   if (f.kind === 'note') return noteDoc(f.data).x;
   if (f.kind === 'event') {
@@ -4766,6 +5628,51 @@ async function agentDispatch(action) {
     return { success: true, message: 'Evento "' + created.name + '" agendado el ' + fmtDay(day) + (data.allDay ? '' : ' a las ' + start) + '.' };
   }
 
+  if (type === 'LIST_UPLOADS') {
+    try { await refresh(false); } catch (e) { /* se responde con lo que hay */ }
+    const ups = model.files.filter((f) => f.kind === 'attach' && !f.trashed).sort(byRecent);
+    return {
+      success: true,
+      message: ups.length
+        ? ups.length + ' archivo(s) subidos: ' + ups.slice(0, 40).map((f) => {
+          const att = attachDoc(f.data);
+          return f.name + ' (' + fmtBytes(att.size) + ', '
+            + (att.scope === 'public' ? 'público' : 'privado del equipo') + ')';
+        }).join(' · ')
+        : 'No hay archivos subidos todavía. Para subir uno, la persona debe arrastrarlo a la ventana '
+          + 'o usar «Subir archivos» en el módulo Archivos.',
+    };
+  }
+
+  if (type === 'ATTACH_FILE') {
+    const up = findFileRef(p.upload != null ? p.upload : p.file, 'attach');
+    if (!up) return { success: false, error: 'No encontré el archivo subido "' + s(p.upload) + '". Subidos: ' + fileNames('attach') + '.' };
+    const target = findFileRef(p.target);
+    if (!target) return { success: false, error: 'No encontré el destino "' + s(p.target) + '". Archivos: ' + fileNames() + '.' };
+    if (target.id === up.id) return { success: false, error: 'Un archivo no puede adjuntarse a sí mismo.' };
+    if (target.kind === 'note') {
+      const nd = noteDoc(target.data);
+      if (nd.att.indexOf(up.id) >= 0) return { success: true, message: '"' + up.name + '" ya estaba adjunto a la nota "' + target.name + '".' };
+      patchFile(target.id, { data: Object.assign({}, nd, { att: nd.att.concat([up.id]) }) });
+      return { success: true, message: '"' + up.name + '" adjuntado a la nota "' + target.name + '".' };
+    }
+    if (target.kind === 'event') {
+      const ed = eventDoc(target.data);
+      if (ed.att.indexOf(up.id) >= 0) return { success: true, message: '"' + up.name + '" ya estaba adjunto al evento "' + target.name + '".' };
+      patchFile(target.id, { data: Object.assign({}, ed, { att: ed.att.concat([up.id]) }) });
+      return { success: true, message: '"' + up.name + '" adjuntado al evento "' + target.name + '".' };
+    }
+    if (target.kind === 'doc') {
+      const dd = docDoc(target.data);
+      const nb = newBlock('img', '');
+      nb.a = up.id;
+      patchFile(target.id, { data: { blocks: dd.blocks.concat([nb]) } });
+      return { success: true, message: '"' + up.name + '" insertado al final del documento "' + target.name + '".' };
+    }
+    return { success: false, error: 'Solo se puede adjuntar a una nota, a un evento o a un documento (el destino es '
+      + KINDS[target.kind].label.toLowerCase() + ').' };
+  }
+
   if (type === 'GO_TO') {
     const want = canon(p.module || p.view);
     const mod = MODULES.find((x) => x.id === want || canon(x.label) === want)
@@ -4787,7 +5694,8 @@ function registerAgent() {
     label: 'Kimos WorkOffice',
     description: 'Suite ofimática del espacio de trabajo: crear y editar documentos, hojas de cálculo '
       + '(incluidas fórmulas), presentaciones, notas y eventos de calendario; buscar en el contenido '
-      + 'de todos los archivos y abrir el que corresponda.',
+      + 'de todos los archivos y abrir el que corresponda. También lista los archivos subidos al '
+      + 'almacenamiento de KIMOS y los adjunta a notas, eventos o documentos.',
     tools: AGENT_TOOLS,
     getSnapshot: () => {
       const open = model.openId ? getFile(model.openId) : null;
@@ -4807,6 +5715,12 @@ function registerAgent() {
         })),
         abierto: open ? { id: open.id, nombre: open.name, tipo: KINDS[open.kind].label } : null,
         enPapelera: model.files.filter((f) => f.trashed).length,
+        almacenamiento: {
+          disponible: storageUsable(),
+          subidos: model.files.filter((f) => f.kind === 'attach' && !f.trashed).length,
+          destinoPorDefecto: model.cfg.uploadScope === 'public' ? 'enlace público' : 'privado del equipo',
+          nota: 'El agente no puede subir archivos: solo listarlos y adjuntarlos.',
+        },
       };
     },
     dispatchAction: async (action) => {
@@ -4837,12 +5751,19 @@ function registerAgent() {
 function openFileInModule(f) {
   if (!f) return;
   const mod = KINDS[kindOf(f)].module;
-  // Notas y Calendario no tienen "archivo abierto": son tableros completos.
-  setModel({ module: mod, openId: (mod === 'notes' || mod === 'calendar') ? '' : f.id, query: '', palette: false });
+  // Notas, Calendario y Archivos no tienen "archivo abierto": son tableros.
+  const board = mod === 'notes' || mod === 'calendar' || mod === 'files';
+  setModel({ module: mod, openId: board ? '' : f.id, query: '', palette: false });
 }
 
 async function createAndOpen(kind) {
   const k = KINDS[kind] ? kind : 'doc';
+  // Un adjunto no se "crea": se sube. Pulsar «Archivo subido» abre el selector.
+  if (k === 'attach') {
+    setModel({ module: 'files', openId: '' });
+    pickAndUpload(model.cfg.uploadScope === 'public' ? 'public' : 'team');
+    return null;
+  }
   const seed = { doc: newDocDoc, sheet: () => ({ sheets: [newSheet('Hoja 1')], active: 0 }), deck: newDeckDoc, note: newNoteDoc, event: () => newEventDoc(todayISO()) }[k];
   const f = await createFile(k, nextFreeName(k), seed ? seed() : {});
   if (f) openFileInModule(f);
@@ -4933,6 +5854,7 @@ function Palette(p) {
 // ── Aplicación ──────────────────────────────────────────────────────────
 function WorkOfficeApp() {
   const m = useModel();
+  const dropping = useDropZone(m.cfg.uploadScope === 'public' ? 'public' : 'team');
   const [renaming, setRenaming] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const rootRef = useRef(null);
@@ -4982,6 +5904,7 @@ function WorkOfficeApp() {
     if (m.module === 'drive') return h(DriveView, { m, ctx });
     if (m.module === 'notes') return h(NotesBoard, { m });
     if (m.module === 'calendar') return h(CalendarView, { m });
+    if (m.module === 'files') return h(FilesModule, { m });
     const kind = modDef.kind;
     if (!open || open.kind !== kind || open.trashed) return h(FileBrowser, { kind, ctx });
     if (kind === 'sheet') return h(SheetEditor, { file: open, cfg: m.cfg });
@@ -5032,6 +5955,14 @@ function WorkOfficeApp() {
         m.offline ? h('span', { className: 'wo-offline', title: 'Sin conexión con el servidor: los cambios se reintentan solos' }, '⚠️') : null)),
 
     h('main', { className: 'wo-main' }, body()),
+
+    // Soltar archivos en cualquier parte de la ventana los sube.
+    dropping ? h('div', { className: 'wo-drop' },
+      h('div', { className: 'wo-drop-box' },
+        h('span', { className: 'wo-drop-i', 'aria-hidden': 'true' }, '⬆️'),
+        h('b', null, 'Suelta para subir al almacenamiento de KIMOS'),
+        h('span', { className: 'wo-muted' },
+          (SCOPES[m.cfg.uploadScope === 'public' ? 'public' : 'team'] || SCOPES.team).label))) : null,
 
     m.palette ? h(Palette, null) : null,
     renaming ? h(RenameDialog, {

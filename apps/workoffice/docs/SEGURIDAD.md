@@ -85,6 +85,33 @@ Las fórmulas solo existen cuando **una persona** las escribe en una celda.
 - Los valores que llegan de otra app se normalizan a texto plano antes de
   tocarse; un objeto anidado se descarta en vez de intentar pintarse.
 
+## 5.b Archivos subidos al Cloud Storage
+
+Es la parte de la app que más puede doler si se hace mal, porque aquí sí viajan
+documentos reales.
+
+- **El destino privado es el predeterminado.** Los archivos van a
+  `equipos/{teamId}/workoffice/{instanceId}/`, que se lee con la sesión del
+  usuario. El área pública (`imagenes/…`, servida **sin autenticación**) es
+  opt-in, se elige a la vista y lleva el aviso *"No subas aquí nada
+  confidencial"*. Cada archivo muestra su chapa 🔒 o 🌐 en todo momento.
+- **La ruta no se puede envenenar.** `safeStorageName()` se queda solo con el
+  último segmento del nombre, quita acentos y deja `[a-z0-9._-]`: un archivo
+  llamado `../../../etc/passwd` se guarda como `passwd`. Hay una prueba para
+  eso exactamente.
+- **Una subida no se da por buena hasta releerla.** Si el binario no se puede
+  recuperar, no se registra el adjunto y se explica por qué.
+- **Las previsualizaciones no tocan el DOM del escritorio.** Las imágenes van en
+  un `<img>` con URL de objeto; los PDF y los textos, en un `<iframe>` con
+  `sandbox="allow-same-origin"` — sin `allow-scripts`, así que un PDF con
+  JavaScript dentro no ejecuta nada.
+- **Topes**: 25 MB por archivo y 200 adjuntos por espacio de trabajo.
+- **El agente IA no puede subir** (no tiene acceso al disco de nadie): solo
+  listar los ya subidos y adjuntarlos. Hay una prueba que falla si aparece una
+  herramienta de subida.
+- **El borrado se informa con la verdad**: si el servidor no confirma que borró
+  el binario, se dice que puede seguir ocupando espacio.
+
 ## 6. Nombres de archivo y descargas
 
 `download()` sanea el nombre (`[^\w.\- ]` → `_`, máximo 120 caracteres): un
@@ -103,6 +130,9 @@ archivo llamado `../../algo` no puede salir como ruta. El contenido va en un
 | Deshacer | 80 pasos por archivo |
 | Escritura del agente | 20 000 celdas por acción |
 | Documentos por combinación de correspondencia | 100 |
+| Tamaño de un archivo subido | 25 MB |
+| Adjuntos por espacio de trabajo | 200 |
+| Adjuntos enlazados a una nota o evento | 20 |
 
 Todo dato que llega del servidor pasa por un normalizador
 (`normalizeFile`, `sheetDoc`, `docDoc`, `deckDoc`, `noteDoc`, `eventDoc`) que
@@ -137,7 +167,7 @@ datos corruptos.
 
 ```bash
 node tools/build.mjs --check     # dist/ al día respecto de src/
-node tools/test.mjs              # 127 pruebas
+node tools/test.mjs              # 162 pruebas
 node tools/audit.mjs             # innerHTML, eval, esquemas de enlace
 node tools/check-versions.mjs workoffice   # desde kimos-packages
 ```
