@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.5.0 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.6.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */
@@ -3245,12 +3245,16 @@ function rasgosDeCuerpo(opciones) {
  */
 function calidadDeCaptura(datos) {
   const d = datos || {};
-  const fps = cifraCuerpo(d.fps, 0);
+  // `fps: null` es «todavía no se ha medido un segundo entero»; `fps: 0` es un
+  // hecho, y uno malo. Confundirlos hacía que una captura de menos de un cuadro
+  // por segundo se declarara utilizable.
+  const fps = d.fps == null ? null : cifraCuerpo(d.fps, 0);
   const L = d.landmarks || null;
   const vistos = L ? L.filter((p) => p && (p.visibility == null || p.visibility > 0.5)).length : 0;
   const visibilidad = L && L.length ? vistos / L.length : 0;
   const problemas = [];
-  if (fps > 0 && fps < 12) problemas.push('Menos de 12 cuadros por segundo: el movimiento se pierde entre cuadros.');
+  if (fps === 0) problemas.push('Menos de un cuadro por segundo: el equipo no da para medir en vivo. Prueba el modelo ligero, baja la resolución o mide con una foto fija.');
+  else if (fps != null && fps < 12) problemas.push('Menos de 12 cuadros por segundo: el movimiento se pierde entre cuadros.');
   if (L && visibilidad < 0.6) problemas.push('Más de un tercio de los puntos con baja visibilidad: revisa luz y contraluz.');
   if (d.medicion && d.medicion.ok && d.medicion.dentroDelEspacio === false) {
     problemas.push('La persona está fuera del volumen declarado: la medida en centímetros pierde garantía.');
@@ -4123,6 +4127,751 @@ function comoDescarga(contenido, nombre, tipo) {
     nombre: nombreSeguro(nombre, 'lidaria.json'),
     tipo: tipo || 'application/json',
     contenido: typeof contenido === 'string' ? contenido : JSON.stringify(contenido, null, 2),
+  };
+}
+
+/* ===== src/core/qr.js ===== */
+/**
+ * qr.js — generador de códigos QR, sin dependencias.
+ *
+ * La política del proyecto es cero dependencias, así que el QR se genera aquí.
+ * Modo byte, corrección de errores M (recupera ~15%), versiones 1 a 10, que
+ * llegan a 213 bytes: de sobra para un enlace con su testigo.
+ *
+ * Implementa el estándar ISO/IEC 18004: bloques de datos y de corrección
+ * Reed-Solomon sobre GF(256), patrones de posición y alineación, máscara
+ * elegida por penalización, e información de formato y de versión con sus BCH.
+ *
+ * Lo que garantiza la prueba de este módulo: que el resultado se puede volver
+ * a leer. El test invierte la máscara y el recorrido y recupera la cadena
+ * original, y comprueba que el polinomio del bloque es divisible por el
+ * generador — que es la definición de un código Reed-Solomon correcto.
+ */
+
+/* --------------------------- GF(256) para RS --------------------------- */
+// Campo de Galois del estándar QR: polinomio primitivo 0x11D.
+const EXP = new Uint8Array(512);
+const LOG = new Uint8Array(256);
+(function tablas() {
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    EXP[i] = x;
+    LOG[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+})();
+
+const mul = (a, b) => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]]);
+
+/** Polinomio generador de grado `grado`: producto de (x - α^i). */
+function generador(grado) {
+  let g = [1];
+  for (let i = 0; i < grado; i++) {
+    const siguiente = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) {
+      // El coeficiente de mayor grado va en el índice 0, que es lo que espera
+      // la división sintética de `correccion()`: multiplicar por x deja g[j]
+      // en su mismo índice, y multiplicar por α^i lo baja un grado.
+      siguiente[j] ^= g[j];
+      siguiente[j + 1] ^= mul(g[j], EXP[i]);
+    }
+    g = siguiente;
+  }
+  return g;
+}
+
+/** Códigos de corrección de un bloque de datos. */
+function correccion(datos, nEC) {
+  const g = generador(nEC);
+  const resto = new Array(nEC).fill(0);
+  for (const byte of datos) {
+    const factor = byte ^ resto[0];
+    resto.shift();
+    resto.push(0);
+    if (factor !== 0) {
+      for (let i = 0; i < nEC; i++) resto[i] ^= mul(g[i + 1], factor);
+    }
+  }
+  return resto;
+}
+
+/* ----------------------- tablas del estándar (nivel M) ----------------------- */
+// Por versión: [códigos EC por bloque, bloques grupo 1, datos por bloque g1,
+//               bloques grupo 2, datos por bloque g2]
+const BLOQUES_M = {
+  1: [10, 1, 16, 0, 0],
+  2: [16, 1, 28, 0, 0],
+  3: [26, 1, 44, 0, 0],
+  4: [18, 2, 32, 0, 0],
+  5: [24, 2, 43, 0, 0],
+  6: [16, 4, 27, 0, 0],
+  7: [18, 4, 31, 0, 0],
+  8: [22, 2, 38, 2, 39],
+  9: [22, 3, 36, 2, 37],
+  10: [26, 4, 43, 1, 44],
+};
+
+/** Centros de los patrones de alineación por versión. */
+const ALINEACION = {
+  1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30],
+  6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
+};
+
+/** Información de versión (BCH 18 bits), solo versiones 7 en adelante. */
+const INFO_VERSION = { 7: 0x07c94, 8: 0x085bc, 9: 0x09a99, 10: 0x0a4d3 };
+
+/** Capacidad en bytes de datos por versión, en modo byte y nivel M. */
+function capacidadBytes(version) {
+  const b = BLOQUES_M[version];
+  if (!b) return 0;
+  const total = b[1] * b[2] + b[3] * b[4];
+  // Menos la cabecera: 4 bits de modo + 8 o 16 bits de longitud.
+  return total - (version < 10 ? 2 : 3);
+}
+
+/** La versión más chica donde caben `n` bytes. */
+function versionPara(n) {
+  for (let v = 1; v <= 10; v++) if (capacidadBytes(v) >= n) return v;
+  return null;
+}
+
+/* ------------------------------ codificación ------------------------------ */
+
+function bytesDeTexto(texto) {
+  if (typeof TextEncoder === 'function') return Array.from(new TextEncoder().encode(texto));
+  // Respaldo UTF-8 manual, para entornos sin TextEncoder.
+  const salida = [];
+  for (const ch of String(texto)) {
+    let c = ch.codePointAt(0);
+    if (c < 0x80) salida.push(c);
+    else if (c < 0x800) salida.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) salida.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else salida.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return salida;
+}
+
+/** Flujo de bits de datos: modo byte, longitud, contenido, relleno. */
+function bitsDeDatos(bytes, version) {
+  const bits = [];
+  const poner = (valor, n) => { for (let i = n - 1; i >= 0; i--) bits.push((valor >> i) & 1); };
+  poner(0b0100, 4);                              // modo byte
+  poner(bytes.length, version < 10 ? 8 : 16);    // longitud
+  for (const b of bytes) poner(b, 8);
+
+  const b = BLOQUES_M[version];
+  const totalBits = (b[1] * b[2] + b[3] * b[4]) * 8;
+  // Terminador de hasta cuatro ceros, y relleno hasta cerrar el byte.
+  for (let i = 0; i < 4 && bits.length < totalBits; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+  // Bytes de relleno alternos que fija el estándar.
+  const relleno = [0xec, 0x11];
+  let i = 0;
+  while (bits.length < totalBits) { poner(relleno[i++ % 2], 8); }
+  return bits;
+}
+
+/** Intercala los bloques de datos y de corrección como manda el estándar. */
+function codewords(bytes, version) {
+  const [nEC, g1, d1, g2, d2] = BLOQUES_M[version];
+  const bits = bitsDeDatos(bytes, version);
+  const datos = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let v = 0;
+    for (let j = 0; j < 8; j++) v = (v << 1) | bits[i + j];
+    datos.push(v);
+  }
+  const bloques = [];
+  let p = 0;
+  for (let i = 0; i < g1; i++) { bloques.push(datos.slice(p, p + d1)); p += d1; }
+  for (let i = 0; i < g2; i++) { bloques.push(datos.slice(p, p + d2)); p += d2; }
+  const ecs = bloques.map((bl) => correccion(bl, nEC));
+
+  const salida = [];
+  const maxDatos = Math.max(d1, d2);
+  for (let i = 0; i < maxDatos; i++) for (const bl of bloques) if (i < bl.length) salida.push(bl[i]);
+  for (let i = 0; i < nEC; i++) for (const ec of ecs) salida.push(ec[i]);
+  return { salida, bloques, ecs, nEC };
+}
+
+/* -------------------------------- matriz -------------------------------- */
+
+const tamanoDe = (version) => version * 4 + 17;
+
+/** Crea la matriz con los patrones fijos y marca qué módulos son de función. */
+function armazon(version) {
+  const n = tamanoDe(version);
+  const m = Array.from({ length: n }, () => new Array(n).fill(null));
+  const fijo = Array.from({ length: n }, () => new Array(n).fill(false));
+  const set = (y, x, v) => { m[y][x] = v; fijo[y][x] = true; };
+
+  const buscador = (fy, fx) => {
+    for (let y = -1; y <= 7; y++) {
+      for (let x = -1; x <= 7; x++) {
+        const yy = fy + y, xx = fx + x;
+        if (yy < 0 || yy >= n || xx < 0 || xx >= n) continue;
+        const dentro = y >= 0 && y <= 6 && x >= 0 && x <= 6;
+        const anillo = dentro && (y === 0 || y === 6 || x === 0 || x === 6);
+        const centro = dentro && y >= 2 && y <= 4 && x >= 2 && x <= 4;
+        set(yy, xx, anillo || centro);
+      }
+    }
+  };
+  buscador(0, 0); buscador(0, n - 7); buscador(n - 7, 0);
+
+  // Patrones de sincronismo.
+  for (let i = 8; i < n - 8; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+
+  // Patrones de alineación, salvo donde chocan con los buscadores.
+  const centros = ALINEACION[version];
+  for (const cy of centros) {
+    for (const cx of centros) {
+      if ((cy <= 8 && cx <= 8) || (cy <= 8 && cx >= n - 9) || (cy >= n - 9 && cx <= 8)) continue;
+      for (let y = -2; y <= 2; y++) {
+        for (let x = -2; x <= 2; x++) {
+          set(cy + y, cx + x, Math.max(Math.abs(y), Math.abs(x)) !== 1);
+        }
+      }
+    }
+  }
+
+  // Módulo oscuro obligatorio y reserva de la información de formato.
+  set(n - 8, 8, true);
+  for (let i = 0; i < 9; i++) { if (!fijo[8][i]) set(8, i, false); if (!fijo[i][8]) set(i, 8, false); }
+  for (let i = 0; i < 8; i++) { if (!fijo[8][n - 1 - i]) set(8, n - 1 - i, false); if (!fijo[n - 1 - i][8]) set(n - 1 - i, 8, false); }
+
+  // Información de versión, solo de la 7 en adelante.
+  if (version >= 7) {
+    const info = INFO_VERSION[version];
+    for (let i = 0; i < 18; i++) {
+      const bit = ((info >> i) & 1) === 1;
+      set(Math.floor(i / 3), n - 11 + (i % 3), bit);
+      set(n - 11 + (i % 3), Math.floor(i / 3), bit);
+    }
+  }
+  return { m, fijo, n };
+}
+
+/** Recorrido en zigzag de abajo a arriba, saltando la columna 6. */
+function recorrido(n, fijo) {
+  const celdas = [];
+  let arriba = true;
+  for (let col = n - 1; col > 0; col -= 2) {
+    if (col === 6) col--;                        // la columna de sincronismo no lleva datos
+    for (let i = 0; i < n; i++) {
+      const fila = arriba ? n - 1 - i : i;
+      for (const c of [col, col - 1]) {
+        if (!fijo[fila][c]) celdas.push([fila, c]);
+      }
+    }
+    arriba = !arriba;
+  }
+  return celdas;
+}
+
+/** Las ocho máscaras del estándar. */
+const MASCARAS = [
+  (y, x) => (y + x) % 2 === 0,
+  (y) => y % 2 === 0,
+  (y, x) => x % 3 === 0,
+  (y, x) => (y + x) % 3 === 0,
+  (y, x) => (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0,
+  (y, x) => ((y * x) % 2) + ((y * x) % 3) === 0,
+  (y, x) => (((y * x) % 2) + ((y * x) % 3)) % 2 === 0,
+  (y, x) => (((y + x) % 2) + ((y * x) % 3)) % 2 === 0,
+];
+
+/** Información de formato: 5 bits (nivel + máscara) con su BCH y su XOR. */
+function infoFormato(mascara) {
+  const datos = (0b00 << 3) | mascara;           // 00 = nivel M
+  let v = datos << 10;
+  for (let i = 4; i >= 0; i--) if ((v >> (i + 10)) & 1) v ^= 0b10100110111 << i;
+  return ((datos << 10) | v) ^ 0b101010000010010;
+}
+
+function ponerFormato(m, n, mascara) {
+  const info = infoFormato(mascara);
+  for (let i = 0; i < 15; i++) {
+    const bit = ((info >> i) & 1) === 1;
+    // Copia junto al buscador superior izquierdo.
+    if (i < 6) m[8][i] = bit;
+    else if (i < 8) m[8][i + 1] = bit;
+    else if (i === 8) m[7][8] = bit;
+    else m[14 - i][8] = bit;
+    // Copia repartida entre los otros dos buscadores: SIETE bits en la columna
+    // y ocho en la fila. El corte va en 7, no en 8: con 8 se pisa el módulo
+    // oscuro obligatorio de (n-8, 8) y se deja sin escribir la columna n-8.
+    if (i < 7) m[n - 1 - i][8] = bit;
+    else m[8][n - 15 + i] = bit;
+  }
+}
+
+/** Penalización de una matriz, para elegir la máscara menos mala. */
+function penalizacion(m) {
+  const n = m.length;
+  let p = 0;
+  // Regla 1: rachas de cinco o más del mismo color.
+  const racha = (leer) => {
+    for (let a = 0; a < n; a++) {
+      let largo = 1;
+      for (let b = 1; b < n; b++) {
+        if (leer(a, b) === leer(a, b - 1)) { largo++; } else { if (largo >= 5) p += 3 + (largo - 5); largo = 1; }
+      }
+      if (largo >= 5) p += 3 + (largo - 5);
+    }
+  };
+  racha((y, x) => m[y][x]);
+  racha((x, y) => m[y][x]);
+  // Regla 2: bloques de 2×2 del mismo color.
+  for (let y = 0; y < n - 1; y++) {
+    for (let x = 0; x < n - 1; x++) {
+      const v = m[y][x];
+      if (v === m[y][x + 1] && v === m[y + 1][x] && v === m[y + 1][x + 1]) p += 3;
+    }
+  }
+  // Regla 3: patrones que se confunden con un buscador.
+  const patron = [true, false, true, true, true, false, true, false, false, false, false];
+  const patronInv = patron.slice().reverse();
+  const coincide = (leer, a, b, pat) => pat.every((v, i) => leer(a, b + i) === v);
+  for (let a = 0; a < n; a++) {
+    for (let b = 0; b + 11 <= n; b++) {
+      if (coincide((y, x) => m[y][x], a, b, patron) || coincide((y, x) => m[y][x], a, b, patronInv)) p += 40;
+      if (coincide((x, y) => m[y][x], a, b, patron) || coincide((x, y) => m[y][x], a, b, patronInv)) p += 40;
+    }
+  }
+  // Regla 4: desequilibrio entre claros y oscuros.
+  let oscuros = 0;
+  for (const fila of m) for (const v of fila) if (v) oscuros++;
+  const pct = (oscuros * 100) / (n * n);
+  p += Math.floor(Math.abs(pct - 50) / 5) * 10;
+  return p;
+}
+
+/**
+ * Genera el QR de un texto. Devuelve la matriz de booleanos (true = oscuro),
+ * su tamaño, la versión y la máscara elegida.
+ */
+function generarQR(texto, opciones) {
+  const o = opciones || {};
+  const bytes = bytesDeTexto(texto);
+  const version = o.version || versionPara(bytes.length);
+  if (!version) {
+    throw new Error('El contenido no cabe en un QR de versión 10 (' + bytes.length + ' bytes, máximo ' + capacidadBytes(10) + ').');
+  }
+  const { salida } = codewords(bytes, version);
+  const { m, fijo, n } = armazon(version);
+  const celdas = recorrido(n, fijo);
+
+  // Vuelca los bits de datos en el recorrido.
+  let bit = 0;
+  for (const [y, x] of celdas) {
+    const byte = salida[bit >> 3];
+    m[y][x] = byte === undefined ? false : ((byte >> (7 - (bit & 7))) & 1) === 1;
+    bit++;
+  }
+
+  // Prueba las ocho máscaras y se queda con la de menor penalización.
+  let mejor = null;
+  for (let k = 0; k < 8; k++) {
+    const copia = m.map((f) => f.slice());
+    for (const [y, x] of celdas) if (MASCARAS[k](y, x)) copia[y][x] = !copia[y][x];
+    ponerFormato(copia, n, k);
+    const p = penalizacion(copia);
+    if (!mejor || p < mejor.p) mejor = { p, k, m: copia };
+  }
+  return { matriz: mejor.m, tamano: n, version, mascara: mejor.k, bytes: bytes.length };
+}
+
+/** El QR como SVG, listo para pintar o imprimir. Sin dependencias. */
+function qrComoSVG(texto, opciones) {
+  const o = opciones || {};
+  const { matriz, tamano } = generarQR(texto, o);
+  const margen = o.margen == null ? 4 : o.margen;   // zona de silencio del estándar
+  const lado = tamano + margen * 2;
+  const trazos = [];
+  for (let y = 0; y < tamano; y++) {
+    for (let x = 0; x < tamano; x++) {
+      if (matriz[y][x]) trazos.push('M' + (x + margen) + ' ' + (y + margen) + 'h1v1h-1z');
+    }
+  }
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + lado + ' ' + lado + '" '
+    + 'shape-rendering="crispEdges" role="img" aria-label="Código QR">'
+    + '<rect width="' + lado + '" height="' + lado + '" fill="' + (o.fondo || '#fff') + '"/>'
+    + '<path fill="' + (o.color || '#000') + '" d="' + trazos.join('') + '"/></svg>';
+}
+
+/* ===== src/core/enlace.js ===== */
+/**
+ * enlace.js — encontrar, emparejar y enlazar dispositivos.
+ *
+ * El QR es la vía más cómoda y la que más lejos llega, pero **no es la única y
+ * no sirve para todo**. Hay tres cosas que un QR no puede hacer, y decirlas es
+ * lo que evita prometer de más:
+ *
+ *   1. **No empareja Bluetooth por sí solo.** El navegador exige que el usuario
+ *      toque el dispositivo en SU propia lista. Lo que sí hace el QR es
+ *      filtrar esa lista para que aparezca uno en vez de veinte.
+ *   2. **No concede permisos en otro equipo.** Cada teléfono pide su cámara.
+ *   3. **No hace que un dron obedezca.** Lleva la dirección de ingesta; quien
+ *      la pega es el operador, en la app del fabricante.
+ *
+ * Por eso cada dispositivo declara VARIOS métodos en orden de facilidad, y el
+ * módulo elige el mejor que esta plataforma soporta. Cuando el elegido no es el
+ * QR, se dice por qué.
+ *
+ * Y hay una vía que funciona siempre, sin cámara y sin permisos: el **código
+ * corto**. Toda pantalla que muestra un QR muestra también su código, porque el
+ * QR falla con la pantalla rota, con sol de frente o con la cámara ocupada.
+ */
+
+const ALFABETO_CODIGO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // sin I, O, 0, 1
+
+/**
+ * Escapa solo lo que hace falta. `encodeURIComponent` codifica también la
+ * barra y los dos puntos, que son legales en un fragmento de URL y que aquí
+ * aparecen en cada dirección: dejarlos pasar acorta el QR una versión entera.
+ * Se escapan los separadores del propio formato y lo que rompería la URL.
+ */
+function codificarCampo(v) {
+  return encodeURIComponent(String(v == null ? '' : v))
+    .replace(/%2F/gi, '/').replace(/%3A/gi, ':')
+    // `encodeURIComponent` NO escapa el punto ni la tilde, y los dos son
+    // separadores de este formato: sin esto, la IP de una cámara —que lleva
+    // tres puntos— parte el campo y la dirección llega truncada.
+    .replace(/\./g, '%2E').replace(/~/g, '%7E');
+}
+function decodificarCampo(v) {
+  try { return decodeURIComponent(String(v)); } catch (e) { return null; }
+}
+
+/** Prefijo del sobre. Versionado: un lector viejo rechaza un formato nuevo. */
+const ESQUEMA_ENLACE = 'kimos.lidaria.enlace.v1';
+
+/** Cuánto vale un enlace antes de caducar, en minutos. */
+const CADUCIDAD_MINUTOS = 15;
+
+const metodoPorId = (cat, id) => (cat && cat.metodos || []).find((m) => m.id === id) || null;
+const dispositivoPorId = (cat, id) => (cat && cat.dispositivos || []).find((d) => d.id === id) || null;
+
+/**
+ * Código corto legible: seis caracteres sin los que se confunden entre sí.
+ *
+ * Fuera la I, la O, el 0 y el 1: nadie tiene que decidir si lo que ve en una
+ * pantalla sucia es una ele o un uno.
+ */
+function codigoCorto(aleatorio) {
+  const rnd = aleatorio || (() => Math.random());
+  let s = '';
+  for (let i = 0; i < 6; i++) s += ALFABETO_CODIGO[Math.floor(rnd() * ALFABETO_CODIGO.length)];
+  return s;
+}
+
+/**
+ * Construye la carga de un enlace. Es lo que viaja dentro del QR y lo que
+ * representa el código corto.
+ *
+ * El testigo no es un secreto fuerte —va escrito en una pantalla a la vista—,
+ * así que el enlace **caduca**: un QR fotografiado ayer no sirve hoy.
+ */
+function crearEnlace(opciones) {
+  const o = opciones || {};
+  if (!o.dispositivo) throw new Error('Un enlace necesita el tipo de dispositivo.');
+  const ahora = o.ahora ? new Date(o.ahora) : new Date();
+  const minutos = Number.isFinite(o.minutos) ? o.minutos : CADUCIDAD_MINUTOS;
+  return {
+    v: ESQUEMA_ENLACE,
+    d: o.dispositivo,
+    s: o.sesion || null,
+    c: o.codigo || codigoCorto(o.aleatorio),
+    t: o.transporte || null,
+    p: o.parametros || {},
+    e: new Date(ahora.getTime() + minutos * 60000).toISOString(),
+  };
+}
+
+/**
+ * La carga como texto, en un formato compacto y posicional.
+ *
+ * La primera versión metía el JSON en base64 y salían 284 bytes: un QR de
+ * versión 13, imposible de imprimir en una etiqueta y malo de leer con guantes.
+ * Con campos posicionales separados por punto y la caducidad en minutos desde
+ * la época, lo mismo baja a unos 70 y cabe en una versión 4.
+ *
+ * El dominio del propio enlace ya dice dónde está KIMOS, así que el broker y
+ * las demás direcciones **no viajan en el código** salvo que sean distintas.
+ */
+function enlaceATexto(enlace, baseUrl) {
+  const campos = [
+    '1',
+    enlace.d || '',
+    enlace.c || '',
+    enlace.s || '',
+    enlace.t || '',
+    enlace.e ? String(Math.floor(new Date(enlace.e).getTime() / 60000)) : '',
+  ].map(codificarCampo);
+
+  // Los extras van como pares `clave:valor` separados por `~`, no como JSON:
+  // las llaves y las comillas del JSON se percent-codifican y engordan el QR
+  // casi un 40% sin aportar nada.
+  const extras = enlace.p && Object.keys(enlace.p).length ? enlace.p : null;
+  if (extras) {
+    campos.push(Object.entries(extras)
+      .map(([k, v]) => codificarCampo(k) + ':' + codificarCampo(String(v)))
+      .join('~'));
+  }
+
+  const base = String(baseUrl || '').replace(/[#?].*$/, '').replace(/\/+$/, '');
+  // El QR lleva un ENLACE, no datos sueltos: así lo abre la cámara de fábrica
+  // del teléfono, que es la única vía de QR que funciona también en iPhone.
+  const carga = campos.join('.');
+  return base ? base + '/#l=' + carga : carga;
+}
+
+/** Lee lo que llegó por QR, por enlace o pegado a mano. Nunca lanza. */
+function leerEnlace(texto, opciones) {
+  const o = opciones || {};
+  const crudo = String(texto == null ? '' : texto).trim();
+  if (!crudo) return { ok: false, motivo: 'No llegó nada que leer.' };
+
+  let carga = crudo;
+  const enHash = crudo.match(/[#?]l=([^&\s]+)/);
+  if (enHash) carga = enHash[1];
+  else if (/^https?:\/\//i.test(crudo)) {
+    return { ok: false, motivo: 'Es un enlace, pero no trae un emparejamiento de LiDARia.' };
+  }
+
+  const partes = carga.split('.').map(decodificarCampo);
+  if (partes.some((x) => x === null)) return { ok: false, motivo: 'El código está incompleto o mal copiado.' };
+  if (partes.length < 6) {
+    return { ok: false, motivo: 'El código está incompleto o mal copiado.' };
+  }
+  if (partes[0] !== '1') {
+    return {
+      ok: false,
+      motivo: 'Este código no es de LiDARia, o lo generó una versión distinta de la app.',
+      // Decir qué versión esperaba ahorra media hora de depuración en terreno.
+      esperaba: ESQUEMA_ENLACE, recibio: partes[0] || null,
+    };
+  }
+  if (!partes[1]) return { ok: false, motivo: 'El código no dice con qué tipo de dispositivo enlazar.' };
+
+  let extras = {};
+  if (partes[6]) {
+    for (const par of partes[6].split('~')) {
+      const corte = par.indexOf(':');
+      if (corte <= 0) return { ok: false, motivo: 'El código está incompleto o mal copiado.' };
+      extras[par.slice(0, corte)] = par.slice(corte + 1);
+    }
+  }
+  const minutos = Number(partes[5]);
+  const enlace = {
+    v: ESQUEMA_ENLACE,
+    d: partes[1],
+    c: partes[2] || null,
+    s: partes[3] || null,
+    t: partes[4] || null,
+    p: extras,
+    e: Number.isFinite(minutos) && minutos > 0 ? new Date(minutos * 60000).toISOString() : null,
+  };
+
+  const ahora = o.ahora ? new Date(o.ahora) : new Date();
+  if (enlace.e && new Date(enlace.e) < ahora) {
+    return { ok: false, caducado: true, motivo: 'El código caducó. Pide uno nuevo: se generan en un segundo.', enlace };
+  }
+  return { ok: true, enlace };
+}
+
+/**
+ * El mejor método de enlace para este dispositivo EN ESTA plataforma.
+ *
+ * Devuelve la lista entera, no solo el ganador: la app muestra el primero y
+ * deja los otros a mano, porque el mejor método sobre el papel falla cuando hay
+ * sol de frente o la pantalla está rota.
+ */
+function metodosPara(catalogo, dispositivoId, contexto) {
+  const ctx = contexto || {};
+  const disp = dispositivoPorId(catalogo, dispositivoId);
+  if (!disp) return { ok: false, motivo: 'Dispositivo desconocido: ' + dispositivoId };
+
+  const plataforma = ctx.plataforma === 'visionos' ? 'ios' : (ctx.plataforma || 'desktop');
+  const tieneCapacidad = (id) => (ctx.capacidades || []).includes(id);
+
+  const evaluados = (disp.metodos || []).map((id) => {
+    const m = metodoPorId(catalogo, id);
+    if (!m) return null;
+    const enPlataforma = m.plataformas.includes(plataforma);
+    const faltan = (m.requiere || []).filter((c) => !tieneCapacidad(c));
+    return {
+      ...m,
+      disponible: enPlataforma && faltan.length === 0,
+      faltan,
+      porQueNo: !enPlataforma
+        ? 'No existe en ' + plataforma + '. ' + m.limite
+        : faltan.length ? 'Falta en este equipo: ' + faltan.join(', ') + '.'
+        : null,
+    };
+  }).filter(Boolean).sort((a, b) => (b.disponible - a.disponible) || (a.facilidad - b.facilidad));
+
+  const transporte = (catalogo.transportes || {})[disp.transporte] || null;
+  // El TRANSPORTE manda sobre el método de descubrimiento. Un QR identifica un
+  // sensor Bluetooth en un iPhone igual de bien que en un Android, pero en el
+  // iPhone no hay Web Bluetooth con el que hablarle después: decir que se
+  // puede enlazar sería exactamente la promesa que este módulo existe para
+  // evitar.
+  const transporteSirve = !transporte || !transporte.plataformas || transporte.plataformas.includes(plataforma);
+  const elegido = transporteSirve ? (evaluados.find((m) => m.disponible) || null) : null;
+
+  return {
+    ok: true,
+    dispositivo: disp,
+    metodos: evaluados,
+    elegido,
+    transporteSirve,
+    // Que no haya método no es un fallo de la app: es una limitación de la
+    // plataforma, y hay que nombrarla en vez de mostrar un botón muerto.
+    sinVia: !elegido,
+    motivoSinVia: elegido ? null
+      : !transporteSirve
+        ? 'El código se puede escanear, pero después no hay con qué hablarle: ' + (transporte ? transporte.nombre : 'su transporte')
+          + ' no existe en ' + plataforma + '. ' + (transporte ? transporte.nota : '')
+        : 'Ninguna vía de enlace funciona en ' + plataforma + ' para este dispositivo. ' + evaluados.map((m) => m.nombre + ': ' + m.porQueNo).join(' '),
+    transporte,
+    transporteEnIOS: transporte ? transporte.funcionaEnIOS : null,
+    trasEnlazar: disp.tras_enlazar,
+  };
+}
+
+/**
+ * Pasos de CONEXIÓN según el transporte.
+ *
+ * Aquí está la distinción que el diseño anterior se saltaba: **descubrir un
+ * dispositivo no es conectarse a él**. Escanear el QR de un sensor Bluetooth
+ * dice cuál es, y nada más: el navegador sigue exigiendo que el usuario lo
+ * toque en su propia lista. Si los pasos de descubrimiento fueran los únicos,
+ * la app estaría prometiendo un emparejamiento que no ocurre.
+ */
+function pasosDeTransporte(transporteId) {
+  switch (transporteId) {
+    case 'ble':
+      return [{
+        hacer: 'Pulsa «Conectar» y elige el sensor en la lista que muestra el navegador.',
+        quien: 'operador',
+        ojo: 'Este toque no se puede evitar: lo exige el navegador por privacidad, y ningún QR lo salta. Lo que sí hace el código escaneado es filtrar la lista, para que aparezca un dispositivo en vez de veinte.',
+      }];
+    case 'mqtt-ws':
+      return [{ hacer: 'Listo: el equipo entra en la sesión y aparece en la lista, sin más pasos.', quien: 'app' }];
+    case 'rtsp-relay':
+      return [{ hacer: 'La app registra la cámara en el relé del servidor y la reproduce ya convertida.', quien: 'app' }];
+    case 'rtmp-ingesta':
+      return [{ hacer: 'Pega la dirección de ingesta en la app del fabricante del dron y empieza a emitir.', quien: 'operador', ojo: 'Lo hace el operador del dron: LiDARia no controla la aeronave.' }];
+    case 'agente-local':
+      return [{ hacer: 'Comprueba que el agente esté corriendo en el PC donde está enchufado el sensor.', quien: 'operador', ojo: 'Sin el agente no hay nada que enlazar: el navegador no puede hablarle a ese hardware.' }];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Los pasos concretos que le tocan a la persona, en orden: primero descubrir
+ * el dispositivo, después conectarse a él.
+ *
+ * Cada paso dice QUIÉN lo hace. Es la diferencia entre una app que se puede
+ * usar con guantes y una que exige leerse un manual.
+ */
+function pasosDeEnlace(catalogo, dispositivoId, contexto) {
+  const plan = metodosPara(catalogo, dispositivoId, contexto);
+  if (!plan.ok) return plan;
+  if (plan.sinVia) return { ok: true, sinVia: true, pasos: [], plan };
+
+  const m = plan.elegido;
+  const disp = plan.dispositivo;
+  const descubrir = [];
+
+  if (m.id === 'qr-camara-sistema') {
+    descubrir.push({ hacer: 'Muestra el QR en la pantalla del otro equipo, o busca la etiqueta pegada al dispositivo.', quien: 'operador' });
+    descubrir.push({ hacer: 'Apunta con la cámara normal del teléfono. No hace falta abrir nada: el propio teléfono reconoce el código.', quien: 'operador' });
+    descubrir.push({ hacer: 'Toca el aviso que sale: la app se abre ya configurada.', quien: 'operador' });
+  } else if (m.id === 'qr-en-app') {
+    descubrir.push({ hacer: 'Pulsa «Escanear» y concede la cámara.', quien: 'operador' });
+    descubrir.push({ hacer: 'Encuadra el código. Se reconoce solo.', quien: 'operador' });
+  } else if (m.id === 'codigo-corto') {
+    descubrir.push({ hacer: 'Lee el código de seis caracteres que muestra el otro equipo.', quien: 'operador' });
+    descubrir.push({ hacer: 'Tecléalo aquí. No lleva ni la letra O ni el número 0, así que no hay que adivinar.', quien: 'operador' });
+  } else if (m.id === 'ble-selector') {
+    descubrir.push({ hacer: 'Pulsa «Buscar sensor» para abrir la lista del navegador.', quien: 'operador' });
+  } else if (m.id === 'red-local') {
+    descubrir.push({ hacer: 'No hay nada que hacer: el equipo ya está en la sesión y aparece solo en la lista.', quien: 'nadie' });
+  } else if (m.id === 'url-directa') {
+    descubrir.push({ hacer: 'Pega la dirección del dispositivo con su usuario y contraseña.', quien: 'operador' });
+    descubrir.push({ hacer: 'La app genera el QR de vuelta, para que el siguiente equipo no tenga que teclearla.', quien: 'app' });
+  } else if (m.id === 'nfc') {
+    descubrir.push({ hacer: 'Acerca el teléfono a la etiqueta del equipo.', quien: 'operador' });
+  }
+
+  // La conexión NO depende de cómo se descubrió: un sensor Bluetooth pide su
+  // toque igual, se haya llegado a él por QR, por NFC o por la lista.
+  const conectar = pasosDeTransporte(disp.transporte)
+    .filter((p) => !(m.id === 'ble-selector' && /Pulsa «Conectar»/.test(p.hacer)) || true);
+
+  const pasos = descubrir.map((p) => ({ ...p, fase: 'descubrir' }))
+    .concat(conectar.map((p) => ({ ...p, fase: 'conectar' })));
+
+  if (disp.tras_enlazar) pasos.push({ hacer: disp.tras_enlazar, quien: 'sistema', fase: 'despues', despues: true });
+  return {
+    ok: true, pasos, plan, metodo: m,
+    alternativas: plan.metodos.filter((x) => x.id !== m.id && x.disponible),
+    // Cuando descubrir no basta, la app tiene que decirlo antes de que el
+    // usuario crea que ya terminó.
+    requiereToque: pasos.some((p) => p.fase === 'conectar' && p.quien === 'operador'),
+  };
+}
+
+/**
+ * Qué se puede enlazar desde este equipo, y qué no.
+ *
+ * Ordena por lo que ya se puede hacer. Lo que no tiene vía aparece igual, con
+ * su motivo: esconderlo haría creer que el dispositivo no existe.
+ */
+function inventarioDeEnlaces(catalogo, contexto) {
+  const filas = (catalogo.dispositivos || []).map((d) => {
+    const plan = metodosPara(catalogo, d.id, contexto);
+    return {
+      id: d.id, nombre: d.nombre, icon: d.icon, familia: d.familia,
+      queAporta: d.queAporta, nota: d.nota, veredicto: d.veredicto,
+      enlazable: !plan.sinVia,
+      metodo: plan.elegido ? { id: plan.elegido.id, nombre: plan.elegido.nombre, icon: plan.elegido.icon } : null,
+      alternativas: plan.metodos.filter((m) => m.disponible).length,
+      motivo: plan.motivoSinVia,
+      transporte: plan.transporte ? plan.transporte.nombre : null,
+      trasEnlazar: d.tras_enlazar,
+    };
+  });
+  filas.sort((a, b) => (b.enlazable - a.enlazable) || a.nombre.localeCompare(b.nombre));
+  return {
+    filas,
+    enlazables: filas.filter((f) => f.enlazable).length,
+    total: filas.length,
+    principio: catalogo.principio || null,
+  };
+}
+
+/** Registro de un dispositivo ya enlazado, para la lista de la sesión. */
+function registrarEnlazado(enlace, meta) {
+  const m = meta || {};
+  return {
+    id: (m.id || (enlace.d + '-' + enlace.c)).toLowerCase(),
+    dispositivo: enlace.d,
+    nombre: m.nombre || enlace.d,
+    sesion: enlace.s || null,
+    transporte: enlace.t || null,
+    parametros: enlace.p || {},
+    enlazado: new Date().toISOString(),
+    por: m.responsable || null,
+    // Un enlace vivo no es lo mismo que uno registrado: el estado lo pone quien
+    // de verdad habla con el dispositivo, no el acto de escanear.
+    estado: 'registrado',
   };
 }
 

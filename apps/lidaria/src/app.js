@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -36,6 +36,7 @@ const TABS = [
   ['equipos', 'Equipos', '📱'],
   ['componentes', 'Componentes', '🔌'],
   ['montaje', 'Montaje', '🎥'],
+  ['enlazar', 'Enlazar', '🔗'],
   ['laboratorio', 'Laboratorio', '🔬'],
   ['gratuito', 'Gratuito', '🆓'],
   ['prospeccion', 'Prospección', '🎯'],
@@ -124,6 +125,8 @@ function estadoInicial() {
     equipoComp: null,
     runtimeComp: 'web',
     // Laboratorio: qué bancos se tienen y qué se midió en cada ensayo.
+    dispSel: null,
+    enlazados: [],
     bancoSel: null,
     equiposLab: [],
     ensayos: {},
@@ -167,11 +170,11 @@ export default function mount(shell) {
       timer = null;
       const { v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
         expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp,
-        bancoSel, equiposLab, ensayos, subidas } = estado;
+        bancoSel, equiposLab, ensayos, subidas, dispSel, enlazados } = estado;
       Promise.resolve(shell.saveData({
         v, tab, inventario, packs, prospecto, rubroSel, vision, sup, urlApp,
         expediente, accesorios, responsable, nivelLegal, montaje, equipoComp, runtimeComp,
-        bancoSel, equiposLab, ensayos, subidas,
+        bancoSel, equiposLab, ensayos, subidas, dispSel, enlazados,
       })).catch(() => {});
     }, 800);
   }
@@ -214,6 +217,8 @@ export default function mount(shell) {
       if (Array.isArray(d.equiposLab)) patch.equiposLab = d.equiposLab.filter((x) => bancoPorId(DATOS.laboratorio, x));
       if (d.ensayos && typeof d.ensayos === 'object') patch.ensayos = d.ensayos;
       if (Array.isArray(d.subidas)) patch.subidas = d.subidas.slice(-50);
+      if (typeof d.dispSel === 'string') patch.dispSel = d.dispSel;
+      if (Array.isArray(d.enlazados)) patch.enlazados = d.enlazados.slice(-100);
       estado = Object.assign({}, estado, patch);
       oyentes.forEach((f) => f(estado));
     } catch (e) { /* primera apertura */ }
@@ -508,6 +513,110 @@ export default function mount(shell) {
               ? h('div', { className: 'ld-mini' }, 'Sumando ', h('b', null, rec[0].equipo.nombre), ' quedaría completo (y ' + rec[0].cubre + ' módulos en total).')
               : h('div', { className: 'ld-mini' }, 'Ningún equipo del catálogo lo deja completo: es trabajo de plataforma, no de compra.'));
         }))) : null);
+  }
+
+  /* -------------------------------- enlazar -------------------------------- */
+
+  function ctxEnlace(st) {
+    const ev = (st.diag && st.diag.evidencia) || {};
+    return {
+      plataforma: ev.plataforma || 'desktop',
+      capacidades: [
+        (ev.camaras && ev.camaras.disponible) ? 'media.camera' : null,
+        (ev.radios && ev.radios.bluetooth) ? 'ble' : null,
+        (ev.radios && ev.radios.nfc) ? 'nfc' : null,
+      ].filter(Boolean),
+    };
+  }
+
+  /** El QR como imagen embebida: el SVG va en un data URI, sin dependencias. */
+  function qrImagen(texto) {
+    try {
+      const svg = qrComoSVG(texto, { margen: 3 });
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    } catch (e) { return null; }
+  }
+
+  function vistaEnlazar(st) {
+    const cat = DATOS.enlaces;
+    const ctx = ctxEnlace(st);
+    const inv = inventarioDeEnlaces(cat, ctx);
+    const sel = st.dispSel ? pasosDeEnlace(cat, st.dispSel, ctx) : null;
+
+    let qr = null, codigo = '', url = '';
+    if (sel && !sel.sinVia) {
+      const enlace = crearEnlace({
+        dispositivo: st.dispSel,
+        sesion: (shell.app && shell.app.teamId) || 'kimos',
+        transporte: sel.plan.dispositivo.transporte,
+      });
+      codigo = enlace.c;
+      url = enlaceATexto(enlace, st.urlApp);
+      qr = qrImagen(url);
+    }
+
+    const cols = [
+      { k: 'd', l: 'Dispositivo', cell: (f) => h('div', null,
+          h('b', null, f.icon + ' ' + f.nombre),
+          h('div', { className: 'ld-mini' }, f.queAporta)) },
+      { k: 'v', l: 'Vía', cell: (f) => (f.enlazable
+          ? h('div', null, f.metodo.icon + ' ' + f.metodo.nombre,
+              f.alternativas > 1 ? h('div', { className: 'ld-mini' }, (f.alternativas - 1) + ' vía(s) más si falla') : null)
+          : h('div', { className: 'ld-mini' }, '⛔ ' + f.motivo)) },
+      { k: 't', l: 'Transporte', cell: (f) => h('span', { className: 'ld-mini' }, f.transporte || '—') },
+      { k: 'b', l: '', cell: (f) => (f.enlazable
+          ? h('button', { className: 'ld-btn ld-mini-btn', onClick: () => commit({ dispSel: st.dispSel === f.id ? null : f.id }) },
+              st.dispSel === f.id ? 'Cerrar' : 'Enlazar')
+          : null) },
+    ];
+
+    return h('div', null,
+      card('🔗 Enlazar un dispositivo',
+        h('div', null,
+          h('p', null, cat.principio),
+          h('p', { className: 'ld-mini' }, 'El QR es la vía más cómoda y casi siempre está, pero no es la única. Cada dispositivo trae al menos dos, y una —el código corto— funciona sin cámara y sin permisos.'),
+          h('div', { className: 'ld-kpis' },
+            kpi('Enlazables desde aquí', inv.enlazables + ' / ' + inv.total, 'con la plataforma actual'),
+            kpi('Enlazados', st.enlazados.length, 'en esta sesión')))),
+      card(null, tabla(cols, inv.filas, { key: (f) => f.id })),
+
+      sel && !sel.sinVia ? card(sel.plan.dispositivo.icon + ' ' + sel.plan.dispositivo.nombre,
+        h('div', null,
+          h('p', { className: 'ld-mini' }, 'Vía elegida: ', h('b', null, sel.metodo.nombre), ' — ', sel.metodo.porQueSirve),
+          qr ? h('div', { style: { textAlign: 'center', margin: '12px 0' } },
+            h('img', { src: qr, alt: 'Código QR de emparejamiento', style: { width: 220, height: 220, background: '#fff', padding: 8, borderRadius: 8 } })) : null,
+          h('div', { className: 'ld-kv' }, h('span', null, 'Código corto, si el QR no se puede leer'),
+            h('b', { style: { fontFamily: 'ui-monospace, monospace', fontSize: 20, letterSpacing: 3 } }, codigo)),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Enlace'), h('code', { className: 'ld-mini' }, url)),
+          h('h4', null, 'Pasos'),
+          h('ol', { className: 'ld-lista ld-mini' }, sel.pasos.map((p, i) => h('li', { key: i },
+            p.fase === 'conectar' ? h('b', null, 'Conectar: ') : null,
+            p.hacer,
+            p.ojo ? h('div', { className: 'ld-aviso' }, '⚠ ' + p.ojo) : null))),
+          sel.requiereToque
+            ? h('p', { className: 'ld-aviso' }, 'Escanear identifica el dispositivo; para conectarlo hace falta el paso marcado arriba. Ningún QR lo salta.')
+            : null,
+          sel.alternativas.length
+            ? h('div', null, h('h4', null, 'Si esta vía falla'),
+                h('ul', { className: 'ld-lista ld-mini' }, sel.alternativas.map((a) => h('li', { key: a.id },
+                  h('b', null, a.icon + ' ' + a.nombre), ' — ', a.porQueSirve))))
+            : null,
+          h('button', {
+            className: 'ld-btn ld-pri',
+            onClick: () => {
+              const enlace = crearEnlace({ dispositivo: st.dispSel, sesion: (shell.app && shell.app.teamId) || 'kimos', transporte: sel.plan.dispositivo.transporte, codigo });
+              commit({ enlazados: st.enlazados.concat([registrarEnlazado(enlace, { nombre: sel.plan.dispositivo.nombre, responsable: st.responsable })]) });
+              shell.notify({ level: 'success', text: sel.plan.dispositivo.nombre + ' registrado. Queda como «registrado» hasta que el dispositivo responda.' });
+            },
+          }, 'Anotar como enlazado'))) : null,
+
+      st.enlazados.length ? card('📋 Enlazados en esta sesión',
+        tabla([
+          { k: 'n', l: 'Dispositivo', cell: (e) => h('b', null, e.nombre) },
+          { k: 't', l: 'Transporte', cell: (e) => h('span', { className: 'ld-mini' }, e.transporte || '—') },
+          { k: 'e', l: 'Estado', cell: (e) => e.estado },
+          { k: 'f', l: 'Cuándo', cell: (e) => h('span', { className: 'ld-mini' }, e.enlazado.slice(0, 16).replace('T', ' ')) },
+        ], st.enlazados.slice().reverse(), { key: (e) => e.id + e.enlazado })) : null);
   }
 
   /* ------------------------------ laboratorio ------------------------------ */
@@ -1739,6 +1848,7 @@ export default function mount(shell) {
       : st.tab === 'equipos' ? vistaEquipos()
       : st.tab === 'componentes' ? vistaComponentes(st)
       : st.tab === 'montaje' ? vistaMontaje(st)
+      : st.tab === 'enlazar' ? vistaEnlazar(st)
       : st.tab === 'laboratorio' ? vistaLaboratorio(st)
       : st.tab === 'gratuito' ? vistaGratuito(st)
       : st.tab === 'negocio' ? vistaNegocio(eco)
@@ -1889,6 +1999,23 @@ export default function mount(shell) {
           inputSchema: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
         },
         {
+          name: 'COMO_ENLAZAR',
+          description: 'Explica cómo emparejar un dispositivo desde este equipo: qué vía usar, los pasos en orden, quién hace cada uno y qué queda por hacer después de escanear el QR. Nombra también las vías alternativas por si la primera falla.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              dispositivo: { type: 'string', description: 'Id del dispositivo: movil-companero, camara-ip, dron-rtmp, sensor-ble, sensor-mqtt, totem, kinect, etiqueta-activo.' },
+              plataforma: { type: 'string', enum: ['android', 'ios', 'desktop'], description: 'Desde qué equipo se va a enlazar. Sin esto usa el detectado.' },
+            },
+            required: ['dispositivo'],
+          },
+        },
+        {
+          name: 'GENERAR_QR',
+          description: 'Genera el código de emparejamiento de un dispositivo: el enlace que va dentro del QR y el código corto de seis caracteres que sirve cuando el QR no se puede leer. El código caduca a los 15 minutos.',
+          inputSchema: { type: 'object', properties: { dispositivo: { type: 'string' } }, required: ['dispositivo'] },
+        },
+        {
           name: 'PLAN_LABORATORIO',
           description: 'Dice qué bancos de prueba se pueden correr hoy y qué le falta a cada uno, separando falta de equipo, de software y de permiso legal. Con `banco` entra al detalle de uno y muestra su protocolo y su criterio.',
           inputSchema: { type: 'object', properties: { banco: { type: 'string', description: 'Id del banco: kinect-v2, webcam-montaje, esp32-sensores.' } } },
@@ -1983,6 +2110,14 @@ export default function mount(shell) {
             piezasExcluidas: DATOS.costos.piezas.filter((x) => ['suscripcion', 'licencia', 'por-uso'].indexOf(x.costo) >= 0).map((x) => x.nombre),
           },
           subidas: estado.subidas.length,
+          enlaces: (() => {
+            const inv = inventarioDeEnlaces(DATOS.enlaces, ctxEnlace(estado));
+            return {
+              enlazables: inv.filas.filter((f) => f.enlazable).map((f) => f.id),
+              sinVia: inv.filas.filter((f) => !f.enlazable).map((f) => ({ id: f.id, porque: f.motivo })),
+              enlazados: estado.enlazados.map((e) => ({ dispositivo: e.dispositivo, estado: e.estado })),
+            };
+          })(),
           nivelEquipoActual: estado.diag && estado.diag.nivel ? estado.diag.nivel.label : null,
           inventario: estado.inventario.map((i) => ({ equipo: i.equipo, etiqueta: i.etiqueta, cantidad: i.cantidad || 1 })),
           cobertura: cob.resumen,
@@ -2096,6 +2231,36 @@ export default function mount(shell) {
             if (!rec.length) return { success: true, message: 'Ningún equipo del catálogo deja ' + m.nombre + ' completo: es trabajo de plataforma, no de compra.' };
             commit({ tab: 'modulos', moduloSel: m.id });
             return { success: true, message: 'Para ' + m.nombre + ': ' + rec.map((r) => r.equipo.nombre + ' (cubre ' + r.cubre + ' módulos)').join('; ') };
+          }
+          if (t === 'COMO_ENLAZAR') {
+            const ctx = ctxEnlace(estado);
+            if (p.plataforma) ctx.plataforma = p.plataforma;
+            const r = pasosDeEnlace(DATOS.enlaces, p.dispositivo, ctx);
+            if (!r.ok) return { success: false, error: r.motivo + ' Disponibles: ' + DATOS.enlaces.dispositivos.map((d) => d.id).join(', ') };
+            commit({ tab: 'enlazar', dispSel: p.dispositivo });
+            if (r.sinVia) {
+              return { success: true, message: 'No hay ninguna vía para enlazar eso desde ' + ctx.plataforma + '. ' + r.plan.motivoSinVia };
+            }
+            return {
+              success: true,
+              message: r.plan.dispositivo.nombre + ' por ' + r.metodo.nombre + '. Pasos: '
+                + r.pasos.map((x, i) => (i + 1) + ') ' + x.hacer + (x.ojo ? ' [OJO: ' + x.ojo + ']' : '')).join(' ')
+                + (r.requiereToque ? ' Escanear NO completa el emparejamiento: falta el paso de conectar.' : '')
+                + (r.alternativas.length ? ' Si falla: ' + r.alternativas.map((a) => a.nombre).join(', ') + '.' : ''),
+            };
+          }
+          if (t === 'GENERAR_QR') {
+            const d = DATOS.enlaces.dispositivos.filter((x) => x.id === p.dispositivo)[0];
+            if (!d) return { success: false, error: 'Dispositivo desconocido: ' + p.dispositivo };
+            const enlace = crearEnlace({ dispositivo: d.id, sesion: (shell.app && shell.app.teamId) || 'kimos', transporte: d.transporte });
+            const url = enlaceATexto(enlace, estado.urlApp);
+            commit({ tab: 'enlazar', dispSel: d.id });
+            return {
+              success: true,
+              message: d.nombre + ': código corto ' + enlace.c + ', enlace ' + url
+                + '. Caduca a las ' + new Date(enlace.e).toISOString().slice(11, 16) + ' UTC. '
+                + 'El QR está en pantalla; el código corto sirve si no se puede escanear.',
+            };
           }
           if (t === 'PLAN_LABORATORIO') {
             const plan = planDeLaboratorio(DATOS.laboratorio, ctxLaboratorio(estado));
