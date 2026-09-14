@@ -5,7 +5,7 @@ escanear cada equipo de la organización, qué módulos quedan cubiertos con el
 parque que ya existe, cuánto cuesta construir cada módulo y qué bibliotecas
 pueden entrar al producto sin problema legal.
 
-**Versión actual: 1.5.0** · núcleo `kimos-LiDARia` 1.3.0
+**Versión actual: 1.6.0** · núcleo `kimos-LiDARia` 1.3.0
 
 ## Por qué existe
 
@@ -21,6 +21,7 @@ capturar: decide.
 | **Rubros** | La misma app en el lenguaje de cada industria: 12 rubros con su tolerancia, sus módulos en orden, su flujo, sus KPI y su normativa, ordenados por lo cerca que está la organización de poder ejecutarlos. **Ampliable con packs `.krub`** sin tocar el producto. |
 | **Módulos** | Los 11 módulos con su estado real según el inventario: qué necesita cada uno, qué entrega, con qué módulo de KIMOS se conecta, cuánto cuesta y cuáles son sus riesgos declarados. |
 | **Inventario** | El parque real de la organización. Registra equipos y calcula cobertura: qué módulos quedan completos, cuáles no y **qué equipo conviene sumar** para cubrir los que faltan. |
+| **Enlazar** | Emparejar dispositivos: otro móvil como cámara de la sesión, una cámara de seguridad, un dron, un sensor, un tótem o una Kinect. La app dice qué vía usar desde ESTE equipo —QR, código corto de seis caracteres, NFC, selector Bluetooth, red local o dirección a mano—, los pasos en orden y **quién hace cada uno**. Genera el QR y su código corto, que caducan a los quince minutos. Distingue descubrir de conectar: escanear el QR de un sensor Bluetooth lo identifica, pero el toque en la lista del navegador no lo salta ningún código. Y si el transporte no existe en la plataforma, lo dice en vez de prometerlo. |
 | **Laboratorio** | Banco de ensayos para estudiar un MVP antes de prometerlo. Cada prueba declara protocolo, métricas y **criterio de aceptación con números antes de medir**; la app distingue «no lo probamos» de «lo probamos y falló», y no deja declarar aprobado un ensayo al que le faltan métricas. Incluye el banco completo de la **Kinect v2** (profundidad, esqueleto, infrarrojo a oscuras, escaneo 3D, fusión con MediaPipe y propiedades de cara con expediente legal obligatorio), el de la webcam gran angular y el del módulo ESP32. El informe se sube al Cloud Storage o se descarga. |
 | **Gratuito** | Cómo se habilita todo sin licencias ni suscripciones. Tres tramos —hoy sin gastar nada, gratis con cuenta, y un pago único de hardware— y, junto a cada accesorio, **qué se puede hacer sin comprarlo**. Lo que la política deja fuera aparece con su motivo y con el reemplazo libre que ocupa su lugar. |
 | **Componentes** | Todo lo que trae el equipo, no solo el sensor de profundidad: 21 componentes —cámaras, micrófono, altavoz, radios, sensores de movimiento— con lo que capta cada uno y si se alcanza desde el navegador, solo desde Chromium o únicamente con contenedor nativo. Incluye las combinaciones que ningún componente da solo (cámara + IMU, altavoz + micrófono) y qué módulos alcanza este equipo hoy. |
@@ -90,7 +91,7 @@ silencio—.
 
 ## Agente IA
 
-La app registra veinte herramientas: `VER_PESTANA`, `AGREGAR_EQUIPO`,
+La app registra veintidós herramientas: `VER_PESTANA`, `AGREGAR_EQUIPO`,
 `QUITAR_EQUIPO`, `SET_SUPUESTO`, `RECOMENDAR_EQUIPO`, `SET_RUBRO`,
 `FICHA_PROSPECTO`, `PLAN_VISION`, `VER_ALCANCE`, `VER_CAPACIDAD`,
 `MARCAR_OBLIGACION`, `VER_MANUAL`, `VER_INTEGRACION` y `EVALUAR_LICENCIA`.
@@ -108,6 +109,7 @@ OpenMVS?"* sin inventar.
 
 | Versión | Qué trae |
 |---|---|
+| 1.6.0 | Pestaña **Enlazar**: emparejamiento de dispositivos con siete vías, QR generado sin dependencias y código corto para cuando el QR no se puede leer. Dos correcciones de diseño que evitan prometer de más: descubrir no es conectar, y el transporte manda sobre el método de descubrimiento. En la PWA, además, **captura corporal en vivo**: MediaPipe alimenta la geometría del núcleo y la app pasa de calcular a medir, con el motor hospedable en el propio servidor para funcionar sin internet. |
 | 1.5.0 | Pestaña de **Laboratorio**: bancos de ensayo con protocolo, métricas y criterio declarados antes de medir, con el banco completo de la Kinect v2. El hallazgo que decide su arquitectura: libfreenect2 no entrega esqueleto y el atajo que circula (NiTE 2) tiene licencia inverificable, así que la vía libre es MediaPipe sobre el color de la Kinect fusionado con su profundidad. Pestaña **Gratuito** con la política de costo hecha código: el hardware se paga una vez y se admite, lo recurrente no. **Subida al Cloud Storage** que ya viene con la cuenta, con una puerta que impide mandar datos personales al área de lectura pública y ofrece la descarga en su lugar. Tres herramientas de agente más. El build valida ahora la sintaxis como módulo: `node --check` parseaba como CommonJS y dejó pasar un paréntesis de menos hasta el bundle. |
 | 1.4.0 | Captura de movimiento y medida corporal con una cámara común: motor adoptado de **Kimos FunPlai** (33 puntos, geometría de montaje, medición en cm) y validado contra un cuerpo sintético con error de 0,00 cm. Aporte de LiDARia de vuelta: el punto de apoyo correcto (talón, no tobillo, que iba 7 cm alto y alargaba la distancia ~9 cm), medición con sensor de profundidad **sin ver los pies**, y márgenes de encuadre que dependen del lente. Pestaña de componentes con 21 componentes de equipo y su alcance real por plataforma —la señal WiFi no existe en ningún navegador, y en iOS ni con contenedor—. Pestaña de montaje de cámara. Módulo de entorno, equipo Xiaomi Redmi Note 15 Pro en el catálogo, tres accesorios de cámara nuevos y tres herramientas de agente más. Corregido el veredicto de FunPlai en el mapa del ecosistema: estaba en "no" por el nombre de la app, sin haberla leído. |
 | 1.3.0 | Pestaña de extensiones con las 16 capacidades futuras y la puerta de cumplimiento de la Ley 21.719 (checklist con responsable y fecha; las funciones sensibles no se encienden sin él). Módulo de identidad y biometría con escalera de tres peldaños —credencial, verificación 1:1, identificación 1:N— y plantillas irreversibles en vez de fotografías. Pestaña de manual dentro de la app, con 14 secciones y 17 accesorios conectables (ESP32 por BLE y MQTT, térmicas, básculas, cámaras IP, drones) y su forma de conexión por plataforma. Tres herramientas de agente más. |
