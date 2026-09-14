@@ -65,7 +65,9 @@ que quieras aportar:
                         separa errores (hay que corregirlos) de avisos de
                         alineación (señales para revisar).
 - tools/pack.mjs      → empaquetador: node tools/pack.mjs <carpeta-de-tu-app>
-                        genera el archivo .kapp listo para instalar.
+                        genera el archivo .kapp listo para instalar. Se niega a
+                        reescribir un .kapp de la misma versión con otro bundle:
+                        la Tienda ignoraría esa reinstalación en silencio.
 - ejemplos/           → dos apps de terceros completas y comentadas:
     miorg.encuestas   → encuesta incrustable (gateway público, sin backend).
     miorg.buzon       → buzón de mensajes (además lee datos de otras apps).

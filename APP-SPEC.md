@@ -324,6 +324,16 @@ datos guardados o el contrato del agente. Nunca reutilices un número ya
 publicado: el backend guarda el bundle en `/apps/{id}/{version}/` y lo cachea,
 así que repetir versión sirve bundles viejos.
 
+**Por el lado del sideload, `pack.mjs` te para.** Si ya existe un `.kapp` de esa
+versión cuyo bundle es distinto del que acabas de construir, falla y te dice qué
+archivos cambiaron, en vez de escribir un archivo que la Tienda ignorará. Un
+README distinto no cuenta —no cambia el comportamiento—, y `--force` salta la
+guarda. Es el mismo error que vigila `check-versions.mjs`, visto desde el otro
+extremo: uno cuida el catálogo, el otro el archivo que instalas a mano.
+
+También avisa si quedan `.kapp` de otras versiones junto al recién generado:
+tener dos en la misma carpeta es la forma más fácil de instalar el que no era.
+
 ### La versión, siempre a la vista
 
 Toda app debe **identificar en pantalla el build que está corriendo**: sin eso no
