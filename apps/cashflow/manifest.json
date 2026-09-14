@@ -1,0 +1,84 @@
+{
+  "id": "cashflow",
+  "name": "KIMOS Cashflow",
+  "description": "Agente Financiero Inteligente del ecosistema KIMOS: flujo de caja multiempresa con bruto/neto/IVA sincronizados, libro diario con asientos Debe/Haber, gestor documental (XML DTE, PDF con texto embebido, imágenes, CSV/Excel) con comprensión documental local y confianza por campo, aprobación Human-in-the-Loop (la IA propone, la persona decide), memoria financiera que aprende de cada aprobación, dashboard de KPIs, proyecciones, presupuestos y análisis con alertas. El proveedor o cliente de cada movimiento es la misma identidad que en el resto de KIMOS (shell.records) y la empresa emisora se toma de la marca del tenant. Controlable por agentes (IA agnóstica) con auditoría completa.",
+  "icon": "💰",
+  "version": "1.3.0",
+  "author": "KIMOS",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control",
+    "records.link",
+    "brand.read"
+  ],
+  "configSchema": {
+    "title": "Preferencias de KIMOS Cashflow",
+    "fields": [
+      {
+        "key": "currency",
+        "label": "Moneda",
+        "type": "select",
+        "options": [
+          {
+            "value": "CLP",
+            "label": "Peso chileno (CLP)"
+          },
+          {
+            "value": "USD",
+            "label": "Dólar (USD)"
+          },
+          {
+            "value": "EUR",
+            "label": "Euro (EUR)"
+          },
+          {
+            "value": "PEN",
+            "label": "Sol peruano (PEN)"
+          },
+          {
+            "value": "MXN",
+            "label": "Peso mexicano (MXN)"
+          },
+          {
+            "value": "COP",
+            "label": "Peso colombiano (COP)"
+          },
+          {
+            "value": "ARS",
+            "label": "Peso argentino (ARS)"
+          }
+        ]
+      },
+      {
+        "key": "ivaRate",
+        "label": "Tasa de IVA (%)",
+        "type": "number",
+        "min": 0,
+        "max": 30
+      },
+      {
+        "key": "liquidityDays",
+        "label": "Alerta de liquidez (días de cobertura mínimos)",
+        "type": "number",
+        "min": 1,
+        "max": 365
+      },
+      {
+        "key": "showCents",
+        "label": "Mostrar decimales en montos",
+        "type": "boolean"
+      }
+    ]
+  },
+  "defaultConfig": {
+    "currency": "CLP",
+    "ivaRate": 19,
+    "liquidityDays": 30,
+    "showCents": false
+  }
+}
