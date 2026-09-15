@@ -154,6 +154,7 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.records` | Clientes, contactos y proyectos compartidos con el resto de KIMOS (§7.3). |
 | `shell.files.upload/list/remove` | Subir archivos; la ruta la gestiona el host (§7.4). |
 | `shell.brands.list/get/current` | Marcas del tenant: logotipos, paleta, tipografías (§7.5). |
+| `shell.payments.create/get` | Enlaces de cobro por las pasarelas del tenant (§7.6). |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -382,7 +383,7 @@ los colores de la marca activa y tu app se re-marca sola**: no hay nada que
 programar.
 
 Lo que sí puedes pedir son los **datos** de marca, para no obligar al usuario a
-volver a escribir su razón social:
+volver a escribir su nombre comercial ni a subir el logo otra vez:
 
 ```jsonc
 "permissions": ["brand.read"]
@@ -390,22 +391,58 @@ volver a escribir su razón social:
 
 ```js
 if (shell.brands) {
-  const marca = await shell.brands.current();   // null si el tenant no configuró ninguna
+  const { brands } = await shell.brands.list();   // TODAS: deja elegir
+  const marca = await shell.brands.get(doc.brandId)
+             || await shell.brands.current();     // la de por defecto
   if (marca) {
-    cabecera.logo   = marca.logoLight || marca.logoDark;
-    cabecera.emisor = marca.legalName || marca.name;
-    cabecera.rut    = marca.taxId;
+    cabecera.logo  = marca.logoLight || marca.logoDark;
+    cabecera.marca = marca.name;
   }
 }
 ```
 
-Buen patrón: la marca **rellena**, el usuario **puede sobrescribir** para un
-caso puntual. No la impongas.
+Dos avisos que ahorran un rediseño:
+
+- **`current()` no es «la única marca activa»**, es la que se propone cuando
+  nadie elige. Una empresa puede tener una marca general y varias submarcas, y
+  si tu app emite algo, tiene que dejar elegir cuál.
+- **La razón social y el RUT no son datos de la marca.** Una empresa con seis
+  marcas tiene un RUT: el registro de marcas no lo guarda, y lo guarda tu app
+  si emite documentos.
+
+### 7.6 Cobrar (`shell.payments`)
+
+Si tu app cobra, no integres Webpay ni MercadoPago por tu cuenta. Pide un
+**enlace de cobro** y mándalo; de las llaves y de la pasarela se encarga la
+plataforma.
+
+```jsonc
+"permissions": ["payments.link"]
+```
+
+```js
+const { available } = await shell.payments.info('CLP');   // ofrece solo lo que existe
+const cobro = await shell.payments.create({
+  amount: 250000, description: 'Pedido 1234', reference: pedido.id,
+});
+pedido.paymentUrl = cobro.url;          // esto se manda al cliente
+// …más tarde:
+const estado = await shell.payments.get(cobro.id);        // pending | paid | …
+```
+
+`cobro.url` es una página de KIMOS, **no** la del checkout, y eso es a
+propósito: un checkout de pasarela caduca en minutos, y lo que tú mandas en un
+correo se abre cuando al cliente le parece. La página crea el checkout fresco
+al abrirla.
+
+El importe queda fijado al crear el enlace y no se puede alterar después; la
+confirmación se le pregunta a la pasarela, nunca se cree lo que diga el
+navegador de quien paga.
 
 ### Compruébalo antes de usarlo
 
-`shell.records`, `shell.files` y `shell.brands` pueden no existir en un host
-anterior. Tu app no debe romperse por eso:
+`shell.records`, `shell.files`, `shell.brands` y `shell.payments` pueden no
+existir en un host anterior. Tu app no debe romperse por eso:
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }

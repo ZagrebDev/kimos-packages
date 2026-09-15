@@ -31,6 +31,7 @@ const BLOCK_TYPES = [
   { type: 'totals', label: 'Totales', icon: '∑', w: 12, linked: true, help: 'Subtotal, impuesto, total y el desglose de abono y saldo.' },
   { type: 'notes', label: 'Notas', icon: '✎', w: 12, linked: true, help: 'Las notas y condiciones de la cotización.' },
   { type: 'payment', label: 'Datos de pago', icon: '🏦', w: 12, linked: true, help: 'Los datos de transferencia del pie.' },
+  { type: 'paylink', label: 'Pagar en línea', icon: '💳', w: 12, linked: true, help: 'El enlace de cobro de esta cotización, para que el cliente pague con tarjeta.' },
   { type: 'text', label: 'Texto', icon: '¶', w: 12, help: 'Un título, un párrafo o una nota al margen.' },
   { type: 'image', label: 'Imagen', icon: '🖼', w: 6, help: 'Una foto, un plano, un render o el logo de la sede.' },
   { type: 'divider', label: 'Separador', icon: '─', w: 12, help: 'Una línea que separa secciones.' },
@@ -84,6 +85,10 @@ function bloquesPorDefecto() {
     normalizeBlock({ type: 'totals', w: 12 }),
     normalizeBlock({ type: 'notes', w: 12 }),
     normalizeBlock({ type: 'payment', w: 12 }),
+    // Sin enlace de cobro este bloque no se pinta (`bloqueVacio`), así que
+    // ponerlo en la maqueta por defecto no ensucia nada: aparece solo en las
+    // propuestas que sí se cobran en línea.
+    normalizeBlock({ type: 'paylink', w: 12 }),
   ];
 }
 
@@ -99,6 +104,12 @@ function bloqueVacio(b, ctx) {
   if (b.type === 'items') return !arr(doc.lines).length;
   if (b.type === 'notes') return !arr(doc.notes).filter((n) => s(n).trim()).length;
   if (b.type === 'payment') return !s(doc.paymentInfo || ctx.issuer.paymentInfo).trim();
+  // Un cobro pagado, anulado o vencido no se ofrece: un botón «Pagar» en una
+  // propuesta ya pagada invita a pagar dos veces.
+  if (b.type === 'paylink') {
+    const p = doc.payment;
+    return !(p && s(p.url) && p.status === 'pending');
+  }
   if (b.type === 'text') return !s(b.text).trim();
   if (b.type === 'image') return !s(b.url).trim();
   return false;
@@ -132,6 +143,7 @@ function Block(props) {
       case 'totals': return h(BlockTotals, { b, ctx });
       case 'notes': return h(BlockNotes, { b, ctx });
       case 'payment': return h(BlockPayment, { b, ctx });
+      case 'paylink': return h(BlockPaylink, { b, ctx });
       case 'text': return h(BlockText, { b, ctx, edit, onChange: props.onChange });
       case 'image': return h(BlockImage, { b, ctx, edit });
       case 'divider': return h('hr', { className: 'cz-b-hr' });
@@ -262,6 +274,29 @@ function BlockPayment(props) {
   return h('div', { className: 'cz-b-pay' }, [
     h('div', { key: 't', className: 'cz-b-pay-tit' }, b.title ? '' : 'Datos de transferencia'),
     h('div', { key: 'v', className: 'cz-b-pay-body' }, parrafos(texto)),
+  ]);
+}
+
+/**
+ * «Pagar en línea» dentro de la propuesta.
+ *
+ * Se imprime la URL completa además del botón: en el PDF no se puede pulsar
+ * un enlace si se imprime en papel, y una propuesta impresa con un botón que
+ * no lleva a ninguna parte es peor que no tener el bloque.
+ */
+function BlockPaylink(props) {
+  const { ctx } = props;
+  const pago = ctx.doc.payment || {};
+  const cur = ctx.cur;
+  return h('div', { className: 'cz-b-paylink' }, [
+    h('div', { key: 't', className: 'cz-b-paylink-tit' }, 'Pagar en línea'),
+    h('div', { key: 'm', className: 'cz-b-paylink-monto' },
+      money(pago.amount, cur) + (pago.covers === 'advance' ? ' · abono' : '')),
+    h('a', {
+      key: 'b', className: 'cz-b-paylink-btn', href: pago.url,
+      target: '_blank', rel: 'noopener noreferrer',
+    }, 'Pagar con tarjeta'),
+    h('div', { key: 'u', className: 'cz-b-paylink-url' }, s(pago.url)),
   ]);
 }
 

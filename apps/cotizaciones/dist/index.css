@@ -868,3 +868,38 @@
   width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
   border: 1px solid var(--border);
 }
+
+/* Cobro de la propuesta: el panel tiene que caber junto a los totales y
+   decir en un vistazo si pagaron o no. */
+.kimos-cotizaciones .cz-pay-none,
+.kimos-cotizaciones .cz-pay-wait { display: flex; flex-direction: column; gap: 9px; }
+.kimos-cotizaciones .cz-pay-amount { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.kimos-cotizaciones .cz-pay-url { width: 100%; font-size: 11px; }
+.kimos-cotizaciones .cz-pay-ok {
+  border-radius: var(--radius, 8px); padding: 12px 14px;
+  background: hsl(152 60% 40% / .12);
+}
+.kimos-cotizaciones .cz-pay-ok-t { font-weight: 700; color: hsl(152 65% 30%); }
+@media (prefers-color-scheme: dark) {
+  .kimos-cotizaciones .cz-pay-ok-t { color: hsl(152 55% 62%); }
+}
+
+/* «Pagar en línea» en la propuesta. La URL se imprime completa a propósito:
+   una propuesta en papel con un botón que no se puede pulsar no sirve. */
+.kimos-cotizaciones .cz-b-paylink {
+  border: var(--border-width, 1px) solid currentColor; border-radius: var(--radius, 8px);
+  padding: 14px 16px; text-align: center;
+}
+.kimos-cotizaciones .cz-b-paylink-tit {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .12em; opacity: .7;
+}
+.kimos-cotizaciones .cz-b-paylink-monto { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
+.kimos-cotizaciones .cz-b-paylink-btn {
+  display: inline-block; padding: 9px 22px; border-radius: var(--radius, 8px);
+  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+  font-weight: 600; text-decoration: none;
+}
+.kimos-cotizaciones .cz-b-paylink-url {
+  margin-top: 8px; font-family: ui-monospace, monospace; font-size: 9.5px;
+  opacity: .65; word-break: break-all;
+}

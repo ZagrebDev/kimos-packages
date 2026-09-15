@@ -80,6 +80,11 @@ function SettingsTab(props) {
       ]),
     ]),
 
+    // ── Cobro en línea ───────────────────────────────────────────────
+    // Apagado por defecto: cobrar es una decisión de negocio, no algo que
+    // deba empezar a pasar porque se actualizó la app.
+    h(PayCard, { key: 'pay', m, rules }),
+
     // ── Reglas de cotización ─────────────────────────────────────────
     h('section', { key: 'ru', className: 'cz-card' }, [
       h('div', { key: 'h', className: 'cz-card-hd' }, [
@@ -193,6 +198,96 @@ function SettingsTab(props) {
     h('div', { key: 'ft', className: 'cz-settings-ft' },
       'Los ajustes viven en esta instancia del cotizador. Un equipo puede tener varios '
       + '(por marca o por unidad de negocio) y cada uno lleva su emisor, su correlativo y sus reglas.'),
+  ]);
+}
+
+/**
+ * Cobro en línea: qué pasarelas se ofrecen y qué se cobra.
+ *
+ * Lo que se elige aquí es un SUBCONJUNTO de lo que la empresa tenga activo.
+ * Las llaves de las pasarelas las pone un superadmin en Ajustes →
+ * Integraciones; esta app no las ve ni puede activarlas, solo decidir cuáles
+ * de las que ya funcionan aparecen en sus cotizaciones.
+ */
+function PayCard(props) {
+  const { m, rules } = props;
+  const pay = m.pay || { providers: [], available: [] };
+  const motivo = cobroNoDisponible();
+  useEffect(() => { loadPayInfo(false); }, []);
+
+  const activas = arr(pay.providers).filter((p) => p && p.active);
+  const elegidas = arr(rules.payProviders);
+  const alternar = (id) => {
+    const hay = elegidas.indexOf(id) >= 0;
+    const next = hay ? elegidas.filter((x) => x !== id) : elegidas.concat([id]);
+    // Marcarlas todas equivale a no elegir ninguna, y «ninguna» es mejor:
+    // así una pasarela que se active mañana entra sola.
+    actPatchRules({ payProviders: next.length === activas.length ? [] : next });
+  };
+
+  const cuerpo = () => {
+    if (motivo) return h('span', { className: 'cz-card-note' }, motivo);
+    if (pay.error) return h('span', { className: 'cz-card-note cz-warn' }, pay.error);
+    if (pay.loading && !pay.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo pasarelas…');
+    if (!activas.length) {
+      return h('span', { className: 'cz-card-note' },
+        'Todavía no hay ninguna pasarela de pago activa. Las configura un administrador en '
+        + 'Ajustes → Integraciones → Pasarelas de pago; aquí aparecerán solas.');
+    }
+    return h('div', { className: 'cz-grid2' }, [
+      h(Field, {
+        key: 'on', label: 'Cobro en línea', wide: true,
+        help: 'Cada cotización puede llevar un enlace de pago que el cliente abre y paga con tarjeta.',
+      }, h(Toggle, {
+        checked: rules.payEnabled, label: rules.payEnabled ? 'Activado' : 'Desactivado',
+        onChange: (v) => actPatchRules({ payEnabled: v }),
+      })),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'pr', label: 'Formas de pago que se ofrecen', wide: true,
+        help: elegidas.length
+          ? 'Solo las marcadas. Una pasarela que se active más adelante NO entrará sola.'
+          : 'Todas las que la empresa tenga activas, ahora y en el futuro. Es lo recomendable.',
+      }, h('div', { className: 'cz-inline' }, activas.map((p) => h(Toggle, {
+        key: p.id,
+        checked: !elegidas.length || elegidas.indexOf(p.id) >= 0,
+        label: p.label,
+        onChange: () => alternar(p.id),
+      })))),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'ch', label: 'Qué se cobra',
+        help: rules.payCharge === 'advance'
+          ? 'El abono. La cotización sigue abierta por el saldo, y no se marca como ganada.'
+          : 'El total de la propuesta. Al pagarse, la cotización pasa a aceptada.',
+      }, h(Select, {
+        value: rules.payCharge,
+        onChange: (e) => actPatchRules({ payCharge: e.target.value }),
+        options: [
+          { value: 'total', label: 'El total de la cotización' },
+          { value: 'advance', label: 'Solo el abono' + (rules.advanceEnabled ? ' (' + rules.advancePct + '%)' : ' — actívalo abajo') },
+        ],
+      })),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'ex', label: 'El enlace vence en', help: 'Días desde que se genera.',
+      }, h('div', { className: 'cz-inline' }, [
+        h(NumField, { key: 'n', value: rules.payExpiresDays, onChange: (v) => actPatchRules({ payExpiresDays: num(v) }) }),
+        h('span', { key: 'u', className: 'cz-unit' }, 'días'),
+      ])),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'os', label: 'Al marcar como enviada', wide: true,
+        help: 'Genera el enlace sin que haya que pedirlo, para que entre en el PDF que se manda.',
+      }, h(Toggle, {
+        checked: rules.payOnSend, label: 'Generar el enlace de cobro',
+        onChange: (v) => actPatchRules({ payOnSend: v }),
+      })),
+    ]);
+  };
+
+  return h('section', { className: 'cz-card' }, [
+    h('div', { key: 'h', className: 'cz-card-hd' }, [
+      h('h3', { key: 't' }, 'Cobro en línea'),
+      h('span', { key: 'n', className: 'cz-card-note' }, 'Un enlace de pago en cada propuesta.'),
+    ]),
+    h('div', { key: 'b' }, cuerpo()),
   ]);
 }
 

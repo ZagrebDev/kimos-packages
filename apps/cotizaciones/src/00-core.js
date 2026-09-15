@@ -230,6 +230,21 @@ function defaultRules() {
     // del registro. Cambiarla NO reescribe las cotizaciones ya hechas: cada
     // una guarda la suya.
     brandId: '',
+    // ── Cobro en línea (APP-SPEC §7.g) ──────────────────────────────────
+    // Apagado por defecto: cobrar es una decisión de negocio, no algo que
+    // una app deba empezar a hacer porque se actualizó.
+    payEnabled: false,
+    // Cuáles de las pasarelas ACTIVAS del tenant se ofrecen en las
+    // cotizaciones de este cotizador. Vacío = todas las activas, que es lo
+    // que casi todo el mundo quiere: activar una pasarela nueva la ofrece
+    // también en los enlaces ya emitidos.
+    payProviders: [],
+    // Qué se cobra: 'total' o 'advance' (el abono, si está activado).
+    payCharge: 'total',
+    // Cuánto dura el enlace. Una cotización vence; el cobro también debería.
+    payExpiresDays: 30,
+    // Al marcar como enviada, generar el enlace sin que haya que pedirlo.
+    payOnSend: true,
     // Prefijo y ancho del correlativo: COT-2026-0001
     numberPrefix: 'COT',
     numberIncludeYear: true,
@@ -274,6 +289,11 @@ function normalizeRules(raw) {
     advanceEnabled: r.advanceEnabled !== false,
     advancePct: clamp(num(r.advancePct != null ? r.advancePct : d.advancePct), 0, 100),
     brandId: s(r.brandId != null ? r.brandId : d.brandId),
+    payEnabled: r.payEnabled === true,
+    payProviders: arr(r.payProviders).map(s).filter(Boolean),
+    payCharge: r.payCharge === 'advance' ? 'advance' : 'total',
+    payExpiresDays: clamp(Math.round(num(r.payExpiresDays != null && r.payExpiresDays !== '' ? r.payExpiresDays : d.payExpiresDays)), 1, 365),
+    payOnSend: r.payOnSend !== false,
     numberPrefix: s(r.numberPrefix != null ? r.numberPrefix : d.numberPrefix),
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
@@ -318,6 +338,41 @@ function normalizeClient(raw) {
     sourceApp: s(r.sourceApp),
     sourceInstanceId: s(r.sourceInstanceId),
     sourceItemId: s(r.sourceItemId),
+  };
+}
+
+// ── Cobro de la propuesta ───────────────────────────────────────────────
+/**
+ * El enlace de cobro de ESTA propuesta (APP-SPEC §7.g).
+ *
+ * `url` apunta a KIMOS, no a Webpay ni a MercadoPago, y eso no es un detalle:
+ * un checkout de pasarela es una sesión que caduca en minutos, y este enlace
+ * viaja en un PDF o en un correo que el cliente abre cuando le parece. La
+ * página de KIMOS crea el checkout fresco al abrirla.
+ *
+ * `status` es una INSTANTÁNEA de la última vez que se consultó. La verdad
+ * está en la plataforma; aquí se guarda para poder pintar la cotización sin
+ * salir a la red cada vez que se abre.
+ */
+function normalizePayment(raw) {
+  const r = isObj(raw) ? raw : {};
+  if (!s(r.linkId) && !s(r.url)) return null;
+  return {
+    linkId: s(r.linkId),
+    url: s(r.url),
+    amount: num(r.amount),
+    currency: s(r.currency) || 'CLP',
+    // 'total' o 'advance': qué parte de la cotización cubre este cobro. Sin
+    // esto, un abono pagado parecería la propuesta entera saldada.
+    covers: r.covers === 'advance' ? 'advance' : 'total',
+    status: s(r.status) || 'pending',
+    paidAt: s(r.paidAt),
+    paidWith: s(r.paidWith),
+    expiresAt: s(r.expiresAt),
+    createdAt: s(r.createdAt),
+    // Cuándo se preguntó por última vez: es lo que distingue «no han pagado»
+    // de «no lo hemos mirado».
+    checkedAt: s(r.checkedAt),
   };
 }
 
@@ -555,6 +610,9 @@ function normalizeQuote(raw) {
     // Marca con la que se emite esta propuesta. `null` = la de por defecto
     // del registro, o solo el emisor si no hay marcas.
     brand: normalizeDocBrand(r.brand),
+    // Enlace de cobro, si se generó. `null` = esta propuesta no se cobra en
+    // línea, que es un estado perfectamente normal.
+    payment: normalizePayment(r.payment),
     currency: s(r.currency),
     symbol: s(r.symbol),
     decimals: r.decimals == null || r.decimals === '' ? '' : clamp(Math.round(num(r.decimals)), 0, 6),

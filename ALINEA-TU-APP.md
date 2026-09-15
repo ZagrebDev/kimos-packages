@@ -165,10 +165,10 @@ son los hex sueltos dentro de las reglas. Detalle: **APP-SPEC §9**.
 
 ---
 
-## 5. «Parece definir un emisor / un logo propio»
+## 5. «Parece definir un logo o una paleta propios»
 
-Si tu app muestra el logo, la razón social o el RUT de la empresa, no los pidas
-en un formulario propio: ya están definidos una vez para todo KIMOS.
+Si tu app muestra el logotipo o los colores de la empresa, no los pidas en un
+formulario propio: ya están definidos una vez para todo KIMOS.
 
 ```jsonc
 "permissions": ["brand.read"]
@@ -176,25 +176,57 @@ en un formulario propio: ya están definidos una vez para todo KIMOS.
 
 ```js
 if (shell.brands) {
-  const marca = await shell.brands.current();   // null si el tenant no configuró ninguna
+  const { brands } = await shell.brands.list();          // TODAS: deja elegir
+  const marca = await shell.brands.get(doc.brandId)
+             || await shell.brands.current();            // la de por defecto
   if (marca) {
-    cabecera.logo   = marca.logoLight || marca.logoDark;
-    cabecera.emisor = marca.legalName || marca.name;
+    cabecera.logo  = marca.logoLight || marca.logoDark;
+    cabecera.marca = marca.name;
   }
 }
 ```
 
-**La marca rellena, el usuario puede sobrescribir.** No la impongas: un tenant
-con dos unidades de negocio necesita poder emitir con otra razón social.
+Dos cosas que se hacen mal a menudo:
+
+- **`current()` no es «la única marca activa».** Es la que se propone cuando
+  nadie elige. Si tu app emite algo, ofrece `list()`: una empresa con una marca
+  general y tres submarcas necesita las cuatro.
+- **La razón social y el RUT NO son de la marca.** Una empresa con seis marcas
+  tiene un RUT; el registro de marcas no lo guarda. Eso lo guarda tu app, en su
+  propio emisor.
+
 Detalle: **APP-SPEC §7.f**.
+
+---
+
+## 5.b «Parece hablar con una pasarela de pago»
+
+Si tu app cobra, no integres Webpay ni MercadoPago por tu cuenta: acabarías
+guardando llaves que no deberías tener y el tenant se quedaría sin registro de
+lo que se cobró.
+
+```jsonc
+"permissions": ["payments.link"]
+```
+
+```js
+const { available } = await shell.payments.info('CLP');  // no ofrezcas lo que no hay
+const cobro = await shell.payments.create({
+  amount: total, description: 'Pedido 1234', reference: pedido.id,
+});
+pedido.paymentUrl = cobro.url;       // esto se manda; NO es la URL de la pasarela
+```
+
+**El enlace lo sirve KIMOS a propósito.** Un checkout de pasarela caduca en
+minutos y lo que tú mandas se abre al día siguiente. Detalle: **APP-SPEC §7.g**.
 
 ---
 
 ## 6. «Usa `shell.records` sin comprobar que exista»
 
-`shell.records`, `shell.files` y `shell.brands` son **opcionales en el
-contrato**: un tenant que no haya actualizado el shell no los tiene. Tu app no
-debe romperse por eso.
+`shell.records`, `shell.files`, `shell.brands` y `shell.payments` son
+**opcionales en el contrato**: un tenant que no haya actualizado el shell no
+los tiene. Tu app no debe romperse por eso.
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }

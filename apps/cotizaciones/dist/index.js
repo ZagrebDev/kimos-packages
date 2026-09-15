@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.3.0 — app oficial de KIMOS.
+ * Cotizaciones v1.4.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -260,6 +260,21 @@ function defaultRules() {
     // del registro. Cambiarla NO reescribe las cotizaciones ya hechas: cada
     // una guarda la suya.
     brandId: '',
+    // ── Cobro en línea (APP-SPEC §7.g) ──────────────────────────────────
+    // Apagado por defecto: cobrar es una decisión de negocio, no algo que
+    // una app deba empezar a hacer porque se actualizó.
+    payEnabled: false,
+    // Cuáles de las pasarelas ACTIVAS del tenant se ofrecen en las
+    // cotizaciones de este cotizador. Vacío = todas las activas, que es lo
+    // que casi todo el mundo quiere: activar una pasarela nueva la ofrece
+    // también en los enlaces ya emitidos.
+    payProviders: [],
+    // Qué se cobra: 'total' o 'advance' (el abono, si está activado).
+    payCharge: 'total',
+    // Cuánto dura el enlace. Una cotización vence; el cobro también debería.
+    payExpiresDays: 30,
+    // Al marcar como enviada, generar el enlace sin que haya que pedirlo.
+    payOnSend: true,
     // Prefijo y ancho del correlativo: COT-2026-0001
     numberPrefix: 'COT',
     numberIncludeYear: true,
@@ -304,6 +319,11 @@ function normalizeRules(raw) {
     advanceEnabled: r.advanceEnabled !== false,
     advancePct: clamp(num(r.advancePct != null ? r.advancePct : d.advancePct), 0, 100),
     brandId: s(r.brandId != null ? r.brandId : d.brandId),
+    payEnabled: r.payEnabled === true,
+    payProviders: arr(r.payProviders).map(s).filter(Boolean),
+    payCharge: r.payCharge === 'advance' ? 'advance' : 'total',
+    payExpiresDays: clamp(Math.round(num(r.payExpiresDays != null && r.payExpiresDays !== '' ? r.payExpiresDays : d.payExpiresDays)), 1, 365),
+    payOnSend: r.payOnSend !== false,
     numberPrefix: s(r.numberPrefix != null ? r.numberPrefix : d.numberPrefix),
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
@@ -348,6 +368,41 @@ function normalizeClient(raw) {
     sourceApp: s(r.sourceApp),
     sourceInstanceId: s(r.sourceInstanceId),
     sourceItemId: s(r.sourceItemId),
+  };
+}
+
+// ── Cobro de la propuesta ───────────────────────────────────────────────
+/**
+ * El enlace de cobro de ESTA propuesta (APP-SPEC §7.g).
+ *
+ * `url` apunta a KIMOS, no a Webpay ni a MercadoPago, y eso no es un detalle:
+ * un checkout de pasarela es una sesión que caduca en minutos, y este enlace
+ * viaja en un PDF o en un correo que el cliente abre cuando le parece. La
+ * página de KIMOS crea el checkout fresco al abrirla.
+ *
+ * `status` es una INSTANTÁNEA de la última vez que se consultó. La verdad
+ * está en la plataforma; aquí se guarda para poder pintar la cotización sin
+ * salir a la red cada vez que se abre.
+ */
+function normalizePayment(raw) {
+  const r = isObj(raw) ? raw : {};
+  if (!s(r.linkId) && !s(r.url)) return null;
+  return {
+    linkId: s(r.linkId),
+    url: s(r.url),
+    amount: num(r.amount),
+    currency: s(r.currency) || 'CLP',
+    // 'total' o 'advance': qué parte de la cotización cubre este cobro. Sin
+    // esto, un abono pagado parecería la propuesta entera saldada.
+    covers: r.covers === 'advance' ? 'advance' : 'total',
+    status: s(r.status) || 'pending',
+    paidAt: s(r.paidAt),
+    paidWith: s(r.paidWith),
+    expiresAt: s(r.expiresAt),
+    createdAt: s(r.createdAt),
+    // Cuándo se preguntó por última vez: es lo que distingue «no han pagado»
+    // de «no lo hemos mirado».
+    checkedAt: s(r.checkedAt),
   };
 }
 
@@ -585,6 +640,9 @@ function normalizeQuote(raw) {
     // Marca con la que se emite esta propuesta. `null` = la de por defecto
     // del registro, o solo el emisor si no hay marcas.
     brand: normalizeDocBrand(r.brand),
+    // Enlace de cobro, si se generó. `null` = esta propuesta no se cobra en
+    // línea, que es un estado perfectamente normal.
+    payment: normalizePayment(r.payment),
     currency: s(r.currency),
     symbol: s(r.symbol),
     decimals: r.decimals == null || r.decimals === '' ? '' : clamp(Math.round(num(r.decimals)), 0, 6),
@@ -912,6 +970,10 @@ let model = {
   // Igual que `ext`: espejo de lectura, no se persiste. TODAS están siempre
   // disponibles; cada cotización elige la suya (ver src/66-records.js).
   brands: { loading: false, loaded: false, error: null, at: '', list: [] },
+  // Pasarelas de pago disponibles (`shell.payments`, APP-SPEC §7.g). También
+  // espejo de lectura: la app no guarda nada de esto, solo lo consulta para
+  // no ofrecer una forma de pago que la empresa no tiene activa.
+  pay: { loading: false, loaded: false, error: null, at: '', providers: [], available: [] },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar
@@ -2378,6 +2440,7 @@ function QuoteEditor(props) {
   const [panel, setPanel] = useState('');   // panel lateral desplegado
   const [preview, setPreview] = useState(false);
   const [enviar, setEnviar] = useState(false);
+  const [marcando, setMarcando] = useState(false);
 
   const patch = (p) => actPatchDoc(doc.id, p);
   const patchClient = (p) => actPatchClient(doc.id, p);
@@ -2414,6 +2477,14 @@ function QuoteEditor(props) {
         title: 'Enviar la cotización por correo con el SMTP de la empresa',
         onClick: () => setEnviar(true),
       }, '✉ Enviar') : null,
+      // El otro camino, y el más usado: la propuesta se manda por WhatsApp o
+      // desde el correo de cada uno. Antes había que exportar el PDF y
+      // cambiar el estado a mano, y el enlace de cobro no llegaba a existir.
+      !esPlantilla && doc.status === 'draft' ? h(Btn, {
+        key: 'mk', size: 'sm', disabled: !!marcando,
+        title: 'Exporta el PDF, genera el enlace de cobro y deja la cotización en «enviada», sin mandar ningún correo',
+        onClick: async () => { setMarcando(true); await actMarkSent(doc.id); setMarcando(false); },
+      }, marcando ? 'Preparando…' : '⬇ Marcar como enviada') : null,
       h(Btn, {
         key: 'pv', size: 'sm', variant: 'primary',
         title: 'Ver la propuesta como se imprimirá, exportarla a PDF o publicar su enlace',
@@ -2454,6 +2525,7 @@ function QuoteEditor(props) {
       ]),
       h('div', { key: 'side', className: 'cz-editor-side' }, [
         h(TotalsPanel, { key: 'tot', doc, rules, totals, patch }),
+        !esPlantilla ? h(PaymentPanel, { key: 'pay', m, doc, rules, totals }) : null,
         h(EventsPanel, { key: 'ev', doc, open: panel === 'events', onToggle: () => setPanel(panel === 'events' ? '' : 'events') }),
       ]),
     ]),
@@ -2517,6 +2589,112 @@ function DocHeaderPanel(props) {
       ])),
     ]),
     !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * El cobro de esta cotización.
+ *
+ * Tres estados y nada más: sin enlace, con enlace pendiente, pagado. Se
+ * resiste la tentación de enseñar los intentos o la pasarela elegida mientras
+ * está pendiente — quien cotiza quiere saber si le pagaron, no seguir el
+ * embudo de checkout de su cliente.
+ */
+function PaymentPanel(props) {
+  const { m, doc, rules } = props;
+  const [ocupado, setOcupado] = useState('');
+  const pago = doc.payment;
+  const motivo = cobroNoDisponible();
+
+  // Al abrir una cotización con cobro pendiente se pregunta una vez. Es lo
+  // que evita el «creí que no habían pagado»: el webhook ya lo registró en la
+  // plataforma, pero la instantánea de este documento es de ayer.
+  useEffect(() => {
+    if (pago && pago.status === 'pending') actRefreshPayment(doc.id, { silent: true });
+  }, [doc.id]);
+
+  if (!rules.payEnabled && !pago) return null;
+
+  const cobro = importeACobrar(doc, rules);
+  const cur = currencyOf(doc, rules);
+
+  const cuerpo = () => {
+    if (motivo && !pago) return h('p', { className: 'cz-card-note' }, motivo);
+    if (!pago) {
+      return h('div', { className: 'cz-pay-none' }, [
+        h('p', { key: 'q', className: 'cz-card-note' },
+          'Se cobrará ' + cobro.label.toLowerCase() + ': ' + money(cobro.amount, cur)),
+        h(Btn, {
+          key: 'b', size: 'sm', variant: 'primary', disabled: ocupado === 'new' || !(cobro.amount > 0),
+          title: cobro.amount > 0 ? 'Crea un enlace que el cliente abre y paga con tarjeta'
+            : 'Añade líneas a la cotización primero',
+          onClick: async () => { setOcupado('new'); await actCreatePaymentLink(doc.id); setOcupado(''); },
+        }, ocupado === 'new' ? 'Generando…' : '💳 Generar enlace de cobro'),
+      ]);
+    }
+    if (pago.status === 'paid') {
+      return h('div', { className: 'cz-pay-ok' }, [
+        h('div', { key: 't', className: 'cz-pay-ok-t' },
+          '✓ Pagado · ' + money(pago.amount, cur) + (pago.covers === 'advance' ? ' (abono)' : '')),
+        h('div', { key: 'd', className: 'cz-card-note' },
+          [s(pago.paidWith), s(pago.paidAt).slice(0, 10)].filter(Boolean).join(' · ')),
+        pago.covers === 'advance' ? h('div', { key: 's', className: 'cz-card-note' },
+          'Queda el saldo: la cotización sigue abierta.') : null,
+      ]);
+    }
+    if (pago.status === 'cancelled' || pago.status === 'expired') {
+      return h('div', { className: 'cz-pay-none' }, [
+        h('p', { key: 'x', className: 'cz-card-note cz-warn' },
+          pago.status === 'expired' ? 'El enlace de cobro venció.' : 'El enlace de cobro está anulado.'),
+        h(Btn, {
+          key: 'b', size: 'sm', disabled: ocupado === 'new',
+          onClick: async () => { setOcupado('new'); await actCreatePaymentLink(doc.id, { force: true }); setOcupado(''); },
+        }, ocupado === 'new' ? 'Generando…' : 'Generar otro'),
+      ]);
+    }
+    // Pendiente: lo único que hace falta es poder copiar el enlace y
+    // preguntar si ya pagaron.
+    return h('div', { className: 'cz-pay-wait' }, [
+      h('div', { key: 'a', className: 'cz-pay-amount' },
+        money(pago.amount, cur) + (pago.covers === 'advance' ? ' · abono' : '')),
+      h('input', {
+        key: 'u', className: 'cz-in cz-mono cz-pay-url', readOnly: true, value: pago.url,
+        onFocus: (e) => e.target.select(),
+        title: 'El enlace que se manda al cliente',
+      }),
+      h('div', { key: 'b', className: 'cz-inline' }, [
+        h(Btn, {
+          key: 'c', size: 'sm',
+          onClick: () => {
+            try {
+              navigator.clipboard.writeText(pago.url);
+              shell.notify({ level: 'success', text: 'Enlace de cobro copiado.' });
+            } catch (e) {
+              shell.notify({ level: 'warn', text: 'Copia el enlace a mano desde el campo.' });
+            }
+          },
+        }, '📋 Copiar'),
+        h(Btn, {
+          key: 'r', size: 'sm', disabled: ocupado === 'chk',
+          title: 'Preguntar a la pasarela si ya pagaron',
+          onClick: async () => { setOcupado('chk'); await actRefreshPayment(doc.id); setOcupado(''); },
+        }, ocupado === 'chk' ? 'Consultando…' : '↻ ¿Ya pagaron?'),
+        h(Btn, {
+          key: 'x', size: 'sm', disabled: ocupado === 'cnc',
+          title: 'Anular este cobro. Se puede generar otro después.',
+          onClick: async () => { setOcupado('cnc'); await actCancelPayment(doc.id); setOcupado(''); },
+        }, 'Anular'),
+      ]),
+      s(pago.expiresAt) ? h('div', { key: 'e', className: 'cz-card-note' },
+        'Vence el ' + fechaCorta(s(pago.expiresAt).slice(0, 10))) : null,
+    ]);
+  };
+
+  return h('section', { className: 'cz-card cz-pay' }, [
+    h('div', { key: 'h', className: 'cz-card-hd' }, [
+      h('h3', { key: 't' }, 'Cobro'),
+    ]),
+    cuerpo(),
   ]);
 }
 
@@ -3144,6 +3322,11 @@ function SettingsTab(props) {
       ]),
     ]),
 
+    // ── Cobro en línea ───────────────────────────────────────────────
+    // Apagado por defecto: cobrar es una decisión de negocio, no algo que
+    // deba empezar a pasar porque se actualizó la app.
+    h(PayCard, { key: 'pay', m, rules }),
+
     // ── Reglas de cotización ─────────────────────────────────────────
     h('section', { key: 'ru', className: 'cz-card' }, [
       h('div', { key: 'h', className: 'cz-card-hd' }, [
@@ -3257,6 +3440,96 @@ function SettingsTab(props) {
     h('div', { key: 'ft', className: 'cz-settings-ft' },
       'Los ajustes viven en esta instancia del cotizador. Un equipo puede tener varios '
       + '(por marca o por unidad de negocio) y cada uno lleva su emisor, su correlativo y sus reglas.'),
+  ]);
+}
+
+/**
+ * Cobro en línea: qué pasarelas se ofrecen y qué se cobra.
+ *
+ * Lo que se elige aquí es un SUBCONJUNTO de lo que la empresa tenga activo.
+ * Las llaves de las pasarelas las pone un superadmin en Ajustes →
+ * Integraciones; esta app no las ve ni puede activarlas, solo decidir cuáles
+ * de las que ya funcionan aparecen en sus cotizaciones.
+ */
+function PayCard(props) {
+  const { m, rules } = props;
+  const pay = m.pay || { providers: [], available: [] };
+  const motivo = cobroNoDisponible();
+  useEffect(() => { loadPayInfo(false); }, []);
+
+  const activas = arr(pay.providers).filter((p) => p && p.active);
+  const elegidas = arr(rules.payProviders);
+  const alternar = (id) => {
+    const hay = elegidas.indexOf(id) >= 0;
+    const next = hay ? elegidas.filter((x) => x !== id) : elegidas.concat([id]);
+    // Marcarlas todas equivale a no elegir ninguna, y «ninguna» es mejor:
+    // así una pasarela que se active mañana entra sola.
+    actPatchRules({ payProviders: next.length === activas.length ? [] : next });
+  };
+
+  const cuerpo = () => {
+    if (motivo) return h('span', { className: 'cz-card-note' }, motivo);
+    if (pay.error) return h('span', { className: 'cz-card-note cz-warn' }, pay.error);
+    if (pay.loading && !pay.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo pasarelas…');
+    if (!activas.length) {
+      return h('span', { className: 'cz-card-note' },
+        'Todavía no hay ninguna pasarela de pago activa. Las configura un administrador en '
+        + 'Ajustes → Integraciones → Pasarelas de pago; aquí aparecerán solas.');
+    }
+    return h('div', { className: 'cz-grid2' }, [
+      h(Field, {
+        key: 'on', label: 'Cobro en línea', wide: true,
+        help: 'Cada cotización puede llevar un enlace de pago que el cliente abre y paga con tarjeta.',
+      }, h(Toggle, {
+        checked: rules.payEnabled, label: rules.payEnabled ? 'Activado' : 'Desactivado',
+        onChange: (v) => actPatchRules({ payEnabled: v }),
+      })),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'pr', label: 'Formas de pago que se ofrecen', wide: true,
+        help: elegidas.length
+          ? 'Solo las marcadas. Una pasarela que se active más adelante NO entrará sola.'
+          : 'Todas las que la empresa tenga activas, ahora y en el futuro. Es lo recomendable.',
+      }, h('div', { className: 'cz-inline' }, activas.map((p) => h(Toggle, {
+        key: p.id,
+        checked: !elegidas.length || elegidas.indexOf(p.id) >= 0,
+        label: p.label,
+        onChange: () => alternar(p.id),
+      })))),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'ch', label: 'Qué se cobra',
+        help: rules.payCharge === 'advance'
+          ? 'El abono. La cotización sigue abierta por el saldo, y no se marca como ganada.'
+          : 'El total de la propuesta. Al pagarse, la cotización pasa a aceptada.',
+      }, h(Select, {
+        value: rules.payCharge,
+        onChange: (e) => actPatchRules({ payCharge: e.target.value }),
+        options: [
+          { value: 'total', label: 'El total de la cotización' },
+          { value: 'advance', label: 'Solo el abono' + (rules.advanceEnabled ? ' (' + rules.advancePct + '%)' : ' — actívalo abajo') },
+        ],
+      })),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'ex', label: 'El enlace vence en', help: 'Días desde que se genera.',
+      }, h('div', { className: 'cz-inline' }, [
+        h(NumField, { key: 'n', value: rules.payExpiresDays, onChange: (v) => actPatchRules({ payExpiresDays: num(v) }) }),
+        h('span', { key: 'u', className: 'cz-unit' }, 'días'),
+      ])),
+      !rules.payEnabled ? null : h(Field, {
+        key: 'os', label: 'Al marcar como enviada', wide: true,
+        help: 'Genera el enlace sin que haya que pedirlo, para que entre en el PDF que se manda.',
+      }, h(Toggle, {
+        checked: rules.payOnSend, label: 'Generar el enlace de cobro',
+        onChange: (v) => actPatchRules({ payOnSend: v }),
+      })),
+    ]);
+  };
+
+  return h('section', { className: 'cz-card' }, [
+    h('div', { key: 'h', className: 'cz-card-hd' }, [
+      h('h3', { key: 't' }, 'Cobro en línea'),
+      h('span', { key: 'n', className: 'cz-card-note' }, 'Un enlace de pago en cada propuesta.'),
+    ]),
+    h('div', { key: 'b' }, cuerpo()),
   ]);
 }
 
@@ -4792,6 +5065,319 @@ function ponerMarcaInicial(quoteId) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// src/68-payments.js
+// ══════════════════════════════════════════════════════════════════════
+// ── Cobrar la propuesta ─────────────────────────────────────────────────
+/**
+ * src/68-payments.js — enlace de pago por cotización (`shell.payments`,
+ * APP-SPEC §7.g).
+ *
+ * EL PROBLEMA QUE RESUELVE
+ *
+ * Una propuesta aceptada por teléfono se muere esperando a que alguien mande
+ * los datos de transferencia. El momento en que el cliente dice que sí es el
+ * momento en que hay que poder cobrarle, y no dos días después. Así que la
+ * cotización lleva su propio enlace de pago: se manda con el PDF, se pega en
+ * un WhatsApp, y el cliente paga con la tarjeta que ya tiene en la mano.
+ *
+ * QUÉ HACE Y QUÉ NO HACE ESTA APP
+ *
+ * No habla con Webpay ni con MercadoPago. No ve una llave. Pide un enlace a
+ * la plataforma —que sí sabe de pasarelas, y guarda las credenciales en
+ * Secret Manager— y guarda lo que le devuelve.
+ *
+ *     cotización ──> shell.payments.create() ──> url de KIMOS  ← esto se manda
+ *                                                     │
+ *                                       el cliente la abre y elige pasarela
+ *
+ * Que el enlace lo sirva KIMOS y no la pasarela es lo que hace que se pueda
+ * mandar por correo: un checkout de Webpay caduca en minutos. Ver §7.g.
+ *
+ * TRES COSAS QUE SE DECIDEN AQUÍ Y CONVIENE NO DESHACER
+ *
+ *   · El importe sale de `computeTotals`, no de un campo escrito a mano. Un
+ *     cobro que no cuadra con la propuesta que lo justifica es una discusión
+ *     con el cliente garantizada.
+ *   · El estado que se guarda en el documento es una INSTANTÁNEA. La verdad
+ *     está en la plataforma, y se pregunta al abrir la cotización. Así la
+ *     lista se pinta sin salir a la red por cada fila.
+ *   · Un cobro pagado NO cambia el estado de la cotización a «aceptada» por
+ *     su cuenta si lo pagado fue solo el abono. Un abono no es una venta
+ *     cerrada, y marcarla como tal falsearía el embudo.
+ */
+
+/** '' si se puede cobrar; si no, el motivo, para poder explicarlo. */
+function cobroNoDisponible() {
+  if (!shell.payments || typeof shell.payments.create !== 'function') {
+    return 'Este host todavía no permite cobrar desde las apps; manda los datos de transferencia como siempre.';
+  }
+  return '';
+}
+
+/** Lee qué pasarelas hay. Espejo de lectura, como el de marcas o catálogos. */
+async function loadPayInfo(force) {
+  const p = model.pay;
+  if (!force && (p.loading || p.loaded)) return p;
+  const motivo = cobroNoDisponible();
+  if (motivo) {
+    setModel({ pay: Object.assign({}, p, { loading: false, loaded: true, error: motivo, available: [], providers: [] }) });
+    return model.pay;
+  }
+  setModel({ pay: Object.assign({}, p, { loading: true, error: null }) });
+  try {
+    const info = await shell.payments.info(rulesOf().currency);
+    setModel({
+      pay: {
+        loading: false, loaded: true, error: null, at: stamp(),
+        providers: arr(info && info.providers),
+        available: arr(info && info.available).map(s).filter(Boolean),
+      },
+    });
+  } catch (e) {
+    setModel({
+      pay: Object.assign({}, model.pay, {
+        loading: false, loaded: true, providers: [], available: [],
+        error: 'No se pudieron leer las pasarelas: ' + ((e && e.message) || 'error'),
+      }),
+    });
+  }
+  return model.pay;
+}
+
+/**
+ * Qué se cobra de esta cotización: el total o el abono.
+ *
+ * Devuelve `{ amount, covers, label }`, o `amount: 0` si no hay nada que
+ * cobrar — una cotización sin líneas, o con abono configurado pero sin abono
+ * en este documento.
+ */
+function importeACobrar(doc, rules) {
+  const r = normalizeRules(rules || rulesOf());
+  const t = computeTotals(doc, r);
+  if (r.payCharge === 'advance' && t.advance > 0) {
+    return { amount: t.advance, covers: 'advance', label: 'Abono', currency: t.currency };
+  }
+  return { amount: t.total, covers: 'total', label: 'Total', currency: t.currency };
+}
+
+/** Lo que verá el cliente en su cartola. Que se pueda reconocer importa. */
+function descripcionDeCobro(doc) {
+  const num = s(doc.number);
+  const marca = doc.brand && s(doc.brand.name);
+  const emisor = marca || s(issuerOf().name);
+  return [emisor, num || s(doc.name)].filter(Boolean).join(' · ').slice(0, 120);
+}
+
+/** `true` si el cobro de este documento sigue vivo y no hace falta otro. */
+function cobroVigente(doc) {
+  const p = doc && doc.payment;
+  if (!p || !s(p.url)) return false;
+  return p.status === 'pending' || p.status === 'paid';
+}
+
+/**
+ * Genera el enlace de cobro de una cotización.
+ *
+ * Si ya hay uno vigente no crea otro: dos enlaces vivos para la misma
+ * propuesta son dos formas de cobrarla dos veces. Para rehacerlo hay que
+ * anular el anterior, que es una decisión explícita.
+ */
+async function actCreatePaymentLink(quoteId, opts) {
+  const o = isObj(opts) ? opts : {};
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+
+  const motivo = cobroNoDisponible();
+  if (motivo) { if (!o.silent) shell.notify({ level: 'warn', text: motivo }); return null; }
+
+  if (cobroVigente(doc) && !o.force) {
+    if (!o.silent) shell.notify({ level: 'info', text: 'Esta cotización ya tiene un enlace de cobro.' });
+    return doc.payment;
+  }
+  if (doc.kind === KIND_TEMPLATE) {
+    if (!o.silent) shell.notify({ level: 'warn', text: 'Una cotización tipo no se cobra: cóbrala en la cotización que salga de ella.' });
+    return null;
+  }
+
+  const rules = rulesOf();
+  const cobro = importeACobrar(doc, rules);
+  if (!(cobro.amount > 0)) {
+    if (!o.silent) shell.notify({ level: 'warn', text: 'Esta cotización no tiene un importe que cobrar todavía.' });
+    return null;
+  }
+
+  let link;
+  try {
+    link = await shell.payments.create({
+      amount: cobro.amount,
+      currency: cobro.currency.code || rules.currency,
+      description: descripcionDeCobro(doc),
+      reference: doc.id,
+      label: [s(doc.number) || s(doc.name), s(doc.client.name)].filter(Boolean).join(' · '),
+      providers: arr(rules.payProviders),
+      payerEmail: s(doc.client.email),
+      payerName: s(doc.client.name),
+      expiresInDays: rules.payExpiresDays,
+    });
+  } catch (e) {
+    if (!o.silent) shell.notify({ level: 'error', text: 'No se pudo generar el enlace de cobro: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  if (!isObj(link) || !s(link.url)) {
+    if (!o.silent) shell.notify({ level: 'error', text: 'La plataforma no devolvió un enlace de cobro.' });
+    return null;
+  }
+
+  const pago = normalizePayment({
+    linkId: link.id, url: link.url, amount: link.amount, currency: link.currency,
+    covers: cobro.covers, status: link.status || 'pending',
+    expiresAt: link.expiresAt, createdAt: link.createdAt, checkedAt: stamp(),
+  });
+  commitDoc(doc.id, (d) => {
+    d.payment = pago;
+    return logEvent(d, 'payment', 'Enlace de cobro generado · ' + money(pago.amount, cobro.currency)
+      + (pago.covers === 'advance' ? ' (abono)' : ''));
+  });
+  if (!o.silent) {
+    shell.notify({ level: 'success', text: 'Enlace de cobro listo. Va en la propuesta y se puede copiar.' });
+  }
+  return pago;
+}
+
+/**
+ * Pregunta a la plataforma si ya pagaron y actualiza la instantánea.
+ *
+ * Devuelve el pago actualizado. Si acaba de pasar a pagado lo registra en la
+ * bitácora, que es donde después se mira quién pagó qué y cuándo.
+ */
+async function actRefreshPayment(quoteId, opts) {
+  const o = isObj(opts) ? opts : {};
+  const doc = docById(s(quoteId));
+  if (!doc || !doc.payment || !s(doc.payment.linkId)) return null;
+  if (cobroNoDisponible() || typeof shell.payments.get !== 'function') return null;
+
+  let link;
+  try {
+    link = await shell.payments.get(s(doc.payment.linkId));
+  } catch (e) {
+    if (!o.silent) shell.notify({ level: 'error', text: 'No se pudo consultar el cobro: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  if (!isObj(link)) return null;
+
+  const antes = s(doc.payment.status);
+  const ahora = s(link.status) || 'pending';
+  const pago = normalizePayment(Object.assign({}, doc.payment, {
+    status: ahora, paidAt: link.paidAt, paidWith: link.paidWith,
+    amount: link.amount, expiresAt: link.expiresAt, checkedAt: stamp(),
+  }));
+
+  commitDoc(doc.id, (d) => {
+    d.payment = pago;
+    if (ahora === 'paid' && antes !== 'paid') {
+      return logEvent(d, 'payment', 'Pagado · ' + money(pago.amount, currencyOf(d, rulesOf()))
+        + (pago.covers === 'advance' ? ' (abono)' : '') + (s(pago.paidWith) ? ' · ' + s(pago.paidWith) : ''));
+    }
+    return d;
+  });
+
+  // Un pago del TOTAL cierra la venta y así se dice en el embudo. Un abono
+  // no: se ha cobrado la señal, la propuesta sigue en juego, y marcarla como
+  // aceptada haría que el pipeline contase como ganado lo que no lo está.
+  if (ahora === 'paid' && antes !== 'paid') {
+    if (pago.covers === 'total' && docById(doc.id).status !== 'accepted') {
+      actSetStatus(doc.id, 'accepted', 'Pagada en línea');
+    }
+    if (!o.silent) {
+      shell.notify({
+        level: 'success',
+        text: pago.covers === 'advance'
+          ? 'Abono recibido. La cotización sigue abierta por el saldo.'
+          : 'Cotización pagada.',
+      });
+    }
+  } else if (!o.silent) {
+    shell.notify({ level: 'info', text: 'Todavía no hay pago registrado en esta cotización.' });
+  }
+  return pago;
+}
+
+/** Anula el cobro pendiente. Uno pagado no se anula: eso es una devolución. */
+async function actCancelPayment(quoteId) {
+  const doc = docById(s(quoteId));
+  if (!doc || !doc.payment || !s(doc.payment.linkId)) return null;
+  if (cobroNoDisponible() || typeof shell.payments.cancel !== 'function') return null;
+  if (doc.payment.status === 'paid') {
+    shell.notify({ level: 'warn', text: 'Este cobro ya está pagado: la devolución se hace en la pasarela.' });
+    return null;
+  }
+  try {
+    await shell.payments.cancel(s(doc.payment.linkId));
+  } catch (e) {
+    shell.notify({ level: 'error', text: 'No se pudo anular el cobro: ' + ((e && e.message) || 'error') });
+    return null;
+  }
+  const out = commitDoc(doc.id, (d) => {
+    d.payment = normalizePayment(Object.assign({}, d.payment, { status: 'cancelled', checkedAt: stamp() }));
+    return logEvent(d, 'payment', 'Enlace de cobro anulado');
+  });
+  shell.notify({ level: 'success', text: 'Enlace de cobro anulado. Puedes generar otro.' });
+  return out;
+}
+
+/**
+ * «Marcar como enviada» sin mandar el correo desde aquí.
+ *
+ * Es el camino de quien manda la propuesta por WhatsApp, la imprime o la
+ * adjunta desde su propio correo: hasta ahora tenía que cambiar el estado a
+ * mano y el enlace de cobro no existía. Ahora, en un gesto:
+ *
+ *   1. genera el enlace de cobro (si el cotizador lo tiene activado),
+ *   2. exporta el PDF, que es lo que se va a mandar,
+ *   3. deja la cotización en «enviada», con su nota en la bitácora.
+ *
+ * El orden importa: el enlace primero, porque tiene que salir DENTRO del PDF.
+ * Generarlo después dejaría un PDF sin forma de pagar, que es justo lo que
+ * esto viene a evitar.
+ */
+async function actMarkSent(quoteId, opts) {
+  const o = isObj(opts) ? opts : {};
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+  if (doc.kind === KIND_TEMPLATE) {
+    shell.notify({ level: 'warn', text: 'Una cotización tipo no se envía: crea una cotización desde ella.' });
+    return null;
+  }
+
+  const rules = rulesOf();
+  const conCobro = o.withPayment != null ? o.withPayment !== false : rules.payEnabled && rules.payOnSend;
+  if (conCobro && !cobroNoDisponible() && !cobroVigente(doc)) {
+    await actCreatePaymentLink(doc.id, { silent: true });
+  }
+
+  let pdf = true;
+  if (o.pdf !== false) {
+    pdf = await actExportPdf(doc.id);
+  }
+
+  const pago = docById(doc.id).payment;
+  const nota = [
+    o.pdf === false ? 'Marcada a mano' : 'PDF exportado',
+    pago && s(pago.url) ? 'con enlace de cobro' : '',
+    s(o.detail),
+  ].filter(Boolean).join(' · ');
+  actSetStatus(doc.id, 'sent', nota);
+
+  shell.notify({
+    level: 'success',
+    text: pago && s(pago.url)
+      ? 'Marcada como enviada, con su enlace de cobro listo para mandar.'
+      : 'Marcada como enviada.',
+  });
+  return { doc: docById(doc.id), pdf: pdf !== false, payment: pago || null };
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // src/70-blocks.js
 // ══════════════════════════════════════════════════════════════════════
 /* ══ LIENZO: MODELO Y PINTADO DE BLOQUES ══════════════════════════════════
@@ -4827,6 +5413,7 @@ const BLOCK_TYPES = [
   { type: 'totals', label: 'Totales', icon: '∑', w: 12, linked: true, help: 'Subtotal, impuesto, total y el desglose de abono y saldo.' },
   { type: 'notes', label: 'Notas', icon: '✎', w: 12, linked: true, help: 'Las notas y condiciones de la cotización.' },
   { type: 'payment', label: 'Datos de pago', icon: '🏦', w: 12, linked: true, help: 'Los datos de transferencia del pie.' },
+  { type: 'paylink', label: 'Pagar en línea', icon: '💳', w: 12, linked: true, help: 'El enlace de cobro de esta cotización, para que el cliente pague con tarjeta.' },
   { type: 'text', label: 'Texto', icon: '¶', w: 12, help: 'Un título, un párrafo o una nota al margen.' },
   { type: 'image', label: 'Imagen', icon: '🖼', w: 6, help: 'Una foto, un plano, un render o el logo de la sede.' },
   { type: 'divider', label: 'Separador', icon: '─', w: 12, help: 'Una línea que separa secciones.' },
@@ -4880,6 +5467,10 @@ function bloquesPorDefecto() {
     normalizeBlock({ type: 'totals', w: 12 }),
     normalizeBlock({ type: 'notes', w: 12 }),
     normalizeBlock({ type: 'payment', w: 12 }),
+    // Sin enlace de cobro este bloque no se pinta (`bloqueVacio`), así que
+    // ponerlo en la maqueta por defecto no ensucia nada: aparece solo en las
+    // propuestas que sí se cobran en línea.
+    normalizeBlock({ type: 'paylink', w: 12 }),
   ];
 }
 
@@ -4895,6 +5486,12 @@ function bloqueVacio(b, ctx) {
   if (b.type === 'items') return !arr(doc.lines).length;
   if (b.type === 'notes') return !arr(doc.notes).filter((n) => s(n).trim()).length;
   if (b.type === 'payment') return !s(doc.paymentInfo || ctx.issuer.paymentInfo).trim();
+  // Un cobro pagado, anulado o vencido no se ofrece: un botón «Pagar» en una
+  // propuesta ya pagada invita a pagar dos veces.
+  if (b.type === 'paylink') {
+    const p = doc.payment;
+    return !(p && s(p.url) && p.status === 'pending');
+  }
   if (b.type === 'text') return !s(b.text).trim();
   if (b.type === 'image') return !s(b.url).trim();
   return false;
@@ -4928,6 +5525,7 @@ function Block(props) {
       case 'totals': return h(BlockTotals, { b, ctx });
       case 'notes': return h(BlockNotes, { b, ctx });
       case 'payment': return h(BlockPayment, { b, ctx });
+      case 'paylink': return h(BlockPaylink, { b, ctx });
       case 'text': return h(BlockText, { b, ctx, edit, onChange: props.onChange });
       case 'image': return h(BlockImage, { b, ctx, edit });
       case 'divider': return h('hr', { className: 'cz-b-hr' });
@@ -5058,6 +5656,29 @@ function BlockPayment(props) {
   return h('div', { className: 'cz-b-pay' }, [
     h('div', { key: 't', className: 'cz-b-pay-tit' }, b.title ? '' : 'Datos de transferencia'),
     h('div', { key: 'v', className: 'cz-b-pay-body' }, parrafos(texto)),
+  ]);
+}
+
+/**
+ * «Pagar en línea» dentro de la propuesta.
+ *
+ * Se imprime la URL completa además del botón: en el PDF no se puede pulsar
+ * un enlace si se imprime en papel, y una propuesta impresa con un botón que
+ * no lleva a ninguna parte es peor que no tener el bloque.
+ */
+function BlockPaylink(props) {
+  const { ctx } = props;
+  const pago = ctx.doc.payment || {};
+  const cur = ctx.cur;
+  return h('div', { className: 'cz-b-paylink' }, [
+    h('div', { key: 't', className: 'cz-b-paylink-tit' }, 'Pagar en línea'),
+    h('div', { key: 'm', className: 'cz-b-paylink-monto' },
+      money(pago.amount, cur) + (pago.covers === 'advance' ? ' · abono' : '')),
+    h('a', {
+      key: 'b', className: 'cz-b-paylink-btn', href: pago.url,
+      target: '_blank', rel: 'noopener noreferrer',
+    }, 'Pagar con tarjeta'),
+    h('div', { key: 'u', className: 'cz-b-paylink-url' }, s(pago.url)),
   ]);
 }
 
@@ -5760,6 +6381,14 @@ const MAIL_VARS = [
   ['emisor', 'Razón social del emisor', (d, c) => s(c.issuer.name)],
   ['firma', 'Firma del emisor', (d, c) => [s(c.issuer.name), s(c.issuer.email), s(c.issuer.phone)].filter(Boolean).join('\n')],
   ['enlace', 'Enlace a la propuesta publicada', (d) => s(d.publicUrl)],
+  // El enlace de cobro solo se sustituye si está vigente. Mandar el de una
+  // cotización ya pagada invita a pagarla dos veces, y el de una anulada
+  // lleva a una página que dice que no se puede pagar: en los dos casos es
+  // mejor que la variable quede vacía y se vea al previsualizar.
+  ['pago', 'Enlace para pagar en línea', (d) => {
+    const p = d && d.payment;
+    return p && p.status === 'pending' ? s(p.url) : '';
+  }],
   ['yo', 'Quien envía', () => meLabel()],
 ];
 const MAIL_VAR_MAP = new Map(MAIL_VARS.map(([k, , fn]) => [k, fn]));
@@ -6865,6 +7494,7 @@ function retratoDoc(d, rules, detallado) {
     moneda: t.currency.code,
   };
   if (d.brand && d.brand.name) base.marca = d.brand.name;
+  if (d.payment) base.cobro = { estado: d.payment.status, enlace: d.payment.url };
   if (d.revision) base.revision = d.revision;
   if (d.supersededBy) base.sustituidaPor = d.supersededBy;
   if (d.publicUrl) base.enlace = d.publicUrl;
@@ -6909,6 +7539,9 @@ function agentSnapshot() {
       nombre: model.docName,
       emisor: { nombre: issuer.name, rut: issuer.taxId, correo: issuer.email },
       marcaDeNuevas: s(rules.brandId) || 'la de por defecto del sistema',
+      cobroEnLinea: rules.payEnabled
+        ? (rules.payCharge === 'advance' ? 'activado, se cobra el abono' : 'activado, se cobra el total')
+        : 'desactivado',
       moneda: rules.currency,
       impuesto: rules.taxPct,
       impuestoNombre: rules.taxLabel,
@@ -7011,6 +7644,15 @@ const AGENT_TOOLS = [
   tool('LISTAR_MARCAS', 'Lista las marcas del sistema disponibles para emitir. Todas se pueden usar; la de «por defecto» es solo con la que nace una cotización nueva.', {}),
   tool('ELEGIR_MARCA', 'Fija con qué marca se emite una cotización: cambia el logotipo, la bajada y los colores de la propuesta. Con `marca` vacía la deja sin marca (solo el emisor). NO cambia la razón social ni el RUT: eso es del emisor.',
     { cotizacion: T_STR, marca: T_STR }, ['cotizacion']),
+  // Cobrar. El agente NO puede cambiar el importe: sale de la cotización.
+  tool('GENERAR_COBRO', 'Genera el enlace de pago de una cotización, para que el cliente pague con tarjeta. El importe sale de la propia cotización (total o abono, según los ajustes): no se puede fijar aquí.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('CONSULTAR_COBRO', 'Pregunta a la pasarela si una cotización ya se pagó y actualiza su estado.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('ANULAR_COBRO', 'Anula el enlace de cobro pendiente de una cotización. Uno ya pagado no se anula: la devolución se hace en la pasarela.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('MARCAR_ENVIADA', 'Deja la cotización como enviada SIN mandar ningún correo: exporta el PDF, genera su enlace de cobro y cambia el estado. Es el camino de quien manda la propuesta por WhatsApp o desde su propio correo.',
+    { cotizacion: T_STR, pdf: T_BOOL, conCobro: T_BOOL }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -7280,6 +7922,50 @@ async function agentDispatch(action) {
       if (!out) return errMsg('No se pudo aplicar la marca.');
       return okMsg('Esta cotización se emite con la marca «' + s(out.brand.name) + '».',
         { marca: s(out.brand.name), logo: !!s(out.brand.logoUrl) });
+    }
+
+    case 'GENERAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const motivo = cobroNoDisponible();
+      if (motivo) return errMsg(motivo);
+      const pago = await actCreatePaymentLink(r.doc.id);
+      if (!pago) return errMsg('No se pudo generar el enlace de cobro.');
+      return okMsg('Enlace de cobro listo por ' + money(pago.amount, currencyOf(r.doc, rulesOf()))
+        + (pago.covers === 'advance' ? ' (abono)' : '') + '.',
+      { enlace: pago.url, vence: pago.expiresAt });
+    }
+
+    case 'CONSULTAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!r.doc.payment) return errMsg('Esa cotización no tiene enlace de cobro; genera uno con GENERAR_COBRO.');
+      const pago = await actRefreshPayment(r.doc.id, { silent: true });
+      if (!pago) return errMsg('No se pudo consultar el cobro.');
+      return okMsg(pago.status === 'paid'
+        ? 'Pagada' + (pago.covers === 'advance' ? ' el abono' : '') + '.'
+        : 'Todavía sin pago (' + pago.status + ').',
+      { estado: pago.status, pagadoCon: pago.paidWith || undefined, enlace: pago.url });
+    }
+
+    case 'ANULAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const out = await actCancelPayment(r.doc.id);
+      return out ? okMsg('Enlace de cobro anulado.') : errMsg('No se pudo anular el cobro.');
+    }
+
+    case 'MARCAR_ENVIADA': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const res = await actMarkSent(r.doc.id, {
+        pdf: p.pdf !== false,
+        withPayment: p.conCobro == null ? undefined : p.conCobro !== false,
+        detail: 'Desde el agente',
+      });
+      if (!res) return errMsg('No se pudo marcar como enviada.');
+      return okMsg('Cotización marcada como enviada' + (res.payment ? ', con su enlace de cobro' : '') + '.',
+        { enlace: res.payment ? res.payment.url : undefined, pdf: res.pdf });
     }
 
     case 'CAMBIAR_ESTADO': {
@@ -7563,9 +8249,11 @@ function registrarAgente() {
       actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
       estadoVinculo, clavesDeCliente, registroNoDisponible,
       actSetDocBrand, actRefreshDocBrand, loadBrands, marcasNoDisponibles, instantaneaDeMarca, brandedIssuer,
+      actCreatePaymentLink, actRefreshPayment, actCancelPayment, actMarkSent,
+      loadPayInfo, cobroNoDisponible, importeACobrar, cobroVigente,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
-      bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,
+      bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, bloqueVacio, BLOCK_TYPES,
       actSetEditorView, actSetBlocks, actAddBlock, actUpdateBlock, actRemoveBlock,
       actMoveBlock, actResetBlocks,
       actSetDefaultTemplate, defaultTemplate, actNewRevision, serieDe, numeroRevision,

@@ -54,6 +54,10 @@ let model = {
   // Igual que `ext`: espejo de lectura, no se persiste. TODAS están siempre
   // disponibles; cada cotización elige la suya (ver src/66-records.js).
   brands: { loading: false, loaded: false, error: null, at: '', list: [] },
+  // Pasarelas de pago disponibles (`shell.payments`, APP-SPEC §7.g). También
+  // espejo de lectura: la app no guarda nada de esto, solo lo consulta para
+  // no ofrecer una forma de pago que la empresa no tiene activa.
+  pay: { loading: false, loaded: false, error: null, at: '', providers: [], available: [] },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar

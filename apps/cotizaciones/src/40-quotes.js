@@ -157,6 +157,7 @@ function QuoteEditor(props) {
   const [panel, setPanel] = useState('');   // panel lateral desplegado
   const [preview, setPreview] = useState(false);
   const [enviar, setEnviar] = useState(false);
+  const [marcando, setMarcando] = useState(false);
 
   const patch = (p) => actPatchDoc(doc.id, p);
   const patchClient = (p) => actPatchClient(doc.id, p);
@@ -193,6 +194,14 @@ function QuoteEditor(props) {
         title: 'Enviar la cotización por correo con el SMTP de la empresa',
         onClick: () => setEnviar(true),
       }, '✉ Enviar') : null,
+      // El otro camino, y el más usado: la propuesta se manda por WhatsApp o
+      // desde el correo de cada uno. Antes había que exportar el PDF y
+      // cambiar el estado a mano, y el enlace de cobro no llegaba a existir.
+      !esPlantilla && doc.status === 'draft' ? h(Btn, {
+        key: 'mk', size: 'sm', disabled: !!marcando,
+        title: 'Exporta el PDF, genera el enlace de cobro y deja la cotización en «enviada», sin mandar ningún correo',
+        onClick: async () => { setMarcando(true); await actMarkSent(doc.id); setMarcando(false); },
+      }, marcando ? 'Preparando…' : '⬇ Marcar como enviada') : null,
       h(Btn, {
         key: 'pv', size: 'sm', variant: 'primary',
         title: 'Ver la propuesta como se imprimirá, exportarla a PDF o publicar su enlace',
@@ -233,6 +242,7 @@ function QuoteEditor(props) {
       ]),
       h('div', { key: 'side', className: 'cz-editor-side' }, [
         h(TotalsPanel, { key: 'tot', doc, rules, totals, patch }),
+        !esPlantilla ? h(PaymentPanel, { key: 'pay', m, doc, rules, totals }) : null,
         h(EventsPanel, { key: 'ev', doc, open: panel === 'events', onToggle: () => setPanel(panel === 'events' ? '' : 'events') }),
       ]),
     ]),
@@ -296,6 +306,112 @@ function DocHeaderPanel(props) {
       ])),
     ]),
     !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * El cobro de esta cotización.
+ *
+ * Tres estados y nada más: sin enlace, con enlace pendiente, pagado. Se
+ * resiste la tentación de enseñar los intentos o la pasarela elegida mientras
+ * está pendiente — quien cotiza quiere saber si le pagaron, no seguir el
+ * embudo de checkout de su cliente.
+ */
+function PaymentPanel(props) {
+  const { m, doc, rules } = props;
+  const [ocupado, setOcupado] = useState('');
+  const pago = doc.payment;
+  const motivo = cobroNoDisponible();
+
+  // Al abrir una cotización con cobro pendiente se pregunta una vez. Es lo
+  // que evita el «creí que no habían pagado»: el webhook ya lo registró en la
+  // plataforma, pero la instantánea de este documento es de ayer.
+  useEffect(() => {
+    if (pago && pago.status === 'pending') actRefreshPayment(doc.id, { silent: true });
+  }, [doc.id]);
+
+  if (!rules.payEnabled && !pago) return null;
+
+  const cobro = importeACobrar(doc, rules);
+  const cur = currencyOf(doc, rules);
+
+  const cuerpo = () => {
+    if (motivo && !pago) return h('p', { className: 'cz-card-note' }, motivo);
+    if (!pago) {
+      return h('div', { className: 'cz-pay-none' }, [
+        h('p', { key: 'q', className: 'cz-card-note' },
+          'Se cobrará ' + cobro.label.toLowerCase() + ': ' + money(cobro.amount, cur)),
+        h(Btn, {
+          key: 'b', size: 'sm', variant: 'primary', disabled: ocupado === 'new' || !(cobro.amount > 0),
+          title: cobro.amount > 0 ? 'Crea un enlace que el cliente abre y paga con tarjeta'
+            : 'Añade líneas a la cotización primero',
+          onClick: async () => { setOcupado('new'); await actCreatePaymentLink(doc.id); setOcupado(''); },
+        }, ocupado === 'new' ? 'Generando…' : '💳 Generar enlace de cobro'),
+      ]);
+    }
+    if (pago.status === 'paid') {
+      return h('div', { className: 'cz-pay-ok' }, [
+        h('div', { key: 't', className: 'cz-pay-ok-t' },
+          '✓ Pagado · ' + money(pago.amount, cur) + (pago.covers === 'advance' ? ' (abono)' : '')),
+        h('div', { key: 'd', className: 'cz-card-note' },
+          [s(pago.paidWith), s(pago.paidAt).slice(0, 10)].filter(Boolean).join(' · ')),
+        pago.covers === 'advance' ? h('div', { key: 's', className: 'cz-card-note' },
+          'Queda el saldo: la cotización sigue abierta.') : null,
+      ]);
+    }
+    if (pago.status === 'cancelled' || pago.status === 'expired') {
+      return h('div', { className: 'cz-pay-none' }, [
+        h('p', { key: 'x', className: 'cz-card-note cz-warn' },
+          pago.status === 'expired' ? 'El enlace de cobro venció.' : 'El enlace de cobro está anulado.'),
+        h(Btn, {
+          key: 'b', size: 'sm', disabled: ocupado === 'new',
+          onClick: async () => { setOcupado('new'); await actCreatePaymentLink(doc.id, { force: true }); setOcupado(''); },
+        }, ocupado === 'new' ? 'Generando…' : 'Generar otro'),
+      ]);
+    }
+    // Pendiente: lo único que hace falta es poder copiar el enlace y
+    // preguntar si ya pagaron.
+    return h('div', { className: 'cz-pay-wait' }, [
+      h('div', { key: 'a', className: 'cz-pay-amount' },
+        money(pago.amount, cur) + (pago.covers === 'advance' ? ' · abono' : '')),
+      h('input', {
+        key: 'u', className: 'cz-in cz-mono cz-pay-url', readOnly: true, value: pago.url,
+        onFocus: (e) => e.target.select(),
+        title: 'El enlace que se manda al cliente',
+      }),
+      h('div', { key: 'b', className: 'cz-inline' }, [
+        h(Btn, {
+          key: 'c', size: 'sm',
+          onClick: () => {
+            try {
+              navigator.clipboard.writeText(pago.url);
+              shell.notify({ level: 'success', text: 'Enlace de cobro copiado.' });
+            } catch (e) {
+              shell.notify({ level: 'warn', text: 'Copia el enlace a mano desde el campo.' });
+            }
+          },
+        }, '📋 Copiar'),
+        h(Btn, {
+          key: 'r', size: 'sm', disabled: ocupado === 'chk',
+          title: 'Preguntar a la pasarela si ya pagaron',
+          onClick: async () => { setOcupado('chk'); await actRefreshPayment(doc.id); setOcupado(''); },
+        }, ocupado === 'chk' ? 'Consultando…' : '↻ ¿Ya pagaron?'),
+        h(Btn, {
+          key: 'x', size: 'sm', disabled: ocupado === 'cnc',
+          title: 'Anular este cobro. Se puede generar otro después.',
+          onClick: async () => { setOcupado('cnc'); await actCancelPayment(doc.id); setOcupado(''); },
+        }, 'Anular'),
+      ]),
+      s(pago.expiresAt) ? h('div', { key: 'e', className: 'cz-card-note' },
+        'Vence el ' + fechaCorta(s(pago.expiresAt).slice(0, 10))) : null,
+    ]);
+  };
+
+  return h('section', { className: 'cz-card cz-pay' }, [
+    h('div', { key: 'h', className: 'cz-card-hd' }, [
+      h('h3', { key: 't' }, 'Cobro'),
+    ]),
+    cuerpo(),
   ]);
 }
 

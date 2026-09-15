@@ -128,6 +128,7 @@ function retratoDoc(d, rules, detallado) {
     moneda: t.currency.code,
   };
   if (d.brand && d.brand.name) base.marca = d.brand.name;
+  if (d.payment) base.cobro = { estado: d.payment.status, enlace: d.payment.url };
   if (d.revision) base.revision = d.revision;
   if (d.supersededBy) base.sustituidaPor = d.supersededBy;
   if (d.publicUrl) base.enlace = d.publicUrl;
@@ -172,6 +173,9 @@ function agentSnapshot() {
       nombre: model.docName,
       emisor: { nombre: issuer.name, rut: issuer.taxId, correo: issuer.email },
       marcaDeNuevas: s(rules.brandId) || 'la de por defecto del sistema',
+      cobroEnLinea: rules.payEnabled
+        ? (rules.payCharge === 'advance' ? 'activado, se cobra el abono' : 'activado, se cobra el total')
+        : 'desactivado',
       moneda: rules.currency,
       impuesto: rules.taxPct,
       impuestoNombre: rules.taxLabel,
@@ -274,6 +278,15 @@ const AGENT_TOOLS = [
   tool('LISTAR_MARCAS', 'Lista las marcas del sistema disponibles para emitir. Todas se pueden usar; la de «por defecto» es solo con la que nace una cotización nueva.', {}),
   tool('ELEGIR_MARCA', 'Fija con qué marca se emite una cotización: cambia el logotipo, la bajada y los colores de la propuesta. Con `marca` vacía la deja sin marca (solo el emisor). NO cambia la razón social ni el RUT: eso es del emisor.',
     { cotizacion: T_STR, marca: T_STR }, ['cotizacion']),
+  // Cobrar. El agente NO puede cambiar el importe: sale de la cotización.
+  tool('GENERAR_COBRO', 'Genera el enlace de pago de una cotización, para que el cliente pague con tarjeta. El importe sale de la propia cotización (total o abono, según los ajustes): no se puede fijar aquí.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('CONSULTAR_COBRO', 'Pregunta a la pasarela si una cotización ya se pagó y actualiza su estado.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('ANULAR_COBRO', 'Anula el enlace de cobro pendiente de una cotización. Uno ya pagado no se anula: la devolución se hace en la pasarela.',
+    { cotizacion: T_STR }, ['cotizacion']),
+  tool('MARCAR_ENVIADA', 'Deja la cotización como enviada SIN mandar ningún correo: exporta el PDF, genera su enlace de cobro y cambia el estado. Es el camino de quien manda la propuesta por WhatsApp o desde su propio correo.',
+    { cotizacion: T_STR, pdf: T_BOOL, conCobro: T_BOOL }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -543,6 +556,50 @@ async function agentDispatch(action) {
       if (!out) return errMsg('No se pudo aplicar la marca.');
       return okMsg('Esta cotización se emite con la marca «' + s(out.brand.name) + '».',
         { marca: s(out.brand.name), logo: !!s(out.brand.logoUrl) });
+    }
+
+    case 'GENERAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const motivo = cobroNoDisponible();
+      if (motivo) return errMsg(motivo);
+      const pago = await actCreatePaymentLink(r.doc.id);
+      if (!pago) return errMsg('No se pudo generar el enlace de cobro.');
+      return okMsg('Enlace de cobro listo por ' + money(pago.amount, currencyOf(r.doc, rulesOf()))
+        + (pago.covers === 'advance' ? ' (abono)' : '') + '.',
+      { enlace: pago.url, vence: pago.expiresAt });
+    }
+
+    case 'CONSULTAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!r.doc.payment) return errMsg('Esa cotización no tiene enlace de cobro; genera uno con GENERAR_COBRO.');
+      const pago = await actRefreshPayment(r.doc.id, { silent: true });
+      if (!pago) return errMsg('No se pudo consultar el cobro.');
+      return okMsg(pago.status === 'paid'
+        ? 'Pagada' + (pago.covers === 'advance' ? ' el abono' : '') + '.'
+        : 'Todavía sin pago (' + pago.status + ').',
+      { estado: pago.status, pagadoCon: pago.paidWith || undefined, enlace: pago.url });
+    }
+
+    case 'ANULAR_COBRO': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const out = await actCancelPayment(r.doc.id);
+      return out ? okMsg('Enlace de cobro anulado.') : errMsg('No se pudo anular el cobro.');
+    }
+
+    case 'MARCAR_ENVIADA': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      const res = await actMarkSent(r.doc.id, {
+        pdf: p.pdf !== false,
+        withPayment: p.conCobro == null ? undefined : p.conCobro !== false,
+        detail: 'Desde el agente',
+      });
+      if (!res) return errMsg('No se pudo marcar como enviada.');
+      return okMsg('Cotización marcada como enviada' + (res.payment ? ', con su enlace de cobro' : '') + '.',
+        { enlace: res.payment ? res.payment.url : undefined, pdf: res.pdf });
     }
 
     case 'CAMBIAR_ESTADO': {

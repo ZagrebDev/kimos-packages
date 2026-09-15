@@ -16,11 +16,12 @@
 
 export const ALLOWED_PERMISSIONS = new Set([
   'instance.read', 'instance.write', 'agent.control', 'public.read', 'public.submit',
-  // Recursos compartidos de plataforma (APP-SPEC §7.d, §7.e y §7.f).
+  // Recursos compartidos de plataforma (APP-SPEC §7.d a §7.g).
   'records.link',   // identidades compartidas entre apps (shell.records)
   'files.write',    // subir archivos con ruta gestionada por el host (shell.files)
   'brand.read',     // leer las marcas del tenant (shell.brands)
   'brand.write',    // gestionarlas: solo la app «Marcas» debería pedirlo
+  'payments.link',  // emitir enlaces de cobro por las pasarelas del tenant (shell.payments)
 ]);
 
 /**

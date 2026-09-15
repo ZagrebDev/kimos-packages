@@ -43,7 +43,7 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` / `brand.write` (§7.f). |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` / `brand.write` (§7.f), `payments.link` (§7.g). |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
 | `dataSchema` | object | – | Qué campos acepta tu app de OTRAS apps, y qué identidad representa. Sin esto, nadie escribe en la tuya. Ver §7.c. |
@@ -146,6 +146,7 @@ export default function mount(shell) {
 | `shell.records` | Identidades compartidas entre apps: clientes, contactos, proyectos (§7.d). |
 | `shell.files` | Subir/listar/borrar archivos con ruta gestionada por el host (§7.e). |
 | `shell.brands` | Marcas del tenant: logotipos, paleta con roles, tipografías (§7.f). |
+| `shell.payments` | Enlaces de cobro por Webpay, MercadoPago, Flow o PayPal (§7.g). |
 
 Los tres últimos dependen de permisos declarados en el manifest y, en hosts
 anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
@@ -722,11 +723,100 @@ backend exige que la persona sea administradora.
 
 ---
 
-### Antes de usar cualquiera de los tres
+## 7.g Cobrar (`shell.payments`)
 
-`shell.records`, `shell.files` y `shell.brands` son **opcionales en el
-contrato**, para que tu app siga funcionando en un host que no los tenga.
-Comprueba siempre antes de usarlos:
+Tu app pide un **enlace de cobro** para un documento suyo. No habla con
+Webpay, ni con MercadoPago, ni ve una sola llave.
+
+```jsonc
+"permissions": ["payments.link"]
+```
+
+```js
+const cobro = await shell.payments.create({
+  amount: 250000,                       // el importe queda FIJADO aquí
+  currency: 'CLP',
+  description: 'Cotización COT-2026-0001',
+  reference: propuesta.id,              // tu documento; la plataforma no lo interpreta
+  label: 'Acme SpA · Propuesta enero',
+  payerEmail: propuesta.client.email,
+  expiresInDays: 30,
+});
+propuesta.paymentUrl = cobro.url;       // esto es lo que se manda al cliente
+```
+
+### El enlace lo sirve KIMOS, no la pasarela
+
+Es la decisión de la que cuelga todo lo demás.
+
+Un checkout de pasarela **no es un enlace: es una sesión**. El token de Webpay
+vive minutos; la preferencia de MercadoPago y la orden de Flow tampoco son
+eternas. Un enlace que se manda con una cotización se abre al día siguiente, o
+la semana que viene. Si fuera la URL de la pasarela, el cliente se encontraría
+«sesión expirada» justo en el momento de pagar.
+
+```
+tu documento ──> shell.payments.create() ──> url de KIMOS   ← esto se manda,
+                                                 │             y dura
+                                      el cliente la abre
+                                                 │
+                                      elige pasarela ──> checkout RECIÉN creado
+```
+
+Lo que eso te regala, y que no tendrías si guardaras la URL de la pasarela:
+
+- El enlace no caduca por culpa de la pasarela.
+- Un intento abandonado no lo invalida: se reintenta, con otra pasarela si se
+  quiere.
+- Si la empresa activa o quita una pasarela, los enlaces ya enviados siguen
+  funcionando con las que queden.
+
+### Lo que la plataforma te garantiza
+
+| | |
+|---|---|
+| **El importe no se puede tocar** | Lo fijas al crear el enlace y se guarda. Nunca viaja en la URL ni se lee de lo que manda el navegador de quien paga. |
+| **La confirmación no la da el navegador** | Volver por la URL de éxito no prueba nada. La plataforma le **pregunta a la pasarela** (commit de Webpay, consulta de Flow/MercadoPago) antes de dar nada por pagado. |
+| **Pagado es definitivo** | El retorno y el webhook confirman el mismo pago y llegan los dos. El segundo no hace nada: no es un error, es el diseño. |
+| **No ves llaves** | Ni las de tu empresa ni las de nadie. Tampoco los cobros de otras apps. |
+
+### Ofrece solo lo que existe
+
+Un botón «Pagar con Webpay» sobre una pasarela que la empresa no configuró es
+una promesa que se rompe delante del cliente. Pregunta antes:
+
+```js
+const { available } = await shell.payments.info('CLP');
+// ['transbank', 'mercadopago_web'] → esas, y solo esas, son las que ofreces
+```
+
+`providers: []` al crear (lo habitual) significa «las que la empresa tenga
+activas», así que activar una pasarela nueva la ofrece también en los enlaces
+ya creados. Acota con `providers: ['transbank']` solo si tienes una razón.
+
+### Saber si pagaron
+
+```js
+const estado = await shell.payments.get(cobro.id);   // pending | paid | cancelled | expired
+if (estado.status === 'paid') marcarComoPagado(estado.paidWith, estado.paidAt);
+```
+
+No hay push hacia tu app: consulta cuando la persona abra el documento, o al
+refrescar. `cancel(id)` anula un cobro pendiente; uno ya pagado **no** se
+anula, porque devolver dinero se hace en la pasarela y fingir lo contrario en
+el registro sería peor que no poder hacerlo.
+
+**Quién configura las pasarelas**: un superadmin, en Ajustes → Integraciones →
+Pasarelas de pago. Tu app no configura nada; elige, como mucho, cuáles de las
+activas ofrece.
+
+---
+
+### Antes de usar cualquiera de los cuatro
+
+`shell.records`, `shell.files`, `shell.brands` y `shell.payments` son
+**opcionales en el contrato**, para que tu app siga funcionando en un host que
+no los tenga. Comprueba siempre antes de usarlos:
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue */ }

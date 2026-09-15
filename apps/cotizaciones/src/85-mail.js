@@ -44,6 +44,14 @@ const MAIL_VARS = [
   ['emisor', 'Razón social del emisor', (d, c) => s(c.issuer.name)],
   ['firma', 'Firma del emisor', (d, c) => [s(c.issuer.name), s(c.issuer.email), s(c.issuer.phone)].filter(Boolean).join('\n')],
   ['enlace', 'Enlace a la propuesta publicada', (d) => s(d.publicUrl)],
+  // El enlace de cobro solo se sustituye si está vigente. Mandar el de una
+  // cotización ya pagada invita a pagarla dos veces, y el de una anulada
+  // lleva a una página que dice que no se puede pagar: en los dos casos es
+  // mejor que la variable quede vacía y se vea al previsualizar.
+  ['pago', 'Enlace para pagar en línea', (d) => {
+    const p = d && d.payment;
+    return p && p.status === 'pending' ? s(p.url) : '';
+  }],
   ['yo', 'Quien envía', () => meLabel()],
 ];
 const MAIL_VAR_MAP = new Map(MAIL_VARS.map(([k, , fn]) => [k, fn]));

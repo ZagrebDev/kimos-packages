@@ -246,6 +246,75 @@ function marcaFalsa(id, nombre, opts) {
 // Almacenamiento del host (APP-SPEC §7.e). Guarda la CARPETA que pidió la app
 // para poder comprobar que la app elige la carpeta lógica y no la ruta real.
 const ARCHIVOS = { subidos: [], falla: '' };
+
+/**
+ * Servicio de cobros del host (APP-SPEC §7.g), simulado.
+ *
+ * Guarda los enlaces como los guardaría la plataforma —con su importe fijado
+ * al crearlos— para poder comprobar lo que de verdad importa: que la app no
+ * manda un importe distinto del que calcula la cotización, y que el enlace que
+ * se manda es el de KIMOS y no el de una pasarela.
+ */
+const COBROS = {
+  activas: ['transbank', 'mercadopago_web'],
+  enlaces: new Map(),
+  creados: [],
+  falla: '',
+  n: 0,
+};
+
+const servicioCobros = {
+  info: async (currency) => ({
+    providers: [
+      { id: 'transbank', label: 'Webpay Plus', active: COBROS.activas.indexOf('transbank') >= 0, currencies: ['CLP'] },
+      { id: 'mercadopago_web', label: 'MercadoPago', active: COBROS.activas.indexOf('mercadopago_web') >= 0, currencies: ['CLP'] },
+      { id: 'flow', label: 'Flow', active: COBROS.activas.indexOf('flow') >= 0, currencies: ['CLP'] },
+      { id: 'paypal', label: 'PayPal', active: COBROS.activas.indexOf('paypal') >= 0, currencies: ['USD'] },
+    ],
+    available: COBROS.activas.filter((p) => (p === 'paypal') === (currency === 'USD')),
+    currency: currency || 'CLP',
+  }),
+  create: async (input) => {
+    if (COBROS.falla) throw new Error(COBROS.falla);
+    COBROS.creados.push(input);
+    const id = 'link-' + (++COBROS.n);
+    const link = {
+      id,
+      url: 'https://kimos.example/api/public/pay/' + id,
+      reference: input.reference || '',
+      label: input.label || '',
+      amount: input.amount,
+      currency: input.currency || 'CLP',
+      description: input.description || '',
+      status: 'pending',
+      paidAt: '', paidWith: '', attempts: 0,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + (input.expiresInDays || 30) * 86400000).toISOString(),
+    };
+    COBROS.enlaces.set(id, link);
+    return link;
+  },
+  get: async (id) => {
+    const l = COBROS.enlaces.get(id);
+    if (!l) throw new Error('Enlace de pago no encontrado.');
+    return Object.assign({}, l);
+  },
+  cancel: async (id) => {
+    const l = COBROS.enlaces.get(id);
+    if (!l) throw new Error('Enlace de pago no encontrado.');
+    if (l.status === 'paid') throw new Error('Un cobro ya pagado no se anula.');
+    l.status = 'cancelled';
+    return Object.assign({}, l);
+  },
+};
+
+/** Lo que haría la pasarela por su lado: confirmar el pago. */
+function pagarEnLaPasarela(id, provider) {
+  const l = COBROS.enlaces.get(id);
+  l.status = 'paid';
+  l.paidAt = new Date().toISOString();
+  l.paidWith = provider || 'transbank';
+}
 let agentReg = null;
 
 const shell = {
@@ -299,6 +368,7 @@ const shell = {
     },
   },
   records: registroSimulado,
+  payments: servicioCobros,
   // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
   // configurada, que es un caso normal y no un error.
   brands: {
@@ -937,6 +1007,142 @@ seccion('Una marca por cotización: la general y sus submarcas');
     'y una cotización nacida de ella la hereda, en vez de volver a la de por defecto');
 }
 
+seccion('Cobrar la propuesta con un enlace');
+{
+  const T = mounted.__test;
+  eq(T.cobroNoDisponible(), '', 'el host permite cobrar');
+  await T.loadPayInfo(true);
+  eq(T.getModel().pay.available.join(','), 'transbank,mercadopago_web',
+     'se leen las pasarelas ACTIVAS del tenant, para no ofrecer un botón que falla');
+
+  T.actPatchRules({ payEnabled: true, payCharge: 'total', payExpiresDays: 15, payProviders: [] });
+  const q = T.actNewQuote({ title: 'Propuesta cobrable' });
+  await esperar();
+  T.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 100000 });
+
+  const esperado = T.computeTotals(T.docById(q.id), T.rulesOf()).total;
+  const pago = await T.actCreatePaymentLink(q.id);
+  ok(!!pago, 'se genera el enlace de cobro');
+  eq(pago.amount, esperado,
+     'y por el importe que sale de la cotización, no por uno escrito aparte');
+  eq(pago.covers, 'total', 'cubriendo el total');
+  ok(pago.url.indexOf('/api/public/pay/') >= 0,
+     'el enlace apunta a KIMOS, no a la pasarela: un checkout caduca en minutos', pago.url);
+  eq(T.docById(q.id).payment.linkId, pago.linkId, 'y queda guardado en la cotización');
+  ok((T.docById(q.id).events || []).some((e) => e.type === 'payment'),
+     'con su entrada en la bitácora');
+
+  // Lo que se le manda a la plataforma tiene que llevar la referencia al
+  // documento: sin eso, un pago que llega no se puede atribuir a nada.
+  const enviado = COBROS.creados[COBROS.creados.length - 1];
+  eq(enviado.reference, q.id, 'el cobro sabe de qué cotización es');
+  eq(enviado.expiresInDays, 15, 'y vence cuando dicen los ajustes');
+  eq(enviado.payerEmail, T.docById(q.id).client.email || '', 'con el correo del cliente si lo hay');
+
+  // Dos enlaces vivos para la misma propuesta son dos formas de cobrarla dos veces.
+  const antes = COBROS.creados.length;
+  await T.actCreatePaymentLink(q.id);
+  eq(COBROS.creados.length, antes, 'con un enlace vigente no se genera otro');
+
+  // El cliente paga. La app se entera al preguntar, no por arte de magia.
+  eq(T.docById(q.id).payment.status, 'pending', 'mientras nadie paga, sigue pendiente');
+  pagarEnLaPasarela(pago.linkId, 'transbank');
+  eq(T.docById(q.id).payment.status, 'pending',
+     'y la app NO se entera sola: la instantánea es de la última consulta');
+  const tras = await T.actRefreshPayment(q.id);
+  eq(tras.status, 'paid', 'al consultar, se entera');
+  eq(tras.paidWith, 'transbank', 'y con qué pasarela se pagó');
+  eq(T.docById(q.id).status, 'accepted',
+     'pagar el TOTAL cierra la venta: la cotización pasa a aceptada');
+
+  // Un cobro pagado no se anula desde la app: devolver dinero es de la pasarela.
+  let av = notices.length;
+  ok(await T.actCancelPayment(q.id) === null, 'un cobro pagado no se anula desde aquí');
+  ok(notices.slice(av).some((n) => n.indexOf('devolución') !== -1), 'y se dice por qué');
+
+  // El abono es el caso que más se malinterpreta: cobrar la señal NO es
+  // haber ganado la propuesta, y contarlo así falsearía el embudo.
+  T.actPatchRules({ payCharge: 'advance', advanceEnabled: true, advancePct: 50 });
+  const q2 = T.actNewQuote({ title: 'Propuesta con abono' });
+  await esperar();
+  T.actAddLine(q2.id, { title: 'Obra', qty: 1, unitPrice: 200000 });
+  const tot2 = T.computeTotals(T.docById(q2.id), T.rulesOf());
+  const pago2 = await T.actCreatePaymentLink(q2.id);
+  eq(pago2.amount, tot2.advance, 'con abono configurado se cobra el abono, no el total');
+  ok(pago2.amount < tot2.total, 'que es menos que el total', [pago2.amount, tot2.total]);
+  eq(pago2.covers, 'advance', 'y el documento recuerda QUÉ cubre ese cobro');
+  pagarEnLaPasarela(pago2.linkId, 'mercadopago_web');
+  await T.actRefreshPayment(q2.id);
+  eq(T.docById(q2.id).payment.status, 'paid', 'el abono se cobra');
+  ok(T.docById(q2.id).status !== 'accepted',
+     'pero la cotización NO pasa a aceptada: un abono no es una venta cerrada');
+
+  // Anular y rehacer.
+  T.actPatchRules({ payCharge: 'total' });
+  const q3 = T.actNewQuote({ title: 'Propuesta que se rehace' });
+  await esperar();
+  T.actAddLine(q3.id, { title: 'Servicio', qty: 1, unitPrice: 50000 });
+  const p3 = await T.actCreatePaymentLink(q3.id);
+  await T.actCancelPayment(q3.id);
+  eq(T.docById(q3.id).payment.status, 'cancelled', 'un cobro pendiente sí se anula');
+  const p3b = await T.actCreatePaymentLink(q3.id, { force: true });
+  ok(p3b.linkId !== p3.linkId, 'y después se puede generar otro');
+
+  // Sin líneas no hay nada que cobrar.
+  const vacia = T.actNewQuote({ title: 'Sin líneas' });
+  await esperar();
+  av = notices.length;
+  ok(await T.actCreatePaymentLink(vacia.id) === null, 'una cotización sin importe no genera cobro');
+  ok(notices.slice(av).some((n) => n.indexOf('importe') !== -1), 'diciendo por qué');
+}
+
+seccion('Marcar como enviada sin mandar el correo');
+{
+  const T = mounted.__test;
+  T.actPatchRules({ payEnabled: true, payOnSend: true, payCharge: 'total' });
+  const q = T.actNewQuote({ title: 'Se manda por WhatsApp' });
+  await esperar();
+  T.actAddLine(q.id, { title: 'Servicio', qty: 1, unitPrice: 300000 });
+  eq(T.docById(q.id).status, 'draft', 'nace como borrador');
+
+  const res = await T.actMarkSent(q.id, { pdf: false });
+  ok(!!res, 'marcar como enviada funciona sin mandar ningún correo');
+  eq(T.docById(q.id).status, 'sent', 'la cotización queda enviada');
+  ok(!!T.docById(q.id).payment, 'y con su enlace de cobro generado');
+  eq(SMTP.enviados.length, 0, 'sin que haya salido un solo correo');
+  ok((T.docById(q.id).events || []).some((e) => e.type === 'status'),
+     'con el cambio de estado en la bitácora');
+
+  // El enlace tiene que existir ANTES del PDF: si se generara después, el PDF
+  // que se manda no lo llevaría, que es justo lo que esto viene a evitar.
+  const ctx = T.contextoDe(T.docById(q.id), T.getModel().def);
+  const bloques = T.bloquesDe(T.docById(q.id));
+  const paylink = bloques.find((b) => b.type === 'paylink');
+  ok(!!paylink, 'la propuesta lleva el bloque «Pagar en línea»');
+  ok(!T.bloqueVacio(paylink, ctx), 'y se imprime, porque hay un cobro pendiente');
+
+  // Pagada o anulada, el bloque desaparece: un botón «Pagar» en una propuesta
+  // ya pagada invita a pagar dos veces.
+  pagarEnLaPasarela(T.docById(q.id).payment.linkId, 'transbank');
+  await T.actRefreshPayment(q.id);
+  const ctx2 = T.contextoDe(T.docById(q.id), T.getModel().def);
+  ok(T.bloqueVacio(paylink, ctx2), 'pagada, el bloque de pago ya no se imprime');
+
+  // Y la variable de correo sigue la misma regla.
+  const conVar = T.aplicarVars('Paga aquí: {{pago}}', T.docById(q.id), ctx2);
+  eq(conVar, 'Paga aquí: ', 'la variable {{pago}} queda vacía si el cobro ya no es cobrable');
+
+  // Sin cobro activado, marcar como enviada sigue sirviendo: es lo que hace
+  // quien manda la propuesta y cobra por transferencia.
+  T.actPatchRules({ payEnabled: false });
+  const q2 = T.actNewQuote({ title: 'Sin cobro en línea' });
+  await esperar();
+  T.actAddLine(q2.id, { title: 'Servicio', qty: 1, unitPrice: 10000 });
+  await T.actMarkSent(q2.id, { pdf: false });
+  eq(T.docById(q2.id).status, 'sent', 'se marca como enviada igual');
+  eq(T.docById(q2.id).payment, null, 'y sin enlace de cobro, que nadie pidió');
+}
+
 seccion('En un host sin registro de identidades la app sigue funcionando');
 {
   // `shell.records` es OPCIONAL en el contrato (APP-SPEC §7.d). Un tenant que
@@ -1041,15 +1247,16 @@ seccion('Lienzo visual');
 
   eq((T.docById(q.id).blocks || []).length, 0, 'una cotización nace sin bloques guardados');
   const porDefecto = T.bloquesDe(T.docById(q.id));
-  eq(porDefecto.length, 5, 'pero el lienzo le presta la maqueta de la casa');
-  eq(porDefecto.map((b) => b.type).join(','), 'header,items,totals,notes,payment', 'con los bloques en el orden de la propuesta');
+  eq(porDefecto.length, 6, 'pero el lienzo le presta la maqueta de la casa');
+  eq(porDefecto.map((b) => b.type).join(','), 'header,items,totals,notes,payment,paylink',
+     'con los bloques en el orden de la propuesta');
   ok(porDefecto.every((b) => b.w === 12), 'todos a ancho completo');
 
   T.actSetBlocks(q.id, T.bloquesPorDefecto());
   const texto = T.actAddBlock(q.id, 'text', 1, { text: 'Alcance del proyecto', size: 'xl' });
   ok(!!texto, 'se añade un bloque de texto');
   eq(T.bloquesDe(T.docById(q.id))[1].id, texto.id, 'en la posición pedida');
-  eq(T.bloquesDe(T.docById(q.id)).length, 6, 'y la maqueta queda con seis bloques');
+  eq(T.bloquesDe(T.docById(q.id)).length, 7, 'y la maqueta queda con un bloque más');
 
   T.actUpdateBlock(q.id, texto.id, { w: 6, align: 'center' });
   const tras = T.bloquesDe(T.docById(q.id))[1];
@@ -1061,12 +1268,12 @@ seccion('Lienzo visual');
   T.actMoveBlock(q.id, texto.id, 4);
   eq(T.bloquesDe(T.docById(q.id))[4].id, texto.id, 'los bloques se reordenan');
   ok(T.actRemoveBlock(q.id, texto.id), 'y se quitan');
-  eq(T.bloquesDe(T.docById(q.id)).length, 5, 'volviendo a cinco');
+  eq(T.bloquesDe(T.docById(q.id)).length, 6, 'volviendo a los de la casa');
 
   const img = T.actAddBlock(q.id, 'image', 0, { url: 'https://cdn/plano.png', caption: 'Planta' });
   eq(img.w, 6, 'una imagen entra a media hoja por defecto');
   T.actResetBlocks(q.id);
-  eq(T.bloquesDe(T.docById(q.id)).length, 5, 'restablecer devuelve la maqueta de la casa');
+  eq(T.bloquesDe(T.docById(q.id)).length, 6, 'restablecer devuelve la maqueta de la casa');
 
   // Los bloques vinculados no duplican datos: leen del documento.
   const ctx = T.contextoDe(T.docById(q.id), T.getModel().def);

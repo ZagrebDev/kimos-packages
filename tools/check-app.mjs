@@ -209,6 +209,20 @@ function revisarApp(dir, catalogo) {
   if (usaBrand && !tiene('brand.read')) {
     errores.push('Usa `shell.brands` pero no declara `brand.read` en el manifest.');
   }
+
+  // 3.b Cobros (§7.g). Una app que se monta su propia pasarela guarda llaves
+  // que no debería tener y deja al tenant sin registro de lo que se cobró.
+  const usaPagos = /shell\.payments\b/.test(bundle);
+  if (usaPagos && !tiene('payments.link')) {
+    errores.push('Usa `shell.payments` pero no declara `payments.link` en el manifest.');
+  }
+  if (tiene('payments.link') && !usaPagos) {
+    avisos.push('Declara `payments.link` pero no se ve uso de `shell.payments`.');
+  }
+  const pistaPasarela = /\b(webpay|transbank|mercadopago|mercadolibre\/checkout|flow\.cl|paypal)\b/i.exec(bundle);
+  if (pistaPasarela && !usaPagos) {
+    avisos.push(`Parece hablar con una pasarela de pago por su cuenta (${pistaPasarela[0]}). Con \`shell.payments\` el cobro pasa por la plataforma, que ya guarda las llaves del tenant y deja registro (APP-SPEC §7.g).`);
+  }
   if (gestionaMarcas && !tiene('brand.read')) {
     errores.push('Declara `brand.write` sin `brand.read`: no podría ni leer lo que va a editar.');
   }
