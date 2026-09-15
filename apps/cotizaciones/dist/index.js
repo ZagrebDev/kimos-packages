@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.5.0 — app oficial de KIMOS.
+ * Cotizaciones v1.5.1 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.5.1';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -2289,6 +2289,22 @@ function pipelineSummary() {
  * cotización con `kind: 'template'`, sin número ni cliente.
  */
 
+// Estado del cobro en una línea de la lista. Cada uno dice algo distinto:
+// pendiente es «está en la calle», pagado es «entró», vencido y anulado son
+// «hay que rehacerlo». Sin esto, saber si pagaron obliga a abrir cada una.
+const ICONO_COBRO = {
+  pending: '💳 por cobrar',
+  paid: '✓ pagada',
+  expired: '⚠ cobro vencido',
+  cancelled: '✕ cobro anulado',
+};
+const ETIQUETA_COBRO = {
+  pending: 'Tiene un enlace de cobro pendiente de pago',
+  paid: 'Pagada en línea',
+  expired: 'El enlace de cobro venció: genera otro desde la cotización',
+  cancelled: 'El enlace de cobro fue anulado',
+};
+
 // ── Listado ─────────────────────────────────────────────────────────────
 function QuotesTab(props) {
   const m = props.m;
@@ -2391,7 +2407,16 @@ function QuotesTab(props) {
                 : null,
             ]) : null,
             !esPlantilla ? h('td', { key: 's' }, h(StatusChip, { status: st })) : null,
-            h('td', { key: 't', className: 'cz-mono cz-right cz-strong' }, money(t.total, t.currency)),
+            h('td', { key: 't', className: 'cz-mono cz-right cz-strong' }, [
+              money(t.total, t.currency),
+              // El cobro, donde se mira el dinero. «¿Ya pagaron?» no debería
+              // obligar a abrir una por una las cotizaciones.
+              d.payment ? h('div', {
+                key: 'p',
+                className: cx('cz-cell-sub', 'cz-paytag', 'is-' + d.payment.status),
+                title: ETIQUETA_COBRO[d.payment.status] || '',
+              }, ICONO_COBRO[d.payment.status] || '') : null,
+            ]),
             h('td', { key: 'a', className: 'cz-td-acts', onClick: (e) => e.stopPropagation() }, [
               h(IconBtn, {
                 key: 'd', icon: '⧉', title: esPlantilla ? 'Duplicar plantilla' : 'Duplicar cotización',
@@ -2613,10 +2638,24 @@ function PaymentPanel(props) {
     if (pago && pago.status === 'pending') actRefreshPayment(doc.id, { silent: true });
   }, [doc.id]);
 
-  if (!rules.payEnabled && !pago) return null;
-
   const cobro = importeACobrar(doc, rules);
   const cur = currencyOf(doc, rules);
+
+  // Con el cobro apagado, la tarjeta NO desaparece: dice dónde se enciende.
+  // Desaparecer del todo era peor que ocupar sitio — quien no sabe que la
+  // función existe no la va a buscar en Ajustes, y quien sí lo sabe se queda
+  // mirando la cotización preguntándose dónde quedó el enlace.
+  if (!rules.payEnabled && !pago) {
+    return h('section', { className: 'cz-card cz-pay cz-pay-off' }, [
+      h('div', { key: 'h', className: 'cz-card-hd' }, [h('h3', { key: 't' }, 'Cobro')]),
+      h('p', { key: 'n', className: 'cz-card-note' },
+        'Desactivado. Con el cobro en línea, cada propuesta lleva un enlace para pagar con tarjeta.'),
+      h(Btn, {
+        key: 'b', size: 'sm', onClick: () => actSetTab('settings'),
+        title: 'Ir a Ajustes → Cobro en línea',
+      }, 'Activarlo en Ajustes'),
+    ]);
+  }
 
   const cuerpo = () => {
     if (motivo && !pago) return h('p', { className: 'cz-card-note' }, motivo);

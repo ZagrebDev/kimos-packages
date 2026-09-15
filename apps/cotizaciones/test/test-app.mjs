@@ -464,6 +464,20 @@ function render(node, path) {
   return n;
 }
 
+/** El texto plano que produce un árbol, para comprobar qué LEE una persona. */
+function textoDe(node) {
+  if (node == null || node === false) return '';
+  if (Array.isArray(node)) return node.map(textoDe).join(' ');
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (typeof node !== 'object') return '';
+  if (typeof node.type === 'function') {
+    try {
+      return textoDe(node.type(Object.assign({}, node.props, { children: node.children })));
+    } catch (e) { return ''; }
+  }
+  return textoDe(node.children) + ' ' + textoDe(node.props && node.props.children);
+}
+
 const esperar = () => new Promise((r) => setTimeout(r, 30));
 const today = () => new Date().toISOString().slice(0, 10);
 const hace_dias = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
@@ -1640,6 +1654,28 @@ seccion('Render de todas las pantallas');
   T.actSetEditorView('data');
   const n = render(R.createElement(mounted.Component, {}), 'editor');
   ok(n > 40, 'el editor de una cotización se renderiza (' + n + ' nodos)');
+
+  // El panel de Cobro: la prueba que faltaba. Sin ella, «no lo veo en ningún
+  // lado» solo se descubre en producción.
+  T.actPatchRules({ payEnabled: false });
+  const sinCobro = render(R.createElement(mounted.Component, {}), 'editor-sin-cobro');
+  T.actPatchRules({ payEnabled: true });
+  const conCobro = render(R.createElement(mounted.Component, {}), 'editor-con-cobro');
+  ok(conCobro > sinCobro,
+     'con el cobro activado, el editor gana el panel de Cobro (' + sinCobro + ' → ' + conCobro + ' nodos)');
+  ok(textoDe(R.createElement(mounted.Component, {})).indexOf('Generar enlace de cobro') >= 0,
+     'y ofrece generar el enlace');
+  T.actPatchRules({ payEnabled: false });
+  ok(textoDe(R.createElement(mounted.Component, {})).indexOf('Cobro') >= 0,
+     'con el cobro DESACTIVADO el editor sigue diciendo dónde se activa, en vez de no enseñar nada');
+
+  // Y en la lista: «¿ya pagaron?» no puede obligar a abrir una por una.
+  T.actCloseEditor();
+  T.actSetTab('quotes');
+  const listaTexto = textoDe(R.createElement(mounted.Component, {}));
+  ok(listaTexto.indexOf('pagada') >= 0 || listaTexto.indexOf('por cobrar') >= 0,
+     'la lista enseña el estado del cobro junto al total');
+  T.actOpen(alguna.id);
   T.actSetEditorView('design');
   const nd = render(R.createElement(mounted.Component, {}), 'lienzo');
   ok(nd > 40, 'el lienzo visual se renderiza (' + nd + ' nodos)');

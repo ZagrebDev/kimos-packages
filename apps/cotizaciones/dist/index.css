@@ -920,3 +920,14 @@
 .kimos-cotizaciones .cz-tot-adddisc:hover { color: var(--cz-fg); text-decoration: underline; }
 /* En la propuesta impresa, bajo el total de la línea. */
 .kimos-cotizaciones .cz-b-linedisc { font-size: 9px; font-weight: 400; opacity: .7; }
+/* La tarjeta de Cobro apagada: presente, pero sin robar atención. */
+.kimos-cotizaciones .cz-pay-off { opacity: .8; }
+.kimos-cotizaciones .cz-pay-off .cz-card-note { margin: 0 0 9px; }
+/* Estado del cobro en la lista, junto al total. */
+.kimos-cotizaciones .cz-paytag { font-weight: 500; white-space: nowrap; }
+.kimos-cotizaciones .cz-paytag.is-paid { color: hsl(152 65% 32%); }
+.kimos-cotizaciones .cz-paytag.is-expired,
+.kimos-cotizaciones .cz-paytag.is-cancelled { color: var(--cz-warn, hsl(38 92% 38%)); }
+@media (prefers-color-scheme: dark) {
+  .kimos-cotizaciones .cz-paytag.is-paid { color: hsl(152 55% 62%); }
+}
