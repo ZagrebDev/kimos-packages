@@ -135,7 +135,7 @@ const EXT = {
 };
 
 // Integración de correo del tenant simulada.
-const SMTP = { status: { configured: true, fromEmail: 'buzon@metakut.cl' }, enviados: [], falla: '' };
+const SMTP = { status: { configured: true, fromEmail: 'buzon@ejemplo.com' }, enviados: [], falla: '' };
 
 // ── Registro de identidades simulado (APP-SPEC §7.d) ─────────────────────
 // Reproduce lo único que la app necesita creerse: que las claves se
@@ -212,7 +212,37 @@ const DATA_SCHEMA_CUSTOMERS = ['name', 'taxId', 'email', 'phone', 'city', 'regio
 const ESCRITURA = { creados: [], ignorados: [], seq: 100, falla: '' };
 // La marca activa del tenant. Empieza sin configurar a propósito: es el
 // estado de un KIMOS recién instalado.
-const MARCA = { actual: null };
+/**
+ * Registro de marcas del host (APP-SPEC §7.f).
+ *
+ * Con VARIAS marcas a propósito: el caso real es una marca general y sus
+ * submarcas, y cualquiera de ellas se puede usar en cualquier cotización. La
+ * de `isDefault` es solo con la que NACE una cotización nueva.
+ */
+const MARCAS = { lista: [] };
+const marcaPorId = (id) => MARCAS.lista.find((b) => b.id === id) || null;
+
+/** Una marca como la devuelve el registro: paleta con roles y atajos ya
+ *  resueltos. Sin datos fiscales: una marca no es una empresa. */
+function marcaFalsa(id, nombre, opts) {
+  const o = opts || {};
+  return {
+    id, name: nombre,
+    tagline: o.tagline || '', description: '',
+    email: o.email || '', phone: '', website: o.website || '', footer: '',
+    palette: [{
+      key: 'base', name: 'Base', hex: o.hex || '#00e5d0', role: 'base',
+      token: '174 100% 45%', foreground: '220 25% 6%',
+    }],
+    logos: [{ key: 'claro', name: 'Claro', url: o.logo || '', background: 'light' }],
+    typography: [], ecosystems: [], principles: [], form: {}, warnings: [],
+    isDefault: o.isDefault === true,
+    baseColor: { key: 'base', name: 'Base', hex: o.hex || '#00e5d0', role: 'base' },
+    accentColor: {},
+    logoLight: o.logo || '', logoDark: '',
+    themeTokens: { '--primary': '174 100% 45%', '--primary-foreground': '220 25% 6%' },
+  };
+}
 // Almacenamiento del host (APP-SPEC §7.e). Guarda la CARPETA que pidió la app
 // para poder comprobar que la app elige la carpeta lógica y no la ruta real.
 const ARCHIVOS = { subidos: [], falla: '' };
@@ -271,7 +301,14 @@ const shell = {
   records: registroSimulado,
   // Marca del tenant (APP-SPEC §7.f). `null` cuando no hay ninguna
   // configurada, que es un caso normal y no un error.
-  brands: { current: async () => MARCA.actual, list: async () => ({ brands: MARCA.actual ? [MARCA.actual] : [], currentId: '' }) },
+  brands: {
+    list: async () => ({
+      brands: MARCAS.lista.slice(),
+      currentId: (MARCAS.lista.find((b) => b.isDefault) || {}).id || '',
+    }),
+    get: async (id) => marcaPorId(id),
+    current: async () => MARCAS.lista.find((b) => b.isDefault) || MARCAS.lista[0] || null,
+  },
   // Archivos con ruta gestionada por el host: la app pasa un `folder` lógico
   // y el host devuelve una URL que la app no compone.
   files: {
@@ -464,16 +501,16 @@ seccion('Vigencia');
 seccion('Ciclo de vida de una cotización');
 const A = mounted.__test;
 {
-  A.actPatchIssuer({ name: 'METAKUT SPA', taxId: '77.718.188-2', paymentInfo: 'Banco de Chile\nCuenta Vista' });
+  A.actPatchIssuer({ name: 'Empresa Ejemplo SpA', taxId: '12.345.678-5', paymentInfo: 'Banco Ejemplo\nCuenta Vista' });
   A.actPatchRules({ taxPct: 19, advancePct: 60, validDays: 15 });
 
   const q = A.actNewQuote({ name: 'Propuesta UNAB DEMRE 2027' });
   ok(!!q, 'se crea una cotización');
   ok(/^COT-\d{4}-0001$/.test(q.number), 'nace con correlativo', q.number);
   eq(q.status, 'draft', 'nace en borrador');
-  eq(q.paymentInfo, 'Banco de Chile\nCuenta Vista', 'hereda los datos de pago del emisor');
+  eq(q.paymentInfo, 'Banco Ejemplo\nCuenta Vista', 'hereda los datos de pago del emisor');
 
-  A.actPatchClient(q.id, { name: 'Universidad Andrés Bello', taxId: '77.718.188-2' });
+  A.actPatchClient(q.id, { name: 'Universidad Andrés Bello', taxId: '12.345.678-5' });
   const l1 = A.actAddLine(q.id, { title: 'Arriendo Tótem', qty: 4, unitPrice: 900000 });
   const l2 = A.actAddLine(q.id, { title: 'Setup inicial', qty: 1, unitPrice: 390000 });
   ok(!!l1 && !!l2, 'se añaden líneas');
@@ -674,7 +711,7 @@ seccion('Identidad del cliente compartida con el resto de KIMOS');
   const q = T.actNewQuote({ title: 'Propuesta identidad' });
 
   // Cliente escrito a mano, como quien cotiza a alguien nuevo.
-  T.actPatchClient(q.id, { name: 'Acme SpA', taxId: '77.718.188-2', email: 'compras@acme.cl' });
+  T.actPatchClient(q.id, { name: 'Acme SpA', taxId: '12.345.678-5', email: 'compras@acme.cl' });
   eq(T.estadoVinculo(T.docById(q.id)).estado, 'suelto',
     'una cotización con el cliente escrito a mano se ve como lo que es: suelta');
 
@@ -689,7 +726,7 @@ seccion('Identidad del cliente compartida con el resto de KIMOS');
   // El caso que justifica todo esto: OTRA cotización, el mismo RUT escrito
   // de otra forma, y nadie crea un segundo Acme.
   const q2 = T.actNewQuote({ title: 'Segunda propuesta' });
-  T.actPatchClient(q2.id, { name: 'ACME S.p.A.', taxId: '777181882' });
+  T.actPatchClient(q2.id, { name: 'ACME S.p.A.', taxId: '123456785' });
   const r2 = await T.actLinkClientRecord(q2.id);
   ok(r2 && !r2.created, 'el mismo RUT escrito de otra forma NO crea un segundo cliente');
   eq(T.docById(q2.id).client.recordRef, ref, 'las dos cotizaciones apuntan a la misma identidad');
@@ -707,7 +744,7 @@ seccion('Identidad del cliente compartida con el resto de KIMOS');
   // Fusión: la referencia vieja se reapunta sola al refrescar.
   const viejo = ref.split('/').pop();
   const nuevo = 'rec-fusionado';
-  REG.docs.set(nuevo, { id: nuevo, label: 'Acme Chile SpA', keys: { taxid: '777181882' } });
+  REG.docs.set(nuevo, { id: nuevo, label: 'Acme Chile SpA', keys: { taxid: '123456785' } });
   REG.mergedInto.set(viejo, nuevo);
   await T.actRefreshClientRecord(q.id);
   eq(T.docById(q.id).client.recordRef, 'kimos:record/account/' + nuevo,
@@ -760,7 +797,7 @@ seccion('Archivos por el almacenamiento del host');
   const antesAMano = ARCHIVOS.aMano || 0;
 
   // El logo del emisor: la app pasa una CARPETA lógica, no una ruta.
-  const url = await T.uploadImage(new File(['x'], 'Logo Metakut.png', { type: 'image/png' }), 'logos');
+  const url = await T.uploadImage(new File(['x'], 'Logo Marca.png', { type: 'image/png' }), 'logos');
   ok(/\/api\/public\/files\//.test(url), 'la subida devuelve una URL pública', url);
   eq(ARCHIVOS.subidos.length, 1, 'y pasó por `shell.files`, no a mano');
   eq(ARCHIVOS.subidos[0].carpeta, 'logos', 'con la carpeta lógica que pidió la app');
@@ -803,53 +840,101 @@ seccion('Archivos por el almacenamiento del host');
   eq(T.docById(q.id).publicUrl, '', 'sin dejar un enlace a medias en la cotización');
 }
 
-seccion('La marca del sistema rellena el emisor');
+seccion('Una marca por cotización: la general y sus submarcas');
 {
   const T = mounted.__test;
-  eq(T.marcaNoDisponible(), '', 'el host expone la marca del sistema');
+  eq(T.marcasNoDisponibles(), '', 'el host expone el registro de marcas');
 
-  // Un KIMOS sin marca configurada: no es un error, y el emisor escrito a
-  // mano no se toca.
-  const antesNombre = T.issuerOf().name;
+  // Un KIMOS sin ninguna marca es un caso normal: se cotiza con el emisor.
+  MARCAS.lista = [];
+  await T.loadBrands(true);
+  const sinMarcas = T.actNewQuote({ title: 'Sin marcas todavía' });
+  await esperar();
+  eq(T.docById(sinMarcas.id).brand, null, 'sin marcas en el sistema, la cotización no lleva ninguna');
+
+  // El caso que importa: una marca general y dos submarcas. Todas usables.
+  MARCAS.lista = [
+    marcaFalsa('b-gen', 'Marca General', { isDefault: true, logo: 'https://cdn/gen.png', hex: '#123456', tagline: 'La casa' }),
+    marcaFalsa('b-retail', 'Submarca Retail', { logo: 'https://cdn/retail.png', hex: '#abcdef', website: 'retail.ejemplo.com' }),
+    marcaFalsa('b-b2b', 'Submarca B2B', { logo: 'https://cdn/b2b.png', hex: '#fedcba' }),
+  ];
+  const lista = await T.loadBrands(true);
+  eq(lista.length, 3, 'se leen TODAS las marcas, no solo la de por defecto');
+  eq(lista.filter((b) => b.isDefault).length, 1, 'y una sola es la de por defecto');
+
+  // Una cotización nueva nace con la de por defecto, sin que nadie la elija.
+  const q = T.actNewQuote({ title: 'Propuesta de la casa' });
+  await esperar();
+  eq(T.docById(q.id).brand.id, 'b-gen', 'una cotización nueva nace con la marca por defecto');
+  eq(T.docById(q.id).brand.logoUrl, 'https://cdn/gen.png', 'con su logotipo ya resuelto para papel blanco');
+  ok(!!T.docById(q.id).brand.at, 'y con la fecha de la instantánea');
+
+  // Y se puede cambiar a cualquier otra: ESTO es lo que faltaba.
+  await T.actSetDocBrand(q.id, 'b-retail');
+  eq(T.docById(q.id).brand.id, 'b-retail', 'y se puede emitir con una submarca');
+  eq(T.docById(q.id).brand.primary, '#abcdef', 'con el color base de esa submarca');
+
+  // Cambiar de marca NO toca lo fiscal: el RUT es de la empresa, no de la marca.
+  T.actPatchIssuer({ name: 'Empresa Ejemplo SpA', taxId: '12.345.678-5' });
+  await T.actSetDocBrand(q.id, 'b-b2b');
+  eq(T.issuerOf().name, 'Empresa Ejemplo SpA', 'cambiar de marca no cambia la razón social');
+  eq(T.issuerOf().taxId, '12.345.678-5', 'ni el RUT: eso es del emisor, uno para toda la empresa');
+
+  // Dos cotizaciones del mismo mes, con marcas distintas. Es el requisito.
+  const q2 = T.actNewQuote({ title: 'Propuesta retail' });
+  await esperar();
+  await T.actSetDocBrand(q2.id, 'b-retail');
+  eq(T.docById(q.id).brand.id, 'b-b2b', 'una cotización con una marca');
+  eq(T.docById(q2.id).brand.id, 'b-retail', 'y otra con otra, a la vez');
+
+  // La cabecera impresa: la marca manda en lo visual, el emisor en lo fiscal.
+  const emQ = T.brandedIssuer(T.issuerOf(), T.docById(q2.id));
+  eq(emQ.logoUrl, 'https://cdn/retail.png', 'la propuesta se imprime con el logo de SU marca');
+  eq(emQ.brandName, 'Submarca Retail', 'y con el nombre de la marca como titular');
+  eq(emQ.name, 'Empresa Ejemplo SpA', 'sin perder la razón social, que es la que factura');
+  eq(emQ.taxId, '12.345.678-5', 'ni el RUT');
+  eq(emQ.web, 'retail.ejemplo.com', 'el contacto de la marca pisa al del emisor cuando lo tiene');
+
+  // Sin marca se vuelve al emisor, que es el comportamiento de siempre.
+  await T.actSetDocBrand(q2.id, '');
+  eq(T.docById(q2.id).brand, null, 'quitar la marca deja la cotización con el emisor');
+  eq(T.brandedIssuer(T.issuerOf(), T.docById(q2.id)).brandName, undefined,
+    'y la cabecera vuelve a titular con la razón social');
+
+  // La INSTANTÁNEA: una propuesta enviada no cambia sola aunque la marca sí.
+  await T.actSetDocBrand(q.id, 'b-retail');
+  MARCAS.lista[1] = marcaFalsa('b-retail', 'Submarca Retail', { logo: 'https://cdn/retail-v2.png', hex: '#000000' });
+  await T.loadBrands(true);
+  eq(T.docById(q.id).brand.logoUrl, 'https://cdn/retail.png',
+    'la cotización conserva el logo con el que se emitió, aunque la marca haya cambiado');
+  await T.actRefreshDocBrand(q.id);
+  eq(T.docById(q.id).brand.logoUrl, 'https://cdn/retail-v2.png',
+    'y refrescar es algo que se pide a mano, no que pase solo');
+
+  // Una marca borrada del registro no borra la propuesta.
+  MARCAS.lista = MARCAS.lista.filter((b) => b.id !== 'b-retail');
+  await T.loadBrands(true);
+  eq(T.docById(q.id).brand.name, 'Submarca Retail',
+    'si la marca desaparece del registro, la cotización sigue teniendo la suya');
   let antes = notices.length;
-  ok(await T.actImportBrand() === null, 'sin marca configurada no se trae nada');
-  ok(notices.slice(antes).some((n) => n.indexOf('marca configurada') !== -1),
-    'y se explica que la define un administrador');
-  eq(T.issuerOf().name, antesNombre, 'el emisor que ya había no se borra');
+  ok(await T.actSetDocBrand(q.id, 'b-retail') === null, 'y volver a aplicarla falla');
+  ok(notices.slice(antes).some((n) => n.indexOf('registro') !== -1), 'diciendo por qué');
 
-  // La marca tal como la devuelve el registro (APP-SPEC §7.f): paleta con
-  // roles, logotipos con su fondo, y los atajos ya resueltos.
-  MARCA.actual = {
-    id: 'b1', name: 'Metakut', tagline: '', description: '',
-    legalName: 'METAKUT SPA', taxId: '77.718.188-2',
-    email: 'info@kimos.dev', phone: '', website: 'kimos.dev', address: 'Santiago',
-    footer: '', bankDetails: 'Banco de Chile · Cuenta Vista · 2532924267',
-    palette: [{ key: 'base', name: 'Base', hex: '#00e5d0', role: 'base', token: '174 100% 45%', foreground: '220 25% 6%' }],
-    logos: [{ key: 'claro', name: 'Claro', url: 'https://cdn/logo-claro.png', background: 'light' }],
-    typography: [], ecosystems: [], principles: [], warnings: [],
-    logoLight: 'https://cdn/logo-claro.png', logoDark: '',
-    themeTokens: { '--primary': '174 100% 45%', '--primary-foreground': '220 25% 6%' },
-  };
-  T.actPatchIssuer({ phone: '+56 9 5555 4444' });
+  // Las reglas fijan con qué marca nacen las nuevas, sin tocar las hechas.
+  T.actPatchRules({ brandId: 'b-b2b' });
+  const q3 = T.actNewQuote({ title: 'Nace en B2B' });
+  await esperar();
+  eq(T.docById(q3.id).brand.id, 'b-b2b', 'las cotizaciones nuevas nacen con la marca fijada en Ajustes');
+  eq(T.docById(q2.id).brand, null, 'y las ya hechas no se reescriben');
 
-  ok(!!(await T.actImportBrand()), 'con marca configurada, el emisor se rellena');
-  const em = T.issuerOf();
-  eq(em.name, 'METAKUT SPA', 'con la razón social de la marca, no el nombre comercial');
-  eq(em.taxId, '77.718.188-2', 'y su RUT');
-  eq(em.logoUrl, 'https://cdn/logo-claro.png', 'y su logo');
-  eq(em.paymentInfo, 'Banco de Chile · Cuenta Vista · 2532924267', 'y los datos de transferencia');
-  eq(em.phone, '+56 9 5555 4444',
-    'un campo que la marca NO trae no borra lo que ya estaba escrito aquí');
-
-  // La marca rellena, no impone: después se puede ajustar.
-  T.actPatchIssuer({ name: 'METAKUT SPA — Unidad Retail' });
-  eq(T.issuerOf().name, 'METAKUT SPA — Unidad Retail',
-    'y lo traído se puede cambiar: una unidad de negocio cotiza con otra razón social');
-
-  // Los colores NO se copian al emisor: el host ya inyecta los de la marca
-  // como tokens del tema y esta app no cablea ninguno (APP-SPEC §9). Copiarlos
-  // aquí crearía una segunda fuente que se desincroniza.
-  eq(T.issuerOf().accentColor, '', 'el color de la marca no se copia al emisor');
+  // Una plantilla de una submarca sirve justo para arrastrar su marca.
+  const plantilla = T.actSaveAsTemplate(q3.id, 'Plantilla B2B');
+  eq(plantilla.brand.id, 'b-b2b', 'una plantilla guarda su marca');
+  T.actPatchRules({ brandId: '' });
+  const desdePlantilla = T.actNewQuote({ templateId: plantilla.id });
+  await esperar();
+  eq(T.docById(desdePlantilla.id).brand.id, 'b-b2b',
+    'y una cotización nacida de ella la hereda, en vez de volver a la de por defecto');
 }
 
 seccion('En un host sin registro de identidades la app sigue funcionando');
@@ -878,14 +963,16 @@ seccion('En un host sin registro de identidades la app sigue funcionando');
 
   ok(V.registroNoDisponible() !== '', 'la app detecta que este host no tiene registro');
   const q = V.actNewQuote({ title: 'Cotización en host antiguo' });
-  V.actPatchClient(q.id, { name: 'Cliente de Siempre', taxId: '77.718.188-2' });
+  V.actPatchClient(q.id, { name: 'Cliente de Siempre', taxId: '12.345.678-5' });
   const antes = notices.length;
   const r = await V.actLinkClientRecord(q.id);
   ok(r === null, 'vincular no rompe: simplemente no se puede');
   ok(notices.slice(antes).some((n) => n.indexOf('registro de identidades') !== -1),
     'y se explica por qué, en vez de fallar en silencio');
   eq(V.estadoVinculo(V.docById(q.id)).estado, 'suelto', 'la cotización queda suelta, que es lo correcto');
-  ok(V.marcaNoDisponible() !== '', 'y tampoco hay marca del sistema, sin que eso rompa nada');
+  ok(V.marcasNoDisponibles() !== '', 'y tampoco hay registro de marcas, sin que eso rompa nada');
+  eq(V.docById(q.id).brand, null, 'la cotización sale con el emisor, como siempre');
+  ok(await V.actSetDocBrand(q.id, 'la-que-sea') === null, 'y elegir marca no revienta: no se puede, y se dice');
 
   // El respaldo de subida: sin `shell.files`, la app vuelve al camino antiguo
   // (elige ella la ruta). Se conserva para no dejar sin logo a un tenant que
@@ -1090,7 +1177,7 @@ seccion('Correo');
   const sinSmtp = await T.actSendMail(q.id, correo);
   ok(!sinSmtp.ok && sinSmtp.error.indexOf('no está configurado') !== -1,
     'y si el tenant no tiene correo configurado, se dice qué falta y quién lo arregla', sinSmtp.error);
-  SMTP.status = { configured: true, fromEmail: 'buzon@metakut.cl' };
+  SMTP.status = { configured: true, fromEmail: 'buzon@ejemplo.com' };
   await T.mailStatus(true);
 }
 

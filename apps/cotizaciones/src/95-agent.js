@@ -127,6 +127,7 @@ function retratoDoc(d, rules, detallado) {
     totalTexto: money(t.total, t.currency),
     moneda: t.currency.code,
   };
+  if (d.brand && d.brand.name) base.marca = d.brand.name;
   if (d.revision) base.revision = d.revision;
   if (d.supersededBy) base.sustituidaPor = d.supersededBy;
   if (d.publicUrl) base.enlace = d.publicUrl;
@@ -170,6 +171,7 @@ function agentSnapshot() {
     cotizador: {
       nombre: model.docName,
       emisor: { nombre: issuer.name, rut: issuer.taxId, correo: issuer.email },
+      marcaDeNuevas: s(rules.brandId) || 'la de por defecto del sistema',
       moneda: rules.currency,
       impuesto: rules.taxPct,
       impuestoNombre: rules.taxLabel,
@@ -267,6 +269,11 @@ const AGENT_TOOLS = [
     { cotizacion: T_STR, guardarEnDirectorio: T_BOOL, directorio: T_STR }, ['cotizacion']),
   tool('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', 'Vuelve a leer el cliente vinculado y refresca su ficha en la cotización (por si cambió de nombre o se fusionó con otro).',
     { cotizacion: T_STR }, ['cotizacion']),
+  // Elegir marca es elegir cómo se VE la propuesta. Los datos fiscales no se
+  // tocan al cambiar de marca: son del emisor, y son los mismos para todas.
+  tool('LISTAR_MARCAS', 'Lista las marcas del sistema disponibles para emitir. Todas se pueden usar; la de «por defecto» es solo con la que nace una cotización nueva.', {}),
+  tool('ELEGIR_MARCA', 'Fija con qué marca se emite una cotización: cambia el logotipo, la bajada y los colores de la propuesta. Con `marca` vacía la deja sin marca (solo el emisor). NO cambia la razón social ni el RUT: eso es del emisor.',
+    { cotizacion: T_STR, marca: T_STR }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -495,6 +502,47 @@ async function agentDispatch(action) {
       if (!out) return errMsg('No se pudo refrescar el cliente desde el directorio.');
       return okMsg('Cliente actualizado desde el directorio: ' + s(out.client.name) + '.',
         { referencia: s(out.client.recordRef) });
+    }
+
+    case 'LISTAR_MARCAS': {
+      const motivo = marcasNoDisponibles();
+      if (motivo) return errMsg(motivo);
+      const lista = await loadBrands(true);
+      if (!lista.length) return okMsg('Este KIMOS todavía no tiene marcas. Se crean en la app Marcas.', { marcas: [] });
+      return okMsg(lista.length + ' marca(s) disponible(s), todas utilizables.', {
+        marcas: lista.map((b) => ({ id: s(b.id), nombre: s(b.name), porDefecto: b.isDefault === true })),
+      });
+    }
+
+    case 'ELEGIR_MARCA': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!s(p.marca)) {
+        await actSetDocBrand(r.doc.id, '');
+        return okMsg('La cotización sale sin marca, con el logo y los datos del emisor.');
+      }
+      const motivo = marcasNoDisponibles();
+      if (motivo) return errMsg(motivo);
+      const lista = await loadBrands(false);
+      const buscado = s(p.marca).trim().toLowerCase();
+      const candidatas = lista.filter((b) => s(b.id).toLowerCase() === buscado
+        || s(b.name).trim().toLowerCase() === buscado);
+      const aproximadas = candidatas.length ? candidatas
+        : lista.filter((b) => s(b.name).toLowerCase().indexOf(buscado) >= 0);
+      // Emitir con la marca equivocada sale caro y en silencio: con dos
+      // candidatas se pregunta, no se elige (mismo criterio que la app Marcas).
+      if (!aproximadas.length) {
+        return errMsg('No hay ninguna marca que se llame así. Disponibles: '
+          + (lista.map((b) => s(b.name)).join(', ') || 'ninguna') + '.');
+      }
+      if (aproximadas.length > 1) {
+        return errMsg('Hay varias marcas que encajan (' + aproximadas.map((b) => s(b.name)).join(', ')
+          + '). Dime cuál exactamente.');
+      }
+      const out = await actSetDocBrand(r.doc.id, s(aproximadas[0].id));
+      if (!out) return errMsg('No se pudo aplicar la marca.');
+      return okMsg('Esta cotización se emite con la marca «' + s(out.brand.name) + '».',
+        { marca: s(out.brand.name), logo: !!s(out.brand.logoUrl) });
     }
 
     case 'CAMBIAR_ESTADO': {

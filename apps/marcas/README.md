@@ -1,6 +1,6 @@
 # 🎨 Marcas (app oficial)
 
-**Versión actual: 1.1.1**
+**Versión actual: 1.2.0**
 
 El sistema visual de la empresa, en **dos láminas** por marca. Se edita aquí
 y se imprime desde aquí.
@@ -51,8 +51,38 @@ cosa:
 | **Principios** | Las reglas en texto. Es lo que convierte el registro en un sistema visual consultable en vez de una tabla de colores. |
 | **Forma** | Esquinas, radio, grosor del borde, elevación y densidad. Ver abajo: es la pieza que más rinde. |
 
-Más los datos de identidad —nombre, bajada, razón social, RUT, contacto, pie y
-datos de pago— que usa Cotizaciones al emitir bajo esa marca.
+Más los datos de identidad de la marca: nombre, bajada, descripción, su
+contacto público y el pie.
+
+## Una marca no es una empresa
+
+Aquí **no** se guarda razón social, RUT, dirección fiscal ni datos bancarios.
+No es un olvido:
+
+```
+MARCA (esta app)                      EMISOR (la app que emite)
+cómo se VE lo que produces            quién FACTURA
+logo, colores, tipografía, forma      razón social, RUT, banco
+varias por empresa                    una sola para toda la empresa
+```
+
+Una empresa con seis marcas sigue teniendo un RUT. Guardarlo seis veces son
+cinco copias que se quedan viejas, y la que acabe en la propuesta dependería de
+qué marca se eligió — justo lo que no puede pasar con un dato legal. Quién
+factura lo lleva la app que emite: en Cotizaciones, el bloque «Emisor».
+
+Cambiar de marca en una propuesta cambia el logotipo y los colores. No toca el
+RUT.
+
+## La marca «por defecto» no es «la única activa»
+
+Todas las marcas del registro están **siempre** disponibles para todas las
+apps. La de por defecto es solo la que se propone cuando nadie elige: con qué
+marca nace una cotización nueva, qué logo usa una app que no da a elegir.
+
+Se cambia desde la barra de la marca abierta («Usar por defecto»), y cambiarla
+no desactiva ninguna: una empresa con una marca general y tres submarcas puede
+emitir con cualquiera de las cuatro, propuesta por propuesta.
 
 ## La forma cambia TODO KIMOS, no solo esta app
 
@@ -137,7 +167,7 @@ Son avisos, no errores: una marca a medio construir es un estado legítimo.
 
 | App | Qué toma de la marca |
 |---|---|
-| **Cotizaciones** | Logo, colores y datos del emisor de cada propuesta |
+| **Cotizaciones** | El logo, la bajada y los colores de **cada** propuesta — se elige marca por cotización |
 | **ProductLab** | El estilo visual de un producto |
 | Cualquier app con `brand.read` | `shell.brands.list()`, `.get(id)`, `.current()` |
 
@@ -158,7 +188,8 @@ Las mismas acciones que la interfaz: `LISTAR_MARCAS`, `VER_MARCA`,
 `ABRIR_MARCA`, `CREAR_MARCA`, `DUPLICAR_MARCA`, `ACTUALIZAR_IDENTIDAD`,
 `AGREGAR_COLOR`, `ACTUALIZAR_COLOR`, `QUITAR_COLOR`, `AGREGAR_LOGO`,
 `AGREGAR_TIPOGRAFIA`, `DEFINIR_FORMA`, `APLICAR_PLANTILLA_FORMA`,
-`QUITAR_FORMA`, `AGREGAR_PRINCIPIO`, `GUARDAR_MARCA`, `ACTIVAR_MARCA`,
+`QUITAR_FORMA`, `AGREGAR_PRINCIPIO`, `GUARDAR_MARCA`, `MARCA_POR_DEFECTO`
+(`ACTIVAR_MARCA` sigue valiendo, porque es como lo dice la gente),
 `REVISAR_MARCA`, `IMPRIMIR_HOJA`.
 
 Nada se guarda hasta `GUARDAR_MARCA`, y con dos marcas del mismo nombre el
@@ -169,7 +200,7 @@ caro y en silencio.
 
 ```bash
 node tools/build.mjs      # src/*.js → dist/index.js
-node test/test-app.mjs    # 166 pruebas
+node test/test-app.mjs    # 167 pruebas
 ```
 
 Las fuentes viven en `src/` y se concatenan dentro del closure de
@@ -179,6 +210,7 @@ Las fuentes viven en `src/` y se concatenan dentro del closure de
 
 | Versión | Qué trae |
 |---|---|
+| 1.2.0 | **Una marca es una marca, no una empresa**: fuera razón social, RUT, dirección y datos bancarios. Eso es del emisor, lo lleva la app que emite, y es uno solo aunque haya seis marcas. Y la marca deja de llamarse «activa»: se llama «por defecto», que es lo que era, con un botón visible para cambiarla desde la barra. Todas las marcas están disponibles para todas las apps; Cotizaciones ya elige la suya propuesta por propuesta. Placeholders neutros en todo el editor. |
 | 1.1.1 | Si el permiso `brand.write` no está concedido, la app lo APRENDE en el primer intento y pasa a solo lectura diciendo qué hacer, en vez de seguir ofreciendo botones que fallan. Pasa cuando el permiso se descartó al instalar porque ese KIMOS no lo conocía todavía: el manifest está bien y la app parecía rota. |
 | 1.1.0 | **La forma entra en la marca** y con ella la segunda lámina. Esquinas, radio, grosor del borde, elevación y densidad dejan de ser cosa de cada app: `--radius` y las sombras cuelgan de la marca en todo KIMOS, así que cambiarlas cambia el escritorio, el chat del agente y las demás apps sin tocar su código. Cinco plantillas de forma como punto de partida, con la muestra de cada una. La lámina 2 enseña componentes reales —botón, tarjeta, campo y burbuja de chat— porque «radio 0, sin sombra» no se entiende leyéndolo. Tres acciones nuevas del agente: `DEFINIR_FORMA`, `APLICAR_PLANTILLA_FORMA` y `QUITAR_FORMA`. Al imprimir salen las dos láminas, una por página. |
 | 1.0.0 | Primera versión: cartera de marcas sobre el registro de la plataforma; editor de identidad, paleta con roles, logotipos con fondo, tipografías con uso, ecosistemas y principios; hoja del sistema visual imprimible en A4 apaisado con secciones elegibles; avisos de lo que impide aplicar la marca (sin rol base, referencias rotas, acento sin contraste); subida de logotipos por `shell.files`; solo lectura sin `brand.write`; agente con paridad sobre la app. |

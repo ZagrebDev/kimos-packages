@@ -71,9 +71,10 @@
 .kimos-marcas .mk-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 .kimos-marcas .mk-sechead {
-  display: flex; align-items: baseline; gap: 10px;
   padding-bottom: 8px; border-bottom: 1px solid var(--mk-line-soft); margin-bottom: 12px;
 }
+.kimos-marcas .mk-sechead-r { display: flex; align-items: baseline; gap: 10px; }
+.kimos-marcas p.mk-sechead-nota { margin: 6px 0 0; max-width: 62ch; line-height: 1.5; }
 .kimos-marcas .mk-sechead-num { font-family: ui-monospace, monospace; font-size: 10px; color: var(--mk-dim); letter-spacing: .2em; }
 .kimos-marcas .mk-sechead-t { font-size: 13px; font-weight: 600; }
 
@@ -354,4 +355,9 @@
 
 @media (max-width: 900px) {
   .kimos-marcas .mk-forma-grid { grid-template-columns: 1fr; }
+}
+
+.kimos-marcas .mk-cartera-nota {
+  margin: 0; padding: 8px 12px 10px; font-size: 10.5px; line-height: 1.5;
+  color: var(--mk-dim); border-bottom: 1px solid var(--mk-line-soft);
 }

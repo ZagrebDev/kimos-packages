@@ -28,10 +28,13 @@ const AGENT_TOOLS = [
     { nombre: T_STR }),
   tool('DUPLICAR_MARCA', 'Replica una marca existente con otro nombre. Es como nace una variante.',
     { marca: T_STR, nombre: T_STR }, ['marca']),
-  tool('ACTUALIZAR_IDENTIDAD', 'Cambia los datos de identidad de la marca abierta: nombre, bajada, razón social, RUT, contacto, pie o datos de pago. NO guarda: usa GUARDAR_MARCA.',
+  // Sin razón social, RUT ni datos bancarios: una marca no es una empresa.
+  // Si alguien se los pide al agente, los campos no existen y el agente lo
+  // dice, en vez de guardarlos donde no van.
+  tool('ACTUALIZAR_IDENTIDAD', 'Cambia los datos de identidad de la marca abierta: nombre, bajada, descripción, contacto de la marca o pie. NO guarda: usa GUARDAR_MARCA. Los datos fiscales (razón social, RUT, banco) NO son de la marca: son del emisor y se configuran en la app que emite.',
     {
-      nombre: T_STR, bajada: T_STR, descripcion: T_STR, razonSocial: T_STR, rut: T_STR,
-      correo: T_STR, telefono: T_STR, web: T_STR, direccion: T_STR, pie: T_STR, datosDePago: T_STR,
+      nombre: T_STR, bajada: T_STR, descripcion: T_STR,
+      correo: T_STR, telefono: T_STR, web: T_STR, pie: T_STR,
     }),
   tool('AGREGAR_COLOR', 'Añade un color a la paleta de la marca abierta. El `rol` es lo que permite que otras apps sepan dónde usarlo.',
     {
@@ -65,7 +68,9 @@ const AGENT_TOOLS = [
     { titulo: T_STR, texto: T_STR }, ['titulo']),
   tool('GUARDAR_MARCA', 'Guarda los cambios de la marca abierta en el registro. A partir de aquí las demás apps la ven así.',
     {}),
-  tool('ACTIVAR_MARCA', 'Deja una marca como la activa del sistema: es la que usan por defecto las apps que no eligen una.',
+  // «Por defecto», no «activa»: no se desactiva ninguna. Todas las marcas del
+  // registro están siempre disponibles para todas las apps.
+  tool('MARCA_POR_DEFECTO', 'Deja una marca como la de por defecto del sistema: la que se propone a las apps que no eligen una. NO desactiva las demás — todas siguen disponibles y una app puede emitir con cualquiera.',
     { marca: T_STR }, ['marca']),
   tool('REVISAR_MARCA', 'Dice qué le falta a una marca para poder aplicarse y qué tiene mal (colores sin rol, referencias rotas, acento sin contraste).',
     { marca: T_STR }),
@@ -174,9 +179,8 @@ async function agentDispatch(action) {
       const g = exigeBorrador();
       if (!g.b) return errMsg(g.error);
       const campos = {
-        nombre: 'name', bajada: 'tagline', descripcion: 'description', razonSocial: 'legalName',
-        rut: 'taxId', correo: 'email', telefono: 'phone', web: 'website', direccion: 'address',
-        pie: 'footer', datosDePago: 'bankDetails',
+        nombre: 'name', bajada: 'tagline', descripcion: 'description',
+        correo: 'email', telefono: 'phone', web: 'website', pie: 'footer',
       };
       const puestos = [];
       for (const [entrada, campo] of Object.entries(campos)) {
@@ -294,12 +298,14 @@ async function agentDispatch(action) {
       return okMsg('Marca «' + guardada.name + '» guardada. Las demás apps ya la ven así.', { avisos });
     }
 
-    case 'ACTIVAR_MARCA': {
+    // `ACTIVAR_MARCA` se mantiene como sinónimo: es como lo dice la gente.
+    case 'ACTIVAR_MARCA':
+    case 'MARCA_POR_DEFECTO': {
       const r = resolverMarca(pl.marca);
       if (!r.marca) return errMsg(r.error);
-      const ok = await actActivar(r.marca.id);
-      return ok ? okMsg('«' + r.marca.name + '» es ahora la marca activa del sistema.')
-        : errMsg('No se pudo activar la marca.');
+      const ok = await actPorDefecto(r.marca.id);
+      return ok ? okMsg('«' + r.marca.name + '» es ahora la marca por defecto. Las demás siguen disponibles para cualquier app.')
+        : errMsg('No se pudo cambiar la marca por defecto.');
     }
 
     case 'REVISAR_MARCA': {

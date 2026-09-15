@@ -37,7 +37,7 @@ export default function mount(shell) {
   const { useState, useEffect, useMemo, useRef } = React;
 
   // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.6.1';
   const MODEL_VERSION = 1;
 
   const instanceId = shell.app && shell.app.instanceId;
@@ -5990,7 +5990,7 @@ export default function mount(shell) {
           : null,
         Field('Nombre' + (isLinked ? ' · del directorio' : ''), Input(data.name, (v) => upd({ name: v }), { placeholder: 'Razón social o nombre comercial', autoFocus: !isLinked })),
         h('div', { className: 'kp-row' },
-          Field('RUT / ID fiscal' + (isLinked ? ' · del directorio' : ''), Input(data.taxId, (v) => upd({ taxId: v }), { placeholder: '77.718.188-2' }),
+          Field('RUT / ID fiscal' + (isLinked ? ' · del directorio' : ''), Input(data.taxId, (v) => upd({ taxId: v }), { placeholder: '12.345.678-5' }),
             'La clave más fiable para reconocer al cliente en todo KIMOS'),
           Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera')),
         h('div', { className: 'kp-row' },

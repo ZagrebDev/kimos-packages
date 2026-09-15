@@ -41,7 +41,7 @@ lo que pintas:
 ```js
 if (shell.records) {
   const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
-    keys:  { taxId: '77.718.188-2' },   // se normaliza: 77.718.188-2 == 777181882
+    keys:  { taxId: '12.345.678-5' },   // se normaliza: 12.345.678-5 == 123456785
     label: 'Acme SpA',
   });
   if (warning) shell.notify({ level: 'warn', text: warning });

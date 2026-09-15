@@ -4,7 +4,7 @@ App instalable de KIMOS para **dirigir proyectos de punta a punta, separados por
 cliente**: planificar, ejecutar, controlar y cerrar, con un tablero global de la
 cartera en la portada y un tablero propio dentro de cada proyecto.
 
-**Versión actual: 1.6.0**
+**Versión actual: 1.6.1**
 
 ---
 
@@ -153,7 +153,7 @@ Por qué importa: vincular por correo o por nombre es lo que había y es lo que
 falla. La misma empresa con dos correos son dos clientes; el mismo nombre
 escrito de dos formas, también. La identidad de la plataforma
 (`shell.records`, permiso `records.link`) normaliza las claves antes de
-comparar —`77.718.188-2` y `777181882` son el mismo RUT— y, sobre todo,
+comparar —`12.345.678-5` y `123456785` son el mismo RUT— y, sobre todo,
 permite cruzar apps: **el cliente de este proyecto es el mismo que el de esa
 cotización**, y «dame todo lo de Acme» incluye sus proyectos.
 

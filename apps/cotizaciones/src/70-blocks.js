@@ -111,7 +111,10 @@ function bloqueVacio(b, ctx) {
  */
 function contextoDe(doc, def) {
   const rules = normalizeRules(def && def.rules);
-  const issuer = normalizeIssuer(def && def.issuer);
+  // La marca de ESTA propuesta manda en lo visual (logo, bajada, contacto) y
+  // el emisor en lo fiscal (razón social, RUT). Se resuelve una vez, aquí,
+  // para que los bloques no tengan que saber de marcas.
+  const issuer = brandedIssuer(def && def.issuer, doc);
   const totals = computeTotals(doc, rules);
   return { doc, rules, issuer, totals, cur: totals.currency, until: validUntilOf(doc, rules) };
 }
@@ -160,8 +163,15 @@ function BlockHeader(props) {
     h('div', { key: 'l', className: 'cz-hdblock-emisor' }, [
       issuer.logoUrl ? h('img', { key: 'g', className: 'cz-hdblock-logo', src: issuer.logoUrl, alt: '' }) : null,
       h('div', { key: 'd', className: 'cz-hdblock-emisor-d' }, [
-        h('div', { key: 'n', className: 'cz-hdblock-emisor-n' }, issuer.name || 'Sin emisor configurado'),
-        issuer.taxId ? h('div', { key: 'r', className: 'cz-mono cz-dim' }, issuer.taxId) : null,
+        // Con marca, el nombre grande es el de la marca y la razón social baja
+        // a la línea fiscal: es lo que el cliente reconoce, y lo legal sigue
+        // estando donde tiene que estar.
+        h('div', { key: 'n', className: 'cz-hdblock-emisor-n' },
+          issuer.brandName || issuer.name || 'Sin emisor configurado'),
+        (issuer.name || issuer.taxId)
+          ? h('div', { key: 'r', className: 'cz-mono cz-dim' },
+            [issuer.brandName ? issuer.name : '', issuer.taxId].filter(Boolean).join(' · '))
+          : null,
         issuer.tagline ? h('div', { key: 't', className: 'cz-dim' }, issuer.tagline) : null,
         h('div', { key: 'c', className: 'cz-dim cz-hdblock-contacto' },
           [issuer.email, issuer.phone, issuer.web].filter(Boolean).join(' · ')),

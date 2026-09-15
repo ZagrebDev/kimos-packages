@@ -411,14 +411,14 @@ function normalizeBrand(raw) {
     name: s(r.name).trim(),
     tagline: s(r.tagline).trim(),
     description: s(r.description).trim(),
-    legalName: s(r.legalName).trim(),
-    taxId: s(r.taxId).trim(),
-    address: s(r.address).trim(),
+    // NO hay razón social, RUT, dirección fiscal ni datos bancarios: una marca
+    // dice cómo se ve algo, no quién lo factura. Una empresa con seis marcas
+    // sigue teniendo un RUT, y seis copias son cinco copias viejas. Quién
+    // emite lo guarda la app que emite (en Cotizaciones, el bloque «Emisor»).
     email: s(r.email).trim(),
     phone: s(r.phone).trim(),
     website: s(r.website).trim(),
     footer: s(r.footer).trim(),
-    bankDetails: s(r.bankDetails).trim(),
     palette: clavesUnicas(arr(r.palette).map(normalizeColor)),
     logos: clavesUnicas(arr(r.logos).map(normalizeLogo)),
     typography: clavesUnicas(arr(r.typography).map(normalizeFont)),
@@ -434,9 +434,8 @@ function paraGuardar(brand) {
   const b = normalizeBrand(brand);
   return {
     name: b.name, tagline: b.tagline, description: b.description,
-    legalName: b.legalName, taxId: b.taxId, address: b.address,
     email: b.email, phone: b.phone, website: b.website,
-    footer: b.footer, bankDetails: b.bankDetails,
+    footer: b.footer,
     palette: b.palette.map((c) => ({ key: c.key, name: c.name, hex: c.hex, role: c.role })),
     logos: b.logos.map((l) => ({
       key: l.key, name: l.name, url: l.url, background: l.background,

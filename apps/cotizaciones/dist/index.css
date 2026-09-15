@@ -858,3 +858,13 @@
   .kimos-cotizaciones .cz-atrow-b { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
   .kimos-cotizaciones .cz-atrow-c { display: none; }
 }
+
+/* Marca de la propuesta: la muestra junto al selector, para ver de un vistazo
+   con qué logotipo y qué color va a salir sin abrir la vista de impresión. */
+.kimos-cotizaciones .cz-brandchip-logo {
+  height: 22px; max-width: 72px; object-fit: contain; border-radius: 3px;
+}
+.kimos-cotizaciones .cz-brandchip-color {
+  width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid var(--border);
+}

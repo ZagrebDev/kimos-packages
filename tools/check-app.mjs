@@ -200,11 +200,11 @@ function revisarApp(dir, catalogo) {
     avisos.push('Declara `records.link` pero no se ve uso de `shell.records`.');
   }
 
-  // 3. Marca propia en vez de shell.brand (§7.f).
+  // 3. Marca propia en vez de shell.brands (§7.f).
   const pistaMarca = PISTAS_MARCA.find(([, re]) => re.test(bundle));
   const usaBrand = /shell\.brands?\b/.test(bundle);
   if (pistaMarca && !usaBrand && !gestionaMarcas) {
-    avisos.push(`Parece definir ${pistaMarca[0]} por su cuenta. Con \`shell.brand\` el logo y la razón social se definen una vez para todo KIMOS, en vez de en cada app (APP-SPEC §7.f).`);
+    avisos.push(`Parece definir ${pistaMarca[0]} por su cuenta. Con \`shell.brands\` el logotipo, la paleta y la forma se definen una vez para todo KIMOS y se elige marca por documento, en vez de reescribirlas en cada app (APP-SPEC §7.f). Los datos fiscales NO son de la marca: esos sí los guarda tu app.`);
   }
   if (usaBrand && !tiene('brand.read')) {
     errores.push('Usa `shell.brands` pero no declara `brand.read` en el manifest.');

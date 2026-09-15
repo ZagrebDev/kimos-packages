@@ -94,7 +94,7 @@ parts.push(`
       fallóPorPermiso,
       COLOR_ROLES, LOGO_BACKGROUNDS, TYPE_USAGES, SECCIONES,
       actSeleccionar, actNuevaMarca, actGuardar, actDescartar, actBorrar,
-      actActivar, actDuplicar, actSetCampo,
+      actPorDefecto, actDuplicar, actSetCampo,
       actSetColor, actAddColor, actRemoveColor, actMoveColor,
       actSetLogo, actAddLogo, actRemoveLogo, actSubirLogo,
       actSetFont, actAddFont, actRemoveFont,

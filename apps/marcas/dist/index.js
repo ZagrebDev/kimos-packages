@@ -1,5 +1,5 @@
 /**
- * Marcas v1.1.1 — app oficial de KIMOS.
+ * Marcas v1.2.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.1.1';
+  const APP_VERSION = '1.2.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -441,14 +441,14 @@ function normalizeBrand(raw) {
     name: s(r.name).trim(),
     tagline: s(r.tagline).trim(),
     description: s(r.description).trim(),
-    legalName: s(r.legalName).trim(),
-    taxId: s(r.taxId).trim(),
-    address: s(r.address).trim(),
+    // NO hay razón social, RUT, dirección fiscal ni datos bancarios: una marca
+    // dice cómo se ve algo, no quién lo factura. Una empresa con seis marcas
+    // sigue teniendo un RUT, y seis copias son cinco copias viejas. Quién
+    // emite lo guarda la app que emite (en Cotizaciones, el bloque «Emisor»).
     email: s(r.email).trim(),
     phone: s(r.phone).trim(),
     website: s(r.website).trim(),
     footer: s(r.footer).trim(),
-    bankDetails: s(r.bankDetails).trim(),
     palette: clavesUnicas(arr(r.palette).map(normalizeColor)),
     logos: clavesUnicas(arr(r.logos).map(normalizeLogo)),
     typography: clavesUnicas(arr(r.typography).map(normalizeFont)),
@@ -464,9 +464,8 @@ function paraGuardar(brand) {
   const b = normalizeBrand(brand);
   return {
     name: b.name, tagline: b.tagline, description: b.description,
-    legalName: b.legalName, taxId: b.taxId, address: b.address,
     email: b.email, phone: b.phone, website: b.website,
-    footer: b.footer, bankDetails: b.bankDetails,
+    footer: b.footer,
     palette: b.palette.map((c) => ({ key: c.key, name: c.name, hex: c.hex, role: c.role })),
     logos: b.logos.map((l) => ({
       key: l.key, name: l.name, url: l.url, background: l.background,
@@ -743,10 +742,15 @@ function Field(props) {
 function SecHead(props) {
   const p = props || {};
   return h('div', { className: 'mk-sechead' }, [
-    p.num ? h('span', { key: 'n', className: 'mk-sechead-num' }, p.num) : null,
-    h('span', { key: 't', className: 'mk-sechead-t' }, p.title),
-    h('span', { key: 'sp', className: 'mk-sp' }),
-    p.right || null,
+    h('div', { key: 'r', className: 'mk-sechead-r' }, [
+      p.num ? h('span', { key: 'n', className: 'mk-sechead-num' }, p.num) : null,
+      h('span', { key: 't', className: 'mk-sechead-t' }, p.title),
+      h('span', { key: 'sp', className: 'mk-sp' }),
+      p.right || null,
+    ]),
+    // La nota explica el ALCANCE de la sección. Va aquí y no en un `help` de
+    // campo porque lo que hay que entender es qué NO va en esta sección.
+    p.nota ? h('p', { key: 'nt', className: 'mk-sechead-nota' }, p.nota) : null,
   ]);
 }
 
@@ -970,17 +974,26 @@ function actDescartar() {
   avisar('info', 'Cambios descartados.');
 }
 
-async function actActivar(id) {
-  if (!puedeEditar()) { avisar('warn', 'No tienes permiso para cambiar la marca activa.'); return false; }
+/**
+ * Pone una marca como la de POR DEFECTO del tenant.
+ *
+ * No «activa» una marca ni desactiva el resto: TODAS las marcas del registro
+ * están siempre disponibles para todas las apps, y una app que emite bajo
+ * varias —una cotización por submarca— las pide por id. La de por defecto es
+ * solo la que se propone cuando nadie elige.
+ */
+async function actPorDefecto(id) {
+  if (!puedeEditar()) { avisar('warn', 'No tienes permiso para cambiar la marca por defecto.'); return false; }
   const b = marcaPorId(id || estado.selectedId);
   if (!b) return false;
+  if (b.isDefault) { avisar('info', '«' + b.name + '» ya es la marca por defecto.'); return true; }
   try {
     await shell.brands.setDefault(b.id);
     await cargar(true);
-    avisar('success', '«' + b.name + '» es ahora la marca activa del sistema.');
+    avisar('success', '«' + b.name + '» es ahora la marca por defecto. Las demás siguen disponibles.');
     return true;
   } catch (e) {
-    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo cambiar la marca por defecto: ' + ((e && e.message) || 'error'));
     return false;
   }
 }
@@ -1218,30 +1231,26 @@ function EdIdentidad(props) {
   const { b, ro } = props;
   const set = (campo) => (e) => actSetCampo(campo, e.target.value);
   return h('div', { className: 'mk-ed' }, [
-    h(SecHead, { key: 'h', title: 'Identidad' }),
+    h(SecHead, {
+      key: 'h', title: 'Identidad',
+      nota: 'Quién es la marca. Quién FACTURA —razón social, RUT, banco— no se '
+        + 'guarda aquí: es del emisor, y lo lleva la app que emite.',
+    }),
     h('div', { key: 'g', className: 'mk-grid2' }, [
       h(Field, { key: 'n', label: 'Nombre de la marca' },
-        h(Input, { value: b.name, disabled: ro, placeholder: 'PlayerPro', onChange: set('name') })),
+        h(Input, { value: b.name, disabled: ro, placeholder: 'Nombre comercial', onChange: set('name') })),
       h(Field, { key: 't', label: 'Bajada', help: 'La frase que acompaña al nombre. Sale en la hoja y en los banners de ejemplo.' },
-        h(Input, { value: b.tagline, disabled: ro, placeholder: 'Computadores que rinden', onChange: set('tagline') })),
+        h(Input, { value: b.tagline, disabled: ro, placeholder: 'La frase que acompaña al nombre', onChange: set('tagline') })),
       h(Field, { key: 'd', label: 'Descripción', wide: true },
         h(Area, { value: b.description, disabled: ro, rows: 2, onChange: set('description') })),
-      h(Field, { key: 'ln', label: 'Razón social', help: 'Quién emite legalmente bajo esta marca.' },
-        h(Input, { value: b.legalName, disabled: ro, onChange: set('legalName') })),
-      h(Field, { key: 'rt', label: 'RUT / ID fiscal' },
-        h(Input, { mono: true, value: b.taxId, disabled: ro, placeholder: '77.718.188-2', onChange: set('taxId') })),
-      h(Field, { key: 'e', label: 'Correo' },
-        h(Input, { type: 'email', value: b.email, disabled: ro, onChange: set('email') })),
+      h(Field, { key: 'e', label: 'Correo de la marca', help: 'El contacto público de ESTA marca, si tiene uno propio.' },
+        h(Input, { type: 'email', value: b.email, disabled: ro, placeholder: 'contacto@ejemplo.com', onChange: set('email') })),
       h(Field, { key: 'p', label: 'Teléfono' },
-        h(Input, { value: b.phone, disabled: ro, onChange: set('phone') })),
+        h(Input, { value: b.phone, disabled: ro, placeholder: '+00 000 000 000', onChange: set('phone') })),
       h(Field, { key: 'w', label: 'Sitio web' },
-        h(Input, { value: b.website, disabled: ro, onChange: set('website') })),
-      h(Field, { key: 'a', label: 'Dirección' },
-        h(Input, { value: b.address, disabled: ro, onChange: set('address') })),
-      h(Field, { key: 'f', label: 'Pie', wide: true, help: 'Texto legal o de uso que cierra la hoja y los documentos.' },
+        h(Input, { value: b.website, disabled: ro, placeholder: 'ejemplo.com', onChange: set('website') })),
+      h(Field, { key: 'f', label: 'Pie', wide: true, help: 'Texto de uso que cierra la hoja: para qué sirve este documento y quién lo mantiene.' },
         h(Input, { value: b.footer, disabled: ro, placeholder: 'Uso interno · Diseño y Marketing', onChange: set('footer') })),
-      h(Field, { key: 'bk', label: 'Datos de pago', wide: true, help: 'Los usa Cotizaciones al emitir bajo esta marca.' },
-        h(Area, { value: b.bankDetails, disabled: ro, rows: 3, onChange: set('bankDetails') })),
     ]),
   ]);
 }
@@ -2093,6 +2102,12 @@ function Cartera(props) {
         key: 'a', icon: '+', title: 'Nueva marca', onClick: () => actNuevaMarca(),
       }),
     ]),
+    // Lo que el «por defecto» NO significa. Sin esta línea, una lista donde
+    // una marca lleva etiqueta y el resto no se lee como «una activa y cinco
+    // apagadas», que es justo al revés de como funciona.
+    m.brands.length > 1 ? h('p', { key: 'x', className: 'mk-cartera-nota' },
+      'Todas están disponibles para todas las apps. La marca por defecto es solo '
+      + 'la que se propone cuando nadie elige.') : null,
     h('ul', { key: 'l', className: 'mk-cartera-l' }, m.brands.map((b) => {
       const r = resumenDe(b);
       const base = colorPorRol(b, 'base');
@@ -2106,7 +2121,10 @@ function Cartera(props) {
           h('span', { key: 'm', className: 'mk-cartera-meta' },
             r.colores + ' color(es) · ' + r.logos + ' logo(s)'),
         ]),
-        b.isDefault ? h('span', { key: 'a', className: 'mk-tag', title: 'La usan por defecto las apps' }, 'activa') : null,
+        b.isDefault ? h('span', {
+          key: 'a', className: 'mk-tag',
+          title: 'Es la que se propone cuando una app no elige marca. Las demás siguen disponibles.',
+        }, 'por defecto') : null,
         r.avisos ? h('span', { key: 'w', className: 'mk-tag mk-tag-warn', title: r.avisos + ' aviso(s)' }, String(r.avisos)) : null,
       ]));
     })),
@@ -2121,7 +2139,16 @@ function Barra(props) {
     h('div', { key: 'id', className: 'mk-barra-id' }, [
       h('span', { key: 'n', className: 'mk-barra-nm' }, (b && b.name) || '—'),
       m.dirty ? h('span', { key: 'd', className: 'mk-tag mk-tag-warn' }, 'sin guardar') : null,
-      b && b.isDefault ? h('span', { key: 'a', className: 'mk-tag' }, 'activa') : null,
+      b && b.isDefault ? h('span', {
+        key: 'a', className: 'mk-tag',
+        title: 'Es la que se propone cuando una app no elige marca.',
+      }, 'por defecto') : null,
+      // El control que faltaba: desde la lista se veía cuál era la de por
+      // defecto, pero no había forma de cambiarla sin pedírselo al agente.
+      (b && !b.isDefault && !ro) ? h(Btn, {
+        key: 'pd', size: 'sm', onClick: () => actPorDefecto(b.id),
+        title: 'Pasa a ser la que se propone cuando una app no elige marca.',
+      }, 'Usar por defecto') : null,
     ]),
     h('div', { key: 'tabs', className: 'mk-tabs' }, [
       h(Btn, { key: 's', size: 'sm', active: m.tab === 'sistema', onClick: () => actSetTab('sistema') }, 'Hoja'),
@@ -2255,10 +2282,13 @@ const AGENT_TOOLS = [
     { nombre: T_STR }),
   tool('DUPLICAR_MARCA', 'Replica una marca existente con otro nombre. Es como nace una variante.',
     { marca: T_STR, nombre: T_STR }, ['marca']),
-  tool('ACTUALIZAR_IDENTIDAD', 'Cambia los datos de identidad de la marca abierta: nombre, bajada, razón social, RUT, contacto, pie o datos de pago. NO guarda: usa GUARDAR_MARCA.',
+  // Sin razón social, RUT ni datos bancarios: una marca no es una empresa.
+  // Si alguien se los pide al agente, los campos no existen y el agente lo
+  // dice, en vez de guardarlos donde no van.
+  tool('ACTUALIZAR_IDENTIDAD', 'Cambia los datos de identidad de la marca abierta: nombre, bajada, descripción, contacto de la marca o pie. NO guarda: usa GUARDAR_MARCA. Los datos fiscales (razón social, RUT, banco) NO son de la marca: son del emisor y se configuran en la app que emite.',
     {
-      nombre: T_STR, bajada: T_STR, descripcion: T_STR, razonSocial: T_STR, rut: T_STR,
-      correo: T_STR, telefono: T_STR, web: T_STR, direccion: T_STR, pie: T_STR, datosDePago: T_STR,
+      nombre: T_STR, bajada: T_STR, descripcion: T_STR,
+      correo: T_STR, telefono: T_STR, web: T_STR, pie: T_STR,
     }),
   tool('AGREGAR_COLOR', 'Añade un color a la paleta de la marca abierta. El `rol` es lo que permite que otras apps sepan dónde usarlo.',
     {
@@ -2292,7 +2322,9 @@ const AGENT_TOOLS = [
     { titulo: T_STR, texto: T_STR }, ['titulo']),
   tool('GUARDAR_MARCA', 'Guarda los cambios de la marca abierta en el registro. A partir de aquí las demás apps la ven así.',
     {}),
-  tool('ACTIVAR_MARCA', 'Deja una marca como la activa del sistema: es la que usan por defecto las apps que no eligen una.',
+  // «Por defecto», no «activa»: no se desactiva ninguna. Todas las marcas del
+  // registro están siempre disponibles para todas las apps.
+  tool('MARCA_POR_DEFECTO', 'Deja una marca como la de por defecto del sistema: la que se propone a las apps que no eligen una. NO desactiva las demás — todas siguen disponibles y una app puede emitir con cualquiera.',
     { marca: T_STR }, ['marca']),
   tool('REVISAR_MARCA', 'Dice qué le falta a una marca para poder aplicarse y qué tiene mal (colores sin rol, referencias rotas, acento sin contraste).',
     { marca: T_STR }),
@@ -2401,9 +2433,8 @@ async function agentDispatch(action) {
       const g = exigeBorrador();
       if (!g.b) return errMsg(g.error);
       const campos = {
-        nombre: 'name', bajada: 'tagline', descripcion: 'description', razonSocial: 'legalName',
-        rut: 'taxId', correo: 'email', telefono: 'phone', web: 'website', direccion: 'address',
-        pie: 'footer', datosDePago: 'bankDetails',
+        nombre: 'name', bajada: 'tagline', descripcion: 'description',
+        correo: 'email', telefono: 'phone', web: 'website', pie: 'footer',
       };
       const puestos = [];
       for (const [entrada, campo] of Object.entries(campos)) {
@@ -2521,12 +2552,14 @@ async function agentDispatch(action) {
       return okMsg('Marca «' + guardada.name + '» guardada. Las demás apps ya la ven así.', { avisos });
     }
 
-    case 'ACTIVAR_MARCA': {
+    // `ACTIVAR_MARCA` se mantiene como sinónimo: es como lo dice la gente.
+    case 'ACTIVAR_MARCA':
+    case 'MARCA_POR_DEFECTO': {
       const r = resolverMarca(pl.marca);
       if (!r.marca) return errMsg(r.error);
-      const ok = await actActivar(r.marca.id);
-      return ok ? okMsg('«' + r.marca.name + '» es ahora la marca activa del sistema.')
-        : errMsg('No se pudo activar la marca.');
+      const ok = await actPorDefecto(r.marca.id);
+      return ok ? okMsg('«' + r.marca.name + '» es ahora la marca por defecto. Las demás siguen disponibles para cualquier app.')
+        : errMsg('No se pudo cambiar la marca por defecto.');
     }
 
     case 'REVISAR_MARCA': {
@@ -2589,7 +2622,7 @@ function registrarAgente() {
       fallóPorPermiso,
       COLOR_ROLES, LOGO_BACKGROUNDS, TYPE_USAGES, SECCIONES,
       actSeleccionar, actNuevaMarca, actGuardar, actDescartar, actBorrar,
-      actActivar, actDuplicar, actSetCampo,
+      actPorDefecto, actDuplicar, actSetCampo,
       actSetColor, actAddColor, actRemoveColor, actMoveColor,
       actSetLogo, actAddLogo, actRemoveLogo, actSubirLogo,
       actSetFont, actAddFont, actRemoveFont,

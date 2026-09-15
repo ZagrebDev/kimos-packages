@@ -138,17 +138,26 @@ function actDescartar() {
   avisar('info', 'Cambios descartados.');
 }
 
-async function actActivar(id) {
-  if (!puedeEditar()) { avisar('warn', 'No tienes permiso para cambiar la marca activa.'); return false; }
+/**
+ * Pone una marca como la de POR DEFECTO del tenant.
+ *
+ * No «activa» una marca ni desactiva el resto: TODAS las marcas del registro
+ * están siempre disponibles para todas las apps, y una app que emite bajo
+ * varias —una cotización por submarca— las pide por id. La de por defecto es
+ * solo la que se propone cuando nadie elige.
+ */
+async function actPorDefecto(id) {
+  if (!puedeEditar()) { avisar('warn', 'No tienes permiso para cambiar la marca por defecto.'); return false; }
   const b = marcaPorId(id || estado.selectedId);
   if (!b) return false;
+  if (b.isDefault) { avisar('info', '«' + b.name + '» ya es la marca por defecto.'); return true; }
   try {
     await shell.brands.setDefault(b.id);
     await cargar(true);
-    avisar('success', '«' + b.name + '» es ahora la marca activa del sistema.');
+    avisar('success', '«' + b.name + '» es ahora la marca por defecto. Las demás siguen disponibles.');
     return true;
   } catch (e) {
-    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo activar: ' + ((e && e.message) || 'error'));
+    if (!fallóPorPermiso(e)) avisar('error', 'No se pudo cambiar la marca por defecto: ' + ((e && e.message) || 'error'));
     return false;
   }
 }

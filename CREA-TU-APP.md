@@ -299,7 +299,7 @@ solo ve instancias de equipos a los que el usuario ya pertenece.
 ```
 
 ```js
-const cliente = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '77.718.188-2' });
+const cliente = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '12.345.678-5' });
 await shell.data.update(instanciaClientes, cliente.id, { phone: '+56 9 1234 5678' });
 ```
 
@@ -337,7 +337,7 @@ siendo tuyos. Tú guardas la referencia más una instantánea de lo que pintas.
 ```js
 if (shell.records) {
   const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
-    keys:  { taxId: '77.718.188-2' },
+    keys:  { taxId: '12.345.678-5' },
     label: 'Acme SpA',
   });
   if (warning) shell.notify({ level: 'warn', text: warning });
@@ -350,7 +350,7 @@ if (shell.records) {
 ```
 
 - `findOrCreate` **reutiliza** si ya existe: eso es lo que mantiene una sola
-  base. Da igual si el RUT venía escrito `77.718.188-2` o `777181882`.
+  base. Da igual si el RUT venía escrito `12.345.678-5` o `123456785`.
 - `search({ type: 'account', q })` alimenta tu selector de cliente.
 - `links(ref)` responde «dame todo lo de Acme», en todas las apps.
 - Tipos: `account`, `contact`, `product`, `opportunity`, `project`. No hay

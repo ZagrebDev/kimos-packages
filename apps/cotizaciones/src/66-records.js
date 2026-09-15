@@ -38,8 +38,8 @@ function registroNoDisponible() {
  * Claves con las que se reconoce a un cliente, en orden de fiabilidad.
  *
  * El RUT identifica a la empresa; el correo, a menudo, solo a la persona que
- * escribió. Se mandan las dos y la plataforma normaliza («77.718.188-2» y
- * «777181882» son la misma), pero el orden importa cuando apuntan a sitios
+ * escribió. Se mandan las dos y la plataforma normaliza («12.345.678-5» y
+ * «123456785» son la misma), pero el orden importa cuando apuntan a sitios
  * distintos.
  */
 function clavesDeCliente(client) {
@@ -260,69 +260,179 @@ function estadoVinculo(doc) {
   return { estado: 'suelto', texto: 'Solo en esta cotización' };
 }
 
-// ── Marca del tenant ────────────────────────────────────────────────────
+// ── Marcas: una propuesta, una marca ────────────────────────────────────
 /**
- * El emisor de las cotizaciones puede venir de la marca del sistema
- * (`shell.brands`, APP-SPEC §7.f) en vez de reescribirse aquí.
+ * Las marcas del sistema (`shell.brands`, APP-SPEC §7.f) aplicadas POR
+ * COTIZACIÓN.
  *
- * La marca RELLENA, no impone: se copia a los ajustes del cotizador y desde
- * ahí se puede cambiar. Un tenant con dos unidades de negocio necesita poder
- * cotizar con una razón social distinta de la marca por defecto, y quitarle
- * esa posibilidad para «mantenerlo sincronizado» sería resolver un problema
- * que no tiene a costa de uno que sí.
+ * El reparto, que es lo único que hay que entender aquí:
+ *
+ *   MARCA (registro de la plataforma)      EMISOR (Ajustes de esta app)
+ *   cómo se VE la propuesta                quién FACTURA
+ *   logo, colores, bajada, web             razón social, RUT, banco
+ *   una por cotización                     uno para toda la empresa
+ *
+ * Por eso cambiar de marca en una propuesta cambia el logotipo y los colores
+ * y NO toca el RUT: una empresa con seis marcas sigue teniendo un RUT. Y por
+ * eso los datos fiscales no están en el registro de marcas: seis copias del
+ * mismo RUT son cinco copias que se quedan viejas.
+ *
+ * Todas las marcas están disponibles siempre. La marca «por defecto» del
+ * registro es solo con la que NACE una cotización nueva cuando los ajustes no
+ * fijan otra; no es «la única activa».
  */
-function marcaNoDisponible() {
-  if (!shell.brands || typeof shell.brands.current !== 'function') {
-    return 'Este host todavía no expone las marcas del sistema; el emisor se escribe aquí.';
+function marcasNoDisponibles() {
+  if (!shell.brands || typeof shell.brands.list !== 'function') {
+    return 'Este host todavía no expone las marcas del sistema; la propuesta usa el logo del emisor.';
   }
   return '';
 }
 
-/** Copia la marca activa del tenant a los ajustes del emisor. */
-async function actImportBrand() {
-  const motivo = marcaNoDisponible();
+/** Espejo de lectura de las marcas. No se persiste: se relee al abrir. */
+async function loadBrands(force) {
+  const b = model.brands;
+  if (!force && (b.loading || b.loaded)) return b.list;
+  const motivo = marcasNoDisponibles();
+  if (motivo) {
+    setModel({ brands: Object.assign({}, b, { loading: false, loaded: true, error: motivo, list: [] }) });
+    return [];
+  }
+  setModel({ brands: Object.assign({}, b, { loading: true, error: null }) });
+  let lista = [];
+  try {
+    // El registro devuelve `{ brands, currentId }`; se acepta también un
+    // array pelado para no atarse a la forma exacta del host.
+    const res = await shell.brands.list();
+    lista = arr(isObj(res) && !Array.isArray(res) ? res.brands : res);
+  } catch (e) {
+    setModel({
+      brands: Object.assign({}, model.brands, {
+        loading: false, loaded: true, list: [],
+        error: 'No se pudieron leer las marcas: ' + ((e && e.message) || 'error'),
+      }),
+    });
+    return [];
+  }
+  setModel({
+    brands: {
+      loading: false, loaded: true, error: null, at: stamp(),
+      list: lista.map((x) => (isObj(x) ? x : {})).filter((x) => s(x.id)),
+    },
+  });
+  return model.brands.list;
+}
+
+/** La instantánea que se guarda en el documento, a partir de una marca. */
+function instantaneaDeMarca(marca) {
+  if (!isObj(marca) || !s(marca.id)) return null;
+  const base = isObj(marca.baseColor) ? marca.baseColor : {};
+  const acento = isObj(marca.accentColor) ? marca.accentColor : {};
+  return normalizeDocBrand({
+    id: s(marca.id),
+    name: s(marca.name),
+    tagline: s(marca.tagline),
+    // Fondo claro primero: la propuesta se imprime sobre papel blanco, y un
+    // logo blanco sobre papel blanco es un hueco que nadie ve hasta el PDF.
+    logoUrl: s(marca.logoLight) || s(marca.logoDark),
+    website: s(marca.website),
+    email: s(marca.email),
+    phone: s(marca.phone),
+    primary: s(base.hex),
+    accent: s(acento.hex),
+    at: stamp(),
+  });
+}
+
+/** La marca elegida en una lista ya cargada, sin ir a la red. */
+const marcaEnLista = (id) => arr(model.brands.list).find((b) => s(b.id) === s(id)) || null;
+
+/**
+ * Fija con qué marca se emite una cotización. `''` la quita.
+ *
+ * Relee la marca del registro en vez de copiar lo que hubiera en la lista:
+ * elegir marca es el momento en que la instantánea se toma, y tiene que ser
+ * la marca de HOY, no la de cuando se cargó la pantalla.
+ */
+async function actSetDocBrand(quoteId, brandId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+
+  if (!s(brandId)) {
+    const sinMarca = commitDoc(s(quoteId), (d) => { d.brand = null; return d; });
+    shell.notify({ level: 'info', text: 'La propuesta sale con el logo y los datos del emisor, sin marca.' });
+    return sinMarca;
+  }
+
+  const motivo = marcasNoDisponibles();
   if (motivo) { shell.notify({ level: 'warn', text: motivo }); return null; }
 
   let marca;
   try {
-    marca = await shell.brands.current();
+    marca = typeof shell.brands.get === 'function'
+      ? await shell.brands.get(s(brandId))
+      : marcaEnLista(brandId);
   } catch (e) {
     shell.notify({ level: 'error', text: 'No se pudo leer la marca: ' + ((e && e.message) || 'error') });
     return null;
   }
-  if (!isObj(marca)) {
-    shell.notify({
-      level: 'warn',
-      text: 'Este KIMOS todavía no tiene una marca configurada. La define un administrador y luego se trae desde aquí.',
-    });
+  const snap = instantaneaDeMarca(marca);
+  if (!snap) {
+    shell.notify({ level: 'warn', text: 'Esa marca ya no está en el registro del sistema.' });
     return null;
   }
-
-  // El registro devuelve los atajos ya resueltos (`logoLight`, `logoDark`),
-  // así que la cotización no tiene que recorrer la lista de logotipos ni
-  // acertar con el fondo. Se prefiere el de fondo claro: la propuesta se
-  // imprime sobre papel blanco.
-  // Solo se pisa lo que la marca SÍ trae: si no tiene teléfono, no se borra
-  // el que ya estaba escrito aquí.
-  const patch = {};
-  const poner = (campo, valor) => { if (s(valor).trim()) patch[campo] = s(valor).trim(); };
-  poner('name', marca.legalName || marca.name);
-  poner('taxId', marca.taxId);
-  poner('email', marca.email);
-  poner('phone', marca.phone);
-  poner('web', marca.website);
-  poner('address', marca.address);
-  poner('logoUrl', marca.logoLight || marca.logoDark);
-  poner('paymentInfo', marca.bankDetails);
-  if (!Object.keys(patch).length) {
-    shell.notify({ level: 'warn', text: 'La marca del sistema no tiene datos que traer todavía.' });
-    return null;
-  }
-
-  const out = actPatchIssuer(patch);
-  shell.notify({
-    level: 'success',
-    text: 'Emisor traído de la marca del sistema (' + s(marca.name) + '). Puedes ajustarlo para este cotizador.',
-  });
+  const out = commitDoc(s(quoteId), (d) => { d.brand = snap; return d; });
+  shell.notify({ level: 'success', text: 'Esta propuesta se emite con la marca «' + snap.name + '».' });
   return out;
+}
+
+/**
+ * Vuelve a tomar la instantánea de la marca del documento.
+ *
+ * Una propuesta ya enviada NO se actualiza sola —ese es el punto de guardar
+ * la instantánea—, así que refrescar es algo que se pide a mano cuando la
+ * marca cambió de logo y la propuesta todavía es un borrador.
+ */
+async function actRefreshDocBrand(quoteId) {
+  const doc = docById(s(quoteId));
+  if (!doc || !doc.brand || !s(doc.brand.id)) return null;
+  return actSetDocBrand(s(quoteId), s(doc.brand.id));
+}
+
+/**
+ * Con qué marca nace una cotización nueva: la fijada en las reglas, o la de
+ * por defecto del registro. Si no hay marcas, ninguna, y la propuesta sale
+ * con el emisor como siempre.
+ */
+async function marcaParaNueva() {
+  const motivo = marcasNoDisponibles();
+  if (motivo) return null;
+  const lista = await loadBrands(false);
+  const fijada = s(rulesOf().brandId);
+  const elegida = (fijada && lista.find((b) => s(b.id) === fijada))
+    || lista.find((b) => b.isDefault === true)
+    || null;
+  if (!elegida) return null;
+  try {
+    const completa = typeof shell.brands.get === 'function'
+      ? await shell.brands.get(s(elegida.id)) : elegida;
+    return instantaneaDeMarca(completa);
+  } catch (e) { return instantaneaDeMarca(elegida); }
+}
+
+/**
+ * Le pone marca a una cotización recién creada, sin bloquear la creación.
+ *
+ * Crear una cotización no puede esperar a la red: si el registro de marcas
+ * tarda o falla, la cotización ya existe y sencillamente sale con el emisor.
+ */
+function ponerMarcaInicial(quoteId) {
+  const id = s(quoteId);
+  if (!id || marcasNoDisponibles()) return;
+  Promise.resolve().then(marcaParaNueva).then((snap) => {
+    if (!snap) return;
+    const d = docById(id);
+    // Si mientras tanto la persona eligió una marca, se respeta la suya.
+    if (!d || (d.brand && s(d.brand.id))) return;
+    commitDoc(id, (x) => { x.brand = snap; return x; });
+  }).catch(() => { /* sin marca se cotiza igual */ });
 }

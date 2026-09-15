@@ -50,6 +50,10 @@ let model = {
     products: [], sources: [],
     customers: [], customerSources: [],
   },
+  // Marcas del registro de la plataforma (`shell.brands`, APP-SPEC §7.f).
+  // Igual que `ext`: espejo de lectura, no se persiste. TODAS están siempre
+  // disponibles; cada cotización elige la suya (ver src/66-records.js).
+  brands: { loading: false, loaded: false, error: null, at: '', list: [] },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar

@@ -83,9 +83,12 @@ function validaEnServidor(cuerpo) {
     if (t.usage && USOS_OK.indexOf(t.usage) < 0) throw new Error('Uso tipográfico no válido: ' + t.usage);
   }
   // Campos que el backend NO acepta: si la app los manda, se entera aquí.
+  // Una marca no es una empresa: sin razón social, RUT, dirección fiscal ni
+  // datos bancarios. Si la app vuelve a mandarlos, el backend los rechaza y
+  // esta lista es lo que lo dice aquí, antes de desplegar.
   const permitidos = new Set([
-    'name', 'tagline', 'description', 'legalName', 'taxId', 'address', 'email', 'phone',
-    'website', 'footer', 'bankDetails', 'palette', 'logos', 'typography', 'ecosystems',
+    'name', 'tagline', 'description', 'email', 'phone',
+    'website', 'footer', 'palette', 'logos', 'typography', 'ecosystems',
     'principles', 'form',
   ]);
   if (cuerpo.form) {
@@ -501,12 +504,17 @@ seccion('Varias marcas');
   const copia = await T.actDuplicar(T.getModel().brands[0].id, 'PlayerPro Labs');
   ok(!!copia, 'una marca se duplica: es como nace una variante');
   eq(REG.marcas.length, 2, 'y el registro tiene dos');
-  ok(!copia.isDefault, 'la copia no roba la marca activa');
+  ok(!copia.isDefault, 'la copia no roba la marca por defecto');
   eq(copia.palette.length, T.getModel().brands[0].palette.length, 'con la misma paleta');
 
-  await T.actActivar(copia.id);
-  ok(REG.marcas.find((b) => b.id === copia.id).isDefault, 'se puede cambiar la marca activa');
+  await T.actPorDefecto(copia.id);
+  ok(REG.marcas.find((b) => b.id === copia.id).isDefault, 'se puede cambiar la marca por defecto');
   ok(!REG.marcas.find((b) => b.id !== copia.id).isDefault, 'y solo hay una a la vez');
+  // Lo que la etiqueta NO significa: la otra marca sigue ahí, legible y
+  // utilizable. Es la confusión que hace pensar que solo se puede emitir con
+  // una, y la razón de que el registro exponga `list` y `get`.
+  ok(REG.marcas.length === 2 && REG.marcas.every((b) => !!b.name),
+     'cambiar la de por defecto no desactiva ni esconde a las demás');
 
   // Cambiar de marca con cambios sin guardar los perdería en silencio.
   T.actSeleccionar(REG.marcas[0].id);

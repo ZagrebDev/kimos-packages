@@ -158,7 +158,7 @@ Ninguna en tiempo de ejecución más allá del contrato del host:
 | `shell.data` (lectura) | catálogos de Productos, ProductLab y Clientes |
 | `shell.data.create` | guardar en la app Clientes un cliente escrito a mano (opcional) |
 | `shell.records` | identidad compartida del cliente (opcional: si falta, la app funciona igual) |
-| `shell.brand` | marca del tenant para rellenar el emisor (opcional) |
+| `shell.brands` | marcas del tenant: una por cotización, para logotipo y colores (opcional) |
 | `shell.files` | subir imágenes y la propuesta publicada; si falta, se usa `authFetch` a `/api/v2/files` |
 | `shell.authFetch` | `/api/identity/me`, `/api/integrations/email/*` y el respaldo de subida |
 

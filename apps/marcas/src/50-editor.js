@@ -11,30 +11,26 @@ function EdIdentidad(props) {
   const { b, ro } = props;
   const set = (campo) => (e) => actSetCampo(campo, e.target.value);
   return h('div', { className: 'mk-ed' }, [
-    h(SecHead, { key: 'h', title: 'Identidad' }),
+    h(SecHead, {
+      key: 'h', title: 'Identidad',
+      nota: 'Quién es la marca. Quién FACTURA —razón social, RUT, banco— no se '
+        + 'guarda aquí: es del emisor, y lo lleva la app que emite.',
+    }),
     h('div', { key: 'g', className: 'mk-grid2' }, [
       h(Field, { key: 'n', label: 'Nombre de la marca' },
-        h(Input, { value: b.name, disabled: ro, placeholder: 'PlayerPro', onChange: set('name') })),
+        h(Input, { value: b.name, disabled: ro, placeholder: 'Nombre comercial', onChange: set('name') })),
       h(Field, { key: 't', label: 'Bajada', help: 'La frase que acompaña al nombre. Sale en la hoja y en los banners de ejemplo.' },
-        h(Input, { value: b.tagline, disabled: ro, placeholder: 'Computadores que rinden', onChange: set('tagline') })),
+        h(Input, { value: b.tagline, disabled: ro, placeholder: 'La frase que acompaña al nombre', onChange: set('tagline') })),
       h(Field, { key: 'd', label: 'Descripción', wide: true },
         h(Area, { value: b.description, disabled: ro, rows: 2, onChange: set('description') })),
-      h(Field, { key: 'ln', label: 'Razón social', help: 'Quién emite legalmente bajo esta marca.' },
-        h(Input, { value: b.legalName, disabled: ro, onChange: set('legalName') })),
-      h(Field, { key: 'rt', label: 'RUT / ID fiscal' },
-        h(Input, { mono: true, value: b.taxId, disabled: ro, placeholder: '77.718.188-2', onChange: set('taxId') })),
-      h(Field, { key: 'e', label: 'Correo' },
-        h(Input, { type: 'email', value: b.email, disabled: ro, onChange: set('email') })),
+      h(Field, { key: 'e', label: 'Correo de la marca', help: 'El contacto público de ESTA marca, si tiene uno propio.' },
+        h(Input, { type: 'email', value: b.email, disabled: ro, placeholder: 'contacto@ejemplo.com', onChange: set('email') })),
       h(Field, { key: 'p', label: 'Teléfono' },
-        h(Input, { value: b.phone, disabled: ro, onChange: set('phone') })),
+        h(Input, { value: b.phone, disabled: ro, placeholder: '+00 000 000 000', onChange: set('phone') })),
       h(Field, { key: 'w', label: 'Sitio web' },
-        h(Input, { value: b.website, disabled: ro, onChange: set('website') })),
-      h(Field, { key: 'a', label: 'Dirección' },
-        h(Input, { value: b.address, disabled: ro, onChange: set('address') })),
-      h(Field, { key: 'f', label: 'Pie', wide: true, help: 'Texto legal o de uso que cierra la hoja y los documentos.' },
+        h(Input, { value: b.website, disabled: ro, placeholder: 'ejemplo.com', onChange: set('website') })),
+      h(Field, { key: 'f', label: 'Pie', wide: true, help: 'Texto de uso que cierra la hoja: para qué sirve este documento y quién lo mantiene.' },
         h(Input, { value: b.footer, disabled: ro, placeholder: 'Uso interno · Diseño y Marketing', onChange: set('footer') })),
-      h(Field, { key: 'bk', label: 'Datos de pago', wide: true, help: 'Los usa Cotizaciones al emitir bajo esta marca.' },
-        h(Area, { value: b.bankDetails, disabled: ro, rows: 3, onChange: set('bankDetails') })),
     ]),
   ]);
 }

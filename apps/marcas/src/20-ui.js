@@ -61,10 +61,15 @@ function Field(props) {
 function SecHead(props) {
   const p = props || {};
   return h('div', { className: 'mk-sechead' }, [
-    p.num ? h('span', { key: 'n', className: 'mk-sechead-num' }, p.num) : null,
-    h('span', { key: 't', className: 'mk-sechead-t' }, p.title),
-    h('span', { key: 'sp', className: 'mk-sp' }),
-    p.right || null,
+    h('div', { key: 'r', className: 'mk-sechead-r' }, [
+      p.num ? h('span', { key: 'n', className: 'mk-sechead-num' }, p.num) : null,
+      h('span', { key: 't', className: 'mk-sechead-t' }, p.title),
+      h('span', { key: 'sp', className: 'mk-sp' }),
+      p.right || null,
+    ]),
+    // La nota explica el ALCANCE de la sección. Va aquí y no en un `help` de
+    // campo porque lo que hay que entender es qué NO va en esta sección.
+    p.nota ? h('p', { key: 'nt', className: 'mk-sechead-nota' }, p.nota) : null,
   ]);
 }
 

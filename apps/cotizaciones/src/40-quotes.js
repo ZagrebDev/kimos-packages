@@ -255,6 +255,14 @@ function DocHeaderPanel(props) {
         : h('span', { key: 'i', className: 'cz-card-note cz-warn' }, 'Falta configurar el emisor en Ajustes'),
     ]),
     h('div', { key: 'g', className: 'cz-grid2' }, [
+      // La marca va lo primero: es lo que decide qué logotipo y qué colores
+      // ve el cliente, y es lo que cambia entre una propuesta de la marca
+      // general y una de una submarca.
+      h(Field, {
+        key: 'br', label: 'Marca', wide: true,
+        help: 'Con qué marca se emite esta ' + (esPlantilla ? 'plantilla' : 'propuesta')
+          + '. El logotipo y los colores salen de ella; la razón social y el RUT, del emisor.',
+      }, h(DocBrandField, { doc })),
       !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' }, h('div', { className: 'cz-inline cz-nowrap' }, [
         h(Input, {
           key: 'i', value: doc.client.name, placeholder: 'Razón social o nombre',
@@ -266,11 +274,11 @@ function DocHeaderPanel(props) {
         }),
       ])) : null,
       !esPlantilla ? h(Field, { key: 'ct', label: 'RUT / ID fiscal' },
-        h(Input, { mono: true, value: doc.client.taxId, placeholder: '77.718.188-2', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
+        h(Input, { mono: true, value: doc.client.taxId, placeholder: '12.345.678-5', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'cc', label: 'Contacto' },
         h(Input, { value: doc.client.contact, placeholder: 'Nombre de quien recibe', onChange: (e) => patchClient({ contact: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'ce', label: 'Correo' },
-        h(Input, { type: 'email', value: doc.client.email, placeholder: 'contacto@empresa.cl', onChange: (e) => patchClient({ email: e.target.value }) })) : null,
+        h(Input, { type: 'email', value: doc.client.email, placeholder: 'contacto@ejemplo.com', onChange: (e) => patchClient({ email: e.target.value }) })) : null,
       h(Field, { key: 'sub', label: 'Asunto de la propuesta', wide: true, help: 'Aparece bajo el título: “Proceso Matrícula DEMRE — Enero 2027”.' },
         h(Input, { value: doc.subtitle, placeholder: 'Motivo o proyecto que se cotiza', onChange: (e) => patch({ subtitle: e.target.value }) })),
       !esPlantilla ? h(Field, { key: 'dt', label: 'Fecha' },
@@ -288,6 +296,71 @@ function DocHeaderPanel(props) {
       ])),
     ]),
     !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * Elegir la marca de UNA cotización.
+ *
+ * Lista todas las marcas del registro, no solo la de por defecto: tener una
+ * marca general y submarcas y poder usar solo una era el agujero. Al elegir
+ * se guarda una instantánea (logo, bajada, colores) en el documento, así que
+ * una propuesta enviada se sigue imprimiendo igual aunque la marca cambie.
+ */
+function DocBrandField(props) {
+  const doc = props.doc;
+  const m = getModel();
+  const br = m.brands || { list: [] };
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => { loadBrands(false); }, []);
+
+  const actual = doc.brand && s(doc.brand.id) ? s(doc.brand.id) : '';
+  const lista = arr(br.list);
+  // Una marca que ya no está en el registro no se puede perder del selector:
+  // si desapareciera, cambiar cualquier otra cosa la borraría sin avisar.
+  const huerfana = actual && !lista.some((b) => s(b.id) === actual);
+
+  if (marcasNoDisponibles()) {
+    return h('span', { className: 'cz-card-note' },
+      'Este KIMOS no tiene registro de marcas: la propuesta sale con el logo del emisor.');
+  }
+  if (br.error) return h('span', { className: 'cz-card-note cz-warn' }, br.error);
+  if (br.loading && !br.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo marcas…');
+  if (!lista.length && !actual) {
+    return h('span', { className: 'cz-card-note' },
+      'Todavía no hay marcas en el sistema. Se crean en la app Marcas.');
+  }
+
+  const opciones = [{ value: '', label: 'Sin marca — solo el emisor' }]
+    .concat(lista.map((b) => ({
+      value: s(b.id),
+      label: s(b.name) + (b.isDefault ? ' · por defecto' : ''),
+    })));
+  if (huerfana) {
+    opciones.push({ value: actual, label: s(doc.brand.name) + ' (ya no está en el registro)' });
+  }
+
+  return h('div', { className: 'cz-inline cz-nowrap' }, [
+    h(Select, {
+      key: 's', value: actual, disabled: ocupado, options: opciones,
+      onChange: (e) => {
+        const id = e.target.value;
+        setOcupado(true);
+        Promise.resolve().then(() => actSetDocBrand(doc.id, id))
+          .then(() => setOcupado(false), () => setOcupado(false));
+      },
+    }),
+    doc.brand && s(doc.brand.logoUrl)
+      ? h('img', { key: 'g', className: 'cz-brandchip-logo', src: doc.brand.logoUrl, alt: '' }) : null,
+    doc.brand && s(doc.brand.primary)
+      ? h('span', {
+        key: 'c', className: 'cz-brandchip-color', title: 'Color base de la marca',
+        style: { background: doc.brand.primary },
+      }) : null,
+    (actual && !huerfana) ? h(IconBtn, {
+      key: 'r', icon: '↻', title: 'Volver a tomar el logo y los colores de la marca, por si cambió',
+      onClick: () => actRefreshDocBrand(doc.id),
+    }) : null,
   ]);
 }
 

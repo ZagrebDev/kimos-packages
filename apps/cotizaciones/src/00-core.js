@@ -226,6 +226,10 @@ function defaultRules() {
     // Abono/saldo: el reparto del pago que usan las propuestas de la casa.
     advanceEnabled: true,
     advancePct: 60,
+    // Marca con la que nace una cotización nueva. Vacío = la de por defecto
+    // del registro. Cambiarla NO reescribe las cotizaciones ya hechas: cada
+    // una guarda la suya.
+    brandId: '',
     // Prefijo y ancho del correlativo: COT-2026-0001
     numberPrefix: 'COT',
     numberIncludeYear: true,
@@ -269,6 +273,7 @@ function normalizeRules(raw) {
     validBusinessDays: r.validBusinessDays !== false,
     advanceEnabled: r.advanceEnabled !== false,
     advancePct: clamp(num(r.advancePct != null ? r.advancePct : d.advancePct), 0, 100),
+    brandId: s(r.brandId != null ? r.brandId : d.brandId),
     numberPrefix: s(r.numberPrefix != null ? r.numberPrefix : d.numberPrefix),
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
@@ -314,6 +319,61 @@ function normalizeClient(raw) {
     sourceInstanceId: s(r.sourceInstanceId),
     sourceItemId: s(r.sourceItemId),
   };
+}
+
+// ── Marca de la propuesta ───────────────────────────────────────────────
+/**
+ * La marca con la que se emite ESTA cotización (APP-SPEC §7.f).
+ *
+ * Una empresa puede tener varias marcas —una general y submarcas por línea de
+ * negocio— y cada propuesta sale con la suya. Por eso la marca es un dato del
+ * DOCUMENTO y no de los ajustes: dos cotizaciones del mismo mes pueden ir con
+ * logotipos y colores distintos.
+ *
+ * Se guarda `brandId` (de qué marca se trata) Y la instantánea de lo que se
+ * usó al emitir, por lo mismo que con el cliente en 66-records.js: una
+ * propuesta enviada hace ocho meses tiene que seguir imprimiéndose igual
+ * aunque la marca haya cambiado de logo o haya dejado de existir.
+ *
+ * Lo que NO entra aquí: razón social, RUT ni datos bancarios. Eso es del
+ * EMISOR, es uno solo para toda la empresa y no cambia al cambiar de marca.
+ */
+function normalizeDocBrand(raw) {
+  const r = isObj(raw) ? raw : {};
+  if (!s(r.id) && !s(r.name) && !s(r.logoUrl)) return null;
+  return {
+    id: s(r.id),
+    name: s(r.name),
+    tagline: s(r.tagline),
+    logoUrl: s(r.logoUrl),
+    website: s(r.website),
+    email: s(r.email),
+    phone: s(r.phone),
+    // Color base y acento en hex, listos para pintar la propuesta sin volver
+    // a recorrer la paleta.
+    primary: s(r.primary),
+    accent: s(r.accent),
+    // Cuándo se tomó la instantánea: es lo que permite decir «esta propuesta
+    // salió con la marca como estaba entonces».
+    at: s(r.at),
+  };
+}
+
+/** Lo que la propuesta enseña como emisor: la marca manda en lo visual, el
+ *  emisor en lo fiscal. Ninguno de los dos pisa al otro. */
+function brandedIssuer(issuer, doc) {
+  const i = normalizeIssuer(issuer);
+  const b = normalizeDocBrand(doc && doc.brand);
+  if (!b) return i;
+  return Object.assign({}, i, {
+    brandName: b.name,
+    logoUrl: s(b.logoUrl) || i.logoUrl,
+    tagline: s(b.tagline) || i.tagline,
+    web: s(b.website) || i.web,
+    email: s(b.email) || i.email,
+    phone: s(b.phone) || i.phone,
+    accentColor: s(b.primary) || i.accentColor,
+  });
 }
 
 // ── Líneas de la cotización ─────────────────────────────────────────────
@@ -492,6 +552,9 @@ function normalizeQuote(raw) {
     validUntil: isoDate(r.validUntil),
     validDays: r.validDays == null || r.validDays === '' ? null : clamp(Math.round(num(r.validDays)), 0, 3650),
     client: normalizeClient(r.client),
+    // Marca con la que se emite esta propuesta. `null` = la de por defecto
+    // del registro, o solo el emisor si no hay marcas.
+    brand: normalizeDocBrand(r.brand),
     currency: s(r.currency),
     symbol: s(r.symbol),
     decimals: r.decimals == null || r.decimals === '' ? '' : clamp(Math.round(num(r.decimals)), 0, 6),

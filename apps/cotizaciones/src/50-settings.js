@@ -27,35 +27,56 @@ function SettingsTab(props) {
     h('section', { key: 'em', className: 'cz-card' }, [
       h('div', { key: 'h', className: 'cz-card-hd' }, [
         h('h3', { key: 't' }, 'Emisor'),
-        h('span', { key: 'n', className: 'cz-card-note' }, 'Encabeza y firma todas las cotizaciones.'),
-        h('span', { key: 'sp', className: 'cz-recbar-sp' }),
-        h(BrandImportBtn, { key: 'b' }),
+        h('span', { key: 'n', className: 'cz-card-note' },
+          'Quién FACTURA: uno solo, aunque se cotice con varias marcas.'),
       ]),
       h('div', { key: 'g', className: 'cz-grid2' }, [
         h(Field, { key: 'n', label: 'Razón social' },
-          h(Input, { value: issuer.name, placeholder: 'METAKUT SPA', onChange: (e) => actPatchIssuer({ name: e.target.value }) })),
+          h(Input, { value: issuer.name, placeholder: 'Razón social de la empresa', onChange: (e) => actPatchIssuer({ name: e.target.value }) })),
         h(Field, { key: 'r', label: 'RUT / ID fiscal' },
-          h(Input, { mono: true, value: issuer.taxId, placeholder: '77.718.188-2', onChange: (e) => actPatchIssuer({ taxId: e.target.value }) })),
+          h(Input, { mono: true, value: issuer.taxId, placeholder: '12.345.678-5', onChange: (e) => actPatchIssuer({ taxId: e.target.value }) })),
         h(Field, { key: 'e', label: 'Correo' },
-          h(Input, { type: 'email', value: issuer.email, placeholder: 'info@empresa.cl', onChange: (e) => actPatchIssuer({ email: e.target.value }) })),
+          h(Input, { type: 'email', value: issuer.email, placeholder: 'contacto@ejemplo.com', onChange: (e) => actPatchIssuer({ email: e.target.value }) })),
         h(Field, { key: 'p', label: 'Teléfono' },
-          h(Input, { value: issuer.phone, placeholder: '+56 9 …', onChange: (e) => actPatchIssuer({ phone: e.target.value }) })),
+          h(Input, { value: issuer.phone, placeholder: '+00 000 000 000', onChange: (e) => actPatchIssuer({ phone: e.target.value }) })),
         h(Field, { key: 'w', label: 'Sitio web' },
-          h(Input, { value: issuer.web, placeholder: 'kimos.dev', onChange: (e) => actPatchIssuer({ web: e.target.value }) })),
+          h(Input, { value: issuer.web, placeholder: 'ejemplo.com', onChange: (e) => actPatchIssuer({ web: e.target.value }) })),
         h(Field, { key: 'd', label: 'Dirección' },
           h(Input, { value: issuer.address, placeholder: 'Calle 123, Comuna, Ciudad', onChange: (e) => actPatchIssuer({ address: e.target.value }) })),
-        h(Field, { key: 'sl', label: 'Bajada', wide: true, help: 'Una línea bajo la razón social en la propuesta.' },
-          h(Input, { value: issuer.tagline, placeholder: 'Soluciones de atención y gestión', onChange: (e) => actPatchIssuer({ tagline: e.target.value }) })),
-        h(Field, { key: 'lg', label: 'Logo', wide: true, help: 'PNG o SVG con fondo transparente se ve mejor en el PDF.' },
-          h(ImageField, { value: issuer.logoUrl, folder: 'logos', onChange: (v) => actPatchIssuer({ logoUrl: v }) })),
+        h(Field, {
+          key: 'sl', label: 'Bajada', wide: true,
+          help: 'Una línea bajo la razón social. Si la cotización lleva marca, manda la bajada de la marca.',
+        }, h(Input, { value: issuer.tagline, placeholder: 'Una línea que describe a la empresa', onChange: (e) => actPatchIssuer({ tagline: e.target.value }) })),
+        h(Field, {
+          key: 'lg', label: 'Logo de respaldo', wide: true,
+          help: 'El que se usa cuando la cotización NO lleva marca. Con marca, manda el logotipo de la marca.',
+        }, h(ImageField, { value: issuer.logoUrl, folder: 'logos', onChange: (v) => actPatchIssuer({ logoUrl: v }) })),
         h(Field, {
           key: 'pi', label: 'Datos de pago / transferencia', wide: true,
           help: 'Se copian al pie de cada cotización nueva; cada una puede cambiarlos.',
         }, h(AutoArea, {
           minRows: 4, value: issuer.paymentInfo,
-          placeholder: 'METAKUT SPA\n77.718.188-2\nBanco de Chile\nCuenta Vista\n2532924267\ninfo@kimos.dev',
+          placeholder: 'Razón social\nRUT\nBanco\nTipo de cuenta\nN.º de cuenta\nCorreo de aviso',
           onChange: (e) => actPatchIssuer({ paymentInfo: e.target.value }),
         })),
+      ]),
+    ]),
+
+    // ── Marca ────────────────────────────────────────────────────────
+    // El reparto que hay que entender de una vez: la marca es cómo se VE la
+    // propuesta y va por cotización; el emisor es quién FACTURA y es uno.
+    h('section', { key: 'br', className: 'cz-card' }, [
+      h('div', { key: 'h', className: 'cz-card-hd' }, [
+        h('h3', { key: 't' }, 'Marca'),
+        h('span', { key: 'n', className: 'cz-card-note' },
+          'Cómo se VE la propuesta: logotipo, bajada y colores.'),
+      ]),
+      h('div', { key: 'g', className: 'cz-grid2' }, [
+        h(Field, {
+          key: 'b', label: 'Marca con la que nace una cotización nueva', wide: true,
+          help: 'Cada cotización guarda la suya y se puede cambiar una por una desde su ficha. '
+            + 'Todas las marcas del sistema están siempre disponibles.',
+        }, h(BrandDefaultField, { m })),
       ]),
     ]),
 
@@ -176,23 +197,38 @@ function SettingsTab(props) {
 }
 
 /**
- * «Traer de la marca del sistema»: rellena el emisor con la marca del tenant
- * en vez de reescribir aquí razón social, RUT y logo que ya están definidos
- * una vez para todo KIMOS (APP-SPEC §7.f).
+ * Con qué marca NACE una cotización nueva.
  *
- * Los colores NO se traen: el host ya inyecta los de la marca como tokens del
- * tema, y esta app no cablea ninguno (APP-SPEC §9), así que se re-marca sola.
+ * No es «la marca del cotizador»: cada cotización guarda la suya y se puede
+ * cambiar una por una. Esto solo fija con cuál empieza, para no elegirla a
+ * mano treinta veces cuando casi siempre es la misma.
+ *
+ * Vacío = la marca por defecto del registro, que es lo que quiere casi todo
+ * el mundo y lo que sigue funcionando si mañana cambia cuál es.
  */
-function BrandImportBtn() {
-  const [ocupado, setOcupado] = useState(false);
-  const motivo = marcaNoDisponible();
-  if (motivo) return h('span', { className: 'cz-card-note', title: motivo }, 'sin marca del sistema');
-  return h(Btn, {
-    size: 'sm', disabled: ocupado,
-    title: 'Rellena estos campos con la marca definida para todo KIMOS. Después puedes ajustarlos solo para este cotizador.',
-    onClick: () => {
-      setOcupado(true);
-      Promise.resolve().then(actImportBrand).then(() => setOcupado(false), () => setOcupado(false));
-    },
-  }, ocupado ? 'Trayendo…' : '🏷 Traer de la marca');
+function BrandDefaultField(props) {
+  const m = props.m;
+  const rules = normalizeRules(m.def.rules);
+  const br = m.brands || { list: [] };
+  useEffect(() => { loadBrands(false); }, []);
+
+  if (marcasNoDisponibles()) {
+    return h('span', { className: 'cz-card-note' }, 'Este KIMOS no tiene registro de marcas.');
+  }
+  if (br.error) return h('span', { className: 'cz-card-note cz-warn' }, br.error);
+  if (br.loading && !br.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo marcas…');
+  if (!arr(br.list).length) {
+    return h('span', { className: 'cz-card-note' },
+      'Todavía no hay marcas. Se crean en la app Marcas y quedan disponibles para todas las cotizaciones.');
+  }
+  const porDefecto = arr(br.list).find((b) => b.isDefault === true);
+  return h(Select, {
+    value: rules.brandId,
+    onChange: (e) => actPatchRules({ brandId: e.target.value }),
+    options: [{
+      value: '',
+      label: 'La marca por defecto del sistema' + (porDefecto ? ' (' + s(porDefecto.name) + ')' : ''),
+    }].concat(arr(br.list).map((b) => ({ value: s(b.id), label: s(b.name) }))),
+  });
 }
+

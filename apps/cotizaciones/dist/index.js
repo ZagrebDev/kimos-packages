@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.2.2 — app oficial de KIMOS.
+ * Cotizaciones v1.3.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.2.2';
+  const APP_VERSION = '1.3.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -256,6 +256,10 @@ function defaultRules() {
     // Abono/saldo: el reparto del pago que usan las propuestas de la casa.
     advanceEnabled: true,
     advancePct: 60,
+    // Marca con la que nace una cotización nueva. Vacío = la de por defecto
+    // del registro. Cambiarla NO reescribe las cotizaciones ya hechas: cada
+    // una guarda la suya.
+    brandId: '',
     // Prefijo y ancho del correlativo: COT-2026-0001
     numberPrefix: 'COT',
     numberIncludeYear: true,
@@ -299,6 +303,7 @@ function normalizeRules(raw) {
     validBusinessDays: r.validBusinessDays !== false,
     advanceEnabled: r.advanceEnabled !== false,
     advancePct: clamp(num(r.advancePct != null ? r.advancePct : d.advancePct), 0, 100),
+    brandId: s(r.brandId != null ? r.brandId : d.brandId),
     numberPrefix: s(r.numberPrefix != null ? r.numberPrefix : d.numberPrefix),
     numberIncludeYear: r.numberIncludeYear !== false,
     numberPad: clamp(Math.round(num(r.numberPad != null ? r.numberPad : d.numberPad)), 1, 8),
@@ -344,6 +349,61 @@ function normalizeClient(raw) {
     sourceInstanceId: s(r.sourceInstanceId),
     sourceItemId: s(r.sourceItemId),
   };
+}
+
+// ── Marca de la propuesta ───────────────────────────────────────────────
+/**
+ * La marca con la que se emite ESTA cotización (APP-SPEC §7.f).
+ *
+ * Una empresa puede tener varias marcas —una general y submarcas por línea de
+ * negocio— y cada propuesta sale con la suya. Por eso la marca es un dato del
+ * DOCUMENTO y no de los ajustes: dos cotizaciones del mismo mes pueden ir con
+ * logotipos y colores distintos.
+ *
+ * Se guarda `brandId` (de qué marca se trata) Y la instantánea de lo que se
+ * usó al emitir, por lo mismo que con el cliente en 66-records.js: una
+ * propuesta enviada hace ocho meses tiene que seguir imprimiéndose igual
+ * aunque la marca haya cambiado de logo o haya dejado de existir.
+ *
+ * Lo que NO entra aquí: razón social, RUT ni datos bancarios. Eso es del
+ * EMISOR, es uno solo para toda la empresa y no cambia al cambiar de marca.
+ */
+function normalizeDocBrand(raw) {
+  const r = isObj(raw) ? raw : {};
+  if (!s(r.id) && !s(r.name) && !s(r.logoUrl)) return null;
+  return {
+    id: s(r.id),
+    name: s(r.name),
+    tagline: s(r.tagline),
+    logoUrl: s(r.logoUrl),
+    website: s(r.website),
+    email: s(r.email),
+    phone: s(r.phone),
+    // Color base y acento en hex, listos para pintar la propuesta sin volver
+    // a recorrer la paleta.
+    primary: s(r.primary),
+    accent: s(r.accent),
+    // Cuándo se tomó la instantánea: es lo que permite decir «esta propuesta
+    // salió con la marca como estaba entonces».
+    at: s(r.at),
+  };
+}
+
+/** Lo que la propuesta enseña como emisor: la marca manda en lo visual, el
+ *  emisor en lo fiscal. Ninguno de los dos pisa al otro. */
+function brandedIssuer(issuer, doc) {
+  const i = normalizeIssuer(issuer);
+  const b = normalizeDocBrand(doc && doc.brand);
+  if (!b) return i;
+  return Object.assign({}, i, {
+    brandName: b.name,
+    logoUrl: s(b.logoUrl) || i.logoUrl,
+    tagline: s(b.tagline) || i.tagline,
+    web: s(b.website) || i.web,
+    email: s(b.email) || i.email,
+    phone: s(b.phone) || i.phone,
+    accentColor: s(b.primary) || i.accentColor,
+  });
 }
 
 // ── Líneas de la cotización ─────────────────────────────────────────────
@@ -522,6 +582,9 @@ function normalizeQuote(raw) {
     validUntil: isoDate(r.validUntil),
     validDays: r.validDays == null || r.validDays === '' ? null : clamp(Math.round(num(r.validDays)), 0, 3650),
     client: normalizeClient(r.client),
+    // Marca con la que se emite esta propuesta. `null` = la de por defecto
+    // del registro, o solo el emisor si no hay marcas.
+    brand: normalizeDocBrand(r.brand),
     currency: s(r.currency),
     symbol: s(r.symbol),
     decimals: r.decimals == null || r.decimals === '' ? '' : clamp(Math.round(num(r.decimals)), 0, 6),
@@ -845,6 +908,10 @@ let model = {
     products: [], sources: [],
     customers: [], customerSources: [],
   },
+  // Marcas del registro de la plataforma (`shell.brands`, APP-SPEC §7.f).
+  // Igual que `ext`: espejo de lectura, no se persiste. TODAS están siempre
+  // disponibles; cada cotización elige la suya (ver src/66-records.js).
+  brands: { loading: false, loaded: false, error: null, at: '', list: [] },
   // Entorno
   me: null,
   settings: {},        // valores de ⚙️ Configurar
@@ -1903,6 +1970,10 @@ function actNewQuote(opts) {
   if (arr(o.lines).length) doc.lines = arr(o.lines).map((l) => touchLine(l));
 
   const created = createDoc(doc);
+  // Una cotización nacida de otra o de una plantilla ya trae su marca: la
+  // plantilla de una submarca sirve justo para eso. Solo se busca marca
+  // cuando el documento no tiene ninguna.
+  if (!created.brand || !s(created.brand.id)) ponerMarcaInicial(created.id);
   if (o.open !== false) setModel({ openId: created.id, tab: asTemplate ? 'templates' : 'quotes' });
   return created;
 }
@@ -2405,6 +2476,14 @@ function DocHeaderPanel(props) {
         : h('span', { key: 'i', className: 'cz-card-note cz-warn' }, 'Falta configurar el emisor en Ajustes'),
     ]),
     h('div', { key: 'g', className: 'cz-grid2' }, [
+      // La marca va lo primero: es lo que decide qué logotipo y qué colores
+      // ve el cliente, y es lo que cambia entre una propuesta de la marca
+      // general y una de una submarca.
+      h(Field, {
+        key: 'br', label: 'Marca', wide: true,
+        help: 'Con qué marca se emite esta ' + (esPlantilla ? 'plantilla' : 'propuesta')
+          + '. El logotipo y los colores salen de ella; la razón social y el RUT, del emisor.',
+      }, h(DocBrandField, { doc })),
       !esPlantilla ? h(Field, { key: 'cn', label: 'Cliente' }, h('div', { className: 'cz-inline cz-nowrap' }, [
         h(Input, {
           key: 'i', value: doc.client.name, placeholder: 'Razón social o nombre',
@@ -2416,11 +2495,11 @@ function DocHeaderPanel(props) {
         }),
       ])) : null,
       !esPlantilla ? h(Field, { key: 'ct', label: 'RUT / ID fiscal' },
-        h(Input, { mono: true, value: doc.client.taxId, placeholder: '77.718.188-2', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
+        h(Input, { mono: true, value: doc.client.taxId, placeholder: '12.345.678-5', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'cc', label: 'Contacto' },
         h(Input, { value: doc.client.contact, placeholder: 'Nombre de quien recibe', onChange: (e) => patchClient({ contact: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'ce', label: 'Correo' },
-        h(Input, { type: 'email', value: doc.client.email, placeholder: 'contacto@empresa.cl', onChange: (e) => patchClient({ email: e.target.value }) })) : null,
+        h(Input, { type: 'email', value: doc.client.email, placeholder: 'contacto@ejemplo.com', onChange: (e) => patchClient({ email: e.target.value }) })) : null,
       h(Field, { key: 'sub', label: 'Asunto de la propuesta', wide: true, help: 'Aparece bajo el título: “Proceso Matrícula DEMRE — Enero 2027”.' },
         h(Input, { value: doc.subtitle, placeholder: 'Motivo o proyecto que se cotiza', onChange: (e) => patch({ subtitle: e.target.value }) })),
       !esPlantilla ? h(Field, { key: 'dt', label: 'Fecha' },
@@ -2438,6 +2517,71 @@ function DocHeaderPanel(props) {
       ])),
     ]),
     !esPlantilla ? h(ClientRecordBar, { key: 'rb', doc }) : null,
+  ]);
+}
+
+/**
+ * Elegir la marca de UNA cotización.
+ *
+ * Lista todas las marcas del registro, no solo la de por defecto: tener una
+ * marca general y submarcas y poder usar solo una era el agujero. Al elegir
+ * se guarda una instantánea (logo, bajada, colores) en el documento, así que
+ * una propuesta enviada se sigue imprimiendo igual aunque la marca cambie.
+ */
+function DocBrandField(props) {
+  const doc = props.doc;
+  const m = getModel();
+  const br = m.brands || { list: [] };
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => { loadBrands(false); }, []);
+
+  const actual = doc.brand && s(doc.brand.id) ? s(doc.brand.id) : '';
+  const lista = arr(br.list);
+  // Una marca que ya no está en el registro no se puede perder del selector:
+  // si desapareciera, cambiar cualquier otra cosa la borraría sin avisar.
+  const huerfana = actual && !lista.some((b) => s(b.id) === actual);
+
+  if (marcasNoDisponibles()) {
+    return h('span', { className: 'cz-card-note' },
+      'Este KIMOS no tiene registro de marcas: la propuesta sale con el logo del emisor.');
+  }
+  if (br.error) return h('span', { className: 'cz-card-note cz-warn' }, br.error);
+  if (br.loading && !br.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo marcas…');
+  if (!lista.length && !actual) {
+    return h('span', { className: 'cz-card-note' },
+      'Todavía no hay marcas en el sistema. Se crean en la app Marcas.');
+  }
+
+  const opciones = [{ value: '', label: 'Sin marca — solo el emisor' }]
+    .concat(lista.map((b) => ({
+      value: s(b.id),
+      label: s(b.name) + (b.isDefault ? ' · por defecto' : ''),
+    })));
+  if (huerfana) {
+    opciones.push({ value: actual, label: s(doc.brand.name) + ' (ya no está en el registro)' });
+  }
+
+  return h('div', { className: 'cz-inline cz-nowrap' }, [
+    h(Select, {
+      key: 's', value: actual, disabled: ocupado, options: opciones,
+      onChange: (e) => {
+        const id = e.target.value;
+        setOcupado(true);
+        Promise.resolve().then(() => actSetDocBrand(doc.id, id))
+          .then(() => setOcupado(false), () => setOcupado(false));
+      },
+    }),
+    doc.brand && s(doc.brand.logoUrl)
+      ? h('img', { key: 'g', className: 'cz-brandchip-logo', src: doc.brand.logoUrl, alt: '' }) : null,
+    doc.brand && s(doc.brand.primary)
+      ? h('span', {
+        key: 'c', className: 'cz-brandchip-color', title: 'Color base de la marca',
+        style: { background: doc.brand.primary },
+      }) : null,
+    (actual && !huerfana) ? h(IconBtn, {
+      key: 'r', icon: '↻', title: 'Volver a tomar el logo y los colores de la marca, por si cambió',
+      onClick: () => actRefreshDocBrand(doc.id),
+    }) : null,
   ]);
 }
 
@@ -2947,35 +3091,56 @@ function SettingsTab(props) {
     h('section', { key: 'em', className: 'cz-card' }, [
       h('div', { key: 'h', className: 'cz-card-hd' }, [
         h('h3', { key: 't' }, 'Emisor'),
-        h('span', { key: 'n', className: 'cz-card-note' }, 'Encabeza y firma todas las cotizaciones.'),
-        h('span', { key: 'sp', className: 'cz-recbar-sp' }),
-        h(BrandImportBtn, { key: 'b' }),
+        h('span', { key: 'n', className: 'cz-card-note' },
+          'Quién FACTURA: uno solo, aunque se cotice con varias marcas.'),
       ]),
       h('div', { key: 'g', className: 'cz-grid2' }, [
         h(Field, { key: 'n', label: 'Razón social' },
-          h(Input, { value: issuer.name, placeholder: 'METAKUT SPA', onChange: (e) => actPatchIssuer({ name: e.target.value }) })),
+          h(Input, { value: issuer.name, placeholder: 'Razón social de la empresa', onChange: (e) => actPatchIssuer({ name: e.target.value }) })),
         h(Field, { key: 'r', label: 'RUT / ID fiscal' },
-          h(Input, { mono: true, value: issuer.taxId, placeholder: '77.718.188-2', onChange: (e) => actPatchIssuer({ taxId: e.target.value }) })),
+          h(Input, { mono: true, value: issuer.taxId, placeholder: '12.345.678-5', onChange: (e) => actPatchIssuer({ taxId: e.target.value }) })),
         h(Field, { key: 'e', label: 'Correo' },
-          h(Input, { type: 'email', value: issuer.email, placeholder: 'info@empresa.cl', onChange: (e) => actPatchIssuer({ email: e.target.value }) })),
+          h(Input, { type: 'email', value: issuer.email, placeholder: 'contacto@ejemplo.com', onChange: (e) => actPatchIssuer({ email: e.target.value }) })),
         h(Field, { key: 'p', label: 'Teléfono' },
-          h(Input, { value: issuer.phone, placeholder: '+56 9 …', onChange: (e) => actPatchIssuer({ phone: e.target.value }) })),
+          h(Input, { value: issuer.phone, placeholder: '+00 000 000 000', onChange: (e) => actPatchIssuer({ phone: e.target.value }) })),
         h(Field, { key: 'w', label: 'Sitio web' },
-          h(Input, { value: issuer.web, placeholder: 'kimos.dev', onChange: (e) => actPatchIssuer({ web: e.target.value }) })),
+          h(Input, { value: issuer.web, placeholder: 'ejemplo.com', onChange: (e) => actPatchIssuer({ web: e.target.value }) })),
         h(Field, { key: 'd', label: 'Dirección' },
           h(Input, { value: issuer.address, placeholder: 'Calle 123, Comuna, Ciudad', onChange: (e) => actPatchIssuer({ address: e.target.value }) })),
-        h(Field, { key: 'sl', label: 'Bajada', wide: true, help: 'Una línea bajo la razón social en la propuesta.' },
-          h(Input, { value: issuer.tagline, placeholder: 'Soluciones de atención y gestión', onChange: (e) => actPatchIssuer({ tagline: e.target.value }) })),
-        h(Field, { key: 'lg', label: 'Logo', wide: true, help: 'PNG o SVG con fondo transparente se ve mejor en el PDF.' },
-          h(ImageField, { value: issuer.logoUrl, folder: 'logos', onChange: (v) => actPatchIssuer({ logoUrl: v }) })),
+        h(Field, {
+          key: 'sl', label: 'Bajada', wide: true,
+          help: 'Una línea bajo la razón social. Si la cotización lleva marca, manda la bajada de la marca.',
+        }, h(Input, { value: issuer.tagline, placeholder: 'Una línea que describe a la empresa', onChange: (e) => actPatchIssuer({ tagline: e.target.value }) })),
+        h(Field, {
+          key: 'lg', label: 'Logo de respaldo', wide: true,
+          help: 'El que se usa cuando la cotización NO lleva marca. Con marca, manda el logotipo de la marca.',
+        }, h(ImageField, { value: issuer.logoUrl, folder: 'logos', onChange: (v) => actPatchIssuer({ logoUrl: v }) })),
         h(Field, {
           key: 'pi', label: 'Datos de pago / transferencia', wide: true,
           help: 'Se copian al pie de cada cotización nueva; cada una puede cambiarlos.',
         }, h(AutoArea, {
           minRows: 4, value: issuer.paymentInfo,
-          placeholder: 'METAKUT SPA\n77.718.188-2\nBanco de Chile\nCuenta Vista\n2532924267\ninfo@kimos.dev',
+          placeholder: 'Razón social\nRUT\nBanco\nTipo de cuenta\nN.º de cuenta\nCorreo de aviso',
           onChange: (e) => actPatchIssuer({ paymentInfo: e.target.value }),
         })),
+      ]),
+    ]),
+
+    // ── Marca ────────────────────────────────────────────────────────
+    // El reparto que hay que entender de una vez: la marca es cómo se VE la
+    // propuesta y va por cotización; el emisor es quién FACTURA y es uno.
+    h('section', { key: 'br', className: 'cz-card' }, [
+      h('div', { key: 'h', className: 'cz-card-hd' }, [
+        h('h3', { key: 't' }, 'Marca'),
+        h('span', { key: 'n', className: 'cz-card-note' },
+          'Cómo se VE la propuesta: logotipo, bajada y colores.'),
+      ]),
+      h('div', { key: 'g', className: 'cz-grid2' }, [
+        h(Field, {
+          key: 'b', label: 'Marca con la que nace una cotización nueva', wide: true,
+          help: 'Cada cotización guarda la suya y se puede cambiar una por una desde su ficha. '
+            + 'Todas las marcas del sistema están siempre disponibles.',
+        }, h(BrandDefaultField, { m })),
       ]),
     ]),
 
@@ -3096,25 +3261,39 @@ function SettingsTab(props) {
 }
 
 /**
- * «Traer de la marca del sistema»: rellena el emisor con la marca del tenant
- * en vez de reescribir aquí razón social, RUT y logo que ya están definidos
- * una vez para todo KIMOS (APP-SPEC §7.f).
+ * Con qué marca NACE una cotización nueva.
  *
- * Los colores NO se traen: el host ya inyecta los de la marca como tokens del
- * tema, y esta app no cablea ninguno (APP-SPEC §9), así que se re-marca sola.
+ * No es «la marca del cotizador»: cada cotización guarda la suya y se puede
+ * cambiar una por una. Esto solo fija con cuál empieza, para no elegirla a
+ * mano treinta veces cuando casi siempre es la misma.
+ *
+ * Vacío = la marca por defecto del registro, que es lo que quiere casi todo
+ * el mundo y lo que sigue funcionando si mañana cambia cuál es.
  */
-function BrandImportBtn() {
-  const [ocupado, setOcupado] = useState(false);
-  const motivo = marcaNoDisponible();
-  if (motivo) return h('span', { className: 'cz-card-note', title: motivo }, 'sin marca del sistema');
-  return h(Btn, {
-    size: 'sm', disabled: ocupado,
-    title: 'Rellena estos campos con la marca definida para todo KIMOS. Después puedes ajustarlos solo para este cotizador.',
-    onClick: () => {
-      setOcupado(true);
-      Promise.resolve().then(actImportBrand).then(() => setOcupado(false), () => setOcupado(false));
-    },
-  }, ocupado ? 'Trayendo…' : '🏷 Traer de la marca');
+function BrandDefaultField(props) {
+  const m = props.m;
+  const rules = normalizeRules(m.def.rules);
+  const br = m.brands || { list: [] };
+  useEffect(() => { loadBrands(false); }, []);
+
+  if (marcasNoDisponibles()) {
+    return h('span', { className: 'cz-card-note' }, 'Este KIMOS no tiene registro de marcas.');
+  }
+  if (br.error) return h('span', { className: 'cz-card-note cz-warn' }, br.error);
+  if (br.loading && !br.loaded) return h('span', { className: 'cz-card-note' }, 'Leyendo marcas…');
+  if (!arr(br.list).length) {
+    return h('span', { className: 'cz-card-note' },
+      'Todavía no hay marcas. Se crean en la app Marcas y quedan disponibles para todas las cotizaciones.');
+  }
+  const porDefecto = arr(br.list).find((b) => b.isDefault === true);
+  return h(Select, {
+    value: rules.brandId,
+    onChange: (e) => actPatchRules({ brandId: e.target.value }),
+    options: [{
+      value: '',
+      label: 'La marca por defecto del sistema' + (porDefecto ? ' (' + s(porDefecto.name) + ')' : ''),
+    }].concat(arr(br.list).map((b) => ({ value: s(b.id), label: s(b.name) }))),
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -4213,8 +4392,8 @@ function registroNoDisponible() {
  * Claves con las que se reconoce a un cliente, en orden de fiabilidad.
  *
  * El RUT identifica a la empresa; el correo, a menudo, solo a la persona que
- * escribió. Se mandan las dos y la plataforma normaliza («77.718.188-2» y
- * «777181882» son la misma), pero el orden importa cuando apuntan a sitios
+ * escribió. Se mandan las dos y la plataforma normaliza («12.345.678-5» y
+ * «123456785» son la misma), pero el orden importa cuando apuntan a sitios
  * distintos.
  */
 function clavesDeCliente(client) {
@@ -4435,71 +4614,181 @@ function estadoVinculo(doc) {
   return { estado: 'suelto', texto: 'Solo en esta cotización' };
 }
 
-// ── Marca del tenant ────────────────────────────────────────────────────
+// ── Marcas: una propuesta, una marca ────────────────────────────────────
 /**
- * El emisor de las cotizaciones puede venir de la marca del sistema
- * (`shell.brands`, APP-SPEC §7.f) en vez de reescribirse aquí.
+ * Las marcas del sistema (`shell.brands`, APP-SPEC §7.f) aplicadas POR
+ * COTIZACIÓN.
  *
- * La marca RELLENA, no impone: se copia a los ajustes del cotizador y desde
- * ahí se puede cambiar. Un tenant con dos unidades de negocio necesita poder
- * cotizar con una razón social distinta de la marca por defecto, y quitarle
- * esa posibilidad para «mantenerlo sincronizado» sería resolver un problema
- * que no tiene a costa de uno que sí.
+ * El reparto, que es lo único que hay que entender aquí:
+ *
+ *   MARCA (registro de la plataforma)      EMISOR (Ajustes de esta app)
+ *   cómo se VE la propuesta                quién FACTURA
+ *   logo, colores, bajada, web             razón social, RUT, banco
+ *   una por cotización                     uno para toda la empresa
+ *
+ * Por eso cambiar de marca en una propuesta cambia el logotipo y los colores
+ * y NO toca el RUT: una empresa con seis marcas sigue teniendo un RUT. Y por
+ * eso los datos fiscales no están en el registro de marcas: seis copias del
+ * mismo RUT son cinco copias que se quedan viejas.
+ *
+ * Todas las marcas están disponibles siempre. La marca «por defecto» del
+ * registro es solo con la que NACE una cotización nueva cuando los ajustes no
+ * fijan otra; no es «la única activa».
  */
-function marcaNoDisponible() {
-  if (!shell.brands || typeof shell.brands.current !== 'function') {
-    return 'Este host todavía no expone las marcas del sistema; el emisor se escribe aquí.';
+function marcasNoDisponibles() {
+  if (!shell.brands || typeof shell.brands.list !== 'function') {
+    return 'Este host todavía no expone las marcas del sistema; la propuesta usa el logo del emisor.';
   }
   return '';
 }
 
-/** Copia la marca activa del tenant a los ajustes del emisor. */
-async function actImportBrand() {
-  const motivo = marcaNoDisponible();
+/** Espejo de lectura de las marcas. No se persiste: se relee al abrir. */
+async function loadBrands(force) {
+  const b = model.brands;
+  if (!force && (b.loading || b.loaded)) return b.list;
+  const motivo = marcasNoDisponibles();
+  if (motivo) {
+    setModel({ brands: Object.assign({}, b, { loading: false, loaded: true, error: motivo, list: [] }) });
+    return [];
+  }
+  setModel({ brands: Object.assign({}, b, { loading: true, error: null }) });
+  let lista = [];
+  try {
+    // El registro devuelve `{ brands, currentId }`; se acepta también un
+    // array pelado para no atarse a la forma exacta del host.
+    const res = await shell.brands.list();
+    lista = arr(isObj(res) && !Array.isArray(res) ? res.brands : res);
+  } catch (e) {
+    setModel({
+      brands: Object.assign({}, model.brands, {
+        loading: false, loaded: true, list: [],
+        error: 'No se pudieron leer las marcas: ' + ((e && e.message) || 'error'),
+      }),
+    });
+    return [];
+  }
+  setModel({
+    brands: {
+      loading: false, loaded: true, error: null, at: stamp(),
+      list: lista.map((x) => (isObj(x) ? x : {})).filter((x) => s(x.id)),
+    },
+  });
+  return model.brands.list;
+}
+
+/** La instantánea que se guarda en el documento, a partir de una marca. */
+function instantaneaDeMarca(marca) {
+  if (!isObj(marca) || !s(marca.id)) return null;
+  const base = isObj(marca.baseColor) ? marca.baseColor : {};
+  const acento = isObj(marca.accentColor) ? marca.accentColor : {};
+  return normalizeDocBrand({
+    id: s(marca.id),
+    name: s(marca.name),
+    tagline: s(marca.tagline),
+    // Fondo claro primero: la propuesta se imprime sobre papel blanco, y un
+    // logo blanco sobre papel blanco es un hueco que nadie ve hasta el PDF.
+    logoUrl: s(marca.logoLight) || s(marca.logoDark),
+    website: s(marca.website),
+    email: s(marca.email),
+    phone: s(marca.phone),
+    primary: s(base.hex),
+    accent: s(acento.hex),
+    at: stamp(),
+  });
+}
+
+/** La marca elegida en una lista ya cargada, sin ir a la red. */
+const marcaEnLista = (id) => arr(model.brands.list).find((b) => s(b.id) === s(id)) || null;
+
+/**
+ * Fija con qué marca se emite una cotización. `''` la quita.
+ *
+ * Relee la marca del registro en vez de copiar lo que hubiera en la lista:
+ * elegir marca es el momento en que la instantánea se toma, y tiene que ser
+ * la marca de HOY, no la de cuando se cargó la pantalla.
+ */
+async function actSetDocBrand(quoteId, brandId) {
+  const doc = docById(s(quoteId));
+  if (!doc) return null;
+
+  if (!s(brandId)) {
+    const sinMarca = commitDoc(s(quoteId), (d) => { d.brand = null; return d; });
+    shell.notify({ level: 'info', text: 'La propuesta sale con el logo y los datos del emisor, sin marca.' });
+    return sinMarca;
+  }
+
+  const motivo = marcasNoDisponibles();
   if (motivo) { shell.notify({ level: 'warn', text: motivo }); return null; }
 
   let marca;
   try {
-    marca = await shell.brands.current();
+    marca = typeof shell.brands.get === 'function'
+      ? await shell.brands.get(s(brandId))
+      : marcaEnLista(brandId);
   } catch (e) {
     shell.notify({ level: 'error', text: 'No se pudo leer la marca: ' + ((e && e.message) || 'error') });
     return null;
   }
-  if (!isObj(marca)) {
-    shell.notify({
-      level: 'warn',
-      text: 'Este KIMOS todavía no tiene una marca configurada. La define un administrador y luego se trae desde aquí.',
-    });
+  const snap = instantaneaDeMarca(marca);
+  if (!snap) {
+    shell.notify({ level: 'warn', text: 'Esa marca ya no está en el registro del sistema.' });
     return null;
   }
-
-  // El registro devuelve los atajos ya resueltos (`logoLight`, `logoDark`),
-  // así que la cotización no tiene que recorrer la lista de logotipos ni
-  // acertar con el fondo. Se prefiere el de fondo claro: la propuesta se
-  // imprime sobre papel blanco.
-  // Solo se pisa lo que la marca SÍ trae: si no tiene teléfono, no se borra
-  // el que ya estaba escrito aquí.
-  const patch = {};
-  const poner = (campo, valor) => { if (s(valor).trim()) patch[campo] = s(valor).trim(); };
-  poner('name', marca.legalName || marca.name);
-  poner('taxId', marca.taxId);
-  poner('email', marca.email);
-  poner('phone', marca.phone);
-  poner('web', marca.website);
-  poner('address', marca.address);
-  poner('logoUrl', marca.logoLight || marca.logoDark);
-  poner('paymentInfo', marca.bankDetails);
-  if (!Object.keys(patch).length) {
-    shell.notify({ level: 'warn', text: 'La marca del sistema no tiene datos que traer todavía.' });
-    return null;
-  }
-
-  const out = actPatchIssuer(patch);
-  shell.notify({
-    level: 'success',
-    text: 'Emisor traído de la marca del sistema (' + s(marca.name) + '). Puedes ajustarlo para este cotizador.',
-  });
+  const out = commitDoc(s(quoteId), (d) => { d.brand = snap; return d; });
+  shell.notify({ level: 'success', text: 'Esta propuesta se emite con la marca «' + snap.name + '».' });
   return out;
+}
+
+/**
+ * Vuelve a tomar la instantánea de la marca del documento.
+ *
+ * Una propuesta ya enviada NO se actualiza sola —ese es el punto de guardar
+ * la instantánea—, así que refrescar es algo que se pide a mano cuando la
+ * marca cambió de logo y la propuesta todavía es un borrador.
+ */
+async function actRefreshDocBrand(quoteId) {
+  const doc = docById(s(quoteId));
+  if (!doc || !doc.brand || !s(doc.brand.id)) return null;
+  return actSetDocBrand(s(quoteId), s(doc.brand.id));
+}
+
+/**
+ * Con qué marca nace una cotización nueva: la fijada en las reglas, o la de
+ * por defecto del registro. Si no hay marcas, ninguna, y la propuesta sale
+ * con el emisor como siempre.
+ */
+async function marcaParaNueva() {
+  const motivo = marcasNoDisponibles();
+  if (motivo) return null;
+  const lista = await loadBrands(false);
+  const fijada = s(rulesOf().brandId);
+  const elegida = (fijada && lista.find((b) => s(b.id) === fijada))
+    || lista.find((b) => b.isDefault === true)
+    || null;
+  if (!elegida) return null;
+  try {
+    const completa = typeof shell.brands.get === 'function'
+      ? await shell.brands.get(s(elegida.id)) : elegida;
+    return instantaneaDeMarca(completa);
+  } catch (e) { return instantaneaDeMarca(elegida); }
+}
+
+/**
+ * Le pone marca a una cotización recién creada, sin bloquear la creación.
+ *
+ * Crear una cotización no puede esperar a la red: si el registro de marcas
+ * tarda o falla, la cotización ya existe y sencillamente sale con el emisor.
+ */
+function ponerMarcaInicial(quoteId) {
+  const id = s(quoteId);
+  if (!id || marcasNoDisponibles()) return;
+  Promise.resolve().then(marcaParaNueva).then((snap) => {
+    if (!snap) return;
+    const d = docById(id);
+    // Si mientras tanto la persona eligió una marca, se respeta la suya.
+    if (!d || (d.brand && s(d.brand.id))) return;
+    commitDoc(id, (x) => { x.brand = snap; return x; });
+  }).catch(() => { /* sin marca se cotiza igual */ });
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -4618,7 +4907,10 @@ function bloqueVacio(b, ctx) {
  */
 function contextoDe(doc, def) {
   const rules = normalizeRules(def && def.rules);
-  const issuer = normalizeIssuer(def && def.issuer);
+  // La marca de ESTA propuesta manda en lo visual (logo, bajada, contacto) y
+  // el emisor en lo fiscal (razón social, RUT). Se resuelve una vez, aquí,
+  // para que los bloques no tengan que saber de marcas.
+  const issuer = brandedIssuer(def && def.issuer, doc);
   const totals = computeTotals(doc, rules);
   return { doc, rules, issuer, totals, cur: totals.currency, until: validUntilOf(doc, rules) };
 }
@@ -4667,8 +4959,15 @@ function BlockHeader(props) {
     h('div', { key: 'l', className: 'cz-hdblock-emisor' }, [
       issuer.logoUrl ? h('img', { key: 'g', className: 'cz-hdblock-logo', src: issuer.logoUrl, alt: '' }) : null,
       h('div', { key: 'd', className: 'cz-hdblock-emisor-d' }, [
-        h('div', { key: 'n', className: 'cz-hdblock-emisor-n' }, issuer.name || 'Sin emisor configurado'),
-        issuer.taxId ? h('div', { key: 'r', className: 'cz-mono cz-dim' }, issuer.taxId) : null,
+        // Con marca, el nombre grande es el de la marca y la razón social baja
+        // a la línea fiscal: es lo que el cliente reconoce, y lo legal sigue
+        // estando donde tiene que estar.
+        h('div', { key: 'n', className: 'cz-hdblock-emisor-n' },
+          issuer.brandName || issuer.name || 'Sin emisor configurado'),
+        (issuer.name || issuer.taxId)
+          ? h('div', { key: 'r', className: 'cz-mono cz-dim' },
+            [issuer.brandName ? issuer.name : '', issuer.taxId].filter(Boolean).join(' · '))
+          : null,
         issuer.tagline ? h('div', { key: 't', className: 'cz-dim' }, issuer.tagline) : null,
         h('div', { key: 'c', className: 'cz-dim cz-hdblock-contacto' },
           [issuer.email, issuer.phone, issuer.web].filter(Boolean).join(' · ')),
@@ -6565,6 +6864,7 @@ function retratoDoc(d, rules, detallado) {
     totalTexto: money(t.total, t.currency),
     moneda: t.currency.code,
   };
+  if (d.brand && d.brand.name) base.marca = d.brand.name;
   if (d.revision) base.revision = d.revision;
   if (d.supersededBy) base.sustituidaPor = d.supersededBy;
   if (d.publicUrl) base.enlace = d.publicUrl;
@@ -6608,6 +6908,7 @@ function agentSnapshot() {
     cotizador: {
       nombre: model.docName,
       emisor: { nombre: issuer.name, rut: issuer.taxId, correo: issuer.email },
+      marcaDeNuevas: s(rules.brandId) || 'la de por defecto del sistema',
       moneda: rules.currency,
       impuesto: rules.taxPct,
       impuestoNombre: rules.taxLabel,
@@ -6705,6 +7006,11 @@ const AGENT_TOOLS = [
     { cotizacion: T_STR, guardarEnDirectorio: T_BOOL, directorio: T_STR }, ['cotizacion']),
   tool('ACTUALIZAR_CLIENTE_DESDE_DIRECTORIO', 'Vuelve a leer el cliente vinculado y refresca su ficha en la cotización (por si cambió de nombre o se fusionó con otro).',
     { cotizacion: T_STR }, ['cotizacion']),
+  // Elegir marca es elegir cómo se VE la propuesta. Los datos fiscales no se
+  // tocan al cambiar de marca: son del emisor, y son los mismos para todas.
+  tool('LISTAR_MARCAS', 'Lista las marcas del sistema disponibles para emitir. Todas se pueden usar; la de «por defecto» es solo con la que nace una cotización nueva.', {}),
+  tool('ELEGIR_MARCA', 'Fija con qué marca se emite una cotización: cambia el logotipo, la bajada y los colores de la propuesta. Con `marca` vacía la deja sin marca (solo el emisor). NO cambia la razón social ni el RUT: eso es del emisor.',
+    { cotizacion: T_STR, marca: T_STR }, ['cotizacion']),
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
@@ -6933,6 +7239,47 @@ async function agentDispatch(action) {
       if (!out) return errMsg('No se pudo refrescar el cliente desde el directorio.');
       return okMsg('Cliente actualizado desde el directorio: ' + s(out.client.name) + '.',
         { referencia: s(out.client.recordRef) });
+    }
+
+    case 'LISTAR_MARCAS': {
+      const motivo = marcasNoDisponibles();
+      if (motivo) return errMsg(motivo);
+      const lista = await loadBrands(true);
+      if (!lista.length) return okMsg('Este KIMOS todavía no tiene marcas. Se crean en la app Marcas.', { marcas: [] });
+      return okMsg(lista.length + ' marca(s) disponible(s), todas utilizables.', {
+        marcas: lista.map((b) => ({ id: s(b.id), nombre: s(b.name), porDefecto: b.isDefault === true })),
+      });
+    }
+
+    case 'ELEGIR_MARCA': {
+      const r = resolverDoc(p.cotizacion);
+      if (!r.doc) return errMsg(r.error);
+      if (!s(p.marca)) {
+        await actSetDocBrand(r.doc.id, '');
+        return okMsg('La cotización sale sin marca, con el logo y los datos del emisor.');
+      }
+      const motivo = marcasNoDisponibles();
+      if (motivo) return errMsg(motivo);
+      const lista = await loadBrands(false);
+      const buscado = s(p.marca).trim().toLowerCase();
+      const candidatas = lista.filter((b) => s(b.id).toLowerCase() === buscado
+        || s(b.name).trim().toLowerCase() === buscado);
+      const aproximadas = candidatas.length ? candidatas
+        : lista.filter((b) => s(b.name).toLowerCase().indexOf(buscado) >= 0);
+      // Emitir con la marca equivocada sale caro y en silencio: con dos
+      // candidatas se pregunta, no se elige (mismo criterio que la app Marcas).
+      if (!aproximadas.length) {
+        return errMsg('No hay ninguna marca que se llame así. Disponibles: '
+          + (lista.map((b) => s(b.name)).join(', ') || 'ninguna') + '.');
+      }
+      if (aproximadas.length > 1) {
+        return errMsg('Hay varias marcas que encajan (' + aproximadas.map((b) => s(b.name)).join(', ')
+          + '). Dime cuál exactamente.');
+      }
+      const out = await actSetDocBrand(r.doc.id, s(aproximadas[0].id));
+      if (!out) return errMsg('No se pudo aplicar la marca.');
+      return okMsg('Esta cotización se emite con la marca «' + s(out.brand.name) + '».',
+        { marca: s(out.brand.name), logo: !!s(out.brand.logoUrl) });
     }
 
     case 'CAMBIAR_ESTADO': {
@@ -7215,7 +7562,7 @@ function registrarAgente() {
       actAddProductToQuote, actRefreshLinePrice, actImportClient,
       actLinkClientRecord, actRefreshClientRecord, actPushClientToDirectory,
       estadoVinculo, clavesDeCliente, registroNoDisponible,
-      actImportBrand, marcaNoDisponible,
+      actSetDocBrand, actRefreshDocBrand, loadBrands, marcasNoDisponibles, instantaneaDeMarca, brandedIssuer,
       precioParaCotizar, precioSeleccion, seleccionResuelta, detalleSeleccion,
       grupoVisible, fromProductsItem, fromRawPL, fromPublicPL, plEngine,
       bloquesDe, bloquesPorDefecto, normalizeBlock, contextoDe, BLOCK_TYPES,

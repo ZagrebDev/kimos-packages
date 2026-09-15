@@ -417,7 +417,7 @@ condiciones y ninguna es opcional:
    ha dicho qué acepta.
 
 ```js
-const nuevo = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '77.718.188-2' });
+const nuevo = await shell.data.create(instanciaClientes, { name: 'Acme SpA', taxId: '12.345.678-5' });
 await shell.data.update(instanciaClientes, nuevo.id, { phone: '+56 9 1234 5678' });
 ```
 
@@ -483,7 +483,7 @@ if (shell.records) {
   // Devuelve la identidad existente o la crea. Esto es lo que mantiene
   // unitaria la base: si «Acme» ya existe con ese RUT, no se crea otra.
   const { ref, created, record, warning } = await shell.records.findOrCreate('account', {
-    keys:  { taxId: '77.718.188-2', email: 'compras@acme.cl' },
+    keys:  { taxId: '12.345.678-5', email: 'compras@acme.cl' },
     label: 'Acme SpA',
   });
 
@@ -515,8 +515,8 @@ Detalles que conviene saber antes de construir encima:
 - No hay `cliente` y `prospecto` por separado: **`account` es uno solo**,
   porque la misma empresa puede ser cliente, prospecto y proveedor a la vez.
   El rol y la etapa son datos de la app a la que le importan.
-- **Las claves se normalizan** antes de comparar: `77.718.188-2`,
-  `77718188-2` y `777181882` son la misma; `rut`, `taxId` y `documentNumber`
+- **Las claves se normalizan** antes de comparar: `12.345.678-5`,
+  `12345678-5` y `123456785` son la misma; `rut`, `taxId` y `documentNumber`
   son el mismo nombre de clave. De eso depende que la deduplicación funcione.
 - `findOrCreate` puede devolver `warning` (claves que apuntaban a registros
   distintos, o un registro sin ninguna clave natural). **Muéstralo**: es la
@@ -592,15 +592,20 @@ Lo que sí se duplicaba hasta ahora son los **datos**: Cotizaciones tenía su
 
 ```js
 if (shell.brands) {
-  const { brands, currentId } = await shell.brands.list();   // para un selector
-  const marca = await shell.brands.current();                // null si no hay ninguna
+  const { brands, currentId } = await shell.brands.list();   // TODAS: para un selector
+  const marca = await shell.brands.get(doc.brandId) || await shell.brands.current();
   if (marca) {
     cabecera.logo   = marca.logoLight || marca.logoDark;
-    cabecera.emisor = marca.legalName || marca.name;
+    cabecera.marca  = marca.name;
     cabecera.color  = (marca.baseColor || {}).hex || '';
   }
 }
 ```
+
+> **`current()` NO es «la única marca activa».** Es la que se propone cuando
+> nadie elige. Todas las marcas del registro están siempre disponibles: si tu
+> app emite algo, ofrece `list()` y deja elegir. Un tenant con una marca
+> general y tres submarcas necesita las cuatro, no la primera.
 
 ### Qué trae una marca
 
@@ -612,7 +617,28 @@ if (shell.brands) {
 | `form` | La **forma**: `cornerStyle`, `radius`, `borderWidth`, `elevation`, `density`. Vacío si la marca no declara ninguna. |
 | `ecosystems[]` | Variantes de la misma marca; apuntan a la paleta por clave. |
 | `principles[]` | Las reglas, en texto. |
-| Identidad | `name`, `tagline`, `legalName`, `taxId`, contacto, `footer`, `bankDetails`. |
+| Identidad | `name`, `tagline`, `description`, contacto **de la marca** (`email`, `phone`, `website`) y `footer`. |
+
+### Una marca NO es una empresa
+
+En el registro de marcas **no hay razón social, RUT, dirección fiscal ni datos
+bancarios**, y es una decisión, no un olvido:
+
+```
+MARCA (registro de plataforma)        EMISOR (ajustes de TU app)
+cómo se VE lo que produces            quién FACTURA
+logo, colores, tipografía, forma      razón social, RUT, banco
+varias por empresa, una por documento una sola para toda la empresa
+```
+
+Una empresa con seis marcas sigue teniendo un RUT. Guardarlo en cada marca son
+seis copias del mismo dato, de las cuales cinco se quedan viejas la primera vez
+que cambia algo — y la que se imprima en la propuesta dependerá de qué marca se
+eligió, que es exactamente lo que no puede pasar con un dato legal.
+
+Si tu app emite documentos, **guarda tú el emisor** (Cotizaciones tiene su
+bloque «Emisor») y deja que la marca aporte solo lo visual. Cambiar de marca en
+un documento cambia el logotipo y los colores; no toca el RUT.
 
 ### La forma: por qué NO va en tu app
 
@@ -661,13 +687,32 @@ marca de ESTA propuesta» o «el estilo de ESTE producto». Guarda el `id` de la
 marca en tu documento y resuélvelo con `get(id)` al pintar:
 
 ```js
-propuesta.brandId = elegida.id;
-const marca = await shell.brands.get(propuesta.brandId);   // null si se borró
+// Al elegir: se guarda el id Y la instantánea de lo que se va a imprimir.
+const marca = await shell.brands.get(elegida.id);           // null si se borró
+propuesta.brand = {
+  id: marca.id, name: marca.name, tagline: marca.tagline,
+  logoUrl: marca.logoLight || marca.logoDark,               // papel blanco
+  primary: (marca.baseColor || {}).hex || '',
+  at: new Date().toISOString(),
+};
 ```
 
-Guarda además una **instantánea** de lo que imprimes, por lo mismo que con los
-clientes (§7.d): una propuesta enviada hace ocho meses no puede cambiar de
-logo sola.
+La **instantánea** es por lo mismo que con los clientes (§7.d): una propuesta
+enviada hace ocho meses no puede cambiar de logo sola porque alguien rediseñó
+la marca. Refrescarla es una acción explícita, no algo que pase solo.
+
+Tres reglas que se aprenden caro:
+
+- **Ofrece `list()` completo**, no solo `current()`. Es la diferencia entre
+  poder emitir con una submarca y no poder.
+- **Una marca que desapareció del registro no borra el documento**: sigue
+  imprimiéndose con su instantánea, y el selector la conserva marcada como
+  «ya no está» en vez de perderla al siguiente cambio.
+- **Elegir marca no toca los datos fiscales.** Si al cambiar de marca cambia
+  el RUT de la propuesta, el modelo está mal.
+
+Lo mismo vale para «el estilo de ESTE producto» en ProductLab: los estilos de
+producto **son** marcas, con su `brandId` en la ficha.
 
 ### Escribir marcas
 

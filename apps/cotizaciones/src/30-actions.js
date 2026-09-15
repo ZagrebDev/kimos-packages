@@ -97,6 +97,10 @@ function actNewQuote(opts) {
   if (arr(o.lines).length) doc.lines = arr(o.lines).map((l) => touchLine(l));
 
   const created = createDoc(doc);
+  // Una cotización nacida de otra o de una plantilla ya trae su marca: la
+  // plantilla de una submarca sirve justo para eso. Solo se busca marca
+  // cuando el documento no tiene ninguna.
+  if (!created.brand || !s(created.brand.id)) ponerMarcaInicial(created.id);
   if (o.open !== false) setModel({ openId: created.id, tab: asTemplate ? 'templates' : 'quotes' });
   return created;
 }

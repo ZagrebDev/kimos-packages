@@ -33,7 +33,7 @@ Qué cambia en la práctica:
   `data.write:customers` declarado en su manifest y aprobado al instalar).
   Solo pasan los campos de la lista; el resto se ignora.
 - `naturalKeys` dice por qué se reconoce a un cliente. Da igual si el RUT
-  llega escrito `77.718.188-2` o `777181882`: es el mismo, así que no se crea
+  llega escrito `12.345.678-5` o `123456785`: es el mismo, así que no se crea
   un duplicado.
 - Un cliente que entró desde otra app lo dice en su ficha
   («Creado desde la app …»), para que nadie se pregunte de dónde salió.

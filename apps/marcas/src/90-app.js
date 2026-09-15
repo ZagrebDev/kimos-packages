@@ -15,6 +15,12 @@ function Cartera(props) {
         key: 'a', icon: '+', title: 'Nueva marca', onClick: () => actNuevaMarca(),
       }),
     ]),
+    // Lo que el «por defecto» NO significa. Sin esta línea, una lista donde
+    // una marca lleva etiqueta y el resto no se lee como «una activa y cinco
+    // apagadas», que es justo al revés de como funciona.
+    m.brands.length > 1 ? h('p', { key: 'x', className: 'mk-cartera-nota' },
+      'Todas están disponibles para todas las apps. La marca por defecto es solo '
+      + 'la que se propone cuando nadie elige.') : null,
     h('ul', { key: 'l', className: 'mk-cartera-l' }, m.brands.map((b) => {
       const r = resumenDe(b);
       const base = colorPorRol(b, 'base');
@@ -28,7 +34,10 @@ function Cartera(props) {
           h('span', { key: 'm', className: 'mk-cartera-meta' },
             r.colores + ' color(es) · ' + r.logos + ' logo(s)'),
         ]),
-        b.isDefault ? h('span', { key: 'a', className: 'mk-tag', title: 'La usan por defecto las apps' }, 'activa') : null,
+        b.isDefault ? h('span', {
+          key: 'a', className: 'mk-tag',
+          title: 'Es la que se propone cuando una app no elige marca. Las demás siguen disponibles.',
+        }, 'por defecto') : null,
         r.avisos ? h('span', { key: 'w', className: 'mk-tag mk-tag-warn', title: r.avisos + ' aviso(s)' }, String(r.avisos)) : null,
       ]));
     })),
@@ -43,7 +52,16 @@ function Barra(props) {
     h('div', { key: 'id', className: 'mk-barra-id' }, [
       h('span', { key: 'n', className: 'mk-barra-nm' }, (b && b.name) || '—'),
       m.dirty ? h('span', { key: 'd', className: 'mk-tag mk-tag-warn' }, 'sin guardar') : null,
-      b && b.isDefault ? h('span', { key: 'a', className: 'mk-tag' }, 'activa') : null,
+      b && b.isDefault ? h('span', {
+        key: 'a', className: 'mk-tag',
+        title: 'Es la que se propone cuando una app no elige marca.',
+      }, 'por defecto') : null,
+      // El control que faltaba: desde la lista se veía cuál era la de por
+      // defecto, pero no había forma de cambiarla sin pedírselo al agente.
+      (b && !b.isDefault && !ro) ? h(Btn, {
+        key: 'pd', size: 'sm', onClick: () => actPorDefecto(b.id),
+        title: 'Pasa a ser la que se propone cuando una app no elige marca.',
+      }, 'Usar por defecto') : null,
     ]),
     h('div', { key: 'tabs', className: 'mk-tabs' }, [
       h(Btn, { key: 's', size: 'sm', active: m.tab === 'sistema', onClick: () => actSetTab('sistema') }, 'Hoja'),

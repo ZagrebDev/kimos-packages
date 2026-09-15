@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.2.2**
+**Versión actual: 1.3.0**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -69,10 +69,15 @@ lo suyo.
   del shell (Guardar versión · Restaurar).
 - **Estados y seguimiento**: borrador · enviada · aceptada · rechazada, con
   vencimiento automático de las enviadas y bitácora por cotización.
-- **Marca del sistema**: el emisor se puede traer de la marca del tenant
-  (`shell.brand`, APP-SPEC §7.f) en vez de reescribir aquí razón social, RUT,
-  logo y datos de transferencia. Rellena; no impone: después se ajusta para
-  este cotizador.
+- **Una marca por cotización** (`shell.brands`, APP-SPEC §7.f): cada propuesta
+  elige con qué marca sale —la general o cualquier submarca— y se imprime con
+  su logotipo, su bajada y sus colores. Se guarda una instantánea, así que una
+  propuesta enviada no cambia de logo sola si la marca se rediseña. En Ajustes
+  se fija solo con cuál **nace** una cotización nueva.
+
+  La marca es cómo se **ve** la propuesta; el emisor es quién la **factura**.
+  Cambiar de marca cambia el logotipo y los colores, y no toca la razón social
+  ni el RUT: eso es uno solo para toda la empresa.
 - **Emisor y reglas** configurables: razón social, RUT, logo, datos de
   transferencia, moneda, si los precios se escriben netos o con impuesto
   incluido, impuesto, vigencia por defecto, reparto abono/saldo, formato del
@@ -160,7 +165,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 278 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
+node test/test-app.mjs    # 355 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -224,6 +229,7 @@ decisión; uno descartado en silencio es el que vuelve dentro de seis meses
 
 | Versión | Qué trae |
 |---|---|
+| 1.3.0 | **Marca por cotización.** Antes solo se podía traer «la marca activa» al emisor, así que una empresa con submarcas no podía emitir con ellas. Ahora cada cotización elige su marca de entre todas las del sistema, guarda su instantánea (logo, bajada, colores) y se imprime con ella; la plantilla de una submarca la arrastra, y en Ajustes se elige con cuál nacen las nuevas. Los datos fiscales salen del registro de marcas y se quedan donde tienen que estar, en el emisor: cambiar de marca ya no puede cambiar el RUT de una propuesta. El agente gana `LISTAR_MARCAS` y `ELEGIR_MARCA`. Todos los ejemplos y placeholders son neutros. |
 | 1.2.2 | Al día con el registro de marcas: `shell.brand` (una marca) pasó a `shell.brands` (varias), así que «Traer de la marca» usa la marca activa del nuevo registro y toma el logotipo por su atajo ya resuelto en vez de adivinar la variante. Sin esto el botón habría dejado de encontrar la marca. |
 | 1.2.1 | Las imágenes y la propuesta publicada se suben por `shell.files`: la ruta la decide el host, así que el almacenamiento queda aislado por app, con cuota atribuible y limpieza al desinstalar. El camino antiguo (la app elegía la ruta) queda solo como respaldo para un host que no exponga `shell.files`. Lo detectó `tools/check-app.mjs`. |
 | 1.2.0 | El emisor puede traerse de la **marca del sistema** (`shell.brand`): razón social, RUT, contacto, logo y datos de transferencia dejan de reescribirse aquí. La marca rellena y el usuario puede ajustar, para que una unidad de negocio pueda cotizar con otra razón social. Los colores no se copian: el host inyecta los de la marca como tokens del tema y esta app no cablea ninguno. |
