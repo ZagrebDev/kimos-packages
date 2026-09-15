@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -142,7 +142,9 @@ function estadoInicial() {
     filtro: '',
     moduloSel: null,
     diag: null,          // diagnóstico del equipo donde corre el shell
-    urlApp: 'https://lidaria.kimos.dev',
+    // Se resuelve al montar, desde donde el host sirve la app. Un dominio
+    // escrito a mano aquí es un QR que no abre en ninguna parte.
+    urlApp: '',
     copiado: false,
   };
 }
@@ -209,7 +211,11 @@ export default function mount(shell) {
       if (d.vision && typeof d.vision === 'object') {
         patch.vision = Object.assign({ rubro: 'construccion', fuente: 'totem', distanciaM: 3 }, d.vision);
       }
-      if (typeof d.urlApp === 'string') patch.urlApp = d.urlApp;
+      // Un estado guardado con el dominio de ejemplo se descarta: arrastrarlo
+      // reproduciría el QR roto en cada sesión.
+      if (typeof d.urlApp === 'string' && d.urlApp && !DOMINIOS_DE_EJEMPLO.some((x) => d.urlApp.includes(x))) {
+        patch.urlApp = d.urlApp;
+      }
       if (d.montaje && typeof d.montaje === 'object') patch.montaje = Object.assign({}, estado.montaje, d.montaje);
       if (typeof d.equipoComp === 'string' && equipoPorId(d.equipoComp)) patch.equipoComp = d.equipoComp;
       if (d.runtimeComp === 'web' || d.runtimeComp === 'nativo') patch.runtimeComp = d.runtimeComp;
@@ -268,6 +274,51 @@ export default function mount(shell) {
     if (!(clave in SUPUESTOS_BASE)) return { ok: false, error: 'Supuesto desconocido: ' + clave };
     commit({ sup: Object.assign({}, estado.sup, { [clave]: n }) });
     return { ok: true, mensaje: clave + ' = ' + n };
+  }
+
+  /** Dominios que alguna vez estuvieron escritos a mano y no existen. */
+  const DOMINIOS_DE_EJEMPLO = ['lidaria.kimos.dev', 'ejemplo.com', 'localhost.invalid'];
+
+  /**
+   * La dirección desde la que el host está sirviendo esta app.
+   *
+   * Es la única que se sabe cierta: cualquier otra hay que escribirla, y un
+   * dominio escrito a mano que no existe produce un QR que escanea bien y
+   * termina en «No se puede acceder a este sitio». Pasó exactamente eso.
+   */
+  function urlDeLaApp() {
+    // `assetUrl` ya devuelve una dirección absoluta, así que se intenta
+    // interpretarla sola: depender de `window.location` como base la hacía
+    // fallar en cualquier entorno sin `window`, incluidas las pruebas.
+    try {
+      const raw = shell.assetUrl ? String(shell.assetUrl('x')).split('/api/apps/')[0] : '';
+      if (raw) {
+        const u = new URL(raw);
+        return u.origin + u.pathname.replace(/\/+$/, '');
+      }
+    } catch (e) { /* no era absoluta: se prueba con la página como base */ }
+    try {
+      const raw = shell.assetUrl ? String(shell.assetUrl('x')).split('/api/apps/')[0] : '';
+      const u = new URL(raw || '/', window.location.href);
+      return u.origin + u.pathname.replace(/\/+$/, '');
+    } catch (e) {
+      try { return window.location.origin; } catch (e2) { return ''; }
+    }
+  }
+
+  /** ¿Sirve esta dirección para un QR? Devuelve el problema, o null. */
+  function problemaDeUrl(url) {
+    const u = String(url || '').trim();
+    if (!u) return 'No hay dirección: el QR no llevaría a ninguna parte.';
+    let parsed;
+    try { parsed = new URL(u); } catch (e) { return 'No es una dirección válida.'; }
+    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost') {
+      return 'Sin HTTPS el otro equipo no podrá usar la cámara: los navegadores solo la conceden en contexto seguro.';
+    }
+    if (DOMINIOS_DE_EJEMPLO.some((d) => parsed.hostname === d || parsed.hostname.endsWith('.' + d))) {
+      return 'Esa dirección es un ejemplo y no existe: el QR escanea bien y el teléfono responde «No se puede acceder a este sitio». Pon la dirección real donde está publicada la app.';
+    }
+    return null;
   }
 
   function copiarEnlace() {
@@ -543,6 +594,7 @@ export default function mount(shell) {
     const inv = inventarioDeEnlaces(cat, ctx);
     const sel = st.dispSel ? pasosDeEnlace(cat, st.dispSel, ctx) : null;
 
+    const problemaUrl = problemaDeUrl(st.urlApp);
     let qr = null, codigo = '', url = '';
     if (sel && !sel.sinVia) {
       const enlace = crearEnlace({
@@ -552,7 +604,10 @@ export default function mount(shell) {
       });
       codigo = enlace.c;
       url = enlaceATexto(enlace, st.urlApp);
-      qr = qrImagen(url);
+      // Sin dirección válida NO se dibuja el QR. Uno que escanea bien y acaba
+      // en «No se puede acceder a este sitio» hace perder más tiempo que no
+      // tener ninguno, porque parece que el problema es del teléfono.
+      qr = problemaUrl ? null : qrImagen(url);
     }
 
     const cols = [
@@ -583,11 +638,29 @@ export default function mount(shell) {
       sel && !sel.sinVia ? card(sel.plan.dispositivo.icon + ' ' + sel.plan.dispositivo.nombre,
         h('div', null,
           h('p', { className: 'ld-mini' }, 'Vía elegida: ', h('b', null, sel.metodo.nombre), ' — ', sel.metodo.porQueSirve),
+          problemaUrl
+            ? h('div', { className: 'ld-aviso' },
+                h('b', null, '⚠ Falta la dirección de la app. '), problemaUrl,
+                h('div', { className: 'ld-fila', style: { marginTop: 8 } },
+                  h('input', {
+                    className: 'ld-input', value: st.urlApp, placeholder: 'https://…  dirección donde está publicada LiDARia',
+                    onChange: (e) => commit({ urlApp: e.target.value.slice(0, 200) }),
+                  }),
+                  h('button', { className: 'ld-btn', onClick: () => commit({ urlApp: urlDeLaApp() }) }, 'Usar la de este servidor')),
+                h('p', { className: 'ld-mini' }, 'El código corto de abajo funciona igual: no depende de ninguna dirección.'))
+            : null,
           qr ? h('div', { style: { textAlign: 'center', margin: '12px 0' } },
             h('img', { src: qr, alt: 'Código QR de emparejamiento', style: { width: 220, height: 220, background: '#fff', padding: 8, borderRadius: 8 } })) : null,
           h('div', { className: 'ld-kv' }, h('span', null, 'Código corto, si el QR no se puede leer'),
             h('b', { style: { fontFamily: 'ui-monospace, monospace', fontSize: 20, letterSpacing: 3 } }, codigo)),
-          h('div', { className: 'ld-kv' }, h('span', null, 'Enlace'), h('code', { className: 'ld-mini' }, url)),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Enlace'),
+            h('code', { className: 'ld-mini' }, url || '—')),
+          !problemaUrl ? h('div', { className: 'ld-fila', style: { marginTop: 8 } },
+            h('input', {
+              className: 'ld-input', value: st.urlApp,
+              onChange: (e) => commit({ urlApp: e.target.value.slice(0, 200) }),
+            }),
+            h('button', { className: 'ld-btn', onClick: () => commit({ urlApp: urlDeLaApp() }) }, 'La de este servidor')) : null,
           h('h4', null, 'Pasos'),
           h('ol', { className: 'ld-lista ld-mini' }, sel.pasos.map((p, i) => h('li', { key: i },
             p.fase === 'conectar' ? h('b', null, 'Conectar: ') : null,
@@ -2253,8 +2326,17 @@ export default function mount(shell) {
             const d = DATOS.enlaces.dispositivos.filter((x) => x.id === p.dispositivo)[0];
             if (!d) return { success: false, error: 'Dispositivo desconocido: ' + p.dispositivo };
             const enlace = crearEnlace({ dispositivo: d.id, sesion: (shell.app && shell.app.teamId) || 'kimos', transporte: d.transporte });
+            const problema = problemaDeUrl(estado.urlApp);
             const url = enlaceATexto(enlace, estado.urlApp);
             commit({ tab: 'enlazar', dispSel: d.id });
+            if (problema) {
+              // Devolver un QR que no abre sería peor que decir que falta algo.
+              return {
+                success: true,
+                message: d.nombre + ': código corto ' + enlace.c + '. NO hay QR todavía porque falta la dirección de la app — '
+                  + problema + ' El código corto funciona igual: no depende de ninguna dirección.',
+              };
+            }
             return {
               success: true,
               message: d.nombre + ': código corto ' + enlace.c + ', enlace ' + url
@@ -2498,6 +2580,9 @@ export default function mount(shell) {
     try { shell.window.setTitle('LiDARia'); } catch (e) { /* opcional */ }
   }
 
+  // La dirección por defecto es la real, la de este mismo host. `restaurar()`
+  // la sobrescribe solo si el operador guardó una suya.
+  estado = Object.assign({}, estado, { urlApp: urlDeLaApp() });
   restaurar();
   diagnosticarAqui();
 
