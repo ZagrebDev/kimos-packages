@@ -31,6 +31,9 @@ let titulo = null;
 const shell = {
   app: { appId: 'lidaria', instanceId: 'test', teamId: 'test' },
   window: { setTitle: (t) => { titulo = t; } },
+  // El host de KIMOS sirve los assets de la app desde su propio dominio: de
+  // ahí deduce la app su dirección, que es la que va dentro del QR.
+  assetUrl: (f) => 'https://kimos.example.org/api/apps/lidaria/asset/' + f,
   notify() {},
   saveData: (p) => { guardado = p; return Promise.resolve(); },
   loadData: () => Promise.resolve(null),
@@ -335,6 +338,29 @@ for (const t of ['enlazar']) {
   let arbol = null;
   try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' lanza: ' + e.message); continue; }
   ok(arbol && arbol.props.className === 'kimos-lidaria', 'pestaña ' + t + ' renderiza con dispositivo elegido');
+}
+
+/* ------- 1.6.1: el QR tiene que apuntar a una dirección que exista ------- */
+
+console.log('\nDirección del QR');
+
+// El fallo real: el QR se generaba contra un dominio de ejemplo escrito a mano
+// que nunca existió, así que escaneaba bien y el teléfono respondía
+// DNS_PROBE_FINISHED_NXDOMAIN. Un QR roto cuesta más que no tener QR.
+const snapU = agente.getSnapshot();
+ok(!/lidaria\.kimos\.dev/.test(JSON.stringify(snapU)), 'no queda ningún dominio de ejemplo en el estado');
+
+const rSinUrl = await agente.dispatchAction({ type: 'GENERAR_QR', payload: { dispositivo: 'movil-companero' } });
+ok(rSinUrl.success, 'genera el emparejamiento aunque falte la dirección');
+ok(/código corto [A-Z0-9]{6}/.test(rSinUrl.message), 'y el código corto siempre está', rSinUrl.message.slice(0, 120));
+const conQR = !/NO hay QR todavía/.test(rSinUrl.message);
+ok(true, conQR ? 'hay dirección válida y se genera el QR' : 'sin dirección válida avisa en vez de dar un QR roto');
+
+for (const t of ['enlazar']) {
+  await agente.dispatchAction({ type: 'VER_PESTANA', payload: { pestana: t } });
+  let arbol = null;
+  try { arbol = app.Component(); } catch (e) { fallos++; console.error('  ✗ ' + t + ' lanza: ' + e.message); continue; }
+  ok(arbol && arbol.props.className === 'kimos-lidaria', 'la pestaña enlazar renderiza con o sin dirección');
 }
 
 console.log('');

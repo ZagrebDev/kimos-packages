@@ -5,7 +5,7 @@ escanear cada equipo de la organización, qué módulos quedan cubiertos con el
 parque que ya existe, cuánto cuesta construir cada módulo y qué bibliotecas
 pueden entrar al producto sin problema legal.
 
-**Versión actual: 1.6.0** · núcleo `kimos-LiDARia` 1.3.0
+**Versión actual: 1.6.1** · núcleo `kimos-LiDARia` 1.3.0
 
 ## Por qué existe
 
@@ -109,6 +109,7 @@ OpenMVS?"* sin inventar.
 
 | Versión | Qué trae |
 |---|---|
+| 1.6.1 | Corregido el fallo que hacía que el QR apuntara a un dominio de ejemplo inexistente: la dirección sale ahora del host donde la app se sirve, y sin una dirección válida no se dibuja QR —se avisa—, porque uno que escanea bien y acaba en «No se puede acceder a este sitio» hace perder más tiempo que ninguno. El código corto nunca dependió de la dirección. |
 | 1.6.0 | Pestaña **Enlazar**: emparejamiento de dispositivos con siete vías, QR generado sin dependencias y código corto para cuando el QR no se puede leer. Dos correcciones de diseño que evitan prometer de más: descubrir no es conectar, y el transporte manda sobre el método de descubrimiento. En la PWA, además, **captura corporal en vivo**: MediaPipe alimenta la geometría del núcleo y la app pasa de calcular a medir, con el motor hospedable en el propio servidor para funcionar sin internet. |
 | 1.5.0 | Pestaña de **Laboratorio**: bancos de ensayo con protocolo, métricas y criterio declarados antes de medir, con el banco completo de la Kinect v2. El hallazgo que decide su arquitectura: libfreenect2 no entrega esqueleto y el atajo que circula (NiTE 2) tiene licencia inverificable, así que la vía libre es MediaPipe sobre el color de la Kinect fusionado con su profundidad. Pestaña **Gratuito** con la política de costo hecha código: el hardware se paga una vez y se admite, lo recurrente no. **Subida al Cloud Storage** que ya viene con la cuenta, con una puerta que impide mandar datos personales al área de lectura pública y ofrece la descarga en su lugar. Tres herramientas de agente más. El build valida ahora la sintaxis como módulo: `node --check` parseaba como CommonJS y dejó pasar un paréntesis de menos hasta el bundle. |
 | 1.4.0 | Captura de movimiento y medida corporal con una cámara común: motor adoptado de **Kimos FunPlai** (33 puntos, geometría de montaje, medición en cm) y validado contra un cuerpo sintético con error de 0,00 cm. Aporte de LiDARia de vuelta: el punto de apoyo correcto (talón, no tobillo, que iba 7 cm alto y alargaba la distancia ~9 cm), medición con sensor de profundidad **sin ver los pies**, y márgenes de encuadre que dependen del lente. Pestaña de componentes con 21 componentes de equipo y su alcance real por plataforma —la señal WiFi no existe en ningún navegador, y en iOS ni con contenedor—. Pestaña de montaje de cámara. Módulo de entorno, equipo Xiaomi Redmi Note 15 Pro en el catálogo, tres accesorios de cámara nuevos y tres herramientas de agente más. Corregido el veredicto de FunPlai en el mapa del ecosistema: estaba en "no" por el nombre de la app, sin haberla leído. |
