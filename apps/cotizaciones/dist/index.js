@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.5.1 — app oficial de KIMOS.
+ * Cotizaciones v1.5.2 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.5.1';
+  const APP_VERSION = '1.5.2';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js

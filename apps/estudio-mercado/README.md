@@ -5,7 +5,7 @@ cobra la competencia por lo mismo que hace cada línea de producto, qué precio 
 sugiere en consecuencia, cuánto mercado hay país por país y qué economía por
 cliente resulta de todo eso.
 
-**Versión actual: 2.1.0**
+**Versión actual: 2.1.1**
 
 Trae hecho el estudio de KIMOS —25 líneas contra 170 planes de precio de la
 competencia— y sirve para hacer el de **cualquier otra empresa**: se elige la

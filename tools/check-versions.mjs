@@ -14,7 +14,15 @@
  *   2. `/manifest.json` → `apps[] → {id}.version` (lo que lee la Tienda)
  *   3. `apps/{id}/dist/index.js` → `APP_VERSION`  (si la app la declara)
  *   4. `apps/{id}/README.md` → "Versión actual: x.y.z" (si la declara)
+ *   5. los PERMISOS del catálogo raíz contra los del manifest de la app
  *   y avisa si la `description` del catálogo quedó desfasada de la del app.
+ *
+ * Lo de los permisos merece su nota: el instalador del backend lee el
+ * catálogo raíz y SOLO ese. El manifest de la carpeta de la app no lo abre
+ * nadie al instalar. Así que un permiso que está en la carpeta pero no en el
+ * catálogo no se concede, y el fallo no sale al instalar: sale horas después
+ * como «la app no tiene concedido X», mandando a mirar el manifest de la app
+ * —donde el permiso está— y a dudar de si el despliegue funcionó.
  *
  * Uso:
  *   node tools/check-versions.mjs            # todas las apps
@@ -71,6 +79,29 @@ for (const dir of appDirs) {
     if (entry.description && appManifest.description && entry.description !== appManifest.description) {
       warns.push('la descripción del catálogo raíz quedó distinta a la del manifest de la app');
     }
+
+    // Los PERMISOS del catálogo raíz son los que se conceden de verdad.
+    //
+    // El instalador del backend lee ESE manifest y solo ese: el de la carpeta
+    // de la app no lo abre nadie. Si los dos no coinciden, la app se instala
+    // sin el permiso que su código sí usa, y el fallo no aparece al instalar
+    // sino horas después, con un «no tienes acceso» que manda a mirar el
+    // manifest de la app — donde el permiso está, y todo parece correcto.
+    //
+    // Ha pasado dos veces (`brand.write` y `payments.link`). Por eso es un
+    // error y no un aviso.
+    const permsApp = (appManifest.permissions || []).filter((x) => typeof x === 'string');
+    const permsCat = (entry.permissions || []).filter((x) => typeof x === 'string');
+    const faltan = permsApp.filter((x) => !permsCat.includes(x));
+    const sobran = permsCat.filter((x) => !permsApp.includes(x));
+    if (faltan.length) {
+      fails.push('el catálogo raíz NO concede ' + faltan.map((x) => '`' + x + '`').join(', ')
+        + ' que la app sí declara → se instalará sin ese permiso y fallará al usarlo');
+    }
+    if (sobran.length) {
+      warns.push('el catálogo raíz concede ' + sobran.map((x) => '`' + x + '`').join(', ')
+        + ' que la app ya no declara: permiso de más');
+    }
   }
   if (declared && declared !== version) {
     fails.push('APP_VERSION del bundle en ' + declared + ' ≠ manifest de la app en ' + version
@@ -95,8 +126,9 @@ for (const r of rows) {
 
 console.log('');
 if (problems) {
-  console.error('✖ ' + problems + ' problema(s) de versionado. Sube la versión en TODOS los lugares '
-    + '(manifest de la app, catálogo raíz /manifest.json, APP_VERSION del bundle y README) antes de publicar.');
+  console.error('✖ ' + problems + ' problema(s). La versión va en TODOS los lugares (manifest de la app, '
+    + 'catálogo raíz /manifest.json, APP_VERSION del bundle y README), y los PERMISOS van también en el '
+    + 'catálogo raíz: es el único que lee el instalador.');
   process.exit(1);
 }
 console.log('✔ versiones sincronizadas' + (warnings ? ' (' + warnings + ' aviso(s))' : '') + '.');

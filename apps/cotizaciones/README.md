@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.5.1**
+**Versión actual: 1.5.2**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -229,6 +229,7 @@ decisión; uno descartado en silencio es el que vuelve dentro de seis meses
 
 | Versión | Qué trae |
 |---|---|
+| 1.5.2 | **El permiso `payments.link` llega de verdad.** Estaba en el manifest de la app pero faltaba en el catálogo raíz, que es el ÚNICO que lee el instalador: la app se instalaba sin él y cobrar fallaba con «no tiene concedido el permiso», mandando a mirar el manifest de la app, donde el permiso sí estaba. Sin cambios de código; hay que actualizar desde la Tienda para que el permiso se conceda. |
 | 1.5.1 | **Encontrar el cobro.** Con el cobro en línea desactivado, la tarjeta de Cobro desaparecía entera de la cotización: quien no sabía que la función existía no la iba a buscar en Ajustes, y quien sí lo sabía se quedaba mirando la propuesta sin ver el enlace por ningún lado. Ahora la tarjeta se queda y dice dónde se enciende. Y la lista de cotizaciones enseña el estado del cobro junto al total —por cobrar, pagada, vencido, anulado—, porque «¿ya pagaron?» no puede obligar a abrirlas una por una. |
 | 1.5.0 | **Descuento por ítem, y el global donde se ve.** El descuento por línea ya se calculaba pero no había dónde escribirlo: ahora es una columna en la tabla de ítems, se imprime en la propuesta junto al total de la línea —un total que no cuadra con cantidad × precio hace que el cliente llame en vez de firmar— y el total sin rebajar sale tachado. El descuento de toda la cotización vivía detrás de un desplegable: si no hay ninguno, un «+ Descuento a toda la cotización» lo abre. Los dos se acumulan en el orden que corresponde: primero la línea, después el global sobre el subtotal ya rebajado. |
 | 1.4.0 | **Cobrar la propuesta.** Cada cotización lleva su enlace de pago: el cliente lo abre y paga con tarjeta por Webpay, MercadoPago, Flow o PayPal, con las pasarelas que la empresa tenga activas. El enlace lo sirve KIMOS y no la pasarela —un checkout caduca en minutos y esto viaja en un PDF—, así que sigue valiendo días después y se puede reintentar. Y **«Marcar como enviada»**: exporta el PDF, genera el enlace y cambia el estado, sin mandar ningún correo, que es como se manda la mayoría de las propuestas. El importe sale de la cotización, nunca de un campo aparte; pagar el total la deja aceptada y pagar solo el abono no, porque una señal no es una venta cerrada. Bloque «Pagar en línea» en la propuesta, variable `{{pago}}` en los correos y cuatro herramientas del agente. |
