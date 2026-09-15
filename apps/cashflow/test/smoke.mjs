@@ -120,7 +120,9 @@ function hacerShell(opts) {
     };
   }
   if (o.brands !== false) {
-    shell.brands = { current: () => Promise.resolve(o.marca === null ? null : (o.marca || { name: 'KIMOS', legalName: 'KIMOS SpA', taxId: '77.718.188-2' })) };
+    // Una marca del registro NO trae razón social ni RUT (APP-SPEC §7.f):
+    // una empresa con seis marcas tiene un solo RUT y no es dato de marca.
+    shell.brands = { current: () => Promise.resolve(o.marca === null ? null : (o.marca || { name: 'Marca Ejemplo' })) };
   }
   return { shell, estado };
 }
@@ -224,8 +226,8 @@ console.log('3. Marca del tenant (§7.f)');
   const app = mount(shell);
   await espera();
   const co = estado.agente.getSnapshot().activeCompany;
-  ok(co && co.name === 'KIMOS SpA', 'la empresa sembrada toma la razón social de la marca (' + (co && co.name) + ')');
-  ok(co && co.rut === '77.718.188-2', 'y su RUT (' + (co && co.rut) + ')');
+  ok(co && co.name === 'Marca Ejemplo', 'la empresa sembrada toma el nombre de la marca (' + (co && co.name) + ')');
+  ok(co && !co.rut, 'y NO su RUT: eso no es un dato de la marca, se escribe a mano (' + (co && co.rut) + ')');
   app.unmount();
 }
 {

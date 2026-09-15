@@ -5990,7 +5990,7 @@ export default function mount(shell) {
           : null,
         Field('Nombre' + (isLinked ? ' · del directorio' : ''), Input(data.name, (v) => upd({ name: v }), { placeholder: 'Razón social o nombre comercial', autoFocus: !isLinked })),
         h('div', { className: 'kp-row' },
-          Field('RUT / ID fiscal' + (isLinked ? ' · del directorio' : ''), Input(data.taxId, (v) => upd({ taxId: v }), { placeholder: '12.345.678-5' }),
+          Field('RUT / ID fiscal' + (isLinked ? ' · del directorio' : ''), Input(data.taxId, (v) => upd({ taxId: v }), { placeholder: 'Con o sin puntos' }),
             'La clave más fiable para reconocer al cliente en todo KIMOS'),
           Field('Código', Input(data.code, (v) => upd({ code: v })), 'Propio de la cartera')),
         h('div', { className: 'kp-row' },

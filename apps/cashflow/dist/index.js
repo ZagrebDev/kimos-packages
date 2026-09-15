@@ -18,7 +18,7 @@
  * tenant (`shell.brands`, §7.f) y ningún color sale de un hex suelto (§9).
  */
 // Mantener en sincronía con manifest.json y con el catálogo raíz (§7.a).
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 
 // ── Utilidades puras a nivel de módulo (exportadas para test) ────────────
 
@@ -638,19 +638,16 @@ export default function mount(shell) {
 
   // ── Marca del tenant (`shell.brands`, §7.f) ─────────────────────────────
   //
-  // La razón social y el RUT de la empresa que emite no son un dato de esta
-  // app: están definidos una vez para todo KIMOS. Aquí solo se RELLENAN —el
-  // usuario puede sobrescribirlos, porque un tenant con dos unidades de
-  // negocio necesita poder llevar la caja de la otra.
+  // La marca aporta el NOMBRE con el que se conoce a la empresa, y nada más.
+  // El RUT NO es un dato de la marca: una empresa con seis marcas sigue
+  // teniendo un RUT, así que el registro de marcas no lo guarda y aquí no se
+  // puede pedir. Se escribe a mano una vez, en la ficha de la empresa.
   async function marcaDelTenant() {
     if (!shell.brands || typeof shell.brands.current !== 'function') return null;
     try {
       const marca = await shell.brands.current();   // null si el tenant no configuró ninguna
       if (!marca) return null;
-      return {
-        name: s(marca.legalName) || s(marca.name),
-        rut: s(marca.taxId),
-      };
+      return { name: s(marca.name), rut: '' };
     } catch (e) { return null; }
   }
 
@@ -667,6 +664,12 @@ export default function mount(shell) {
     // `soloVacios` es el relleno de la primera vez: si la empresa ya tiene
     // RUT, alguien la escribió y la marca no la pisa.
     const pisar = !o.soloVacios || !s(actual.rut);
+    if (pisar && marca.name && !s(actual.rut) && !o.silent) {
+      shell.notify && shell.notify({
+        level: 'info',
+        text: 'El RUT no sale de la marca —una empresa con varias marcas tiene un solo RUT—: escríbelo aquí.',
+      });
+    }
     const tocado = pisar && !!(marca.name || marca.rut);
     if (!tocado) return false;
     commit((m) => {
@@ -1732,7 +1735,7 @@ export default function mount(shell) {
               h('input', { className: 'kcf-input', type: 'number', min: 0, step: 'any', value: f.iva, onChange: setMoney('iva'), placeholder: 'IVA', style: { width: '50%' }, title: 'Al editarlo, el bruto se recalcula al instante' }))),
             Field('Glosa / descripción *', h('input', { className: 'kcf-input', value: f.description, onChange: set('description'), placeholder: 'Ej: Factura insumos de oficina' }), true),
             Field(f.type === 'ingreso' ? 'Cliente' : 'Proveedor', h('input', { className: 'kcf-input', value: f.counterpart, onChange: set('counterpart') })),
-            Field('RUT', h('input', { className: 'kcf-input', value: f.counterpartRut, onChange: set('counterpartRut'), placeholder: '76.123.456-7' })),
+            Field('RUT', h('input', { className: 'kcf-input', value: f.counterpartRut, onChange: set('counterpartRut'), placeholder: 'Con o sin puntos' })),
             Field('Tipo de documento', Sel({ value: f.docType, onChange: set('docType') }, DOC_TYPES.map((t) => ({ value: t, label: t || '— documento —' })))),
             Field('N° documento / folio', h('input', { className: 'kcf-input', value: f.docNumber, onChange: set('docNumber') })),
             Field('Categoría', Sel({ value: f.categoryId, onChange: set('categoryId') }, catOptions(f.type))),
@@ -2121,7 +2124,7 @@ export default function mount(shell) {
           h('p', { style: { marginTop: 0, color: 'var(--kcf-muted)', fontSize: '12px' } },
             doc ? 'El texto se asociará al documento «' + doc.name + '».' : 'Pega el texto de una boleta, factura, voucher o transferencia (por ejemplo, el OCR de tu teléfono o del agente KIMOS). ',
             'La IA financiera detectará fecha, RUT, folio, montos, IVA, medio de pago y detalle, y creará una PROPUESTA que tú apruebas.'),
-          h('textarea', { className: 'kcf-input', style: { width: '100%', minHeight: '180px', boxSizing: 'border-box' }, value: text, onChange: (e) => setText(e.target.value), placeholder: 'FACTURA ELECTRÓNICA N° 12345\nRUT: 76.123.456-7\nFecha: 05/07/2026\nNETO $84.034  IVA $15.966  TOTAL $100.000 …' })),
+          h('textarea', { className: 'kcf-input', style: { width: '100%', minHeight: '180px', boxSizing: 'border-box' }, value: text, onChange: (e) => setText(e.target.value), placeholder: 'FACTURA ELECTRÓNICA N° 12345\nRUT: XX.XXX.XXX-X\nFecha: 05/07/2026\nNETO $84.034  IVA $15.966  TOTAL $100.000 …' })),
         h('div', { className: 'kcf-modal-foot' },
           h('button', { className: 'kcf-btn', onClick: onClose }, 'Cancelar'),
           h('button', {

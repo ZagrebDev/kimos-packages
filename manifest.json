@@ -527,7 +527,7 @@
       "name": "KIMOS Cashflow",
       "description": "Agente Financiero Inteligente del ecosistema KIMOS: flujo de caja multiempresa con bruto/neto/IVA sincronizados, libro diario con asientos Debe/Haber, gestor documental (XML DTE, PDF con texto embebido, imágenes, CSV/Excel) con comprensión documental local y confianza por campo, aprobación Human-in-the-Loop (la IA propone, la persona decide), memoria financiera que aprende de cada aprobación, dashboard de KPIs, proyecciones, presupuestos y análisis con alertas. El proveedor o cliente de cada movimiento es la misma identidad que en el resto de KIMOS (shell.records) y la empresa emisora se toma de la marca del tenant. Controlable por agentes (IA agnóstica) con auditoría completa.",
       "icon": "💰",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "author": "KIMOS",
       "entry": "dist/index.js",
       "css": "dist/index.css",

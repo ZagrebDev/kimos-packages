@@ -5,7 +5,7 @@ Integrated Multi-Agent Orchestration System). No es solo un flujo de caja
 tradicional: comprende documentos financieros, propone registros, proyecta
 escenarios y asiste la toma de decisiones — siempre con el humano al mando.
 
-**Versión actual: 1.3.0**
+**Versión actual: 1.3.1**
 
 ## Módulos
 
@@ -64,7 +64,7 @@ esta app dejó de resolver por su cuenta, y lo que decidió seguir haciendo:
 | Pieza compartida | Qué hace Cashflow |
 |---|---|
 | **Identidades (`shell.records`, §7.d)** | El proveedor o cliente de cada movimiento se vincula con la identidad del sistema (`account`) por su RUT: la misma empresa es la misma en Cashflow, Cotizaciones y Clientes. Se guardan **las dos cosas** —la referencia (`recordRef`) y la instantánea (`counterpart`, `counterpartRut`)—, así que un movimiento registrado hace ocho meses sigue diciendo con quién se hizo aunque el registro se renombre o desaparezca. Al abrir, las referencias fusionadas se reapuntan solas; ninguna instantánea se reescribe. |
-| **Marca del tenant (`shell.brands`, §7.f)** | La razón social y el RUT de la empresa emisora se rellenan desde la marca (🏷 en Ajustes, y automáticamente en la empresa recién sembrada). **Rellena, no impone**: una empresa que ya tiene RUT escrito no la pisa la marca, porque un tenant con dos unidades de negocio necesita llevar la caja de la otra. |
+| **Marca del tenant (`shell.brands`, §7.f)** | El NOMBRE de la empresa emisora se rellena desde la marca (🏷 en Ajustes, y automáticamente en la empresa recién sembrada). **Rellena, no impone**: una empresa ya escrita no la pisa la marca, porque un tenant con dos unidades de negocio necesita llevar la caja de la otra. El **RUT no sale de la marca** y no puede: una empresa con seis marcas tiene un solo RUT, así que el registro de marcas no lo guarda. Se escribe aquí una vez. |
 | **Colores (§9)** | Ningún hex suelto: acento, ingreso, egreso y alerta salen de los tokens del tema del host (`--primary`, `--success`, `--destructive`, `--warning`), así que la app se re-marca sola con la marca del tenant. |
 | **Versión a la vista (§7.a)** | Chip `v1.3.0` en la cabecera, `APP_VERSION` en el bundle y `version` en el snapshot del agente. |
 
@@ -92,7 +92,8 @@ de fingir que hay directorio.
 
 | Versión | Qué trae |
 |---|---|
-| **1.3.0** | Alineación con la plataforma: identidad compartida de la contraparte (`shell.records`), empresa emisora desde la marca del tenant (`shell.brands`), colores semánticos desde los tokens del tema, versión en pantalla y suite de smoke tests (`test/smoke.mjs`). |
+| **1.3.1** | Al día con el registro de marcas: una marca ya no guarda razón social ni RUT —una empresa con seis marcas tiene un solo RUT—, así que rellenar la empresa desde la marca trae el nombre y dice que el RUT se escribe aquí, en vez de dejar un campo vacío sin explicación. Placeholders de RUT sin número. |
+| 1.3.0 | Alineación con la plataforma: identidad compartida de la contraparte (`shell.records`), empresa emisora desde la marca del tenant (`shell.brands`), colores semánticos desde los tokens del tema, versión en pantalla y suite de smoke tests (`test/smoke.mjs`). |
 | 1.2.0 | Comprensión documental multimodal (XML DTE, PDF con texto embebido, vouchers POS), confianza por campo, memoria financiera y montos bruto/neto/IVA sincronizados en vivo. |
 | 1.1.0 | Tasa de IVA editable en Ajustes (19% por defecto, art. 14 DL 825). |
 | 1.0.0 | Primera versión: flujo de caja multiempresa, libro diario, gestor documental, Human in the Loop, dashboard, proyecciones, presupuestos y análisis. |

@@ -274,7 +274,7 @@ function DocHeaderPanel(props) {
         }),
       ])) : null,
       !esPlantilla ? h(Field, { key: 'ct', label: 'RUT / ID fiscal' },
-        h(Input, { mono: true, value: doc.client.taxId, placeholder: '12.345.678-5', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
+        h(Input, { mono: true, value: doc.client.taxId, placeholder: 'Con o sin puntos', onChange: (e) => patchClient({ taxId: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'cc', label: 'Contacto' },
         h(Input, { value: doc.client.contact, placeholder: 'Nombre de quien recibe', onChange: (e) => patchClient({ contact: e.target.value }) })) : null,
       !esPlantilla ? h(Field, { key: 'ce', label: 'Correo' },
