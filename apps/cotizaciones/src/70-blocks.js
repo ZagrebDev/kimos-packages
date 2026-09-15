@@ -221,7 +221,14 @@ function BlockItems(props) {
     h('td', { key: 'd', className: 'cz-b-td-desc' }, parrafos(l.description)),
     h('td', { key: 'q', className: 'cz-b-td-num' }, l.qtyLabel || numberFmt(l.qty, 2, cur.locale) + (l.unit ? ' ' + l.unit : '')),
     h('td', { key: 'u', className: 'cz-b-td-num cz-mono' }, money(l.unitPrice, cur)),
-    h('td', { key: 'v', className: 'cz-b-td-num cz-mono cz-strong' }, money(lineDisplayTotal(l, lineRules), cur)),
+    // El descuento de la línea se IMPRIME. Un total que no cuadra con
+    // cantidad × precio unitario obliga al cliente a sacar la calculadora, y
+    // lo que hace es llamar a preguntar en vez de firmar.
+    h('td', { key: 'v', className: 'cz-b-td-num cz-mono cz-strong' }, [
+      money(lineDisplayTotal(l, lineRules), cur),
+      l.discountPct ? h('div', { key: 'd', className: 'cz-b-linedisc' },
+        '−' + numberFmt(l.discountPct, 2, cur.locale) + '% dto.') : null,
+    ]),
   ]);
 
   return h('div', null, [

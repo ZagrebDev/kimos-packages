@@ -1,5 +1,5 @@
 /**
- * Cotizaciones v1.4.0 — app oficial de KIMOS.
+ * Cotizaciones v1.5.0 — app oficial de KIMOS.
  *
  * ARCHIVO GENERADO por tools/build.mjs a partir de src/. No editar a mano:
  * los cambios van en src/*.js y se recompila con `node tools/build.mjs`.
@@ -23,7 +23,7 @@ export default function mount(shell) {
 
   // Versión visible en pantalla: al probar, confirma qué build tomó el host.
   // La inyecta tools/build.mjs desde manifest.json (APP-SPEC §7.a).
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
 
 // ══════════════════════════════════════════════════════════════════════
 // src/00-core.js
@@ -2856,6 +2856,7 @@ function LinesTable(props) {
         h('th', { key: 'd', className: 'cz-th' }, 'DESCRIPCIÓN'),
         h('th', { key: 'q', className: 'cz-th cz-right' }, 'CANTIDAD'),
         h('th', { key: 'u', className: 'cz-th cz-right' }, rules.priceMode === 'gross' ? 'PRECIO UNIT' : 'NETO UNIT'),
+        h('th', { key: 'dd', className: 'cz-th cz-right', title: 'Descuento de esta línea. El descuento global de la cotización se ajusta en Totales.' }, 'DESC. %'),
         h('th', { key: 't', className: 'cz-th cz-right' }, rules.priceMode === 'gross' ? 'TOTAL' : 'NETO TOTAL'),
         h('th', { key: 'a', className: 'cz-th cz-th-acts' }, ''),
       ])),
@@ -2926,10 +2927,26 @@ function LineRow(props) {
       value: l.unitPrice, align: 'right', decimals: cur.decimals, locale: cur.locale,
       onChange: (v) => set({ unitPrice: num(v) }),
     })),
+    // Descuento de ESTA línea. Es un porcentaje y no un monto a propósito:
+    // con precios escritos con impuesto incluido, un monto fijo por línea es
+    // ambiguo (¿bruto o neto?), y rebajar el precio unitario hace lo mismo
+    // sin esa duda. El descuento en dinero existe a nivel de cotización.
+    h('td', { key: 'dd', className: 'cz-td-disc' }, h(NumField, {
+      value: l.discountPct, align: 'right', decimals: 2, locale: cur.locale,
+      className: l.discountPct ? 'cz-disc-on' : '',
+      title: 'Rebaja solo esta línea. Se aplica antes del descuento global.',
+      onChange: (v) => set({ discountPct: clamp(num(v), 0, 100) }),
+    })),
     h('td', { key: 't', className: 'cz-mono cz-right cz-strong' }, [
       money(totalLinea, cur),
       !l.taxable ? h('div', { key: 'x', className: 'cz-cell-sub' }, 'exento') : null,
-      l.discountPct ? h('div', { key: 'd', className: 'cz-cell-sub' }, '−' + l.discountPct + '%') : null,
+      // El precio SIN descuento, tachado: es lo que hace visible que la
+      // rebaja está aplicada, en vez de un número que no cuadra con el unitario.
+      l.discountPct ? h('div', { key: 'd', className: 'cz-cell-sub cz-cell-was' },
+        money(lineDisplayTotal(Object.assign({}, l, { discountPct: 0 }), {
+          taxPct: doc.taxPct == null ? rules.taxPct : doc.taxPct,
+          priceMode: rules.priceMode,
+        }), cur)) : null,
     ]),
     h('td', { key: 'a', className: 'cz-td-acts' }, [
       h(IconBtn, {
@@ -2987,7 +3004,15 @@ function TotalsPanel(props) {
     ]),
     h('div', { key: 'r', className: 'cz-tot' }, [
       fila(rules.priceMode === 'gross' ? 'Subtotal' : 'Subtotal neto', money(totals.subtotal, cur)),
-      totals.discount ? fila('Descuento', '− ' + money(totals.discount, cur), 'cz-tot-disc') : null,
+      totals.discount
+        ? fila('Descuento de la cotización', '− ' + money(totals.discount, cur), 'cz-tot-disc')
+        // Sin esto el descuento global existía pero había que dar con él
+        // detrás del desplegable, así que en la práctica no existía.
+        : (abierto ? null : h('button', {
+          key: 'add', type: 'button', className: 'cz-tot-adddisc',
+          title: 'Rebajar el total de toda la cotización. Para rebajar una línea suelta, usa la columna DESC. % de los ítems.',
+          onClick: () => setAbierto(true),
+        }, '+ Descuento a toda la cotización')),
       totals.netExempt ? fila('Exento', money(totals.netExempt, cur)) : null,
       fila(rules.taxLabel + ' (' + numberFmt(totals.taxPct, 2, cur.locale) + '%)', money(totals.tax, cur)),
       fila('TOTAL', money(totals.total, cur), 'cz-tot-total'),
@@ -3008,9 +3033,12 @@ function TotalsPanel(props) {
         value: doc.taxPct == null ? rules.taxPct : doc.taxPct, decimals: 2,
         onChange: (v) => patch({ taxPct: v === '' ? null : num(v) }),
       })),
-      h(Field, { key: 'dp', label: 'Descuento %' }, h(NumField, {
+      h(Field, {
+        key: 'dp', label: 'Descuento global %',
+        help: 'Sobre el subtotal, después de los descuentos de cada línea.',
+      }, h(NumField, {
         value: doc.discountPct, decimals: 2,
-        onChange: (v) => patch({ discountPct: num(v) }),
+        onChange: (v) => patch({ discountPct: clamp(num(v), 0, 100) }),
       })),
       h(Field, { key: 'da', label: 'Descuento monto' }, h(NumField, {
         value: doc.discountAmount, decimals: cur.decimals, locale: cur.locale,
@@ -5603,7 +5631,14 @@ function BlockItems(props) {
     h('td', { key: 'd', className: 'cz-b-td-desc' }, parrafos(l.description)),
     h('td', { key: 'q', className: 'cz-b-td-num' }, l.qtyLabel || numberFmt(l.qty, 2, cur.locale) + (l.unit ? ' ' + l.unit : '')),
     h('td', { key: 'u', className: 'cz-b-td-num cz-mono' }, money(l.unitPrice, cur)),
-    h('td', { key: 'v', className: 'cz-b-td-num cz-mono cz-strong' }, money(lineDisplayTotal(l, lineRules), cur)),
+    // El descuento de la línea se IMPRIME. Un total que no cuadra con
+    // cantidad × precio unitario obliga al cliente a sacar la calculadora, y
+    // lo que hace es llamar a preguntar en vez de firmar.
+    h('td', { key: 'v', className: 'cz-b-td-num cz-mono cz-strong' }, [
+      money(lineDisplayTotal(l, lineRules), cur),
+      l.discountPct ? h('div', { key: 'd', className: 'cz-b-linedisc' },
+        '−' + numberFmt(l.discountPct, 2, cur.locale) + '% dto.') : null,
+    ]),
   ]);
 
   return h('div', null, [
@@ -7656,10 +7691,10 @@ const AGENT_TOOLS = [
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
-  tool('AGREGAR_ITEM', 'Añade una línea escrita a mano a la cotización.',
-    { cotizacion: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, unidad: T_STR, precioUnitario: T_NUM, exento: T_BOOL, opcional: T_BOOL, posicion: T_NUM },
+  tool('AGREGAR_ITEM', 'Añade una línea escrita a mano a la cotización. `descuentoPct` rebaja SOLO esa línea; para rebajar toda la cotización usa `descuentoPct` o `descuentoMonto` de ACTUALIZAR_COTIZACION.',
+    { cotizacion: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, unidad: T_STR, precioUnitario: T_NUM, descuentoPct: T_NUM, exento: T_BOOL, opcional: T_BOOL, posicion: T_NUM },
     ['cotizacion', 'titulo']),
-  tool('ACTUALIZAR_ITEM', 'Cambia una línea existente. `item` acepta su id o el nombre del ítem.',
+  tool('ACTUALIZAR_ITEM', 'Cambia una línea existente. `item` acepta su id o el nombre del ítem. `descuentoPct` rebaja solo esa línea.',
     { cotizacion: T_STR, item: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, precioUnitario: T_NUM, descuentoPct: T_NUM, exento: T_BOOL, opcional: T_BOOL },
     ['cotizacion', 'item']),
   tool('QUITAR_ITEM', 'Quita una línea de la cotización.', { cotizacion: T_STR, item: T_STR }, ['cotizacion', 'item']),
@@ -7985,6 +8020,7 @@ async function agentDispatch(action) {
         qty: p.cantidad == null ? 1 : num(p.cantidad),
         qtyLabel: s(p.cantidadTexto), unit: s(p.unidad),
         unitPrice: num(p.precioUnitario),
+        discountPct: clamp(num(p.descuentoPct), 0, 100),
         taxable: p.exento !== true, optional: p.opcional === true,
       }, p.posicion);
       if (!l) return errMsg('No se pudo añadir la línea.');
@@ -8234,7 +8270,7 @@ function registrarAgente() {
     // multiusuario tengan pruebas de verdad.
     __test: {
       load, refresh, flushPending, getModel, setModel,
-      num, computeTotals, nextNumber, validUntilOf, effectiveStatus, cloneDoc,
+      num, computeTotals, normalizeLine, nextNumber, validUntilOf, effectiveStatus, cloneDoc,
       normalizeQuote, normalizeRules, mergeDoc, mergeLines, pruneTombs,
       docById, catalogById, mailById, quotesOf, templatesOf, rulesOf, issuerOf,
       visibleDocs, pipelineSummary,

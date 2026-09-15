@@ -1,6 +1,6 @@
 # Cotizaciones (app oficial)
 
-**Versión actual: 1.4.0**
+**Versión actual: 1.5.0**
 
 Cotizaciones y propuestas comerciales de punta a punta dentro de KIMOS: se
 arman, se guardan, se reutilizan, se exportan a PDF, se envían por correo y se
@@ -165,7 +165,7 @@ Las fuentes se compilan y se prueban con:
 ```bash
 cd apps/cotizaciones
 node tools/build.mjs      # regenera dist/index.js e inyecta APP_VERSION
-node test/test-app.mjs    # 395 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
+node test/test-app.mjs    # 407 pruebas: cálculo, modelo, catálogo, lienzo, PDF, correo, tablero, agente y render
 ```
 
 `tools/build.mjs` toma la versión de `manifest.json`, así que `APP_VERSION`
@@ -229,6 +229,7 @@ decisión; uno descartado en silencio es el que vuelve dentro de seis meses
 
 | Versión | Qué trae |
 |---|---|
+| 1.5.0 | **Descuento por ítem, y el global donde se ve.** El descuento por línea ya se calculaba pero no había dónde escribirlo: ahora es una columna en la tabla de ítems, se imprime en la propuesta junto al total de la línea —un total que no cuadra con cantidad × precio hace que el cliente llame en vez de firmar— y el total sin rebajar sale tachado. El descuento de toda la cotización vivía detrás de un desplegable: si no hay ninguno, un «+ Descuento a toda la cotización» lo abre. Los dos se acumulan en el orden que corresponde: primero la línea, después el global sobre el subtotal ya rebajado. |
 | 1.4.0 | **Cobrar la propuesta.** Cada cotización lleva su enlace de pago: el cliente lo abre y paga con tarjeta por Webpay, MercadoPago, Flow o PayPal, con las pasarelas que la empresa tenga activas. El enlace lo sirve KIMOS y no la pasarela —un checkout caduca en minutos y esto viaja en un PDF—, así que sigue valiendo días después y se puede reintentar. Y **«Marcar como enviada»**: exporta el PDF, genera el enlace y cambia el estado, sin mandar ningún correo, que es como se manda la mayoría de las propuestas. El importe sale de la cotización, nunca de un campo aparte; pagar el total la deja aceptada y pagar solo el abono no, porque una señal no es una venta cerrada. Bloque «Pagar en línea» en la propuesta, variable `{{pago}}` en los correos y cuatro herramientas del agente. |
 | 1.3.0 | **Marca por cotización.** Antes solo se podía traer «la marca activa» al emisor, así que una empresa con submarcas no podía emitir con ellas. Ahora cada cotización elige su marca de entre todas las del sistema, guarda su instantánea (logo, bajada, colores) y se imprime con ella; la plantilla de una submarca la arrastra, y en Ajustes se elige con cuál nacen las nuevas. Los datos fiscales salen del registro de marcas y se quedan donde tienen que estar, en el emisor: cambiar de marca ya no puede cambiar el RUT de una propuesta. El agente gana `LISTAR_MARCAS` y `ELEGIR_MARCA`. Todos los ejemplos y placeholders son neutros. |
 | 1.2.2 | Al día con el registro de marcas: `shell.brand` (una marca) pasó a `shell.brands` (varias), así que «Traer de la marca» usa la marca activa del nuevo registro y toma el logotipo por su atajo ya resuelto en vez de adivinar la variante. Sin esto el botón habría dejado de encontrar la marca. |

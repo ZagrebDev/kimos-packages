@@ -86,7 +86,7 @@ parts.push(`
     // multiusuario tengan pruebas de verdad.
     __test: {
       load, refresh, flushPending, getModel, setModel,
-      num, computeTotals, nextNumber, validUntilOf, effectiveStatus, cloneDoc,
+      num, computeTotals, normalizeLine, nextNumber, validUntilOf, effectiveStatus, cloneDoc,
       normalizeQuote, normalizeRules, mergeDoc, mergeLines, pruneTombs,
       docById, catalogById, mailById, quotesOf, templatesOf, rulesOf, issuerOf,
       visibleDocs, pipelineSummary,

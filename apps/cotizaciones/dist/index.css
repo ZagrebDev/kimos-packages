@@ -903,3 +903,20 @@
   margin-top: 8px; font-family: ui-monospace, monospace; font-size: 9.5px;
   opacity: .65; word-break: break-all;
 }
+
+/* Descuento por línea. La columna es estrecha a propósito: es un número de
+   dos dígitos y no debe robarle sitio a la descripción. */
+.kimos-cotizaciones .cz-td-disc { width: 82px; }
+.kimos-cotizaciones .cz-th:nth-child(6) { width: 82px; }
+.kimos-cotizaciones .cz-disc-on { font-weight: 600; }
+/* El total sin descuento, tachado: hace visible que la rebaja está aplicada. */
+.kimos-cotizaciones .cz-cell-was { text-decoration: line-through; opacity: .55; }
+/* El acceso al descuento global, que antes vivía detrás del desplegable. */
+.kimos-cotizaciones .cz-tot-adddisc {
+  display: block; width: 100%; margin: 2px 0 0; padding: 5px 0;
+  background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: 11px; text-align: left; color: var(--cz-dim);
+}
+.kimos-cotizaciones .cz-tot-adddisc:hover { color: var(--cz-fg); text-decoration: underline; }
+/* En la propuesta impresa, bajo el total de la línea. */
+.kimos-cotizaciones .cz-b-linedisc { font-size: 9px; font-weight: 400; opacity: .7; }

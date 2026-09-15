@@ -525,6 +525,47 @@ seccion('Impuesto, descuentos y líneas exentas');
   eq(to.subtotal, 100000, 'una línea opcional no entra en el subtotal');
   eq(to.optionalTotal, 59500, 'las opcionales se suman aparte, con su impuesto');
 
+  // ── Los dos niveles de descuento ──────────────────────────────────────
+  // Por línea y por cotización son cosas distintas y se aplican en ese orden.
+  // Si se aplicaran al revés, o si uno pisara al otro, el total impreso no
+  // cuadraría con lo que el vendedor cree que ofreció.
+  const porLinea = {
+    taxPct: 19,
+    lines: [
+      { title: 'A', qty: 2, unitPrice: 50000, discountPct: 10 },
+      { title: 'B', qty: 1, unitPrice: 100000 },
+    ],
+  };
+  const tl = T.computeTotals(porLinea, { decimals: 0, taxPct: 19 });
+  eq(tl.subtotal, 190000, 'el descuento por línea rebaja SOLO su línea (100.000 −10% + 100.000)');
+  eq(tl.discount, 0, 'y no aparece como descuento de la cotización: ya está dentro del subtotal');
+  eq(tl.total, 226100, 'el impuesto se calcula sobre lo ya rebajado');
+
+  // Los dos a la vez: primero la línea, después el global sobre el subtotal.
+  const ambos = Object.assign({}, porLinea, { discountPct: 10 });
+  const ta = T.computeTotals(ambos, { decimals: 0, taxPct: 19 });
+  eq(ta.subtotal, 190000, 'el subtotal ya viene rebajado por línea');
+  eq(ta.discount, 19000, 'y el global se aplica SOBRE ese subtotal, no sobre el original');
+  eq(ta.total, 203490, 'los dos descuentos se acumulan sin pisarse');
+
+  // Un 100% de descuento en una línea la deja en cero, no en negativo.
+  const gratis = { taxPct: 19, lines: [{ title: 'Regalo', qty: 1, unitPrice: 50000, discountPct: 100 }] };
+  eq(T.computeTotals(gratis, { decimals: 0, taxPct: 19 }).subtotal, 0,
+     'una línea con 100% de descuento vale cero');
+  const absurdo = T.normalizeLine({ title: 'X', qty: 1, unitPrice: 1000, discountPct: 250 });
+  eq(absurdo.discountPct, 100, 'un descuento imposible se recorta al 100%, no se guarda tal cual');
+  const negativo = T.normalizeLine({ title: 'X', qty: 1, unitPrice: 1000, discountPct: -30 });
+  eq(negativo.discountPct, 0, 'y uno negativo no sube el precio');
+
+  // Descuento en dinero, que solo existe a nivel de cotización.
+  const fijo = { taxPct: 19, lines: [{ title: 'A', qty: 1, unitPrice: 100000 }], discountAmount: 15000 };
+  eq(T.computeTotals(fijo, { decimals: 0, taxPct: 19 }).discount, 15000,
+     'el descuento en dinero se descuenta tal cual');
+  const excesivo = { taxPct: 19, lines: [{ title: 'A', qty: 1, unitPrice: 10000 }], discountAmount: 99999 };
+  const te = T.computeTotals(excesivo, { decimals: 0, taxPct: 19 });
+  eq(te.discount, 10000, 'y nunca supera el subtotal: una cotización no puede pagar al cliente');
+  eq(te.total, 0, 'el total se queda en cero');
+
   const gross = { taxPct: 19, lines: [{ title: 'A', qty: 1, unitPrice: 119000 }, { title: 'B', qty: 1, unitPrice: 100000, taxable: false }] };
   const tg = T.computeTotals(gross, { decimals: 0, taxPct: 19, priceMode: 'gross' });
   eq(tg.net, 200000, 'con precios con impuesto incluido, el neto se desglosa hacia atrás');

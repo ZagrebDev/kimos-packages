@@ -573,6 +573,7 @@ function LinesTable(props) {
         h('th', { key: 'd', className: 'cz-th' }, 'DESCRIPCIÓN'),
         h('th', { key: 'q', className: 'cz-th cz-right' }, 'CANTIDAD'),
         h('th', { key: 'u', className: 'cz-th cz-right' }, rules.priceMode === 'gross' ? 'PRECIO UNIT' : 'NETO UNIT'),
+        h('th', { key: 'dd', className: 'cz-th cz-right', title: 'Descuento de esta línea. El descuento global de la cotización se ajusta en Totales.' }, 'DESC. %'),
         h('th', { key: 't', className: 'cz-th cz-right' }, rules.priceMode === 'gross' ? 'TOTAL' : 'NETO TOTAL'),
         h('th', { key: 'a', className: 'cz-th cz-th-acts' }, ''),
       ])),
@@ -643,10 +644,26 @@ function LineRow(props) {
       value: l.unitPrice, align: 'right', decimals: cur.decimals, locale: cur.locale,
       onChange: (v) => set({ unitPrice: num(v) }),
     })),
+    // Descuento de ESTA línea. Es un porcentaje y no un monto a propósito:
+    // con precios escritos con impuesto incluido, un monto fijo por línea es
+    // ambiguo (¿bruto o neto?), y rebajar el precio unitario hace lo mismo
+    // sin esa duda. El descuento en dinero existe a nivel de cotización.
+    h('td', { key: 'dd', className: 'cz-td-disc' }, h(NumField, {
+      value: l.discountPct, align: 'right', decimals: 2, locale: cur.locale,
+      className: l.discountPct ? 'cz-disc-on' : '',
+      title: 'Rebaja solo esta línea. Se aplica antes del descuento global.',
+      onChange: (v) => set({ discountPct: clamp(num(v), 0, 100) }),
+    })),
     h('td', { key: 't', className: 'cz-mono cz-right cz-strong' }, [
       money(totalLinea, cur),
       !l.taxable ? h('div', { key: 'x', className: 'cz-cell-sub' }, 'exento') : null,
-      l.discountPct ? h('div', { key: 'd', className: 'cz-cell-sub' }, '−' + l.discountPct + '%') : null,
+      // El precio SIN descuento, tachado: es lo que hace visible que la
+      // rebaja está aplicada, en vez de un número que no cuadra con el unitario.
+      l.discountPct ? h('div', { key: 'd', className: 'cz-cell-sub cz-cell-was' },
+        money(lineDisplayTotal(Object.assign({}, l, { discountPct: 0 }), {
+          taxPct: doc.taxPct == null ? rules.taxPct : doc.taxPct,
+          priceMode: rules.priceMode,
+        }), cur)) : null,
     ]),
     h('td', { key: 'a', className: 'cz-td-acts' }, [
       h(IconBtn, {
@@ -704,7 +721,15 @@ function TotalsPanel(props) {
     ]),
     h('div', { key: 'r', className: 'cz-tot' }, [
       fila(rules.priceMode === 'gross' ? 'Subtotal' : 'Subtotal neto', money(totals.subtotal, cur)),
-      totals.discount ? fila('Descuento', '− ' + money(totals.discount, cur), 'cz-tot-disc') : null,
+      totals.discount
+        ? fila('Descuento de la cotización', '− ' + money(totals.discount, cur), 'cz-tot-disc')
+        // Sin esto el descuento global existía pero había que dar con él
+        // detrás del desplegable, así que en la práctica no existía.
+        : (abierto ? null : h('button', {
+          key: 'add', type: 'button', className: 'cz-tot-adddisc',
+          title: 'Rebajar el total de toda la cotización. Para rebajar una línea suelta, usa la columna DESC. % de los ítems.',
+          onClick: () => setAbierto(true),
+        }, '+ Descuento a toda la cotización')),
       totals.netExempt ? fila('Exento', money(totals.netExempt, cur)) : null,
       fila(rules.taxLabel + ' (' + numberFmt(totals.taxPct, 2, cur.locale) + '%)', money(totals.tax, cur)),
       fila('TOTAL', money(totals.total, cur), 'cz-tot-total'),
@@ -725,9 +750,12 @@ function TotalsPanel(props) {
         value: doc.taxPct == null ? rules.taxPct : doc.taxPct, decimals: 2,
         onChange: (v) => patch({ taxPct: v === '' ? null : num(v) }),
       })),
-      h(Field, { key: 'dp', label: 'Descuento %' }, h(NumField, {
+      h(Field, {
+        key: 'dp', label: 'Descuento global %',
+        help: 'Sobre el subtotal, después de los descuentos de cada línea.',
+      }, h(NumField, {
         value: doc.discountPct, decimals: 2,
-        onChange: (v) => patch({ discountPct: num(v) }),
+        onChange: (v) => patch({ discountPct: clamp(num(v), 0, 100) }),
       })),
       h(Field, { key: 'da', label: 'Descuento monto' }, h(NumField, {
         value: doc.discountAmount, decimals: cur.decimals, locale: cur.locale,

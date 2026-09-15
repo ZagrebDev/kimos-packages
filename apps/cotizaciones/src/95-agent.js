@@ -290,10 +290,10 @@ const AGENT_TOOLS = [
   tool('CAMBIAR_ESTADO', 'Cambia el estado: draft, sent, accepted, rejected o expired.',
     { cotizacion: T_STR, estado: { type: 'string', enum: STATUSES.map(([k]) => k) }, nota: T_STR }, ['cotizacion', 'estado']),
 
-  tool('AGREGAR_ITEM', 'Añade una línea escrita a mano a la cotización.',
-    { cotizacion: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, unidad: T_STR, precioUnitario: T_NUM, exento: T_BOOL, opcional: T_BOOL, posicion: T_NUM },
+  tool('AGREGAR_ITEM', 'Añade una línea escrita a mano a la cotización. `descuentoPct` rebaja SOLO esa línea; para rebajar toda la cotización usa `descuentoPct` o `descuentoMonto` de ACTUALIZAR_COTIZACION.',
+    { cotizacion: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, unidad: T_STR, precioUnitario: T_NUM, descuentoPct: T_NUM, exento: T_BOOL, opcional: T_BOOL, posicion: T_NUM },
     ['cotizacion', 'titulo']),
-  tool('ACTUALIZAR_ITEM', 'Cambia una línea existente. `item` acepta su id o el nombre del ítem.',
+  tool('ACTUALIZAR_ITEM', 'Cambia una línea existente. `item` acepta su id o el nombre del ítem. `descuentoPct` rebaja solo esa línea.',
     { cotizacion: T_STR, item: T_STR, titulo: T_STR, descripcion: T_STR, cantidad: T_NUM, cantidadTexto: T_STR, precioUnitario: T_NUM, descuentoPct: T_NUM, exento: T_BOOL, opcional: T_BOOL },
     ['cotizacion', 'item']),
   tool('QUITAR_ITEM', 'Quita una línea de la cotización.', { cotizacion: T_STR, item: T_STR }, ['cotizacion', 'item']),
@@ -619,6 +619,7 @@ async function agentDispatch(action) {
         qty: p.cantidad == null ? 1 : num(p.cantidad),
         qtyLabel: s(p.cantidadTexto), unit: s(p.unidad),
         unitPrice: num(p.precioUnitario),
+        discountPct: clamp(num(p.descuentoPct), 0, 100),
         taxable: p.exento !== true, optional: p.opcional === true,
       }, p.posicion);
       if (!l) return errMsg('No se pudo añadir la línea.');
