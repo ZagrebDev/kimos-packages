@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -127,6 +127,10 @@ function estadoInicial() {
     // Laboratorio: qué bancos se tienen y qué se midió en cada ensayo.
     dispSel: null,
     enlazados: [],
+    // Sesión pública: sin esto el gateway responde 403 y el QR no sirve.
+    sesionAbierta: false,
+    unidos: [],
+    paginaUnir: null,   // resultado de comprobar que el asset se sirve
     bancoSel: null,
     equiposLab: [],
     ensayos: {},
@@ -568,6 +572,98 @@ export default function mount(shell) {
 
   /* -------------------------------- enlazar -------------------------------- */
 
+  /**
+   * Abre o cierra la sesión pública.
+   *
+   * El gateway de KIMOS responde 403 mientras el item `definition` no lleve
+   * `public.enabled: true`. Eso es lo correcto: publicar es una decisión
+   * explícita y reversible, no un efecto secundario de generar un QR.
+   */
+  async function abrirSesion(abrir) {
+    if (!shell.items) {
+      shell.notify({ level: 'warn', text: 'Este host no expone shell.items: la sesión pública no se puede abrir.' });
+      return { ok: false };
+    }
+    const definicion = {
+      id: 'definition',
+      kind: 'definition',
+      public: {
+        enabled: !!abrir,
+        channels: ['unir'],
+        data: {
+          titulo: 'Unirse a una sesión de LiDARia',
+          descripcion: 'Este equipo va a sumarse como cámara de una faena. No se envían imágenes.',
+          papel: 'Cámara de la sesión',
+          organizacion: (shell.app && shell.app.teamId) || '',
+          abierta: !!abrir,
+        },
+      },
+    };
+    try {
+      const items = await shell.items.list();
+      const existe = (items || []).some((i) => i.id === 'definition' || i.kind === 'definition');
+      if (existe) await shell.items.update('definition', definicion);
+      else await shell.items.create(definicion);
+      commit({ sesionAbierta: !!abrir });
+      shell.notify({
+        level: 'success',
+        text: abrir ? 'Sesión abierta: el QR ya lleva a la página de unirse.' : 'Sesión cerrada: el gateway vuelve a responder 403.',
+      });
+      return { ok: true };
+    } catch (e) {
+      shell.notify({ level: 'error', text: 'No se pudo cambiar la sesión: ' + e.message });
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /** Lee quién se ha unido: llegan como items `kind: submission`. */
+  async function refrescarUnidos() {
+    if (!shell.items) return;
+    try {
+      const items = await shell.items.list();
+      const def = (items || []).filter((i) => i.id === 'definition' || i.kind === 'definition')[0];
+      const unidos = (items || [])
+        .filter((i) => i.kind === 'submission' && (i.channel === 'unir' || !i.channel))
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+      commit({
+        unidos,
+        sesionAbierta: !!(def && def.public && def.public.enabled),
+      });
+    } catch (e) { /* primera apertura, o sin permiso */ }
+  }
+
+  /**
+   * Comprueba que la página de unirse se esté sirviendo DE VERDAD.
+   *
+   * El contrato dice que `assets/` se sirve en `/api/apps/{id}/asset/{ruta}`,
+   * pero no promete el tipo de contenido de un `.html`. Apuntar el QR a una
+   * página que el servidor entrega como descarga o como texto plano sería
+   * repetir el fallo del dominio inexistente con otro disfraz: mejor mirarlo.
+   */
+  async function comprobarPaginaUnir() {
+    if (!shell.assetUrl) {
+      commit({ paginaUnir: { ok: false, motivo: 'Este host no expone assetUrl.' } });
+      return;
+    }
+    const url = shell.assetUrl('unir.html');
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const tipo = (res.headers.get('content-type') || '').toLowerCase();
+      if (!res.ok) {
+        commit({ paginaUnir: { ok: false, url, motivo: 'El servidor respondió ' + res.status + ' al pedir la página de unirse.' } });
+        return;
+      }
+      if (tipo.indexOf('text/html') < 0) {
+        commit({ paginaUnir: { ok: false, url, tipo, motivo: 'La página existe pero el servidor la entrega como «' + (tipo || 'sin tipo') + '», así que el teléfono no la abriría como página.' } });
+        return;
+      }
+      commit({ paginaUnir: { ok: true, url } });
+    } catch (e) {
+      commit({ paginaUnir: { ok: false, url, motivo: 'No se pudo comprobar la página (' + e.message + ').' } });
+    }
+  }
+
+
   function ctxEnlace(st) {
     const ev = (st.diag && st.diag.evidencia) || {};
     return {
@@ -601,9 +697,18 @@ export default function mount(shell) {
         dispositivo: st.dispSel,
         sesion: (shell.app && shell.app.teamId) || 'kimos',
         transporte: sel.plan.dispositivo.transporte,
+        // La instancia viaja dentro: es lo que la página de unirse necesita
+        // para preguntarle al gateway por esta sesión y no por otra.
+        parametros: shell.app && shell.app.instanceId ? { i: shell.app.instanceId } : {},
       });
       codigo = enlace.c;
-      url = enlaceATexto(enlace, st.urlApp);
+      // Si la página de unirse se está sirviendo, el QR lleva ALLÍ: una página
+      // que la propia app publica, sin login. Si no, al origen, que al menos
+      // existe aunque pida iniciar sesión.
+      const destino = (st.paginaUnir && st.paginaUnir.ok)
+        ? st.paginaUnir.url.replace(/[#?].*$/, '')
+        : st.urlApp;
+      url = enlaceATexto(enlace, destino);
       // Sin dirección válida NO se dibuja el QR. Uno que escanea bien y acaba
       // en «No se puede acceder a este sitio» hace perder más tiempo que no
       // tener ninguno, porque parece que el problema es del teléfono.
@@ -626,6 +731,43 @@ export default function mount(shell) {
     ];
 
     return h('div', null,
+      card('📡 La sesión',
+        h('div', null,
+          h('p', { className: 'ld-mini' }, 'El QR lleva a una página que esta app publica: sin login, y funciona en cualquier teléfono. '
+            + 'Mientras la sesión esté cerrada, el gateway responde 403 y esa página avisa en vez de dejar entrar.'),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Estado'),
+            h('b', null, st.sesionAbierta ? '🟢 Abierta — se puede entrar con el QR' : '🔴 Cerrada — el QR avisará de que está cerrada')),
+          h('div', { className: 'ld-kv' }, h('span', null, 'Página de unirse'),
+            h('b', null, !st.paginaUnir ? 'sin comprobar'
+              : st.paginaUnir.ok ? '✅ servida correctamente'
+              : '⚠ no disponible')),
+          st.paginaUnir && !st.paginaUnir.ok
+            ? h('p', { className: 'ld-aviso' }, st.paginaUnir.motivo,
+                ' Mientras tanto el QR apunta al escritorio de KIMOS, que pedirá iniciar sesión. El código corto funciona igual.')
+            : null,
+          h('div', { className: 'ld-chips' },
+            h('button', {
+              className: 'ld-btn ' + (st.sesionAbierta ? '' : 'ld-pri'),
+              onClick: () => abrirSesion(!st.sesionAbierta).then(() => refrescarUnidos()),
+            }, st.sesionAbierta ? 'Cerrar sesión' : 'Abrir sesión'),
+            h('button', { className: 'ld-btn', onClick: () => comprobarPaginaUnir() }, 'Comprobar la página'),
+            h('button', { className: 'ld-btn', onClick: () => refrescarUnidos() }, 'Ver quién se unió')),
+          st.unidos.length
+            ? h('div', null,
+                h('h4', null, 'Equipos que se unieron (' + st.unidos.length + ')'),
+                tabla([
+                  { k: 'p', l: 'Equipo', cell: (u) => h('div', null,
+                      h('b', null, (u.plataforma || '?') + ' · ' + (u.camaras || '?') + ' cámara(s)'),
+                      h('div', { className: 'ld-mini' }, (u.agente || '').slice(0, 60))) },
+                  { k: 'c', l: 'Cámara', cell: (u) => (u.camaraProbada === 'si'
+                      ? (u.camaraAncho || '?') + '×' + (u.camaraAlto || '?') + (u.camaraFps ? ' @' + u.camaraFps : '')
+                      : 'sin probar') },
+                  { k: 's', l: 'Sensores', cell: (u) => h('span', { className: 'ld-mini' },
+                      [u.imu === 'si' ? 'IMU' : null, u.gnss === 'si' ? 'GPS' : null, u.bluetooth === 'si' ? 'BLE' : null, u.nfc === 'si' ? 'NFC' : null].filter(Boolean).join(' · ') || '—') },
+                  { k: 'k', l: 'Código', cell: (u) => h('code', { className: 'ld-mini' }, u.codigo || '—') },
+                ], st.unidos, { key: (u, i) => (u.id || '') + i }))
+            : h('p', { className: 'ld-mini' }, 'Todavía no se ha unido nadie. Abre la sesión y muestra el QR.'))),
+
       card('🔗 Enlazar un dispositivo',
         h('div', null,
           h('p', null, cat.principio),
@@ -2585,6 +2727,8 @@ export default function mount(shell) {
   estado = Object.assign({}, estado, { urlApp: urlDeLaApp() });
   restaurar();
   diagnosticarAqui();
+  comprobarPaginaUnir();
+  refrescarUnidos();
 
   return {
     Component: Component,

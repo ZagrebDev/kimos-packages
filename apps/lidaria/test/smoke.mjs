@@ -363,6 +363,35 @@ for (const t of ['enlazar']) {
   ok(arbol && arbol.props.className === 'kimos-lidaria', 'la pestaña enlazar renderiza con o sin dirección');
 }
 
+/* ------------- 1.7.0: la app publica la página del QR ------------- */
+
+console.log('\nPágina de unirse');
+
+const manifiesto = JSON.parse(readFileSync(join(DIR, '../manifest.json'), 'utf8'));
+ok(manifiesto.permissions.includes('public.read') && manifiesto.permissions.includes('public.submit'),
+  'el manifiesto pide los permisos del gateway público', manifiesto.permissions.join(', '));
+
+const unirHtml = readFileSync(join(DIR, '../assets/unir.html'), 'utf8');
+const unirJs = readFileSync(join(DIR, '../assets/unir.js'), 'utf8');
+ok(/<!doctype html>/i.test(unirHtml), 'la página de unirse es HTML de verdad');
+ok(/viewport/.test(unirHtml), 'y está pensada para un teléfono');
+ok(/api\/public\/app\//.test(unirJs) && /\/definition/.test(unirJs), 'habla con el gateway genérico, sin backend a medida');
+ok(/submit\/unir/.test(unirJs), 'y devuelve el alta por el canal declarado');
+ok(manifiesto.permissions.includes('public.submit') && /channels/.test(readFileSync(join(DIR, '../src/app.js'), 'utf8')),
+  'la app declara el canal al abrir la sesión');
+
+// Lo que NO debe hacer la página: mandar imágenes.
+ok(!/getUserMedia[\s\S]{0,400}(FormData|blob|toDataURL)/.test(unirJs),
+  'la página NO envía imágenes: el gateway solo acepta texto y los fotogramas no salen del teléfono');
+ok(/_hp/.test(unirJs), 'incluye la trampa antispam que el gateway espera');
+
+// El QR tiene que llevar la instancia, o la página no sabe a qué sesión unirse.
+const appSrc = readFileSync(join(DIR, '../src/app.js'), 'utf8');
+ok(/parametros: shell\.app && shell\.app\.instanceId/.test(appSrc),
+  'el enlace del QR lleva el id de instancia dentro');
+ok(/comprobarPaginaUnir/.test(appSrc) && /text\/html/.test(appSrc),
+  'la app comprueba que el servidor sirva la página como HTML antes de apuntar el QR ahí');
+
 console.log('');
 if (fallos) {
   console.error('✖ ' + fallos + ' comprobación(es) fallida(s).');
