@@ -1,4 +1,4 @@
-/* kimos-LiDARia · núcleo 1.6.1 — GENERADO, no editar.
+/* kimos-LiDARia · núcleo 1.8.0 — GENERADO, no editar.
    Fuente: repositorio kimos-LiDARia, src/core/. Regenerar con:
      node tools/build-kimos-payload.mjs
 */

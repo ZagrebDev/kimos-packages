@@ -1,0 +1,4 @@
+MediaPipe Tasks Vision 0.10.14 — Apache License 2.0 (Google LLC).
+Modelo pose_landmarker_lite — distribuido por Google sin costo.
+Descargado por tools/descargar-pose.mjs el 2026-09-14T20:41:41.616Z.
+Ni licencia de pago ni suscripción: cumple la política de costo del proyecto.

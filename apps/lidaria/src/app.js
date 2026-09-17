@@ -17,7 +17,7 @@
  */
 
 // Mantener en sincronía con manifest.json (y con el catálogo raíz).
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 
 const DATOS = /* DATOS_INLINE */ null;
 
@@ -699,7 +699,12 @@ export default function mount(shell) {
         transporte: sel.plan.dispositivo.transporte,
         // La instancia viaja dentro: es lo que la página de unirse necesita
         // para preguntarle al gateway por esta sesión y no por otra.
-        parametros: shell.app && shell.app.instanceId ? { i: shell.app.instanceId } : {},
+        // Además de la instancia va el MONTAJE declarado: sin él, el teléfono
+        // que se une mide con valores supuestos y el error crece sin avisar.
+        parametros: Object.assign(
+          shell.app && shell.app.instanceId ? { i: shell.app.instanceId } : {},
+          { h: Math.round(st.montaje.alturaCamara), t: Math.round(st.montaje.inclinacion), f: Math.round(st.montaje.fovH) },
+        ),
       });
       codigo = enlace.c;
       // Si la página de unirse se está sirviendo, el QR lleva ALLÍ: una página
@@ -754,16 +759,27 @@ export default function mount(shell) {
             h('button', { className: 'ld-btn', onClick: () => refrescarUnidos() }, 'Ver quién se unió')),
           st.unidos.length
             ? h('div', null,
-                h('h4', null, 'Equipos que se unieron (' + st.unidos.length + ')'),
+                h('h4', null, 'Lo que llegó de los teléfonos (' + st.unidos.length + ')'),
+                h('p', { className: 'ld-mini' }, 'Cada teléfono mide en su propio navegador y envía los números. '
+                  + 'El vídeo no se transmite: los fotogramas no salen del equipo que los capturó.'),
                 tabla([
                   { k: 'p', l: 'Equipo', cell: (u) => h('div', null,
-                      h('b', null, (u.plataforma || '?') + ' · ' + (u.camaras || '?') + ' cámara(s)'),
-                      h('div', { className: 'ld-mini' }, (u.agente || '').slice(0, 60))) },
-                  { k: 'c', l: 'Cámara', cell: (u) => (u.camaraProbada === 'si'
-                      ? (u.camaraAncho || '?') + '×' + (u.camaraAlto || '?') + (u.camaraFps ? ' @' + u.camaraFps : '')
-                      : 'sin probar') },
-                  { k: 's', l: 'Sensores', cell: (u) => h('span', { className: 'ld-mini' },
-                      [u.imu === 'si' ? 'IMU' : null, u.gnss === 'si' ? 'GPS' : null, u.bluetooth === 'si' ? 'BLE' : null, u.nfc === 'si' ? 'NFC' : null].filter(Boolean).join(' · ') || '—') },
+                      h('b', null, (u.plataforma || '?') + (u.camaras ? ' · ' + u.camaras + ' cámara(s)' : '')),
+                      h('div', { className: 'ld-mini' }, (u.agente || '').slice(0, 55))) },
+                  { k: 'm', l: 'Medida', cell: (u) => (u.midio === 'si'
+                      ? h('div', null,
+                          h('b', null, (u.estaturaCm ? u.estaturaCm + ' cm de estatura' : 'sin estatura')),
+                          h('div', { className: 'ld-mini' }, 'a ' + (u.distanciaCm || '?') + ' cm · ±' + (u.margenCm || '?') + ' cm · apoyo ' + (u.apoyo || '?')))
+                      : h('span', { className: 'ld-mini' }, 'solo se dio de alta')) },
+                  { k: 'e', l: 'Cuerpo', cell: (u) => (u.midio === 'si'
+                      ? h('div', { className: 'ld-mini' },
+                          [u.hombrosCm ? 'hombros ' + u.hombrosCm : null,
+                            u.alturaHombroCm ? 'hombro a ' + u.alturaHombroCm : null,
+                            u.alturaCodoCm ? 'codo a ' + u.alturaCodoCm : null].filter(Boolean).join(' · ') || '—')
+                      : '—') },
+                  { k: 'mo', l: 'Su montaje', cell: (u) => (u.montajeAlturaCm
+                      ? h('span', { className: 'ld-mini' }, u.montajeAlturaCm + ' cm · ' + (u.montajeInclinacion || '0') + '° · ' + (u.montajeFov || '?') + '°')
+                      : h('span', { className: 'ld-mini' }, '—')) },
                   { k: 'k', l: 'Código', cell: (u) => h('code', { className: 'ld-mini' }, u.codigo || '—') },
                 ], st.unidos, { key: (u, i) => (u.id || '') + i }))
             : h('p', { className: 'ld-mini' }, 'Todavía no se ha unido nadie. Abre la sesión y muestra el QR.'))),

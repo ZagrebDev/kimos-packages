@@ -5,7 +5,7 @@ escanear cada equipo de la organización, qué módulos quedan cubiertos con el
 parque que ya existe, cuánto cuesta construir cada módulo y qué bibliotecas
 pueden entrar al producto sin problema legal.
 
-**Versión actual: 1.7.0** · núcleo `kimos-LiDARia` 1.3.0
+**Versión actual: 1.8.0** · núcleo `kimos-LiDARia` 1.3.0
 
 ## Por qué existe
 
@@ -109,6 +109,7 @@ OpenMVS?"* sin inventar.
 
 | Versión | Qué trae |
 |---|---|
+| 1.8.0 | **La página del QR ahora mide.** En 1.7.0 solo daba de alta el equipo: el catálogo prometía «cámara de la sesión» y el transporte que lo haría posible (`mqtt-ws`) **nunca se implementó** —no había cliente MQTT, ni WebSocket, ni WebRTC en ninguna parte—. Ahora la página lleva dentro el motor de medición del núcleo (generado desde una sola fuente, 68 KB recortado) y el modelo de pose viaja en el `.kapp` (15 MB) para funcionar sin internet: el teléfono mide en su propio navegador y envía los números por el gateway. El vídeo no se transmite, y el catálogo declara cuáles de los siete transportes están implementados y cuáles solo registran el dispositivo: hoy son dos de siete. |
 | 1.7.0 | **La app publica la página a la que lleva el QR.** Antes el código llevaba al escritorio de KIMOS, que pide iniciar sesión y no sabe qué hacer con el enlace. Ahora lleva a `assets/unir.html`, servida como asset público de la app, que habla solo con el gateway genérico de la plataforma (`/definition` y `/submit/unir`): se abre sin login en cualquier teléfono, dice a qué sesión se une, prueba la cámara del equipo y lo da de alta. La sesión se abre y se cierra desde la pestaña Enlazar —mientras esté cerrada el gateway responde 403 y la página lo explica—, y la app **comprueba en vivo** que el servidor sirva esa página como HTML antes de apuntar el QR ahí. No viajan imágenes: 20 campos de texto plano, 449 bytes. Requiere `public.read` y `public.submit`, que el superadmin aprueba al instalar. |
 | 1.6.1 | Corregido el fallo que hacía que el QR apuntara a un dominio de ejemplo inexistente: la dirección sale ahora del host donde la app se sirve, y sin una dirección válida no se dibuja QR —se avisa—, porque uno que escanea bien y acaba en «No se puede acceder a este sitio» hace perder más tiempo que ninguno. El código corto nunca dependió de la dirección. |
 | 1.6.0 | Pestaña **Enlazar**: emparejamiento de dispositivos con siete vías, QR generado sin dependencias y código corto para cuando el QR no se puede leer. Dos correcciones de diseño que evitan prometer de más: descubrir no es conectar, y el transporte manda sobre el método de descubrimiento. En la PWA, además, **captura corporal en vivo**: MediaPipe alimenta la geometría del núcleo y la app pasa de calcular a medir, con el motor hospedable en el propio servidor para funcionar sin internet. |

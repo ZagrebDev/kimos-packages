@@ -1,0 +1,15 @@
+Motor de pose de MediaPipe, para que la página de unirse mida SIN INTERNET.
+
+Por qué viaja aquí dentro y no se descarga al usarla: una faena no tiene
+cobertura, y un teléfono que tiene que bajar 15 MB antes de poder medir no sirve
+de nada en terreno. Al instalar el .kapp queda en el servidor de KIMOS y desde
+ahí lo sirve a cualquier teléfono de la red, sin salir a internet.
+
+Falta a propósito la variante `nosimd` del runtime WASM: son 9 MB más para
+equipos sin SIMD, que ningún teléfono de los últimos ocho años necesita. Si
+hiciera falta, se recupera con `node tools/descargar-pose.mjs` en el repo
+kimos-LiDARia y se copia aquí.
+
+MediaPipe Tasks Vision 0.10.14 — Apache License 2.0 (Google LLC).
+Modelo pose_landmarker_lite — distribuido por Google sin costo.
+Ni licencia de pago ni suscripción: cumple la política de costo del proyecto.

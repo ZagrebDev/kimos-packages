@@ -47,6 +47,59 @@ for (const [nombre, texto] of [['src/app.js', app], ['src/nucleo.mjs', nucleoBru
   }
 }
 
+/* ------------------- la página pública de emparejamiento ------------------- */
+/**
+ * `assets/unir.js` se GENERA: la fuente de la página más el motor de medición
+ * del núcleo. Así el teléfono invitado usa exactamente la misma geometría que
+ * el resto del producto, sin una copia que se desincronice en silencio.
+ *
+ * Se recortan del aplanado SOLO los archivos que la página necesita. Meter el
+ * núcleo entero serían 243 KB para un teléfono que igual está con dos barras de
+ * cobertura en una faena; recortado son unos 40.
+ */
+const PARA_UNIR = ['capabilities.js', 'cuerpo.js'];
+
+/** Devuelve el trozo del aplanado que corresponde a un archivo del núcleo. */
+function trozoDelNucleo(texto, archivo) {
+  const marca = '/* ===== src/core/' + archivo + ' ===== */';
+  const desde = texto.indexOf(marca);
+  if (desde < 0) return null;
+  const siguiente = texto.indexOf('/* ===== src/core/', desde + marca.length);
+  return texto.slice(desde, siguiente < 0 ? texto.length : siguiente);
+}
+
+const trozos = PARA_UNIR.map((f) => {
+  const t = trozoDelNucleo(nucleo, f);
+  if (!t) {
+    console.error('El núcleo aplanado no trae ' + f + ', que la página de unirse necesita.');
+    process.exit(1);
+  }
+  return t;
+});
+
+const fuenteUnir = readFileSync(join(DIR, 'src/unir.fuente.js'), 'utf8');
+const motorUnir = trozos.join('\n');
+// Si el núcleo dejara de exponer alguna de estas, la página fallaría en el
+// teléfono del usuario y el error saldría lejos de su causa.
+for (const nombre of ['medirCuerpo', 'encuadreDePose', 'PERFIL_SENSOR', 'errorEsperado']) {
+  if (!new RegExp('(function|const)\\s+' + nombre + '\\b').test(motorUnir)) {
+    console.error('El recorte del núcleo para la página de unirse no incluye ' + nombre + '.');
+    process.exit(1);
+  }
+}
+const paginaUnir = [
+  '/* GENERADO por apps/lidaria/build.mjs — no editar a mano.',
+  '   Fuente: src/unir.fuente.js + el motor de medición del núcleo ' + manifest.version + '.',
+  '   Se sirve como asset público: /api/apps/lidaria/asset/unir.js */',
+  '(function () {',
+  '"use strict";',
+  motorUnir,
+  fuenteUnir,
+  '})();',
+].join('\n');
+writeFileSync(join(DIR, 'assets/unir.js'), paginaUnir);
+console.log('assets/unir.js  ' + (paginaUnir.length / 1024).toFixed(0) + ' KB · página pública con el motor del núcleo');
+
 const MARCA = 'const DATOS = /* DATOS_INLINE */ null;';
 if (!app.includes(MARCA)) {
   console.error('No se encontró la marca DATOS_INLINE en src/app.js');

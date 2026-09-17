@@ -387,10 +387,35 @@ ok(/_hp/.test(unirJs), 'incluye la trampa antispam que el gateway espera');
 
 // El QR tiene que llevar la instancia, o la página no sabe a qué sesión unirse.
 const appSrc = readFileSync(join(DIR, '../src/app.js'), 'utf8');
-ok(/parametros: shell\.app && shell\.app\.instanceId/.test(appSrc),
-  'el enlace del QR lleva el id de instancia dentro');
+ok(/i: shell\.app\.instanceId/.test(appSrc), 'el enlace del QR lleva el id de instancia dentro');
+ok(/h: Math\.round\(st\.montaje\.alturaCamara\)/.test(appSrc),
+  'y el montaje declarado, para que el teléfono que se une no mida con supuestos');
 ok(/comprobarPaginaUnir/.test(appSrc) && /text\/html/.test(appSrc),
   'la app comprueba que el servidor sirva la página como HTML antes de apuntar el QR ahí');
+
+
+/* -------- 1.8.0: la página mide de verdad, y el transporte es honesto -------- */
+
+console.log('\nMedición en el teléfono invitado');
+
+const unirGen = readFileSync(join(DIR, '../assets/unir.js'), 'utf8');
+ok(/GENERADO por apps\/lidaria\/build\.mjs/.test(unirGen), 'la página se genera, no se edita a mano');
+ok(/function medirCuerpo/.test(unirGen), 'lleva el motor de medición del núcleo dentro');
+ok(/function encuadreDePose/.test(unirGen), 'y el que dice qué corregir del encuadre');
+ok(/PERFIL_SENSOR/.test(unirGen), 'y las bandas de error del núcleo');
+ok(!/function planDeRubro|function economiaCartera/.test(unirGen),
+  'pero NO el núcleo entero: recortado son 68 KB en vez de 243, y eso importa en una faena');
+ok(/detectForVideo/.test(unirGen), 'corre el bucle de inferencia en el propio teléfono');
+ok(/submit\/unir/.test(unirGen) && /distanciaCm/.test(unirGen), 'y envía los NÚMEROS, no el vídeo');
+ok(/asset\/pose\/vision_bundle\.mjs/.test(unirGen), 'busca el motor primero en el servidor de KIMOS, para funcionar sin internet');
+
+const paqueteMotor = readFileSync(join(DIR, '../assets/pose/LEEME.txt'), 'utf8');
+ok(/Apache License 2\.0/.test(paqueteMotor), 'el motor que viaja declara su licencia');
+ok(/nosimd/.test(paqueteMotor), 'y explica qué se dejó fuera y por qué');
+
+const rEnl = await agente.dispatchAction({ type: 'COMO_ENLAZAR', payload: { dispositivo: 'movil-companero', plataforma: 'android' } });
+ok(rEnl.success && /NO se transmite/.test(rEnl.message),
+  'el agente dice que el vídeo no se transmite', rEnl.message.slice(-150));
 
 console.log('');
 if (fallos) {
