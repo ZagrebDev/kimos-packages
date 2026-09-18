@@ -716,6 +716,15 @@
   max-width: 420px; font-size: 13px; line-height: 1.6; padding: 12px 14px;
   border-radius: 12px; background: rgba(124, 255, 178, .1); color: #BFF7D6;
 }
+/* Cuando el teléfono SÍ está enviando su imagen, el cartel cambia de color y
+   de tamaño. Es lo contrario de un aviso discreto a propósito: quien tiene el
+   teléfono en la mano tiene que enterarse sin leer letra chica. */
+.kimos-funplai .fp-sensor-privacidad.is-video {
+  background: rgba(253, 186, 116, .16); color: #FFD9B0;
+  border: 2px solid rgba(253, 186, 116, .55); font-size: 14px; font-weight: 600;
+}
+/* Y en la pantalla grande, el cartel de cámara activa. */
+.kimos-funplai .fp-cam-notice.is-video b { color: #FDBA74; }
 /* Emparejamiento, en la pantalla grande. */
 .kimos-funplai .fp-sensor-par { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
 .kimos-funplai .fp-sensor-qr { background: #fff; padding: 10px; border-radius: 12px; line-height: 0; }

@@ -747,6 +747,15 @@ export default function mount(shell) {
       sensorHz: 24,            // a cuántos cuadros por segundo transmite el teléfono
       sensorLatenciaMax: 180,  // ms de edad de muestra que todavía se juega
       sensorRttMax: 100,       // ms de ida y vuelta razonables en una LAN
+      // La imagen del teléfono en la pantalla grande: APAGADA por defecto.
+      //
+      // El modo sensor existe para mandar 33 puntos en vez de vídeo, y por eso
+      // la app promete —en el teléfono y en PRIVACIDAD.md— que la imagen no
+      // sale de ahí. Encenderla convierte al teléfono en una webcam de verdad,
+      // y cambia lo que la app le dice a quien está siendo filmado: los dos
+      // carteles se reescriben solos según lo que el enlace esté haciendo.
+      // Por eso es opt-in y del operador, no un valor por defecto.
+      sensorVideo: false,
     },
     // Volumen de juego declarado, en centímetros. Es lo que permite pasar de
     // píxeles a medidas reales (distancia, altura, envergadura).
@@ -1992,11 +2001,31 @@ export default function mount(shell) {
    */
   function AvisoCamara() {
     if (model.hardware.avisoCamara === false) return null;
-    const remoto = motorActivo && motorActivo.tipo === 'sensor';
-    return h('div', { className: 'fp-cam-notice' + (remoto ? ' is-remoto' : '') },
+    // Quién decide si hay algo que avisar es ESTE componente, y la pregunta es
+    // «¿hay una cámara filmando?», no «¿hay un stream de webcam en esta
+    // página?». Los seis juegos que lo llamaban preguntaban lo segundo, y por
+    // eso el cartel no aparecía ni con Kinect ni con el teléfono: los dos
+    // filman a la persona sin dejar ningún stream local. El cartel unificado de
+    // la Fase 6 existía para que quien está delante SIEMPRE lo lea, así que la
+    // condición estaba en el sitio equivocado.
+    const mot = motorActivo;
+    if (!mot || mot.tipo === 'demo') return null;   // el maniquí no filma a nadie
+    const remoto = mot.tipo === 'sensor';
+    // Con el teléfono de cámara hay DOS casos y el cartel no puede decir lo
+    // mismo en los dos: por defecto solo viajan los 33 puntos, pero si el
+    // operador enciende el vídeo la imagen sí sale del teléfono y llega a esta
+    // pantalla. Quien está delante de la cámara tiene derecho a leer cuál de
+    // los dos está pasando, y se decide por lo que el enlace está haciendo, no
+    // por lo que alguien configuró.
+    const salVideo = remoto && enlaceActivo && enlaceActivo.salud
+      ? (enlaceActivo.salud().video || null) : null;
+    const conVideo = !!(salVideo && salVideo.recibiendo);
+    return h('div', { className: 'fp-cam-notice' + (remoto ? ' is-remoto' : '') + (conVideo ? ' is-video' : '') },
       h('b', null, '● Cámara activa'),
       h('span', null, remoto
-        ? 'La imagen no sale del teléfono: se calculan ahí los puntos del cuerpo y solo viajan esos números.'
+        ? (conVideo
+            ? 'La imagen del teléfono se está viendo en esta pantalla. No se graba y no se guarda, y no sale de esta red.'
+            : 'La imagen no sale del teléfono: se calculan ahí los puntos del cuerpo y solo viajan esos números.')
         : 'No se graba, no se guarda y no se transmite vídeo.'));
   }
 
@@ -3087,7 +3116,8 @@ export default function mount(shell) {
       enlaceActivo = p.enlace;
       motorActivo = {
         tipo: 'sensor', etiqueta: '📱 Teléfono',
-        detalle: 'Pose calculada en el teléfono, sala ' + salaLegible(sala) + '. La imagen no sale de ahí.',
+        detalle: 'Pose calculada en el teléfono, sala ' + salaLegible(sala) + '. '
+          + (hw && hw.sensorVideo ? 'Su imagen se está transmitiendo a esta pantalla.' : 'La imagen no sale de ahí.'),
       };
       return p;
     }
@@ -4638,8 +4668,11 @@ export default function mount(shell) {
         return muestras.reduce((a, b) => (b.rtt < a.rtt ? b : a)).desfase;
       },
       /** Latencia del enlace: la mediana aguanta un pico suelto de wifi. */
-      rtt() { return muestras.length ? mediana(muestras.map((m) => m.rtt)) : null; },
-      rttMinimo() { return muestras.length ? Math.min.apply(null, muestras.map((m) => m.rtt)) : null; },
+      // Redondeados a un decimal: `performance.now()` da microsegundos y sin
+      // esto la pantalla mostraba «0.5750000000698492 ms», que no es más
+      // preciso, solo ilegible.
+      rtt() { return muestras.length ? Math.round(mediana(muestras.map((m) => m.rtt)) * 10) / 10 : null; },
+      rttMinimo() { return muestras.length ? Math.round(Math.min.apply(null, muestras.map((m) => m.rtt)) * 10) / 10 : null; },
       /** Una marca de tiempo del remoto, traída al reloj de acá. */
       aLocal(ts) { return num(ts, 0) - this.desfase(); },
     };
@@ -4837,6 +4870,21 @@ export default function mount(shell) {
     let estado = 'inactivo';          // inactivo|conectando|esperando|ws|rtc|caido
     let pareja = false, aviso = '';
     let latidos = null, sincroniza = null;
+    /**
+     * Vídeo del teléfono, opcional y apagado por defecto.
+     *
+     * Va como PISTA de WebRTC y no como cuadros por el canal de datos: así lo
+     * codifica el hardware del teléfono, se adapta solo al ancho de banda y no
+     * compite con las poses por el mismo canal —que es sin orden y sin reenvíos
+     * justamente porque una pose que llega tarde no sirve—.
+     *
+     * Quien ABRE la puerta es la pantalla, que es la que oferta: si no pide el
+     * transceptor de vídeo, no hay línea de vídeo en la oferta y el teléfono no
+     * puede mandar imagen ni queriendo. La capacidad queda cerrada por la forma
+     * del enlace, no por una casilla que alguien podría saltarse.
+     */
+    const quiereVideo = rol === 'pantalla' && !!o.video;
+    let videoRemoto = null, enviandoVideo = false;
 
     const proto = protocoloSensor({
       rol,
@@ -4866,7 +4914,18 @@ export default function mount(shell) {
         pc = new RTCPeerConnection({ iceServers: [] });
         pc.onicecandidate = (ev) => { if (ev.candidate) señal({ t: 'ice', candidato: ev.candidate.toJSON ? ev.candidate.toJSON() : ev.candidate }); };
         pc.ondatachannel = (ev) => montarCanal(ev.channel);
+        // La imagen que manda el teléfono, si la pantalla la pidió.
+        pc.ontrack = (ev) => {
+          if (!ev.track || ev.track.kind !== 'video') return;
+          videoRemoto = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+          ev.track.onended = () => { videoRemoto = null; if (o.alVideo) { try { o.alVideo(null); } catch (e) { /* noop */ } } };
+          if (o.alVideo) { try { o.alVideo(videoRemoto); } catch (e) { /* noop */ } }
+        };
         if (comoOferente) {
+          // Un transceptor de solo recepción: la pantalla nunca manda imagen,
+          // solo la recibe. Va ANTES de la oferta para no tener que
+          // renegociar, que es donde WebRTC se pone difícil de verdad.
+          if (quiereVideo) { try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch (e) { /* noop */ } }
           // `ordered:false` y sin reenvíos: en un flujo de poses, un cuadro que
           // llega tarde no sirve para nada y esperar por él retrasa a los que
           // vienen detrás. Es el mismo criterio que usa el puente Kinect al
@@ -4879,6 +4938,30 @@ export default function mount(shell) {
       } catch (e) { pc = null; }
     };
 
+    /**
+     * Lado sensor: si en la oferta vino una línea de vídeo, se le engancha la
+     * cámara del teléfono. Si no vino, no hay nada que enganchar y el teléfono
+     * sigue mandando solo puntos, que es el comportamiento por defecto.
+     */
+    const engancharVideo = async () => {
+      if (rol !== 'sensor' || !pc) return;
+      const pista = typeof o.pistaVideo === 'function' ? o.pistaVideo() : null;
+      if (!pista) return;
+      const tr = pc.getTransceivers().find((x) => x.receiver && x.receiver.track && x.receiver.track.kind === 'video');
+      if (!tr) return;
+      try {
+        await tr.sender.replaceTrack(pista);
+      } catch (e) { enviandoVideo = false; return; }
+      // La dirección va en su propio try: cuando la oferta dice `recvonly` el
+      // navegador ya deja el transceptor en `sendonly` por su cuenta, y hay
+      // implementaciones donde volver a asignarla lanza. Si lanzara, la pista
+      // YA está enganchada y el vídeo ya está saliendo: dar la bandera por
+      // falsa dejaría al teléfono mandando imagen y prometiendo que no.
+      try { tr.direction = 'sendonly'; } catch (e) { /* ya venía bien */ }
+      enviandoVideo = true;
+      if (o.alEnviarVideo) { try { o.alEnviarVideo(true); } catch (e) { /* noop */ } }
+    };
+
     const recibirSeñal = async (m) => {
       try {
         if (m.t === 'sdp') {
@@ -4886,6 +4969,7 @@ export default function mount(shell) {
           if (!pc) return;
           await pc.setRemoteDescription({ type: m.tipo, sdp: m.sdp });
           if (m.tipo === 'offer') {
+            await engancharVideo();
             const r = await pc.createAnswer();
             await pc.setLocalDescription(r);
             señal({ t: 'sdp', sdp: pc.localDescription.sdp, tipo: pc.localDescription.type });
@@ -4900,6 +4984,11 @@ export default function mount(shell) {
       try { canal && canal.close(); } catch (e) { /* noop */ }
       try { pc && pc.close(); } catch (e) { /* noop */ }
       canal = null; pc = null;
+      if (videoRemoto || enviandoVideo) {
+        videoRemoto = null; enviandoVideo = false;
+        if (o.alVideo) { try { o.alVideo(null); } catch (e) { /* noop */ } }
+        if (o.alEnviarVideo) { try { o.alEnviarVideo(false); } catch (e) { /* noop */ } }
+      }
     };
 
     // ── Puente ──────────────────────────────────────────────────────────
@@ -4979,8 +5068,17 @@ export default function mount(shell) {
       /** 'rtc' cuando va directo entre pares, 'ws' cuando va por el puente. */
       via: () => (canal && canal.readyState === 'open' ? 'rtc' : (ws && ws.readyState === 1 ? 'ws' : null)),
       salud() {
-        return Object.assign({ estado, via: this.via(), pareja, url, sala, aviso }, proto.salud());
+        return Object.assign({
+          estado, via: this.via(), pareja, url, sala, aviso,
+          // Lo PEDIDO y lo que de verdad está pasando, separados: pedir vídeo
+          // no lo trae si el teléfono no engancha su cámara.
+          video: { pedido: quiereVideo, recibiendo: !!videoRemoto, enviando: enviandoVideo },
+        }, proto.salud());
       },
+      /** El vídeo del teléfono, como MediaStream, o null. */
+      video: () => videoRemoto,
+      /** ¿Este teléfono está mandando su imagen? (lado sensor) */
+      enviandoVideo: () => enviandoVideo,
       leer: (maxEdad) => proto.leer(maxEdad),
       mandarPose: (L, mundo, w, h) => proto.mandarPose(L, mundo, w, h),
       mandarEstado: (d) => proto.mandarEstado(d),
@@ -4998,15 +5096,34 @@ export default function mount(shell) {
    * que no tiene estado y sirve para los avisos de encuadre.
    */
   function proveedorSensorRemoto(hw, espacio, sala) {
-    const enlace = enlaceSensor({ rol: 'pantalla', hw, sala });
+    // La imagen del teléfono es OPCIONAL y viene apagada: el modo sensor
+    // existe para mandar 33 puntos y no vídeo, y encenderla es una decisión
+    // del operador que además cambia lo que la app le promete a quien está
+    // siendo filmado (ver `AvisoCamara` y docs/PRIVACIDAD.md).
+    const conVideo = !!(hw && hw.sensorVideo);
+    // El <video> de la página donde hay que pintar lo que llegue. Se recibe
+    // por `setVideo`, igual que con una webcam local: para el resto de la app
+    // este proveedor deja de ser un caso especial.
+    let elVideo = null, streamRemoto = null;
+    const pegar = () => {
+      if (!elVideo) return;
+      try {
+        if (elVideo.srcObject !== streamRemoto) elVideo.srcObject = streamRemoto;
+        if (streamRemoto) { const pr = elVideo.play(); if (pr && pr.catch) pr.catch(() => {}); }
+      } catch (e) { /* noop */ }
+    };
+    const enlace = enlaceSensor({
+      rol: 'pantalla', hw, sala, video: conVideo,
+      alVideo: (stream) => { streamRemoto = stream; pegar(); },
+    });
     const maxEdad = Math.max(200, num(hw && hw.sensorLatenciaMax, 180) * 3);
     return {
       tipo: 'sensor',
       nombre: 'Teléfono como sensor (modo remoto)',
       enlace,
-      setVideo() { /* la cámara está en el teléfono */ },
+      setVideo(el) { elVideo = el || null; pegar(); },
       async iniciar() { enlace.iniciar(); return true; },
-      detener() { enlace.detener(); },
+      detener() { enlace.detener(); streamRemoto = null; },
       salud() {
         const sal = enlace.salud();
         return Object.assign({}, sal, {
@@ -5084,7 +5201,7 @@ export default function mount(shell) {
    * contra el manifest de la app, el catálogo raíz y el README. Con un nombre
    * propio el chequeo pasaba, pero pasaba sin mirar nada.
    */
-  const APP_VERSION = '1.19.0';
+  const APP_VERSION = '1.20.0';
 
   /**
    * Identificador de esta sesión de la app: desde que se abrió hasta que se
@@ -6905,8 +7022,7 @@ export default function mount(shell) {
         cfg.mostrarEsqueleto !== false && vista.landmarks
           ? h(Esqueleto, { landmarks: vista.landmarks, espejo: espejo }) : null),
       fase === 'calibrando' ? h(Silueta, { ok: hud.ok }) : null,
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null);
+      h(AvisoCamara, null));
 
     // Modo rítmico: pantalla aparte, sin cámara y sin nada que soltar.
     if (ritmico) {
@@ -7979,8 +8095,7 @@ export default function mount(shell) {
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null);
+      h(AvisoCamara, null));
 
     // ── Intro: reglas oficiales ───────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -8230,7 +8345,7 @@ export default function mount(shell) {
             ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
             autoPlay: true, playsInline: true, muted: true,
           }),
-          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
+          h(AvisoCamara, null)) : null,
         h('p', { className: 'fp-hint' },
           modoTactil
             ? (barra ? 'Toca cuando el marcador pase por el centro: mientras más al centro, más preciso el tejo.'
@@ -8567,8 +8682,7 @@ export default function mount(shell) {
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok, modo: 'superior' }) : null,
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null);
+      h(AvisoCamara, null));
 
     // ── Intro: elegir contrincante ────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -8701,7 +8815,7 @@ export default function mount(shell) {
             ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''),
             autoPlay: true, playsInline: true, muted: true,
           }),
-          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
+          h(AvisoCamara, null)) : null,
         modoTactil ? h('div', { className: 'fp-box-botones' },
           h(Boton, { variant: 'primary', onClick: () => golpearJugador({ brazo: 'izquierdo', altura: 'media', fuerza: 0.8 }) }, '🥊 Izquierda'),
           h(Boton, {
@@ -9951,8 +10065,7 @@ export default function mount(shell) {
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: guia.landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         guia.landmarks ? h(Esqueleto, { landmarks: guia.landmarks, espejo: espejo }) : null),
       fase === 'posicion' ? h(Silueta, { ok: guia.ok }) : null,
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null);
+      h(AvisoCamara, null));
 
     if (fase === 'intro' || fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -10092,7 +10205,7 @@ export default function mount(shell) {
             h('text', { textAnchor: 'middle', y: 12, className: 'fp-ray-aviso' }, ultimo.motivo)) : null)),
         !modoTactil ? h('div', { className: 'fp-ray-cam' },
           h('video', { ref: attachVideo, className: 'fp-video' + (espejo ? ' is-mirror' : ''), autoPlay: true, playsInline: true, muted: true }),
-          hw.avisoCamara !== false ? h(AvisoCamara, null) : null) : null,
+          h(AvisoCamara, null)) : null,
         h('p', { className: 'fp-hint' },
           modoTactil
             ? 'Desliza desde el balón hacia donde quieras colocarlo: más rápido, más potencia.'
@@ -10394,8 +10507,7 @@ export default function mount(shell) {
     const espejo = E.hw.espejo !== false;
     const videoBox = h('div', { className: 'fp-cam' + (E.fase === 'intro' || E.fase === 'fin' ? ' is-hidden' : '') },
       h(CamaraVista, { attach: E.attachVideo, espejo: espejo, landmarks: E.landmarks, espacio: model.espacio, imagenKinect: imagenDe(E.provRef) }),
-      E.hw.avisoCamara !== false && E.streamRef.current
-        ? h(AvisoCamara, null) : null);
+      h(AvisoCamara, null));
 
     if (E.fase === 'intro' || E.fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -10903,8 +11015,7 @@ export default function mount(shell) {
     const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null) : null;
+      h(AvisoCamara, null)) : null;
 
     // ── Intro ─────────────────────────────────────────────────────────
     if (fase === 'intro' || fase === 'abriendo') {
@@ -11314,8 +11425,7 @@ export default function mount(shell) {
     const videoBox = !modoTactil ? h('div', { className: 'fp-ray-cam' + (fase === 'volando' ? '' : ' is-hidden') },
       h(CamaraVista, { attach: attachVideo, espejo: espejo, landmarks: landmarks, espacio: model.espacio, imagenKinect: imagenDe(provRef) },
         landmarks ? h(Esqueleto, { landmarks: landmarks, espejo: espejo }) : null),
-      hw.avisoCamara !== false && streamRef.current
-        ? h(AvisoCamara, null) : null) : null;
+      h(AvisoCamara, null)) : null;
 
     if (fase === 'intro' || fase === 'abriendo') {
       return h(Marco, { icon: props.game.icon, title: props.game.name, onExit: props.onExit, meta: null },
@@ -11807,6 +11917,8 @@ export default function mount(shell) {
     // Emparejamiento del teléfono como sensor.
     const [sensor, setSensor] = useState(null);
     const [oyendoSensor, setOyendoSensor] = useState(false);
+    // El MediaStream que manda el teléfono, para poder verlo mientras se monta.
+    const [vistaSensor, setVistaSensor] = useState(null);
     const sensorRef = useRef({ enlace: null, parar: null });
 
     useEffect(() => () => {
@@ -11843,10 +11955,22 @@ export default function mount(shell) {
         try { S.enlace && S.enlace.detener(); } catch (e) { /* noop */ }
         S.parar = null; S.enlace = null;
         setOyendoSensor(false);
+        setVistaSensor(null);
         return;
       }
       const sala = salaDelTotem();
-      S.enlace = enlaceSensor({ rol: 'pantalla', hw: model.hardware, sala });
+      // El enlace de prueba pide la imagen con la MISMA configuración que van a
+      // usar los juegos. Sin esto, el operador probaba acá, veía «APAGADA» y
+      // concluía que la imagen no funciona, cuando en el juego sí llegaba: el
+      // sitio donde se prueba tiene que comportarse como el sitio donde se
+      // juega, o la prueba no sirve para nada.
+      S.enlace = enlaceSensor({
+        rol: 'pantalla', hw: model.hardware, sala,
+        video: !!model.hardware.sensorVideo,
+        // Y si llega, se ve acá mismo: así el operador confirma el encuadre del
+        // teléfono mientras lo apoya, sin tener que abrir un juego.
+        alVideo: (stream) => { setVistaSensor(stream || null); },
+      });
       S.enlace.iniciar();
       setOyendoSensor(true);
       let ultimo = 0;
@@ -12563,7 +12687,9 @@ export default function mount(shell) {
             h('p', { className: 'fp-note' },
               'Para el montaje sin cámara: notebook con proyector, o un tótem cuya cámara no sirve. ' +
               'El teléfono abre la app por wifi, calcula la pose ahí mismo y transmite solo los 33 ' +
-              'puntos del cuerpo. La imagen no sale del teléfono. No hay que instalar nada en este equipo.'),
+              'puntos del cuerpo. No hay que instalar nada en este equipo. Por defecto la imagen NO sale del '
+              + 'teléfono; si hace falta que el jugador se vea, se enciende «Recibir la imagen del teléfono» '
+              + 'en ⚙️ Editor → 🔌 Hardware, y entonces sí sale.'),
             (function () {
               const sala = salaNormal(model.hardware.sensorSala) || '(sin generar)';
               const url = urlDelSensor(model.hardware, sala);
@@ -12610,7 +12736,43 @@ export default function mount(shell) {
                       h('b', null, sensor.salud.recibidos), h('span', null, 'cuadros recibidos')),
                     h('div', { className: 'fp-medida' },
                       h('b', null, sensor.salud.desfase == null ? '—' : Math.round(sensor.salud.desfase / 100) / 10 + ' s'),
-                      h('span', null, 'desfase de reloj corregido'))),
+                      h('span', null, 'desfase de reloj corregido')),
+                    // La imagen: pedida y llegando son dos cosas distintas.
+                    // Pedirla no la trae si el teléfono no engancha su cámara
+                    // —permiso denegado, contexto inseguro, enlace por puente
+                    // en vez de directo—, y esa diferencia es la que hay que
+                    // poder leer antes de una feria.
+                    h('div', { className: 'fp-medida' + (sensor.salud.video && sensor.salud.video.recibiendo ? ' is-ok'
+                      : sensor.salud.video && sensor.salud.video.pedido ? ' is-mal' : '') },
+                      h('b', null, !sensor.salud.video || !sensor.salud.video.pedido ? 'APAGADA'
+                        : sensor.salud.video.recibiendo ? 'LLEGANDO' : 'SIN LLEGAR'),
+                      h('span', null, 'imagen del teléfono'))),
+                  sensor.salud.video && sensor.salud.video.pedido && !sensor.salud.video.recibiendo
+                    ? h('p', { className: 'fp-note' },
+                        '⚠️ Se pidió la imagen del teléfono y no está llegando. La imagen viaja por WebRTC '
+                        + 'directo: si el camino del enlace dice «POR PUENTE», el vídeo no puede pasar —el puente '
+                        + 'relaya poses, no pistas de vídeo—. Suele ser que las dos puntas no se ven entre sí en '
+                        + 'la red; con las dos en el mismo wifi el enlace pasa a directo solo.')
+                    : null,
+                  sensor.salud.video && sensor.salud.video.recibiendo
+                    ? h('div', null,
+                        h('p', { className: 'fp-note' },
+                          '📹 La imagen del teléfono se está viendo en esta pantalla. El teléfono lo avisa en su '
+                          + 'propia pantalla, y el cartel de cámara de los juegos lo dice también. Se apaga en '
+                          + '⚙️ Editor → 🔌 Hardware.'),
+                        // Verla acá es lo que permite apoyar el teléfono y
+                        // corregir el encuadre sin abrir un juego.
+                        h('div', { className: 'fp-cam fp-cam--diag' },
+                          h('video', {
+                            className: 'fp-video' + (model.hardware.espejo !== false ? ' is-mirror' : ''),
+                            autoPlay: true, playsInline: true, muted: true,
+                            ref: (el) => {
+                              if (!el) return;
+                              if (el.srcObject !== vistaSensor) el.srcObject = vistaSensor;
+                              const pr = el.play(); if (pr && pr.catch) pr.catch(() => {});
+                            },
+                          })))
+                    : null,
                   sensor.veredicto.acciones.length
                     ? h('ul', { className: 'fp-campo-lista' }, sensor.veredicto.acciones.map((a, i) =>
                         h('li', { key: i, className: 'is-' + sensor.veredicto.nivel }, (sensor.veredicto.nivel === 'mal' ? '❌ ' : '⚠️ ') + a)))
@@ -13085,6 +13247,27 @@ export default function mount(shell) {
             onChange: (v) => patch({ hardware: { kinectSaturacion: v } }),
           }),
 
+          // ── El teléfono como cámara ─────────────────────────────────
+          h('h4', { className: 'fp-h4 fp-form-ancho' }, '📱 El teléfono como cámara (modo sensor)'),
+          h('p', { className: 'fp-note fp-form-ancho' },
+            'Se empareja por QR en 🎥 Diagnóstico → 9, sin instalar nada: el teléfono abre la app en su ' +
+            'navegador y calcula la pose ahí mismo. Por defecto transmite SOLO los 33 puntos del cuerpo, y ' +
+            'la app promete en la pantalla del teléfono que la imagen no sale de ahí.'),
+          h(Campo, {
+            label: 'Recibir la imagen del teléfono', type: 'boolean', value: m.hardware.sensorVideo === true,
+            help: 'Enciéndelo si el jugador tiene que verse en la pantalla grande. La imagen va directo por la red ' +
+              'local (WebRTC, sin internet, sin grabar) y el teléfono pasa a comportarse como una webcam. ' +
+              'Cambia lo que la app promete: el teléfono avisa en grande que está enviando su imagen y el cartel ' +
+              'de cámara de esta pantalla lo dice también. La pose se sigue calculando en el teléfono.',
+            onChange: (v) => patch({ hardware: { sensorVideo: v } }),
+          }),
+          h(Campo, {
+            label: 'Cuadros por segundo del teléfono', type: 'range', min: 5, max: 40, step: 1,
+            value: num(m.hardware.sensorHz, 24),
+            help: 'A cuántos cuadros por segundo manda la pose. Cada cuadro de más es batería del teléfono y ancho de banda en un wifi que ya es el eslabón débil.',
+            onChange: (v) => patch({ hardware: { sensorHz: v } }),
+          }),
+
           // ── Robustez del pipeline ───────────────────────────────────
           h('h4', { className: 'fp-h4 fp-form-ancho' }, '🎯 Robustez de la pose'),
           h('p', { className: 'fp-note fp-form-ancho' },
@@ -13405,6 +13588,9 @@ export default function mount(shell) {
     const sala = props.sala;
     const [estado, setEstado] = useState({ fase: 'arrancando', aviso: '' });
     const [salud, setSalud] = useState(null);
+    // ¿Este teléfono está mandando su imagen a la pantalla? Lo dice el enlace
+    // cuando engancha la pista, no la configuración.
+    const [mandandoVideo, setMandandoVideo] = useState(false);
     const videoRef = useRef(null);
     const ref = useRef({ enlace: null, prov: null, stream: null, parar: null, wake: null });
 
@@ -13471,6 +13657,17 @@ export default function mount(shell) {
         R.enlace = enlaceSensor({
           rol: 'sensor', hw: model.hardware, sala,
           alCambiar: (e, aviso) => { if (vivo) setEstado({ fase: e, aviso: aviso || '' }); },
+          // La cámara de ESTE teléfono, para engancharla si la pantalla pidió
+          // imagen. Si no la pidió, esta función se llama y no pasa nada.
+          pistaVideo: () => {
+            const st = R.stream;
+            const p = st && st.getVideoTracks ? st.getVideoTracks()[0] : null;
+            return p || null;
+          },
+          // Se avisa en la pantalla del teléfono cuando de verdad está
+          // mandando imagen. No se anuncia por lo que alguien configuró: se
+          // anuncia por lo que está pasando.
+          alEnviarVideo: (si) => { if (vivo) setMandandoVideo(!!si); },
         });
         R.enlace.iniciar();
 
@@ -13541,9 +13738,18 @@ export default function mount(shell) {
         h('li', null, 'Enviados: ' + salud.enviados + ' cuadros'),
         h('li', null, 'Enlace: ' + (salud.via === 'rtc' ? 'directo' : salud.via === 'ws' ? 'por el puente' : '—') +
           (salud.rtt != null ? ' · ' + salud.rtt + ' ms ida y vuelta' : ''))) : null,
-      h('p', { className: 'fp-sensor-privacidad' },
-        '🔒 La imagen no sale de este teléfono. Se calculan acá los 33 puntos del cuerpo y se ' +
-        'transmiten solo esos números. No se graba, no se guarda y no se envía vídeo.'),
+      // El cartel de privacidad del teléfono dice lo que ESTÁ pasando, no lo
+      // que estaba configurado: si el enlace enganchó la cámara, la imagen sí
+      // está saliendo, y quien tiene el teléfono en la mano tiene que verlo en
+      // grande y no en letra chica.
+      mandandoVideo
+        ? h('p', { className: 'fp-sensor-privacidad is-video' },
+            '📹 ESTE TELÉFONO ESTÁ ENVIANDO SU IMAGEN a la pantalla, porque el operador lo pidió. ' +
+            'Va directo por la red local, no se graba, no se guarda y no sale a internet. ' +
+            'Para que deje de enviarla hay que apagarlo en el tótem: ⚙️ Editor → 🔌 Hardware.')
+        : h('p', { className: 'fp-sensor-privacidad' },
+            '🔒 La imagen no sale de este teléfono. Se calculan acá los 33 puntos del cuerpo y se ' +
+            'transmiten solo esos números. No se graba, no se guarda y no se envía vídeo.'),
       h('p', { className: 'fp-note' },
         'Deja esta pantalla abierta y el teléfono apoyado y quieto. Si se bloquea la pantalla, ' +
         'el sensor se corta.'));
