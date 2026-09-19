@@ -1616,7 +1616,7 @@
     {
       "id": "kimos-trading",
       "name": "KIMOS Trading",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "Cabina de trading de criptomonedas con agentes para Binance, con contabilidad chilena. Tres motores independientes (swing, day trading y scalping) con su propio capital, riesgo y fase; agente de riesgo determinista con poder de veto sobre cada propuesta; los 26 patrones de velas convertidos en reglas numéricas y adaptados al 24/7 de cripto; indicadores calculados en la app sobre las velas públicas de Binance; sistema de confluencia con pesos por motor; backtesting orientado a eventos con comisiones, deslizamiento y rechazo de órdenes maker; Modo Asesor donde una persona aprueba cada orden; cascada de ganancias con marca de agua, provisión tributaria, reserva, jubilación y retiros; libro tributario SII con FIFO y precio promedio ponderado, tabla del Global Complementario y respaldo DJ 1964; y bitácora inmutable para auditoría. La app NO guarda claves de Binance ni envía órdenes: ejecuta Geminis Core, el motor que viaja en assets/ y se instala en un VPS con IP fija.",
       "icon": "📈",
       "author": "KIMOS",

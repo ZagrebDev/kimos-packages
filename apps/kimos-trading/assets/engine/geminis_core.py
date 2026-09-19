@@ -106,7 +106,11 @@ class Config:
             api_key=os.environ.get("BINANCE_API_KEY", ""),
             clave_privada=os.environ.get("BINANCE_PRIVATE_KEY_PATH", ""),
             api_secret=os.environ.get("BINANCE_API_SECRET", ""),
-            recv_window=int(os.environ.get("BINANCE_RECV_WINDOW", "5000")),
+            # El contrato de Binance admite hasta 60000 ms y recomienda 5000 o
+            # menos: una ventana grande no da holgura, da margen a que una
+            # petición vieja se ejecute tarde. Un valor fuera de rango se
+            # recorta en vez de hacer que Binance rechace TODAS las firmas.
+            recv_window=max(1, min(int(os.environ.get("BINANCE_RECV_WINDOW", "5000")), 60000)),
             intervalo_ciclo=int(os.environ.get("GEMINIS_CICLO_S", "15")),
         )
 
@@ -321,14 +325,56 @@ class Binance:
                 return estado
             raise ErrorBinance(0, f"La orden {client_id} no llegó: {err}") from err
 
-    def enviar_oco(self, **params) -> dict:
+    def enviar_oco(self, *, symbol: str, side: str, quantity: str, price: str,
+                   stopPrice: str, stopLimitPrice: str,
+                   stopLimitTimeInForce: str = "GTC",
+                   listClientOrderId: str | None = None) -> dict:
         """Stop y objetivo enlazados EN EL EXCHANGE.
 
         Es la diferencia entre una caída del VPS que cuesta una oportunidad y
         una que cuesta la cuenta: con el OCO puesto, la posición sigue
         protegida aunque este proceso no exista.
+
+        El endpoint vigente es `POST /api/v3/orderList/oco`, que describe las
+        dos patas como «above» y «below» en vez de asumirlas. El anterior
+        —`POST /api/v3/order/oco`— sigue respondiendo, pero la documentación de
+        Binance lo titula «New OCO - Deprecated», y un endpoint deprecado es un
+        endpoint con fecha de retirada. Se manda el nuevo y, solo si este
+        Binance no lo entendiera, se reintenta una vez con el viejo: quedarse
+        sin protección por un cambio de nombre sería el peor final posible.
+
+        Qué pata es cuál, según el lado del OCO (que es el contrario al de la
+        entrada):
+
+          SELL (protege una compra): el objetivo va ARRIBA del precio como
+          LIMIT_MAKER, y el stop ABAJO como STOP_LOSS_LIMIT.
+          BUY (el espejo): el stop va ARRIBA y el objetivo ABAJO.
         """
-        return self._pedir("POST", "/api/v3/order/oco", params, firmado=True)
+        comun = {"symbol": symbol, "side": side, "quantity": quantity}
+        if listClientOrderId:
+            comun["listClientOrderId"] = listClientOrderId
+        if side == "SELL":
+            nuevo = dict(comun, aboveType="LIMIT_MAKER", abovePrice=price,
+                         belowType="STOP_LOSS_LIMIT", belowStopPrice=stopPrice,
+                         belowPrice=stopLimitPrice, belowTimeInForce=stopLimitTimeInForce)
+        else:
+            nuevo = dict(comun, aboveType="STOP_LOSS_LIMIT", aboveStopPrice=stopPrice,
+                         abovePrice=stopLimitPrice, aboveTimeInForce=stopLimitTimeInForce,
+                         belowType="LIMIT_MAKER", belowPrice=price)
+        try:
+            return self._pedir("POST", "/api/v3/orderList/oco", nuevo, firmado=True)
+        except ErrorBinance as err:
+            # -1121 símbolo, -2010 fondos, -1013 filtros: son errores REALES del
+            # OCO y volver a mandarlo por la ruta vieja no los arregla. Solo se
+            # reintenta cuando la queja es de la ruta o de los parámetros, que
+            # es lo que diría un Binance que aún no conoce este endpoint.
+            if err.codigo not in (-1102, -1104, -1105, -1128, 404):
+                raise
+            log.warning("orderList/oco no fue aceptado (%s). Se reintenta con el endpoint anterior.", err)
+            viejo = dict(comun, price=price, stopPrice=stopPrice,
+                         stopLimitPrice=stopLimitPrice,
+                         stopLimitTimeInForce=stopLimitTimeInForce)
+            return self._pedir("POST", "/api/v3/order/oco", viejo, firmado=True)
 
     def cancelar_todo(self, par: str) -> Any:
         return self._pedir("DELETE", "/api/v3/openOrders", {"symbol": par}, firmado=True)
