@@ -7,7 +7,7 @@ agentes de IA (Claude), embeddings/pgvector y el aislamiento multi-tenant (RLS).
 Este bundle es solo la **interfaz**, que corre en el navegador dentro del shell y
 llama al motor por `fetch` (CORS habilitado). Ver `docs/architecture/kimos-kapp.md`.
 
-**Versión actual:** 0.8.0
+**Versión actual:** 0.9.0
 
 ## Cómo se construye
 
@@ -38,6 +38,7 @@ propio del tenant).
 
 | Versión | Cambios |
 |---|---|
+| 0.9.0 | **Sin login: SSO por Firebase (multi-tenant, sin tocar el host)**. El kapp ya no pide usuario/contraseña: al montar reenvía el ID token de Firebase del usuario KIMOS (vía `shell.authFetch`) al backend, que lo verifica contra Google. El `projectId` (aud) es la llave de tenant → cada cliente KIMOS (`<cliente>.kimos.dev`) queda aislado en su propia empresa. Re-autentica en silencio al expirar. El campo de clave de API por fuente se conserva. |
 | 0.8.0 | **SSO nativo (paso A)**: al montar, si no hay sesión y el shell expone `authFetch`, el kapp pide al host de KIMOS un JWT de identidad (`/apps/licitai/sso-token`) y lo canjea en el backend (`/auth/sso/kimos`), entrando sin pedir email/clave. Ante cualquier fallo cae al login normal (dormido hasta que el host lo emita). Acompaña la **ingesta por-empresa** en el backend: cada empresa ingiere el catálogo con su propia clave de API cifrada, sin ticket global de sistema. |
 | 0.7.1 | **Backend nuevo**: la URL por defecto apunta al motor LicitAI redeployado en el proyecto GCP `kimos-licitai` (Cloud Run `405763028067`). Sin cambios de UI; solo `DEFAULT_API`/`defaultConfig.apiUrl`. |
 | 0.7.0 | **Registro** en la pantalla de acceso: alterna Ingresar/Crear cuenta (POST /auth/register + login), para que un cliente nuevo pueda estrenar su empresa desde el kapp. |
