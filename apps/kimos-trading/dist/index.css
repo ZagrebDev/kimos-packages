@@ -1,0 +1,329 @@
+/* KIMOS Trading — estilos con scope .kimos-trading.
+   Ni un color propio: todo sale de los tokens del tema del host (shadcn/HSL),
+   con su valor del tema claro como respaldo. Así la app cambia de día a noche
+   y toma la marca del tenant sin escuchar nada (APP-SPEC §9 y §7.f). */
+
+.kimos-trading {
+  --kt-fg: hsl(var(--foreground, 220 25% 6%));
+  --kt-muted: hsl(var(--muted-foreground, 215 20% 38%));
+  --kt-border: hsl(var(--border, 214 18% 82%));
+  --kt-border-soft: hsl(var(--border, 214 18% 82%) / 0.45);
+  --kt-glass: hsl(var(--card, 0 0% 100%) / 0.62);
+  --kt-surface: hsl(var(--muted, 220 14% 94%) / 0.5);
+  --kt-input: hsl(var(--background, 0 0% 100%) / 0.8);
+  --kt-primary: hsl(var(--primary, 182 75% 40%));
+  --kt-primary-fg: hsl(var(--primary-foreground, 0 0% 100%));
+  --kt-primary-soft: hsl(var(--primary, 182 75% 40%) / 0.12);
+  /* Colores semánticos: ganancia, pérdida, aviso. Salen de los tokens del
+     tenant cuando existen; si no, del valor por defecto que va detrás. */
+  --kt-ok: hsl(var(--success, 142 70% 34%));
+  --kt-ok-soft: hsl(var(--success, 142 70% 34%) / 0.14);
+  --kt-mal: hsl(var(--destructive, 0 72% 48%));
+  --kt-mal-soft: hsl(var(--destructive, 0 72% 48%) / 0.12);
+  --kt-aviso: hsl(var(--warning, 32 92% 42%));
+  --kt-aviso-soft: hsl(var(--warning, 32 92% 42%) / 0.14);
+  --kt-info: hsl(var(--info, 221 80% 52%));
+  --kt-info-soft: hsl(var(--info, 221 80% 52%) / 0.1);
+  --kt-radio: var(--radius, 10px);
+  --kt-borde: var(--border-width, 1px);
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--kt-fg);
+  background: transparent;
+  font-family: var(--font-sans, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* El modo noche sale gratis de los tokens; solo se retocan los semánticos que
+   quedan ilegibles sobre fondo oscuro. */
+.dark .kimos-trading {
+  --kt-ok: hsl(var(--success, 142 62% 52%));
+  --kt-mal: hsl(var(--destructive, 0 76% 64%));
+  --kt-aviso: hsl(var(--warning, 38 92% 58%));
+  --kt-info: hsl(var(--info, 213 92% 68%));
+}
+
+.kimos-trading * { box-sizing: border-box; }
+
+/* ── Cabecera ──────────────────────────────────────────────────────────── */
+.kimos-trading .kt-top {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: var(--kt-borde) solid var(--kt-border-soft);
+  background: var(--kt-glass);
+  backdrop-filter: blur(10px);
+  flex-shrink: 0;
+}
+.kimos-trading .kt-top__marca { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+.kimos-trading .kt-logo { font-size: 16px; }
+.kimos-trading .kt-ver {
+  font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+  background: var(--kt-surface); color: var(--kt-muted);
+}
+.kimos-trading .kt-top__acc { display: flex; align-items: center; gap: 6px; }
+
+.kimos-trading .kt-tabs {
+  display: flex; gap: 2px; overflow-x: auto; scrollbar-width: thin;
+  background: var(--kt-surface); padding: 3px; border-radius: var(--kt-radio);
+}
+.kimos-trading .kt-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; color: var(--kt-muted);
+  padding: 5px 10px; border-radius: calc(var(--kt-radio) - 3px);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.kimos-trading .kt-tab:hover { color: var(--kt-fg); }
+.kimos-trading .kt-tab--on {
+  background: hsl(var(--background, 0 0% 100%));
+  color: var(--kt-fg);
+  box-shadow: var(--shadow-sm, 0 1px 2px hsl(var(--foreground, 220 25% 6%) / 0.08));
+}
+.kimos-trading .kt-tab__e { font-size: 13px; }
+.kimos-trading .kt-badge {
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  background: var(--kt-aviso); color: var(--kt-primary-fg);
+  font-size: 10px; font-weight: 700; display: inline-grid; place-items: center;
+}
+
+/* ── Cuerpo ────────────────────────────────────────────────────────────── */
+.kimos-trading .kt-main { flex: 1; overflow: auto; padding: 12px; }
+.kimos-trading .kt-vista { display: flex; flex-direction: column; gap: 12px; max-width: 1400px; margin: 0 auto; }
+.kimos-trading .kt-cargando { display: grid; place-items: center; height: 100%; color: var(--kt-muted); }
+
+.kimos-trading .kt-grid { display: grid; gap: 12px; }
+.kimos-trading .kt-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kimos-trading .kt-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kimos-trading .kt-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kimos-trading .kt-grid--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kimos-trading .kt-grid--compacta { gap: 8px; }
+
+.kimos-trading .kt-card {
+  border: var(--kt-borde) solid var(--kt-border-soft);
+  border-radius: var(--kt-radio);
+  background: var(--kt-glass);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm, 0 1px 2px hsl(var(--foreground, 220 25% 6%) / 0.06));
+  overflow: hidden;
+}
+.kimos-trading .kt-card--activo { border-color: hsl(var(--primary, 182 75% 40%) / 0.5); }
+.kimos-trading .kt-card--peligro { border-color: hsl(var(--destructive, 0 72% 48%) / 0.5); }
+.kimos-trading .kt-card--aviso { border-color: hsl(var(--warning, 32 92% 42%) / 0.5); }
+.kimos-trading .kt-card__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-bottom: var(--kt-borde) solid var(--kt-border-soft);
+}
+.kimos-trading .kt-card__head h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.kimos-trading .kt-card__acc { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.kimos-trading .kt-card__body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.kimos-trading .kt-h4 { margin: 4px 0 0; font-size: 12px; font-weight: 700; color: var(--kt-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.kimos-trading .kt-sub { margin: 0; font-size: 11.5px; color: var(--kt-muted); }
+.kimos-trading .kt-bloque { padding: 8px 10px; background: var(--kt-surface); border-radius: calc(var(--kt-radio) - 2px); }
+
+/* ── Datos y métricas ──────────────────────────────────────────────────── */
+.kimos-trading .kt-metrica { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+.kimos-trading .kt-metrica--txt { font-size: 18px; text-transform: capitalize; }
+.kimos-trading .kt-datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kimos-trading .kt-dato { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kimos-trading .kt-dato__l { font-size: 11px; color: var(--kt-muted); }
+.kimos-trading .kt-dato__v { font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.kimos-trading .kt-dato__p { font-size: 10.5px; color: var(--kt-muted); }
+
+.kimos-trading .kt-t--ok { color: var(--kt-ok); }
+.kimos-trading .kt-t--mal { color: var(--kt-mal); }
+.kimos-trading .kt-t--aviso { color: var(--kt-aviso); }
+.kimos-trading .kt-t-bg--ok { background: var(--kt-ok); }
+.kimos-trading .kt-t-bg--mal { background: var(--kt-mal); }
+.kimos-trading .kt-t-bg--aviso { background: var(--kt-aviso); }
+
+.kimos-trading .kt-barra { height: 6px; border-radius: 999px; background: var(--kt-surface); overflow: hidden; }
+.kimos-trading .kt-barra__f { display: block; height: 100%; background: var(--kt-primary); transition: width 0.25s ease; }
+
+/* ── Chips, botones, avisos ────────────────────────────────────────────── */
+.kimos-trading .kt-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
+  background: var(--kt-surface); color: var(--kt-muted); white-space: nowrap;
+}
+.kimos-trading .kt-chip--ok { background: var(--kt-ok-soft); color: var(--kt-ok); }
+.kimos-trading .kt-chip--mal { background: var(--kt-mal-soft); color: var(--kt-mal); }
+.kimos-trading .kt-chip--aviso { background: var(--kt-aviso-soft); color: var(--kt-aviso); }
+.kimos-trading .kt-chip--muted { background: var(--kt-surface); color: var(--kt-muted); }
+
+.kimos-trading .kt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 12px; border-radius: calc(var(--kt-radio) - 2px);
+  border: var(--kt-borde) solid var(--kt-border);
+  background: hsl(var(--background, 0 0% 100%) / 0.7);
+  color: var(--kt-fg); font: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; text-decoration: none;
+}
+.kimos-trading .kt-btn:hover:not(:disabled) { background: hsl(var(--accent, 220 14% 94%)); }
+.kimos-trading .kt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.kimos-trading .kt-btn--primario { background: var(--kt-primary); border-color: var(--kt-primary); color: var(--kt-primary-fg); }
+.kimos-trading .kt-btn--primario:hover:not(:disabled) { background: var(--kt-primary); filter: brightness(1.08); }
+.kimos-trading .kt-btn--peligro { background: var(--kt-mal-soft); border-color: hsl(var(--destructive, 0 72% 48%) / 0.45); color: var(--kt-mal); }
+.kimos-trading .kt-btn--ghost { background: transparent; border-color: var(--kt-border-soft); }
+.kimos-trading .kt-btn--chico { padding: 4px 9px; font-size: 11px; }
+.kimos-trading .kt-btn--ancho { width: 100%; }
+
+.kimos-trading .kt-aviso {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px; border-radius: var(--kt-radio);
+  border-left: 3px solid var(--kt-info);
+  background: var(--kt-info-soft);
+  font-size: 12px;
+}
+.kimos-trading .kt-aviso p { margin: 0 0 4px; }
+.kimos-trading .kt-aviso p:last-child { margin-bottom: 0; }
+.kimos-trading .kt-aviso strong { font-size: 12.5px; }
+.kimos-trading .kt-aviso--warn { border-left-color: var(--kt-aviso); background: var(--kt-aviso-soft); }
+.kimos-trading .kt-aviso--error { border-left-color: var(--kt-mal); background: var(--kt-mal-soft); }
+.kimos-trading .kt-aviso--info { border-left-color: var(--kt-info); background: var(--kt-info-soft); }
+
+.kimos-trading .kt-vacio {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 22px 12px; text-align: center; color: var(--kt-muted); font-size: 12px;
+}
+.kimos-trading .kt-vacio__t { font-weight: 700; color: var(--kt-fg); margin: 0; }
+.kimos-trading .kt-vacio p { margin: 0; max-width: 46ch; }
+
+/* ── Formularios ───────────────────────────────────────────────────────── */
+.kimos-trading .kt-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kimos-trading .kt-campo--ancho { grid-column: 1 / -1; }
+.kimos-trading .kt-campo__l { font-size: 11px; font-weight: 600; color: var(--kt-muted); }
+.kimos-trading .kt-campo__in { display: flex; align-items: center; gap: 4px; }
+.kimos-trading .kt-campo input,
+.kimos-trading .kt-campo select {
+  width: 100%; min-width: 0;
+  padding: 6px 8px; font: inherit; font-size: 12px;
+  color: var(--kt-fg);
+  background: var(--kt-input);
+  border: var(--kt-borde) solid var(--kt-border);
+  border-radius: calc(var(--kt-radio) - 3px);
+}
+.kimos-trading .kt-campo input:focus,
+.kimos-trading .kt-campo select:focus { outline: 2px solid var(--kt-primary-soft); border-color: var(--kt-primary); }
+.kimos-trading .kt-campo__suf { font-size: 11px; color: var(--kt-muted); white-space: nowrap; }
+.kimos-trading .kt-campo__p { font-size: 10.5px; color: var(--kt-muted); }
+
+.kimos-trading .kt-sw { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; padding: 3px 0; }
+.kimos-trading .kt-sw input { position: absolute; opacity: 0; width: 0; height: 0; }
+.kimos-trading .kt-sw__box {
+  flex-shrink: 0; width: 32px; height: 18px; margin-top: 1px; border-radius: 999px;
+  background: var(--kt-surface); border: var(--kt-borde) solid var(--kt-border);
+  position: relative; transition: background 0.18s ease;
+}
+.kimos-trading .kt-sw__box::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--kt-muted); transition: transform 0.18s ease, background 0.18s ease;
+}
+.kimos-trading .kt-sw--on .kt-sw__box { background: var(--kt-primary); border-color: var(--kt-primary); }
+.kimos-trading .kt-sw--on .kt-sw__box::after { transform: translateX(14px); background: var(--kt-primary-fg); }
+.kimos-trading .kt-sw__t { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; }
+.kimos-trading .kt-sw__t small { font-weight: 400; font-size: 10.5px; color: var(--kt-muted); }
+
+.kimos-trading .kt-fila { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.kimos-trading .kt-fila--ctrl { align-items: flex-end; padding: 2px 0; }
+.kimos-trading .kt-fila--total { align-items: center; gap: 14px; padding-top: 6px; border-top: var(--kt-borde) solid var(--kt-border-soft); }
+
+/* ── Tablas y listas ───────────────────────────────────────────────────── */
+.kimos-trading .kt-tabla { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.kimos-trading .kt-tabla th {
+  text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--kt-muted); font-weight: 700; padding: 5px 8px;
+  border-bottom: var(--kt-borde) solid var(--kt-border-soft);
+}
+.kimos-trading .kt-tabla td { padding: 5px 8px; border-bottom: var(--kt-borde) solid var(--kt-border-soft); vertical-align: top; }
+.kimos-trading .kt-tabla tr:last-child td { border-bottom: 0; }
+.kimos-trading .kt-fila--activa td { background: var(--kt-primary-soft); }
+.kimos-trading .kt-fila--sim td { opacity: 0.72; }
+
+.kimos-trading .kt-scroll { max-height: 340px; overflow: auto; }
+.kimos-trading .kt-scroll--alto { max-height: 520px; }
+
+.kimos-trading .kt-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.kimos-trading .kt-lista--bullets { list-style: disc; padding-left: 18px; gap: 3px; }
+.kimos-trading .kt-razones {
+  list-style: none; margin: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
+  background: var(--kt-mal-soft); border-radius: calc(var(--kt-radio) - 2px);
+  color: var(--kt-mal); font-size: 11.5px; font-weight: 600;
+}
+
+.kimos-trading .kt-setups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.kimos-trading .kt-setup { padding: 8px 10px; background: var(--kt-surface); border-radius: calc(var(--kt-radio) - 2px); }
+.kimos-trading .kt-setup .kt-sub { margin-top: 3px; }
+
+.kimos-trading .kt-tesis { padding: 8px 10px; background: var(--kt-surface); border-radius: calc(var(--kt-radio) - 2px); }
+.kimos-trading .kt-tesis__l { font-size: 10.5px; font-weight: 700; color: var(--kt-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.kimos-trading .kt-tesis p { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.kimos-trading .kt-veredicto { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: var(--kt-borde) solid var(--kt-border-soft); }
+.kimos-trading .kt-previa { padding: 8px 10px; background: var(--kt-surface); border-radius: calc(var(--kt-radio) - 2px); display: flex; flex-direction: column; gap: 8px; }
+.kimos-trading .kt-comparar { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; padding-top: 8px; border-top: var(--kt-borde) solid var(--kt-border-soft); }
+.kimos-trading .kt-comparar .kt-sub { flex: 1 1 260px; }
+
+/* ── Código y puente ───────────────────────────────────────────────────── */
+.kimos-trading .kt-code { border: var(--kt-borde) solid var(--kt-border-soft); border-radius: calc(var(--kt-radio) - 2px); overflow: hidden; }
+.kimos-trading .kt-code__h {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 8px; background: var(--kt-surface);
+  font-size: 11px; font-weight: 700; color: var(--kt-muted);
+}
+.kimos-trading .kt-code pre {
+  margin: 0; padding: 8px 10px; overflow-x: auto;
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', Menlo, monospace);
+  font-size: 11px; line-height: 1.5;
+}
+
+/* ── Gráfico ───────────────────────────────────────────────────────────── */
+.kimos-trading .kt-graf { width: 100%; height: 260px; display: block; }
+.kimos-trading .kt-vela line { stroke-width: 1; }
+.kimos-trading .kt-vela--sube line, .kimos-trading .kt-vela--sube rect { stroke: var(--kt-ok); fill: var(--kt-ok); }
+.kimos-trading .kt-vela--baja line, .kimos-trading .kt-vela--baja rect { stroke: var(--kt-mal); fill: var(--kt-mal); }
+.kimos-trading .kt-linea { fill: none; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.kimos-trading .kt-linea--ema20 { stroke: var(--kt-primary); }
+.kimos-trading .kt-linea--ema50 { stroke: var(--kt-aviso); }
+.kimos-trading .kt-linea--ema200 { stroke: var(--kt-info); }
+.kimos-trading .kt-marca--alcista { fill: var(--kt-ok); }
+.kimos-trading .kt-marca--bajista { fill: var(--kt-mal); }
+.kimos-trading .kt-marca--indecision, .kimos-trading .kt-marca--continuacion { fill: var(--kt-muted); }
+.kimos-trading .kt-leyenda { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 0; font-size: 10.5px; color: var(--kt-muted); }
+.kimos-trading .kt-leyenda__ema20 { color: var(--kt-primary); }
+.kimos-trading .kt-leyenda__ema50 { color: var(--kt-aviso); }
+.kimos-trading .kt-leyenda__ema200 { color: var(--kt-info); }
+
+/* ── Portada con la advertencia ────────────────────────────────────────── */
+.kimos-trading .kt-portada { flex: 1; display: grid; place-items: center; padding: 16px; overflow: auto; }
+.kimos-trading .kt-portada__caja {
+  max-width: 720px; display: flex; flex-direction: column; gap: 12px;
+  padding: 22px; border-radius: var(--kt-radio);
+  border: var(--kt-borde) solid var(--kt-border-soft);
+  background: var(--kt-glass); backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md, 0 4px 16px hsl(var(--foreground, 220 25% 6%) / 0.1));
+}
+.kimos-trading .kt-portada h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+.kimos-trading .kt-portada__lead { margin: 0; color: var(--kt-muted); font-size: 13px; }
+
+/* ── Angosto: de escritorio a teléfono ─────────────────────────────────── */
+@media (max-width: 1100px) {
+  .kimos-trading .kt-grid--4, .kimos-trading .kt-grid--5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kimos-trading .kt-grid--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .kimos-trading .kt-top { grid-template-columns: 1fr auto; grid-template-areas: 'marca acc' 'tabs tabs'; row-gap: 8px; }
+  .kimos-trading .kt-top__marca { grid-area: marca; }
+  .kimos-trading .kt-top__acc { grid-area: acc; }
+  .kimos-trading .kt-tabs { grid-area: tabs; }
+  .kimos-trading .kt-grid--2, .kimos-trading .kt-grid--3, .kimos-trading .kt-grid--4, .kimos-trading .kt-grid--5 { grid-template-columns: 1fr; }
+  .kimos-trading .kt-setups { grid-template-columns: 1fr; }
+  .kimos-trading .kt-datos { grid-template-columns: 1fr; }
+  .kimos-trading .kt-main { padding: 10px; }
+}
