@@ -54,56 +54,7 @@ function makeApi(base, tokens) {
     get tokens() {
       return current;
     },
-    async login(email, password) {
-      const body = new URLSearchParams({ username: email, password });
-      const r = await fetch(`${root}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body
-      });
-      if (!r.ok) throw new ApiError(r.status, "Email o contrase\xF1a incorrectos.");
-      const d = await r.json();
-      current = { access: d.access_token, refresh: d.refresh_token };
-      return current;
-    },
-    // Registra una cuenta nueva (crea empresa propia) y deja la sesión iniciada.
-    async register(email, password, fullName) {
-      const r = await fetch(`${root}/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, full_name: fullName || null })
-      });
-      if (!r.ok) {
-        let msg = "No se pudo crear la cuenta.";
-        try {
-          const b = await r.json();
-          if (typeof b.detail === "string") msg = b.detail;
-        } catch {
-        }
-        throw new ApiError(r.status, msg);
-      }
-      return this.login(email, password);
-    },
-    // SSO nativo KIMOS (paso A): canjea el JWT de identidad que emite el host por
-    // el par de tokens de LicitAI (POST /auth/sso/kimos; el backend verifica firma,
-    // iss/aud y aprovisiona la org). Devuelve null si el SSO no está configurado
-    // (501) o el token no vale → el kapp cae al login por email/clave.
-    async ssoKimos(token) {
-      try {
-        const r = await fetch(`${root}/auth/sso/kimos`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token })
-        });
-        if (!r.ok) return null;
-        const d = await r.json();
-        current = { access: d.access_token, refresh: d.refresh_token };
-        return current;
-      } catch {
-        return null;
-      }
-    },
-    // Puente de identidad v1: renueva la sesión sin pedir clave. Devuelve los
+    // Identidad KIMOS: renueva la sesión de LicitAI sin pedir nada. Devuelve los
     // tokens nuevos (para re-persistirlos) o null si el refresh ya no vale.
     async refresh(refreshToken) {
       try {
@@ -223,7 +174,7 @@ function App(props) {
     onTokens(null);
     shell.notify({ level: "warn", text: "Tu sesi\xF3n expir\xF3, ingresa de nuevo." });
   }, [onTokens, shell]);
-  return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kimos-licitai" }, /* @__PURE__ */ react_shim_default.createElement("header", { className: "kl-header" }, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-logo", "aria-hidden": true }, "\u{1F4D1}"), /* @__PURE__ */ react_shim_default.createElement("h1", { className: "kl-title" }, "LicitAI"), brandName ? /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-brand" }, "\xB7 ", brandName) : null, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-ver" }, "v", version), /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-spacer" }), tokens ? /* @__PURE__ */ react_shim_default.createElement(react_shim_default.Fragment, null, /* @__PURE__ */ react_shim_default.createElement("nav", { className: "kl-nav" }, TABS.map((t) => /* @__PURE__ */ react_shim_default.createElement(
+  return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kimos-licitai" }, /* @__PURE__ */ react_shim_default.createElement("header", { className: "kl-header" }, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-logo", "aria-hidden": true }, "\u{1F4D1}"), /* @__PURE__ */ react_shim_default.createElement("h1", { className: "kl-title" }, "LicitAI"), brandName ? /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-brand" }, "\xB7 ", brandName) : null, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-ver" }, "v", version), /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-spacer" }), tokens ? /* @__PURE__ */ react_shim_default.createElement("nav", { className: "kl-nav" }, TABS.map((t) => /* @__PURE__ */ react_shim_default.createElement(
     "button",
     {
       key: t.id,
@@ -231,7 +182,7 @@ function App(props) {
       onClick: () => setView({ tab: t.id, codigo: null })
     },
     t.label
-  ))), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-ghost", onClick: () => onTokens(null) }, "Salir")) : null), /* @__PURE__ */ react_shim_default.createElement("main", { className: "kl-main" }, !tokens ? /* @__PURE__ */ react_shim_default.createElement(Login, { api, shell, onTokens }) : view.codigo ? /* @__PURE__ */ react_shim_default.createElement(
+  ))) : null), /* @__PURE__ */ react_shim_default.createElement("main", { className: "kl-main" }, !tokens ? /* @__PURE__ */ react_shim_default.createElement("div", { className: "kl-center", style: { flex: 1 } }, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-muted" }, "Conectando con tu cuenta de KIMOS\u2026")) : view.codigo ? /* @__PURE__ */ react_shim_default.createElement(
     Detalle,
     {
       api,
@@ -281,73 +232,6 @@ async function linkRecords(shell, d) {
     }
   } catch {
   }
-}
-function Login(props) {
-  const { api, shell, onTokens } = props;
-  const [mode, setMode] = react_shim_default.useState("login");
-  const [email, setEmail] = react_shim_default.useState("");
-  const [password, setPassword] = react_shim_default.useState("");
-  const [fullName, setFullName] = react_shim_default.useState("");
-  const [busy, setBusy] = react_shim_default.useState(false);
-  const [error, setError] = react_shim_default.useState(null);
-  const isReg = mode === "register";
-  async function submit(e) {
-    e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      const t = isReg ? await api.register(email, password, fullName) : await api.login(email, password);
-      onTokens(t);
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "No se pudo conectar al motor LicitAI.";
-      setError(msg);
-      shell.notify({ level: "error", text: msg });
-    } finally {
-      setBusy(false);
-    }
-  }
-  return /* @__PURE__ */ react_shim_default.createElement("form", { className: "kl-card kl-login", onSubmit: submit }, /* @__PURE__ */ react_shim_default.createElement("h2", { className: "kl-h2" }, isReg ? "Crear cuenta" : "Ingresar"), /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-muted" }, isReg ? "Crea tu cuenta de LicitAI (estrenas tu propia empresa)." : "Con\xE9ctate al motor LicitAI con tu cuenta de la plataforma."), error ? /* @__PURE__ */ react_shim_default.createElement("p", { className: "kl-error" }, error) : null, isReg ? /* @__PURE__ */ react_shim_default.createElement(
-    "input",
-    {
-      className: "kl-input",
-      type: "text",
-      placeholder: "Nombre y apellido",
-      value: fullName,
-      onChange: (e) => setFullName(e.target.value)
-    }
-  ) : null, /* @__PURE__ */ react_shim_default.createElement(
-    "input",
-    {
-      className: "kl-input",
-      type: "email",
-      placeholder: "Email",
-      value: email,
-      onChange: (e) => setEmail(e.target.value),
-      required: true
-    }
-  ), /* @__PURE__ */ react_shim_default.createElement(
-    "input",
-    {
-      className: "kl-input",
-      type: "password",
-      placeholder: isReg ? "Contrase\xF1a (m\xEDn. 6 caracteres)" : "Contrase\xF1a",
-      value: password,
-      minLength: isReg ? 6 : void 0,
-      onChange: (e) => setPassword(e.target.value),
-      required: true
-    }
-  ), /* @__PURE__ */ react_shim_default.createElement("button", { className: "kl-btn kl-primary", type: "submit", disabled: busy }, busy ? isReg ? "Creando\u2026" : "Ingresando\u2026" : isReg ? "Crear cuenta" : "Ingresar"), /* @__PURE__ */ react_shim_default.createElement(
-    "button",
-    {
-      type: "button",
-      className: "kl-linkbtn",
-      onClick: () => {
-        setError(null);
-        setMode(isReg ? "login" : "register");
-      }
-    },
-    isReg ? "\xBFYa tienes cuenta? Ingresa" : "\xBFSin cuenta? Reg\xEDstrate"
-  ));
 }
 function ItemRow(props) {
   const { it, onOpen, extra } = props;
@@ -697,19 +581,30 @@ function Chat(props) {
 }
 
 // src/mount.tsx
-var APP_VERSION = "0.8.0";
-var SSO_TOKEN_PATH = "/apps/licitai/sso-token";
-async function trySsoLogin(apiUrl, shell) {
+var APP_VERSION = "0.9.0";
+async function trySsoFirebase(apiUrl, shell) {
   if (!shell.authFetch) return null;
   try {
-    const r = await shell.authFetch(SSO_TOKEN_PATH);
+    const r = await shell.authFetch(`${apiUrl}/auth/sso/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teamId: shell.app?.teamId ?? null })
+    });
     if (!r || !r.ok) return null;
-    const { token } = await r.json();
-    if (!token) return null;
-    return await makeApi(apiUrl, null).ssoKimos(token);
+    const d = await r.json();
+    if (!d.access_token || !d.refresh_token) return null;
+    return { access: d.access_token, refresh: d.refresh_token };
   } catch {
     return null;
   }
+}
+async function authenticate(apiUrl, shell, saved) {
+  const stored = saved.tokens;
+  if (stored?.refresh) {
+    const fresh = await makeApi(apiUrl, null).refresh(stored.refresh);
+    if (fresh) return fresh;
+  }
+  return trySsoFirebase(apiUrl, shell);
 }
 function mount(shell) {
   let saved = {};
@@ -722,6 +617,10 @@ function mount(shell) {
     const [apiUrl, setApiUrl] = react_shim_default.useState(DEFAULT_API);
     const [tokens, setTokens] = react_shim_default.useState(null);
     const [brandName, setBrandName] = react_shim_default.useState(null);
+    const persist = react_shim_default.useCallback((t) => {
+      saved = { ...saved, tokens: t };
+      shell.saveData(saved);
+    }, []);
     react_shim_default.useEffect(() => {
       let alive = true;
       const cfgGet = shell.config?.get?.() ?? Promise.resolve({});
@@ -731,33 +630,38 @@ function mount(shell) {
         const url = (cfg?.apiUrl || DEFAULT_API).replace(/\/+$/, "");
         setApiUrl(url);
         if (brand) setBrandName(brand.legalName || brand.name || null);
-        let session = null;
-        const stored = saved.tokens;
-        if (stored?.refresh) {
-          session = await makeApi(url, null).refresh(stored.refresh);
-        }
-        if (alive && !session) {
-          session = await trySsoLogin(url, shell);
-        }
+        const session = await authenticate(url, shell, saved);
         if (alive && session) {
+          persist(session);
           setTokens(session);
-          saved = { ...saved, tokens: session };
-          shell.saveData(saved);
         }
         if (alive) setBooted(true);
       });
       return () => {
         alive = false;
       };
-    }, []);
+    }, [persist]);
     const api = react_shim_default.useMemo(() => makeApi(apiUrl, tokens), [apiUrl, tokens]);
-    const onTokens = (t) => {
-      setTokens(t);
-      saved = { ...saved, tokens: t };
-      shell.saveData(saved);
-    };
+    const onTokens = react_shim_default.useCallback(
+      (t) => {
+        if (t) {
+          persist(t);
+          setTokens(t);
+          return;
+        }
+        persist(null);
+        setTokens(null);
+        authenticate(apiUrl, shell, saved).then((s) => {
+          if (s) {
+            persist(s);
+            setTokens(s);
+          }
+        });
+      },
+      [apiUrl, persist]
+    );
     if (!booted) {
-      return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kimos-licitai kl-center" }, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-muted" }, "Cargando\u2026"));
+      return /* @__PURE__ */ react_shim_default.createElement("div", { className: "kimos-licitai kl-center" }, /* @__PURE__ */ react_shim_default.createElement("span", { className: "kl-muted" }, "Conectando con tu cuenta de KIMOS\u2026"));
     }
     return /* @__PURE__ */ react_shim_default.createElement(
       App,
