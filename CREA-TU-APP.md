@@ -155,6 +155,7 @@ Todo lo que tu app puede hacer pasa por `shell`. Resumen:
 | `shell.files.upload/list/remove` | Subir archivos; la ruta la gestiona el host (§7.4). |
 | `shell.brands.list/get/current` | Marcas del tenant: logotipos, paleta, tipografías (§7.5). |
 | `shell.payments.create/get` | Enlaces de cobro por las pasarelas del tenant (§7.6). |
+| `shell.ai.generateImage/editImage/analyzeImage` | Crear, editar y leer imágenes con IA (§7.7). |
 
 **Reglas de oro** (las que rompen apps si se ignoran):
 
@@ -439,16 +440,62 @@ El importe queda fijado al crear el enlace y no se puede alterar después; la
 confirmación se le pregunta a la pasarela, nunca se cree lo que diga el
 navegador de quien paga.
 
+### 7.7 Imágenes con IA (`shell.ai`)
+
+Crear una imagen desde un texto, editar una existente, o leer lo que hay
+dentro de una. Lo pone KIMOS con el mismo Vertex AI que mueve el chat.
+
+```jsonc
+"permissions": ["ai.image"]
+```
+
+```js
+if (shell.ai) {
+  // Texto → imagen
+  const r = await shell.ai.generateImage({ prompt: 'Una taza sobre una mesa', aspect: '1:1' });
+  img.src = `data:${r.mime};base64,${r.imageBase64}`;
+
+  // Imagen + instrucción → imagen. Con `store`, se guarda y vuelve la URL.
+  const e = await shell.ai.editImage({
+    images: [recorteBase64],
+    prompt: 'Cambia el texto "Battery" por "Batería". No toques nada más.',
+    aspect: 'auto', width: 820, height: 240,     // sin esto, el modelo re-encuadra
+    store: true, folder: 'traducidos',
+  });
+
+  // Imagen → JSON que puedes recorrer, si mandas `schema`
+  const a = await shell.ai.analyzeImage({
+    images: [fotoBase64], prompt: 'Lista los productos que se ven.',
+    schema: { type: 'ARRAY', items: { type: 'STRING' } },
+  });
+}
+```
+
+**No llames a Vertex por tu cuenta.** Tu bundle corre en el navegador: para
+hablar con Vertex necesitarías una credencial en el cliente, y quien abra las
+herramientas del navegador se la lleva. Aquí la llave no sale del backend.
+
+**Esto gasta dinero de quien instaló tu app.** Cada llamada consume cuota del
+proyecto del tenant. Pide confirmación antes de un lote, muestra el `usage`
+que viene en cada respuesta, y no regeneres dentro de un bucle automático.
+
+**Fija el encuadre al editar un recorte.** Los modelos sólo entregan unas
+pocas relaciones de aspecto. Si no les fijas una, re-encuadran y el parche que
+vuelve ya no calza donde iba: manda `aspect: 'auto'` con `width`/`height`.
+
+Detalle completo, incluidos los dos modelos y cuándo usar cada uno:
+**APP-SPEC.md §7.h**.
+
 ### Compruébalo antes de usarlo
 
-`shell.records`, `shell.files`, `shell.brands` y `shell.payments` pueden no
-existir en un host anterior. Tu app no debe romperse por eso:
+`shell.records`, `shell.files`, `shell.brands`, `shell.payments` y `shell.ai`
+pueden no existir en un host anterior. Tu app no debe romperse por eso:
 
 ```js
 if (!shell.records) { /* pide el cliente a mano y sigue funcionando */ }
 ```
 
-Detalle completo: **APP-SPEC.md §7.c, §7.d, §7.e y §7.f**.
+Detalle completo: **APP-SPEC.md §7.c a §7.h**.
 
 ---
 
@@ -493,6 +540,8 @@ pestaña Resultados.
       del documento.
 - [ ] Si tu app muestra logo, razón social o colores de la empresa: vienen de
       `shell.brands`, no de un formulario propio.
+- [ ] Si generas imágenes con IA: pides confirmación antes de un lote, enseñas
+      lo que costó, y no regeneras en bucle. Es cuota de Vertex del tenant.
 - [ ] `node tools/check-app.mjs <carpeta>` sin errores (los avisos, leídos:
       los que descartes, escríbelo en tu README y por qué).
 - [ ] `node tools/pack.mjs <carpeta>` empaqueta sin errores.

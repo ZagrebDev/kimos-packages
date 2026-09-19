@@ -22,6 +22,7 @@ export const ALLOWED_PERMISSIONS = new Set([
   'brand.read',     // leer las marcas del tenant (shell.brands)
   'brand.write',    // gestionarlas: solo la app «Marcas» debería pedirlo
   'payments.link',  // emitir enlaces de cobro por las pasarelas del tenant (shell.payments)
+  'ai.image',       // crear, editar y leer imágenes con IA (shell.ai)
 ]);
 
 /**

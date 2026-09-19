@@ -223,6 +223,25 @@ function revisarApp(dir, catalogo) {
   if (pistaPasarela && !usaPagos) {
     avisos.push(`Parece hablar con una pasarela de pago por su cuenta (${pistaPasarela[0]}). Con \`shell.payments\` el cobro pasa por la plataforma, que ya guarda las llaves del tenant y deja registro (APP-SPEC §7.g).`);
   }
+
+  // 3.c Imagen generativa (§7.h). Lo que se busca aquí no es un descuido de
+  // estilo: una app que llama a Vertex o a OpenAI por su cuenta necesita una
+  // credencial DENTRO del bundle, y un bundle corre en el navegador de quien
+  // usa la app. Esa llave está regalada desde el momento en que se instala.
+  const usaIA = /shell\.ai\b/.test(bundle);
+  if (usaIA && !tiene('ai.image')) {
+    errores.push('Usa `shell.ai` pero no declara `ai.image` en el manifest: el backend lo rechazará.');
+  }
+  if (tiene('ai.image') && !usaIA) {
+    avisos.push('Declara `ai.image` pero no se ve uso de `shell.ai`.');
+  }
+  const pistaIA = /\b(generativelanguage\.googleapis|aiplatform\.googleapis|api\.openai\.com|api\.anthropic\.com|@google\/genai)\b/i.exec(bundle);
+  if (pistaIA && !usaIA) {
+    avisos.push(`Parece llamar a un servicio de IA por su cuenta (${pistaIA[0]}). Eso exige una credencial dentro del bundle, que corre en el navegador: quien abra las herramientas del navegador se la lleva. Con \`shell.ai\` la llave no sale del backend del tenant (APP-SPEC §7.h).`);
+  }
+  if (usaIA && !/usage/.test(bundle)) {
+    avisos.push('Usa `shell.ai` pero no se ve que lea `usage`. Cada llamada gasta cuota de Vertex del tenant: enseñar lo que costó es lo que permite decidir si conviene regenerar (APP-SPEC §7.h).');
+  }
   if (gestionaMarcas && !tiene('brand.read')) {
     errores.push('Declara `brand.write` sin `brand.read`: no podría ni leer lo que va a editar.');
   }

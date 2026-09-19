@@ -20,6 +20,14 @@ Repositorio de contenido instalable para Kimos Enterprise: fondos de pantalla y 
 > industria). La guía del segundo camino es
 > **[`CREA-TU-RUBRO.md`](CREA-TU-RUBRO.md)** y su empaquetador,
 > `tools/pack-rubro.mjs`.
+>
+> **Imágenes con IA (`shell.ai`)** — una app puede crear, editar y leer
+> imágenes con el mismo Vertex AI que mueve el chat, declarando el permiso
+> `ai.image`. La llave no sale del backend del tenant: el bundle manda un
+> prompt y recibe la imagen. Referencia en [`APP-SPEC.md`](APP-SPEC.md) §7.h,
+> camino guiado en [`CREA-TU-APP.md`](CREA-TU-APP.md) §7.7, y
+> [`apps/banners-translator/`](apps/banners-translator/) como ejemplo de punta
+> a punta.
 
 ## Modelo de apps (v0.22)
 

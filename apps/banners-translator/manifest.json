@@ -1,0 +1,59 @@
+{
+  "id": "banners-translator",
+  "name": "Traductor de Banners",
+  "version": "1.0.0",
+  "description": "Localiza los banners de una ficha de producto sin tocar el producto. El modelo de visión lee cada panel y traduce sus textos; el motor de píxeles mide el bloque sobre la imagen real —caja exacta, color, degradado, alineación e interlineado—, borra sólo ese rectángulo reconstruyendo el fondo y redibuja el español al tamaño del original. Todo lo que está fuera de las cajas de texto queda idéntico: los renders no se tocan, no se recomprimen y no se reescalan. Cada documento es un producto con su glosario, que es lo que hace que quince banners usen los mismos términos. Para los paneles mayormente fotográficos hay un redibujado con IA que se guarda aparte, para comparar antes de exportar.",
+  "icon": "🈯",
+  "author": "kimos",
+  "entry": "dist/index.js",
+  "css": "dist/index.css",
+  "appShellApi": "1.x",
+  "multiInstance": true,
+  "permissions": [
+    "instance.read",
+    "instance.write",
+    "agent.control",
+    "files.write",
+    "ai.image"
+  ],
+  "configSchema": {
+    "title": "Traductor de Banners",
+    "fields": [
+      {
+        "key": "producto",
+        "label": "Producto",
+        "type": "string",
+        "placeholder": "ONEXPLAYER 3 · Consola portátil",
+        "help": "Le da contexto al modelo al detectar y traducir."
+      },
+      {
+        "key": "idioma",
+        "label": "Idioma de destino",
+        "type": "string",
+        "default": "español neutro de Chile"
+      },
+      {
+        "key": "tono",
+        "label": "Tono",
+        "type": "string",
+        "default": "marketing de ecommerce, claro y directo, sin regionalismos"
+      },
+      {
+        "key": "altoPanel",
+        "label": "Alto objetivo de panel (px)",
+        "type": "number",
+        "min": 700,
+        "max": 2400,
+        "step": 50,
+        "default": 1600,
+        "help": "Los cortes se buscan en franjas de fondo limpio, así que nunca parten un texto."
+      }
+    ]
+  },
+  "defaultConfig": {
+    "producto": "",
+    "idioma": "español neutro de Chile",
+    "tono": "marketing de ecommerce, claro y directo, sin regionalismos",
+    "altoPanel": 1600
+  }
+}

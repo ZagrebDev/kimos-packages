@@ -43,7 +43,7 @@ para que el backend la liste e instale.
 | `css` | string | – | Ruta del CSS (`dist/index.css`). |
 | `appShellApi` | string | ✓ | Compatibilidad: `"1.x"` (o `"2.x"` 🔭). |
 | `multiInstance` | boolean | – | `true` = cada documento es una instancia (recomendado para apps con datos). |
-| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` / `brand.write` (§7.f), `payments.link` (§7.g). |
+| `permissions` | string[] | ✓ | Capacidades: `instance.read`, `instance.write`, `agent.control`, `public.read`, `public.submit`, `data.read:{id}`, `data.write:{id}` (§7.c), `records.link` (§7.d), `files.write` (§7.e), `brand.read` / `brand.write` (§7.f), `payments.link` (§7.g), `ai.image` (§7.h). |
 | `configSchema` | object | – | Esquema de parámetros (genera la UI de ⚙️ Configurar). Ver §3.1. |
 | `defaultConfig` | object | – | Valores iniciales de los parámetros (siembra el form ⚙️). |
 | `dataSchema` | object | – | Qué campos acepta tu app de OTRAS apps, y qué identidad representa. Sin esto, nadie escribe en la tuya. Ver §7.c. |
@@ -147,8 +147,9 @@ export default function mount(shell) {
 | `shell.files` | Subir/listar/borrar archivos con ruta gestionada por el host (§7.e). |
 | `shell.brands` | Marcas del tenant: logotipos, paleta con roles, tipografías (§7.f). |
 | `shell.payments` | Enlaces de cobro por Webpay, MercadoPago, Flow o PayPal (§7.g). |
+| `shell.ai` | Crear, editar y leer imágenes con IA sobre el Vertex del tenant (§7.h). |
 
-Los tres últimos dependen de permisos declarados en el manifest y, en hosts
+Los cinco últimos dependen de permisos declarados en el manifest y, en hosts
 anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
 
 ### Reglas de oro
@@ -172,6 +173,7 @@ anteriores, pueden no existir: comprueba `if (shell.records)` antes de usarlos.
 | Listas/colecciones (tarjetas, filas) | `shell.items` CRUD | subcolección Firestore de la instancia |
 | Parámetros de la app | `defaultConfig` + `shell.config` | `config` de la instancia |
 | Archivos (fotos, adjuntos) | `shell.files.upload()` | bucket del tenant, bajo la carpeta de tu app |
+| Una imagen generada con IA que se queda | `shell.ai.*` con `store: true` | igual que `shell.files`, en la carpeta de tu app |
 | A quién pertenece un item (cliente, proyecto) | `shell.records` + `recordRef` | identidad en la plataforma, datos en tu app |
 
 Patrón recomendado (FossFLOW/Kanban): **un objeto modelo** en el closure,
@@ -837,10 +839,136 @@ activas ofrece.
 
 ---
 
-### Antes de usar cualquiera de los cuatro
+## 7.h Imágenes con IA (`shell.ai`)
 
-`shell.records`, `shell.files`, `shell.brands` y `shell.payments` son
-**opcionales en el contrato**, para que tu app siga funcionando en un host que
+Crear una imagen desde un texto, editar una que ya existe, o leer lo que hay
+dentro de una. Lo pone KIMOS con el mismo Vertex AI que mueve el chat de
+agentes.
+
+```jsonc
+"permissions": ["instance.read", "instance.write", "files.write", "ai.image"]
+```
+
+**Por qué pasa por aquí y no llamas tú a Vertex.** Tu bundle corre en el
+navegador de quien usa la app. Para hablar con Vertex por tu cuenta
+necesitarías una credencial en el cliente, y una credencial en el cliente es
+una credencial regalada: quien abra las herramientas del navegador se la
+lleva. Aquí mandas el prompt y recibes la imagen; la llave no sale del
+backend del tenant.
+
+De paso te ahorras tres cosas que cuestan caro y se descubren tarde, y que
+están resueltas del otro lado: en qué región vive cada modelo, qué hacer
+cuando la cuota devuelve 429 a mitad de un lote, y cómo impedir que el modelo
+re-encuadre lo que le mandaste.
+
+> **Esto gasta dinero de quien instaló tu app.** Cada llamada consume cuota de
+> Vertex del proyecto del tenant. Por eso `ai.image` se muestra como permiso
+> sensible al instalar, y por eso tu app debería pedir confirmación antes de
+> un lote, enseñar lo que costó, y **nunca** regenerar dentro de un bucle
+> automático.
+
+### Las tres operaciones
+
+```js
+if (!shell.ai) { /* host anterior: sigue sin la parte de IA */ }
+
+// Qué hay. No cablees los ids de modelo: el catálogo de Vertex cambia.
+const { image, vision, defaults, aspects, limits } = await shell.ai.models();
+
+// Texto → imagen
+const r = await shell.ai.generateImage({
+  prompt: 'Un cuaderno abierto sobre una mesa de madera, luz suave de mañana',
+  aspect: '16:9',
+});
+img.src = `data:${r.mime};base64,${r.imageBase64}`;
+
+// Imagen + instrucción → imagen
+const e = await shell.ai.editImage({
+  images: [recorteBase64],          // base64, data: URI, o una URL de shell.files
+  prompt: 'Reemplaza el texto "Battery life" por "Autonomía". No cambies nada más.',
+  aspect: 'auto', width: 820, height: 240,
+  model: 'gemini-3-pro-image',
+});
+
+// Imagen → JSON que puedes recorrer
+const a = await shell.ai.analyzeImage({
+  images: [panelBase64],
+  prompt: 'Devuelve cada bloque de texto con su caja y su traducción al español.',
+  schema: {
+    type: 'ARRAY',
+    items: {
+      type: 'OBJECT',
+      properties: {
+        box_2d: { type: 'ARRAY', items: { type: 'INTEGER' } },  // [ymin,xmin,ymax,xmax] 0-1000
+        text: { type: 'STRING' },
+        es: { type: 'STRING' },
+      },
+      required: ['box_2d', 'text', 'es'],
+    },
+  },
+});
+a.data.forEach((bloque) => { /* … */ });
+```
+
+### Lo que hay que saber para que salga bien
+
+**Fija la relación de aspecto al editar un recorte.** Los modelos de imagen de
+Gemini 3 sólo entregan un puñado de relaciones (`models().aspects`). Si no les
+fijas una, el modelo re-encuadra por su cuenta y el parche que vuelve **ya no
+calza donde iba**. Manda `aspect: 'auto'` con el `width`/`height` de tu
+recorte y la plataforma elige la soportada más parecida; tú recortas de vuelta
+al tamaño exacto antes de pegar.
+
+**Dos modelos, y la diferencia es real.** `gemini-3.1-flash-image` para
+cambios locales sobre una base que ya existe: tarda un cuarto y cuesta una
+fracción. `gemini-3-pro-image` cuando de esa imagen cuelga todo lo demás, o
+cuando hay texto pequeño en juego — reproduce mejor la tipografía. Sin
+`model`, se usa el rápido.
+
+**Mira lo que costó.** Cada respuesta trae `usage` con los tokens que Vertex
+cobró. Enséñalo. Es lo que permite decidir entre regenerar un recorte y
+regenerar la imagen entera, que muchas veces cuesta casi lo mismo.
+
+**`store: true` cuando el resultado se queda.** Por defecto la imagen vuelve
+en base64 dentro del JSON, que es lo cómodo para pintarla al vuelo. Con
+`store: true` se guarda en el espacio de archivos de **tu** app —la misma ruta
+que `shell.files`, así conviven y se limpian juntos— y vuelve sólo `url`. En
+un lote esto ahorra mover megabytes que el backend ya tenía en la mano.
+
+```js
+const { url, usage } = await shell.ai.generateImage({
+  prompt: '…', store: true, folder: 'portadas', name: 'portada-otono',
+});
+bloque.imagen = url;                 // sirve en <img src>, igual que shell.files
+```
+
+**El modelo puede negarse.** Cuando no devuelve imagen suele haber dicho por
+qué, y eso llega en `text`. Enséñalo en vez de un «falló la generación» que no
+ayuda a nadie.
+
+**Regenerar es una apuesta.** Unas veces sale mejor y otras peor. Si tu app
+deja rehacer algo, guarda la versión anterior y ofrece volver a ella: cuesta
+cero llamadas y evita que alguien pierda un resultado bueno por probar.
+
+### Lo que NO hace
+
+- **No descarga imágenes de internet.** En `images` sólo se aceptan base64,
+  `data:` URIs y URLs de `/api/public/files/` del propio KIMOS. Una URL
+  arbitraria convertiría esto en un explorador de la red interna con la
+  credencial del backend detrás. Si necesitas partir de una imagen externa,
+  que la persona la suba con `shell.files`.
+- **No quita fondos ni describe en prosa.** Para eso están
+  `/api/image-tools/remove-bg` (local, sin coste por imagen) y
+  `/api/image-tools/describe`, que existían antes y siguen igual.
+- **No guarda historial ni caché.** Si repites el mismo prompt, se paga otra
+  vez. Cachear lo que ya generaste es cosa de tu app.
+
+---
+
+### Antes de usar cualquiera de los cinco
+
+`shell.records`, `shell.files`, `shell.brands`, `shell.payments` y `shell.ai`
+son **opcionales en el contrato**, para que tu app siga funcionando en un host que
 no los tenga. Comprueba siempre antes de usarlos:
 
 ```js
@@ -868,7 +996,8 @@ sigue: por eso guardas siempre tu propia instantánea.
 - [ ] Persistencia probada (`multiInstance` si guardas datos).
 - [ ] Si hay agente: `getSnapshot` útil + validación de inputs + dedupe.
 - [ ] Carga sin red en runtime (recursos embebidos o por URL explícita del usuario).
-- [ ] Si usas `shell.records`, `shell.files` o `shell.brands`: comprobado `if (shell.records)` para no romper en un host anterior.
+- [ ] Si usas `shell.records`, `shell.files`, `shell.brands` o `shell.ai`: comprobado `if (shell.records)` para no romper en un host anterior.
+- [ ] Si usas `shell.ai`: la app pide confirmación antes de un lote y enseña el `usage` (§7.h). Gasta cuota de Vertex del tenant.
 - [ ] Si otras apps deben escribir en la tuya: `dataSchema` declarado (§7.c).
 - [ ] Verificación: `node --input-type=module -e "import('./apps/{id}/dist/index.js')…"`.
 
@@ -942,3 +1071,6 @@ tenant.
 - **`apps/fossflow`** — modelo JSON complejo, render SVG isométrico, iconos
   nativos embebidos, agente con muchas tools, área de trabajo en cuadrícula.
 - **`apps/productlab`** — referente de diseño (§9).
+- **`apps/banners-translator`** — `shell.ai` de punta a punta (§7.h): visión con
+  esquema para detectar y traducir, edición de recortes con relación de aspecto
+  fija, coste a la vista y agente con paridad sobre la UI.
