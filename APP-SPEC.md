@@ -271,8 +271,9 @@ shell.agent.register({
 
 > Desde jul-2026 el install por registry también **persiste los `permissions`**
 > del manifest raíz (backend kimos-enterprice), así las apps oficiales pueden
-> usar `public.read` / `data.read:*` sin sideload (ej: `productlab`). Los
-> `assets/` siguen siendo solo-sideload por esta vía.
+> usar `public.read` / `data.read:*` sin sideload (ej: `productlab`). Y los
+> `assets/` **declarados** en `assets[]` del manifest raíz se descargan con el
+> bundle: lo que no está en esa lista no viaja por esta vía.
 
 **B. Vía comprimido `.kapp` (sideload):**
 - Un ZIP con `manifest.json` + `dist/` (+ `assets/`) en la raíz. Genéralo con el
@@ -289,9 +290,23 @@ shell.agent.register({
 
 **Assets de la app** (`assets/`): los archivos bajo `assets/` se sirven en
 `/api/apps/{id}/asset/{ruta}`. Desde el bundle usa `shell.assetUrl('icons/x.svg')`
-para obtener su URL — alternativa a embeber recursos. (Vía repo oficial, el
-backend solo sirve `dist/`; para assets nativos por esa vía, empaqueta `.kapp` o
-embébelos en el bundle, como hace FossFLOW con sus SVG.)
+para obtener su URL — alternativa a embeber recursos.
+
+Por `.kapp` viaja todo lo que haya en `assets/`. **Vía repo oficial viaja solo
+lo declarado**: el install descarga los archivos que el manifest raíz liste en
+`assets[]` —rutas relativas a `assets/`— y los sirve en la misma URL. Si la app
+pide con `shell.assetUrl` algo que no está en esa lista, por esta vía responde
+404 aunque el archivo esté en el repositorio.
+
+```jsonc
+// manifest.json de la app (y su copia en el catálogo raíz)
+"assets": ["engine3d.js", "kimos-configurador.js", "kimos-configurador.css"]
+```
+
+Ejemplo real: `productlab` declara así su motor 3D. Un asset declarado que falte
+no bloquea el install —se registra y sigue—, así que un error de dedo en la ruta
+se ve como un 404 en runtime, no como una instalación fallida. La alternativa
+sigue siendo embeberlos en el bundle, como hace FossFLOW con sus SVG.
 
 ---
 
