@@ -1704,7 +1704,7 @@
       "name": "Traductor de Banners",
       "description": "Localiza los banners de una ficha de producto sin tocar el producto. El modelo de visión lee cada panel y traduce sus textos; el motor de píxeles mide el bloque sobre la imagen real —caja exacta, color, degradado, alineación e interlineado—, borra sólo ese rectángulo reconstruyendo el fondo y redibuja el español al tamaño del original. Todo lo que está fuera de las cajas de texto queda idéntico: los renders no se tocan, no se recomprimen y no se reescalan. Cada documento es un producto con su glosario, que es lo que hace que quince banners usen los mismos términos. Para los paneles mayormente fotográficos hay un redibujado con IA que se guarda aparte, para comparar antes de exportar.",
       "icon": "🈯",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "entry": "dist/index.js",
       "css": "dist/index.css",
       "appShellApi": "1.x",

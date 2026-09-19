@@ -37,7 +37,7 @@
  */
 
 // Mantener en sincronía con manifest.json y con el manifest raíz del repo.
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 export default function mount(shell) {
   const React = globalThis.React;
@@ -1408,6 +1408,84 @@ ${instruccion}`,
     } catch (e) { liberar(e); return ''; }
   }
 
+  /**
+   * Exporta el estado del documento como JSON.
+   *
+   * No es un capricho de respaldo: el análisis está PAGADO. Un documento con
+   * quince banners lleva decenas de llamadas al modelo detrás, y perderlas
+   * porque el trabajo sólo vivía dentro de una instancia es caro de verdad.
+   * También es cómo se audita una traducción meses después: el JSON dice qué
+   * decisión produjo cada texto.
+   */
+  function exportarEstado() {
+    const datos = JSON.stringify({ formato: 'banners-translator/1', version: APP_VERSION, ...serializar() }, null, 2);
+    const blob = new Blob([datos], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(model.producto || 'banners').replace(/[^\w-]+/g, '-').toLowerCase()}-estado.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  /**
+   * Importa un estado guardado sobre las imágenes YA subidas.
+   *
+   * Las imágenes no viajan en el JSON —viven en el almacenamiento del
+   * tenant— así que se emparejan **por nombre de archivo**. Eso es lo que
+   * permite traer el trabajo de otro sitio: subes los mismos banners, traes
+   * el estado, y los bloques caen donde iban sin volver a pagar el análisis.
+   *
+   * Los cortes de panel vienen en el propio JSON y NO se recalculan: si se
+   * recalcularan, un bloque analizado en el panel 1 podría caer en el 2 y el
+   * trabajo importado quedaría descuadrado.
+   */
+  function importarEstado(texto) {
+    let datos;
+    try {
+      datos = JSON.parse(texto);
+    } catch {
+      throw new Error('Ese archivo no es un JSON válido.');
+    }
+    if (!datos || typeof datos !== 'object' || !Array.isArray(datos.imagenes)) {
+      throw new Error('No parece un estado de esta app: falta la lista de imágenes.');
+    }
+
+    const porNombre = new Map(model.imagenes.map((im) => [im.nombre.toLowerCase(), im]));
+    let emparejadas = 0;
+    const huerfanas = [];
+
+    commit((m) => {
+      if (datos.glosario) m.glosario = { ...nuevoGlosario(), ...datos.glosario };
+      if (datos.producto) m.producto = datos.producto;
+      if (datos.idioma) m.idioma = datos.idioma;
+      if (datos.tono) m.tono = datos.tono;
+      if (datos.altoPanel) m.altoPanel = datos.altoPanel;
+
+      for (const guardada of datos.imagenes) {
+        const destino = porNombre.get(String(guardada.nombre || '').toLowerCase());
+        if (!destino) { huerfanas.push(guardada.nombre); continue; }
+        // Los cortes vienen del JSON: son los que se usaron al analizar.
+        destino.paneles = (guardada.paneles || []).map((pa) => ({
+          y0: pa.y0, y1: pa.y1,
+          aprobado: !!pa.aprobado, analizado: !!pa.analizado,
+          // El panel regenerado con IA se queda fuera: su URL apuntaba al
+          // almacenamiento de OTRA instalación y aquí daría un 404 mudo.
+          usarIA: false, urlIA: '',
+          bloques: (pa.bloques || []).map((b) => ({
+            ...limpiarBloque(b),
+            id: b.id || `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            parcheIA: null,
+          })),
+        }));
+        emparejadas++;
+      }
+    });
+
+    medidas.clear();
+    estado.panelActivo = 0;
+    return { emparejadas, huerfanas, total: datos.imagenes.length };
+  }
+
   // ══════════════════════════════════════════════════════════════════
   // El agente
   // ══════════════════════════════════════════════════════════════════
@@ -1920,6 +1998,7 @@ ${instruccion}`,
     const [version, setVersion] = React.useState(0);
     const refrescar = () => { setVersion((v) => v + 1); guardar(); };
     const entrada = React.useRef(null);
+    const entradaEstado = React.useRef(null);
 
     const imagen = imagenActual();
     const paneles = (imagen && imagen.paneles) || [];
@@ -1971,6 +2050,16 @@ ${instruccion}`,
           }, `${model.llamadas} llamadas · ${model.gastoTokens.toLocaleString('es-CL')} tokens`),
           h(Boton, { onClick: () => setGlosarioAbierto(true), titulo: 'Términos fijos del producto' }, 'Glosario'),
           h(Boton, { onClick: () => setAjustesAbiertos(true), titulo: 'Producto, idioma, tono y modelos' }, 'Ajustes'),
+          h(Boton, {
+            onClick: exportarEstado,
+            disabled: !model.imagenes.length,
+            titulo: 'Guarda el trabajo como JSON. El análisis está pagado: esto es lo que permite no volver a pagarlo.',
+          }, '⇩ Estado'),
+          h(Boton, {
+            onClick: () => entradaEstado.current && entradaEstado.current.click(),
+            disabled: !model.imagenes.length,
+            titulo: 'Trae un estado guardado sobre las imágenes ya subidas (se emparejan por nombre de archivo).',
+          }, '⇧ Estado'),
         ),
       ),
 
@@ -1981,6 +2070,30 @@ ${instruccion}`,
         'este KIMOS lo conociera, hay que actualizarla desde la Tienda).'),
 
       estado.error && h('div', { className: 'bt-alerta bt-alerta-error' }, estado.error),
+
+      h('input', {
+        ref: entradaEstado, type: 'file', accept: 'application/json,.json',
+        style: { display: 'none' },
+        onChange: async (e) => {
+          const archivo = e.target.files[0];
+          e.target.value = '';
+          if (!archivo) return;
+          try {
+            const r = importarEstado(await archivo.text());
+            setVersion((v) => v + 1);
+            shell.notify({
+              level: r.huerfanas.length ? 'warn' : 'success',
+              text: r.huerfanas.length
+                ? `Restauradas ${r.emparejadas} de ${r.total}. Sin imagen subida: ${r.huerfanas.join(', ')}.`
+                : `Estado restaurado en ${r.emparejadas} imágenes.`,
+            });
+          } catch (err) {
+            estado.error = String(err.message || err);
+            shell.notify({ level: 'error', text: estado.error });
+            repintar();
+          }
+        },
+      }),
 
       h('div', { className: 'bt-cuerpo' },
 

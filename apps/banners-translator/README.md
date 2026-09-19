@@ -210,6 +210,28 @@ Formatos de entrada: `.jpg`, `.png`, `.webp`.
 
 ---
 
+## Traer y llevar el trabajo
+
+**⇩ Estado** descarga el documento como JSON; **⇧ Estado** lo trae de vuelta
+sobre las imágenes ya subidas, emparejándolas **por nombre de archivo**.
+
+No es un respaldo por si acaso: el análisis está **pagado**. Un documento de
+quince banners lleva decenas de llamadas al modelo detrás, y perderlas porque
+el trabajo sólo vivía dentro de una instancia es caro de verdad. También es
+cómo se audita una traducción meses después — el JSON dice qué decisión
+produjo cada texto.
+
+Al importar, los **cortes de panel vienen del JSON y no se recalculan**: si se
+recalcularan, un bloque analizado en el panel 1 podría caer en el 2 y el
+trabajo importado quedaría descuadrado. Lo que no viaja son los paneles
+regenerados con IA (su URL apuntaba a otra instalación) y lo medido sobre los
+píxeles, que la app vuelve a medir gratis al abrir.
+
+Súbete las imágenes **antes** de importar: una que no esté subida se reporta
+como huérfana en vez de restaurarse en silencio.
+
+---
+
 ## Probar el motor
 
 El motor de píxeles se prueba en un navegador de verdad, porque lo que se
@@ -221,7 +243,13 @@ npm i -D playwright && npx playwright install chromium
 BANNERS_IMG=/ruta/a/banners node apps/banners-translator/test/motor.mjs
 ```
 
-Comprueba lo que decide si el resultado sirve: que los cortes de panel caigan
+Y la importación, que es lo que evita volver a pagar el análisis:
+
+```bash
+ESTADO_JSON=/ruta/a/estado.json node apps/banners-translator/test/importar.mjs
+```
+
+La primera comprueba lo que decide si el resultado sirve: que los cortes de panel caigan
 en franjas limpias, que la medición crezca la caja corta del modelo hasta el
 texto real y le saque el color, y que el borrado **no toque un solo píxel
 fuera de la caja**. Las pruebas de medición y borrado corren sobre lienzos
