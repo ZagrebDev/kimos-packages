@@ -5,11 +5,16 @@
  *
  *   Esta app es la CABINA. Decide, mide, aprueba, contabiliza y audita. Corre
  *   en el navegador, dentro de una ventana del escritorio KIMOS, y por lo tanto
- *   NO guarda claves de Binance ni firma órdenes. No hay campo donde pegar una
- *   API secret, y eso es deliberado: una clave con permiso de trading dentro de
- *   una pestaña es una clave perdida, y la lista blanca de IP —que Binance
- *   exige para habilitar cualquier permiso más allá de lectura— no existe para
- *   el navegador de una persona que cambia de red.
+ *   NO guarda claves de Binance ni firma órdenes. Eso es deliberado: una clave
+ *   con permiso de trading dentro de una pestaña es una clave perdida, y la
+ *   lista blanca de IP —que Binance exige para habilitar cualquier permiso más
+ *   allá de lectura— no existe para el navegador de una persona que cambia de
+ *   red.
+ *
+ *   La pestaña Puente sí tiene un formulario de credenciales, y no contradice
+ *   lo anterior: arma el `.env` que se copia al VPS y no persiste nada. Lo que
+ *   se escribe ahí vive en el estado de ese componente y muere al cambiar de
+ *   pestaña — ni `saveData`, ni política publicada, ni almacenamiento local.
  *
  *   Quien ejecuta es «Geminis Core», el motor que viaja en `assets/engine/` y
  *   se instala en un VPS con IP fija. Él tiene las claves (Ed25519, sin permiso
@@ -45,7 +50,7 @@
  * rentabilidad, y no es asesoría financiera, legal ni tributaria.
  */
 // Mantener en sincronía con manifest.json y con el catálogo raíz (§7.a).
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. Constantes del Documento Maestro
@@ -1676,7 +1681,16 @@ export function tramoEdad(edad) {
 // ════════════════════════════════════════════════════════════════════════════
 
 export const ENDPOINTS = {
-  produccion: 'https://api.binance.com',
+  // Binance pide que lo que no lleva clave se pida al dominio de solo-mercado:
+  // «For APIs that only send public market data, please use the base endpoint
+  // https://data-api.binance.vision» (REST API · General API Information). Los
+  // cuatro endpoints que usa la cabina —klines, ticker, depth y exchangeInfo—
+  // están en su lista (faqs/market_data_only.md), así que la cabina entera cabe
+  // ahí: no toca la infraestructura de trading ni para leer una vela.
+  produccion: 'https://data-api.binance.vision',
+  // Espejo para cuando ese dominio no resuelve o lo bloquea la red desde la que
+  // se abre la app. Mismo contrato y mismas respuestas.
+  espejo: 'https://api.binance.com',
   testnet: 'https://testnet.binance.vision',
 };
 
@@ -1684,7 +1698,7 @@ function apiBase(entorno) {
   return entorno === 'testnet' ? ENDPOINTS.testnet : ENDPOINTS.produccion;
 }
 
-async function getJson(url, senal) {
+async function pedirJson(url, senal) {
   const res = await fetch(url, { signal: senal, headers: { Accept: 'application/json' } });
   if (!res.ok) {
     // 429 = peso excedido; 418 = IP bloqueada. Merecen un mensaje propio,
@@ -1694,6 +1708,21 @@ async function getJson(url, senal) {
     throw new Error(`Binance respondió ${res.status}.`);
   }
   return res.json();
+}
+
+async function getJson(url, senal) {
+  try {
+    return await pedirJson(url, senal);
+  } catch (err) {
+    // Solo un fallo de RED cae al espejo (fetch lanza TypeError): un 429 o un
+    // 418 son respuestas de Binance y repetirlas en otro dominio es
+    // exactamente lo que no hay que hacer. Y si la petición se abortó porque
+    // la pantalla cambió de par, tampoco se reintenta.
+    const red = err instanceof TypeError;
+    const abortada = err && (err.name === 'AbortError' || (senal && senal.aborted));
+    if (!red || abortada || !url.startsWith(ENDPOINTS.produccion)) throw err;
+    return pedirJson(ENDPOINTS.espejo + url.slice(ENDPOINTS.produccion.length), senal);
+  }
 }
 
 export async function traerVelas(par, intervalo, limite = 500, entorno = 'produccion', senal) {
@@ -3287,6 +3316,121 @@ export default function mount(shell) {
     } catch { return window.location.origin; }
   }
 
+  /**
+   * Credenciales de Binance: se ESCRIBEN aquí, no se guardan aquí.
+   *
+   * Lo que se teclea en esta tarjeta vive solo en el estado de este componente:
+   * no pasa por `saveData`, no entra en la política que se publica, no viaja al
+   * gateway y no toca el almacenamiento del navegador. Al cambiar de pestaña
+   * desaparece, y al recargar no queda nada que recuperar. La app sigue sin
+   * tener dónde guardar una clave, que es lo que la hace segura.
+   *
+   * Existe porque el paso siguiente —dejar la clave en el VPS— necesita un
+   * `.env` bien escrito, y dictarlo de memoria es como se acaba con una clave
+   * con permisos de más, sin lista blanca de IP o pegada en un chat. La app
+   * arma el archivo con los valores delante; quien lo guarda es la persona, en
+   * su servidor.
+   */
+  function TarjetaCredenciales({ m, base, copiar }) {
+    const [cred, setCred] = useState({
+      tipo: 'ed25519', apiKey: '', secreto: '',
+      ruta: '/etc/geminis/ed25519.pem', ip: '', recv: '5000',
+    });
+    const [verSecreto, setVerSecreto] = useState(false);
+    const set = (k) => (v) => setCred((c) => Object.assign({}, c, { [k]: typeof v === 'string' ? v.trim() : v }));
+    // El contrato de Binance: recvWindow no puede pasar de 60000, y recomienda
+    // 5000 o menos. Un valor grande no da holgura: da margen a que una petición
+    // vieja se ejecute tarde.
+    const recv = clamp(Math.round(num(cred.recv) || 5000), 1, 60000);
+    const testnet = m.entorno === 'testnet';
+    const asimetrica = cred.tipo !== 'hmac';
+    const falta = !cred.apiKey || (asimetrica ? !cred.ruta : !cred.secreto);
+
+    const env = [
+      '# .env de Geminis Core — vive en el VPS, nunca en KIMOS.',
+      '# chmod 600, dueño root. Rotar la clave cada 90 días.',
+      `KIMOS_BASE=${base}`,
+      `KIMOS_INSTANCE=${instanceId || 'PEGA-AQUI-EL-ID-DE-LA-INSTANCIA'}`,
+      `KIMOS_TOKEN=${m.puente.token || 'GENERA-EL-TOKEN-ARRIBA'}`,
+      `BINANCE_ENV=${m.entorno}`,
+      `BINANCE_API_KEY=${cred.apiKey || 'PEGA-AQUI-LA-API-KEY'}`,
+      asimetrica
+        ? `BINANCE_PRIVATE_KEY_PATH=${cred.ruta || '/etc/geminis/ed25519.pem'}`
+        : `BINANCE_API_SECRET=${cred.secreto || 'PEGA-AQUI-EL-SECRET'}`,
+      `BINANCE_RECV_WINDOW=${recv}`,
+      'GEMINIS_CICLO_S=15',
+    ].join('\n');
+
+    return h(Tarjeta, {
+      titulo: 'Credenciales de Binance',
+      sub: 'Se escriben aquí para armar el .env del VPS. No se guardan: al salir de esta pestaña desaparecen.',
+    },
+      h(Aviso, { tono: 'warn', titulo: 'Lo que esta tarjeta hace y lo que no hace' },
+        h('p', null, 'Esta app no guarda claves y no puede firmar una orden. Lo que escribas abajo no se publica en la política, no se envía al gateway y no queda en el navegador: solo rellena el archivo que vas a copiar a tu servidor. Si cierras la pestaña antes de copiarlo, hay que volver a escribirlo, y así debe ser.'),
+        h('p', null, 'La clave privada nunca se pega aquí: con Ed25519 o RSA se genera en el VPS y aquí solo se escribe la ruta del archivo.')),
+
+      h('div', { className: 'kt-grid kt-grid--2' },
+        h(Selector, {
+          label: 'Tipo de clave', valor: cred.tipo, onChange: set('tipo'),
+          opciones: [
+            { value: 'ed25519', label: 'Ed25519 — la que recomienda Binance' },
+            { value: 'rsa', label: 'RSA (2048/4096)' },
+            { value: 'hmac', label: 'HMAC — obsoleta según Binance' },
+          ],
+          pista: 'La documentación de Binance recomienda Ed25519 («best performance and security») y marca HMAC como obsoleta.',
+        }),
+        h(Campo, {
+          label: 'API Key (la que te da Binance)', valor: cred.apiKey, onChange: set('apiKey'),
+          pista: 'Es el identificador público que viaja en la cabecera X-MBX-APIKEY. No es el secreto.',
+        }),
+        asimetrica
+          ? h(Campo, {
+            label: 'Ruta de la clave privada en el VPS', valor: cred.ruta, onChange: set('ruta'),
+            pista: 'El archivo se queda en el servidor. Aquí solo va su ruta.',
+          })
+          : h('label', { className: 'kt-campo' },
+            h('span', { className: 'kt-campo__l' }, 'Secret Key (HMAC)'),
+            h('span', { className: 'kt-campo__in' },
+              h('input', {
+                type: verSecreto ? 'text' : 'password', value: cred.secreto,
+                autoComplete: 'off', spellCheck: false,
+                onChange: (e) => set('secreto')(e.target.value),
+              }),
+              h('button', {
+                type: 'button', className: 'kt-btn kt-btn--ghost kt-btn--chico',
+                onClick: () => setVerSecreto((v) => !v),
+              }, verSecreto ? 'Ocultar' : 'Ver')),
+            h('span', { className: 'kt-campo__p' }, 'Solo para escribir el .env. Binance da este valor una sola vez y no vuelve a mostrarlo.')),
+        h(Campo, {
+          label: 'IP fija del VPS', valor: cred.ip, onChange: set('ip'),
+          pista: 'La que vas a poner en la lista blanca de la clave. No entra en el .env: se usa en la lista de abajo.',
+        }),
+        h(Campo, {
+          label: 'recvWindow (ms)', valor: cred.recv, onChange: set('recv'), tipo: 'number', min: 1, max: 60000,
+          pista: 'Binance admite hasta 60000 y recomienda 5000 o menos.',
+        })),
+
+      h('div', { className: 'kt-code' },
+        h('div', { className: 'kt-code__h' },
+          h('span', null, falta ? '.env del VPS (incompleto: quedan marcadores)' : '.env del VPS'),
+          h(Boton, { chico: true, tono: falta ? 'ghost' : 'primario', onClick: () => copiar(env) }, 'Copiar')),
+        h('pre', null, env)),
+
+      h(Aviso, { tono: 'info', titulo: `Cómo crear esa clave${testnet ? ' en la Testnet' : ''}` },
+        h('ol', { className: 'kt-lista' },
+          h('li', null, testnet
+            ? 'Entra en testnet.binance.vision y genera ahí la clave: las de producción NO sirven en la Testnet, son sistemas distintos.'
+            : 'Entra en Binance → API Management y crea una clave nueva. Si vas a probar primero en Testnet, esa se genera aparte, en testnet.binance.vision.'),
+          h('li', null, cred.tipo === 'hmac'
+            ? 'Binance genera el par clave/secreto y te enseña el secreto una sola vez. Cópialo directo al .env; si se pierde, se crea otra clave.'
+            : `Genera el par en el VPS (ssh-keygen o openssl), sube la parte pública a Binance como clave autogenerada ${cred.tipo === 'rsa' ? 'RSA' : 'Ed25519'} y deja la privada en ${cred.ruta || '/etc/geminis/'} con permisos 600.`),
+          h('li', null, 'Permisos: habilita lectura y Spot Trading. Retiros, nunca: esa clave no se crea. Sin permiso de retiro, una filtración cuesta una posición, no la cuenta.'),
+          h('li', null, cred.ip
+            ? `Restringe la clave a ${cred.ip}. Sin lista blanca de IP, Binance deja la clave HMAC en solo lectura y el motor no podrá operar.`
+            : 'Restringe la clave a la IP fija del VPS. Sin lista blanca de IP, Binance deja la clave HMAC en solo lectura y el motor no podrá operar.'),
+          h('li', null, 'Copia el .env de arriba a /etc/geminis/.env en el VPS, con chmod 600, y reinicia el servicio: systemctl restart geminis.'))));
+  }
+
   function VistaPuente({ m, envios }) {
     const base = baseApi();
     const urlDef = `${base}/api/public/app/${instanceId || '{instanceId}'}/definition`;
@@ -3296,21 +3440,14 @@ export default function mount(shell) {
         navigator.clipboard.writeText(t).then(() => shell.notify({ level: 'success', text: 'Copiado.' }));
       }
     };
-    const env = `# .env de Geminis Core — se queda en el VPS, nunca en esta app
-KIMOS_BASE=${base}
-KIMOS_INSTANCE=${instanceId || 'PEGA-AQUI-EL-ID'}
-KIMOS_TOKEN=${m.puente.token || 'GENERA-UN-TOKEN'}
-BINANCE_ENV=${m.entorno}
-BINANCE_API_KEY=...          # Ed25519, sin permiso de retiro, IP fija
-BINANCE_PRIVATE_KEY_PATH=/etc/geminis/ed25519.pem`;
-
     const ultimos = envios.slice(0, 40);
     const latido = envios.find((e) => e.canal === 'latido');
     const p = (latido && latido.payload) || {};
 
     return h('div', { className: 'kt-vista' },
       h(Aviso, { tono: 'info', titulo: 'Por qué la ejecución no vive aquí' },
-        h('p', null, 'Binance solo habilita permisos más allá de lectura con restricción de IP o con claves Ed25519 autogeneradas. Un navegador no tiene IP fija y una pestaña no es un lugar donde guardar una clave de trading. Por eso esta app no tiene ni un campo donde pegar una: las claves viven en el gestor de secretos del VPS, y quien firma es el motor.'),
+        h('p', null, 'Binance solo habilita permisos más allá de lectura con restricción de IP o con claves autogeneradas Ed25519/RSA. Un navegador no tiene IP fija y una pestaña no es un lugar donde guardar una clave de trading. Por eso esta app no guarda ninguna: las claves viven en el VPS, y quien firma es el motor.'),
+        h('p', null, 'Abajo hay una tarjeta para escribir las credenciales y armar el archivo de configuración del VPS. Lo que se escriba ahí no se guarda ni se publica: es un formulario que arma un texto para copiar, y al salir de la pestaña se borra.'),
         h('p', null, 'La clave con permiso de retiro no se crea nunca. Los retiros se hacen a mano en Binance con 2FA.')),
 
       h('div', { className: 'kt-grid kt-grid--2' },
@@ -3358,6 +3495,8 @@ BINANCE_PRIVATE_KEY_PATH=/etc/geminis/ed25519.pem`;
               h(Dato, { label: 'Token', valor: latido.verificado === true ? 'verificado' : latido.verificado === false ? 'NO coincide' : 'sin token', tono: latido.verificado === false ? 'mal' : latido.verificado ? 'ok' : 'muted' }))
             : h(Vacio, { titulo: 'El motor no ha reportado', texto: 'Instálalo en el VPS con el instalador de abajo y comprueba que el token y el identificador de instancia coincidan.' }))),
 
+      h(TarjetaCredenciales, { m, base, copiar }),
+
       h(Tarjeta, { titulo: 'Cómo se conecta el motor', sub: 'Sin backend a medida: el gateway público de KIMOS hace de puente.' },
         h('div', { className: 'kt-code' },
           h('div', { className: 'kt-code__h' }, h('span', null, 'La política que el motor lee (GET)'), h(Boton, { chico: true, tono: 'ghost', onClick: () => copiar(urlDef) }, 'Copiar')),
@@ -3365,9 +3504,6 @@ BINANCE_PRIVATE_KEY_PATH=/etc/geminis/ed25519.pem`;
         h('div', { className: 'kt-code' },
           h('div', { className: 'kt-code__h' }, h('span', null, 'Lo que el motor reporta (POST)'), h(Boton, { chico: true, tono: 'ghost', onClick: () => copiar(urlSub) }, 'Copiar')),
           h('pre', null, urlSub + '\ncanales: ' + CANALES.join(' · '))),
-        h('div', { className: 'kt-code' },
-          h('div', { className: 'kt-code__h' }, h('span', null, 'Variables de entorno del VPS'), h(Boton, { chico: true, tono: 'ghost', onClick: () => copiar(env) }, 'Copiar')),
-          h('pre', null, env)),
         h(Aviso, { tono: 'warn', titulo: 'El límite que hay que respetar' },
           h('p', null, `El gateway acepta ${LIMITE_GATEWAY.envios} envíos cada ${LIMITE_GATEWAY.ventanaS / 60} minutos por IP e instancia, con ${LIMITE_GATEWAY.maxCampo} caracteres por campo y sin objetos anidados. El motor de referencia late cada 60 s y manda el detalle como JSON dentro del campo «payload».`),
           h('p', null, 'Subir esa frecuencia hace que el gateway empiece a devolver 429 y se pierdan propuestas y ejecuciones.')),

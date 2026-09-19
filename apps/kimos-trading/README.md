@@ -1,6 +1,6 @@
 # KIMOS Trading 📈
 
-**Versión actual: 1.0.0**
+**Versión actual: 1.1.0**
 
 Cabina de trading de criptomonedas con agentes, para Binance, con contabilidad
 chilena. Tres motores independientes, un agente de riesgo con poder de veto, los
@@ -11,14 +11,22 @@ cascada de capital con marca de agua y libro tributario del SII.
 
 ## Lo primero, porque cambia cómo se lee todo lo demás
 
-**Esta app no guarda claves de Binance y no puede enviar órdenes.** No hay
-ningún campo donde pegar una API secret, y eso es una decisión, no una carencia:
+**Esta app no guarda claves de Binance y no puede enviar órdenes.** Es una
+decisión, no una carencia:
 
 - El bundle corre en el navegador. Lo que llega ahí llega a las herramientas de
   desarrollo, a una extensión y a un volcado de memoria.
 - Binance restringe a **solo lectura** las claves HMAC sin lista blanca de IP, y
-  exige restricción de IP o clave Ed25519 autogenerada para habilitar trading.
-  Un navegador no tiene IP fija.
+  exige restricción de IP o clave autogenerada Ed25519/RSA para habilitar
+  trading. Un navegador no tiene IP fija.
+
+Desde 1.1.0 la pestaña 🔌 Puente tiene un formulario de credenciales, y no
+contradice lo anterior: **arma el `.env` que se copia al VPS y no guarda nada**.
+Lo que se escribe ahí vive en el estado de ese componente y muere al cambiar de
+pestaña — no pasa por `saveData`, no entra en la política publicada, no viaja al
+gateway y no toca el almacenamiento del navegador. La clave privada ni siquiera
+se pega: con Ed25519 o RSA se genera en el VPS y en el formulario solo va su
+ruta.
 
 Quien ejecuta es **Geminis Core**, el motor que viaja en [`assets/engine/`](assets/engine/)
 y se instala en un VPS con IP fija. Él tiene las claves, él firma, él coloca los
@@ -62,7 +70,7 @@ legal ni tributaria.
 | **🧪 Backtest** | Motor orientado a eventos sobre las velas reales, con comisión por lado, deslizamiento y rechazo de órdenes maker. Métricas y semáforo contra los criterios del §10.4. |
 | **💧 Capital** | La cascada de ganancias con marca de agua, el simulador de interés compuesto que muestra el intercambio entre retirar y capitalizar, y la trayectoria por edad. |
 | **🧾 Tributario** | Libro de operaciones, mayor valor por FIFO **y** por precio promedio ponderado, tabla del Global Complementario AT 2026, impuesto atribuible a la ganancia cripto y exportación del respaldo DJ 1964. |
-| **🔌 Puente** | Identidad de la cabina, token compartido, estado del motor, los endpoints, el `.env` listo para copiar y los archivos del motor para descargar. |
+| **🔌 Puente** | Identidad de la cabina, token compartido, estado del motor, los endpoints, el formulario de credenciales que arma el `.env` del VPS —sin guardar nada— y los archivos del motor para descargar. |
 | **📜 Bitácora** | Registro con hora de cada decisión, cambio de límite y movimiento de capital. Exportable. Más la rutina operativa diaria, semanal, mensual, trimestral y anual. |
 
 ---
@@ -143,6 +151,41 @@ manda el detalle como JSON dentro del campo `payload`.
 
 ---
 
+### Las credenciales se escriben en la app, pero no viven en la app
+
+El formulario de la pestaña Puente existe porque el paso siguiente —dejar la
+clave en el VPS— necesita un `.env` bien escrito, y dictarlo de memoria es como
+se acaba con una clave con permisos de más, sin lista blanca de IP, o pegada en
+un chat. La app arma el archivo con los valores delante; quien lo guarda es la
+persona, en su servidor.
+
+Lo que sigue la documentación de Binance (`binance/binance-spot-api-docs`):
+
+- **Ed25519 primero.** «We recommend to use Ed25519 API keys as it should
+  provide the best performance and security out of all supported key types», y
+  para HMAC: «HMAC keys are deprecated». El selector los ofrece en ese orden y
+  lo dice.
+- **La clave privada no se pega.** Con Ed25519 y RSA el par se genera en el VPS
+  y solo la pública sube a Binance; el formulario pide la **ruta** del archivo.
+- **`recvWindow` acotado.** El contrato admite hasta 60000 ms y recomienda 5000
+  o menos; el campo recorta lo que se escriba de más, y el motor también.
+- **Testnet es otro sistema.** Las claves se generan en `testnet.binance.vision`
+  y las de producción no sirven ahí. El formulario lo dice cuando el entorno
+  está en Testnet.
+- **Retiros, jamás.** Esa clave no se crea. Los retiros se hacen a mano con 2FA.
+
+### Los datos públicos salen del dominio de solo-mercado
+
+Desde 1.1.0 la cabina pide velas, precios, libro y filtros a
+`data-api.binance.vision`, que es lo que Binance indica para lo que no lleva
+clave: «For APIs that only send public market data, please use the base endpoint
+https://data-api.binance.vision». Los cuatro endpoints que usa —`klines`,
+`ticker`, `depth` y `exchangeInfo`— están en su lista, así que la cabina entera
+cabe ahí y no toca la infraestructura de trading ni para leer una vela. Si ese
+dominio no resuelve o la red lo bloquea, un **fallo de red** —y solo un fallo de
+red— cae una vez a `api.binance.com`: un 429 o un 418 son respuestas de Binance
+y repetirlas en otro dominio es exactamente lo que no hay que hacer.
+
 ## Alineación con la plataforma
 
 | Recurso compartido | Qué hace esta app |
@@ -174,12 +217,34 @@ así, dos cosas merecen quedar escritas:
 
 ---
 
+## Pruebas
+
+```bash
+npm install          # jsdom, react y react-dom, solo para las pruebas
+npm test
+```
+
+- `test/test-credenciales.mjs` monta la app entera en jsdom con un shell de
+  mentira, acepta la advertencia, abre la pestaña Puente y comprueba la tarjeta
+  de credenciales: que el `.env` toma lo que se escribe, que el secreto se pinta
+  oculto, que un `recvWindow` gigante se recorta, y —lo que de verdad importa—
+  que ni la API Key ni el secreto llegan nunca a `saveData` ni al
+  almacenamiento, y que al volver a la pestaña ya no están.
+- `test/test-motor-oco.py` comprueba el mapeo del OCO al endpoint vigente, que
+  cada pata quede del lado correcto del precio, que el reintento con el
+  endpoint anterior ocurra solo ante una queja de ruta o de parámetros —nunca
+  ante un error real, donde repetir la orden sería peor que fallar— y que
+  `recvWindow` se quede dentro del máximo.
+
+El bundle **no se construye**: `dist/` es la fuente (ESM sin JSX, con el React
+del host). `package.json` existe solo para las pruebas y no viaja en el `.kapp`.
+
 ## Empaquetar e instalar
 
 ```bash
 node tools/check-app.mjs apps/kimos-trading
 node tools/check-versions.mjs kimos-trading
-node tools/pack.mjs apps/kimos-trading        # → kimos-trading-1.0.0.kapp
+node tools/pack.mjs apps/kimos-trading        # → kimos-trading-1.1.0.kapp
 ```
 
 En KIMOS: **Tienda → Instalar desde archivo** (superadmin), que instala el
@@ -214,6 +279,7 @@ mismo directorio del VPS.
 
 | Versión | Qué trae |
 |---|---|
+| **1.1.0** | Formulario de credenciales de Binance en la pestaña Puente: arma el `.env` del VPS con el tipo de clave (Ed25519 recomendada, HMAC marcada como obsoleta por Binance), la API Key, la ruta de la clave privada o el secreto HMAC, la IP de la lista blanca y el `recvWindow`, **sin guardar nada** — ni `saveData`, ni política, ni almacenamiento del navegador. Los datos públicos pasan a pedirse a `data-api.binance.vision`, el dominio de solo-mercado, con `api.binance.com` de espejo ante un fallo de red. El motor manda el OCO por `POST /api/v3/orderList/oco`, el endpoint vigente, y deja el anterior como red de seguridad. `recvWindow` se acota al máximo del contrato (60000). Dos suites de pruebas nuevas: la cabina montada en jsdom y el mapeo del OCO. |
 | **1.0.0** | Primera versión. Diez pantallas; tres motores con su configuración operativa y sus setups; agente de riesgo determinista con 20 códigos de veto y espera de 48 h para relajar límites; los 26 patrones de velas con contexto de tendencia y adaptación a 24/7; EMA, RSI, ATR, ADX/DMI, Bollinger, MACD, Stoch RSI, VWAP diario e Ichimoku calculados en la app; sistema de confluencia con pesos por motor; régimen de mercado por BTC; backtesting orientado a eventos con comisiones, deslizamiento y rechazo maker; Modo Asesor con cola de aprobaciones; cascada de ganancias con marca de agua, simulador de interés compuesto y trayectoria por edad; libro tributario con FIFO y PPP, tabla IGC AT 2026, impuesto atribuible y exportación DJ 1964; puente con el motor por el gateway público; bitácora exportable; ocho herramientas de agente; y Geminis Core con su instalador de VPS en `assets/engine/`. |
 
 ## Descargo

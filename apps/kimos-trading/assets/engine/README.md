@@ -49,7 +49,10 @@ entrar SSH desde tu IP, y la unidad de systemd con reinicio automático.
 
 Después:
 
-1. Edita `/etc/geminis/geminis.env` con lo que muestra la pestaña Puente.
+1. Edita `/etc/geminis/geminis.env` con lo que arma la pestaña Puente: ahí se
+   escriben el tipo de clave, la API Key, la ruta de la privada y el
+   `recvWindow`, y sale el archivo entero para copiar. La app no guarda nada de
+   eso: es un formulario que produce un texto.
 2. Sube `/etc/geminis/ed25519.pub` a Binance → API Management → clave
    autogenerada. **Permisos: lectura y trading spot. Nunca retiro.**
    Restricción de IP: la del VPS.
@@ -69,6 +72,12 @@ Después:
 
 Todas Ed25519, con lista blanca de la IP del VPS, **rotación cada 90 días** y
 revocación inmediata ante cualquier alerta. Sin permisos de margen ni futuros.
+
+Ed25519 no es un capricho: la documentación de Binance las recomienda («best
+performance and security out of all supported key types») y marca las HMAC como
+**obsoletas** («HMAC keys are deprecated»). El motor firma con Ed25519 si hay
+clave privada y deja HMAC como alternativa para Testnet, donde no hay capital
+que perder.
 
 Los retiros se hacen a mano en Binance, con 2FA. Este motor no puede retirar, y
 el día que una clave se filtre eso es lo único que va a importar.
@@ -156,6 +165,24 @@ Es honesto decirlo, porque la hoja de ruta depende de ello:
   libro de posiciones. Esto es lo primero que hay que completar antes de
   apuntar el motor a producción, y por eso está escrito aquí y no en una nota
   al pie.
+
+## Detalles del contrato de Binance que este motor respeta
+
+- **El OCO va por `POST /api/v3/orderList/oco`**, el endpoint vigente, que
+  nombra las dos patas como «above» y «below» en vez de asumirlas. El anterior
+  (`POST /api/v3/order/oco`) sigue respondiendo pero la documentación lo titula
+  «New OCO - Deprecated»; queda como red de seguridad y solo se usa si el nuevo
+  no fuera aceptado por ruta o por parámetros. Ante un error real —fondos,
+  filtros, símbolo— no se reintenta: repetir una orden que falló por una razón
+  de verdad es peor que fallar.
+- **`recvWindow` nunca pasa de 60000 ms**, que es el máximo del contrato; el
+  valor del `.env` se recorta en vez de dejar que Binance rechace todas las
+  firmas. La recomendación de Binance es 5000 o menos, y ese es el valor por
+  defecto: una ventana grande no da holgura, da margen a que una petición vieja
+  se ejecute tarde.
+- **429 y 418 no se reintentan.** El 429 respeta el `Retry-After` que manda
+  Binance; el 418 significa que la IP ya está bloqueada por haber insistido, y
+  ahí el motor se detiene y alerta.
 
 ## Operación
 

@@ -1,0 +1,15 @@
+{
+  "name": "kimos-trading",
+  "private": true,
+  "version": "1.1.0",
+  "description": "Pruebas de la app KIMOS Trading. El bundle no se construye aquí: dist/ es la fuente (ESM sin JSX, React del host).",
+  "type": "module",
+  "scripts": {
+    "test": "node test/test-credenciales.mjs && python3 test/test-motor-oco.py"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
