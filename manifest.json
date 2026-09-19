@@ -1624,6 +1624,13 @@
       "css": "dist/index.css",
       "appShellApi": "1.x",
       "multiInstance": true,
+      "assets": [
+        "engine/geminis_core.py",
+        "engine/install_vps.sh",
+        "engine/geminis.service",
+        "engine/requirements.txt",
+        "engine/README.md"
+      ],
       "permissions": [
         "instance.read",
         "instance.write",
