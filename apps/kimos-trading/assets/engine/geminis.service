@@ -1,0 +1,34 @@
+# /etc/systemd/system/geminis.service
+#
+# El motor tiene que sobrevivir a un reinicio del VPS sin que nadie lo note:
+# una posición abierta con su OCO en el exchange está protegida, pero una
+# posición sin nadie que la gestione no se cierra sola cuando la tesis se
+# invalida.
+[Unit]
+Description=Geminis Core — motor de ejecución de KIMOS Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=geminis
+Group=geminis
+WorkingDirectory=/opt/geminis
+EnvironmentFile=/etc/geminis/geminis.env
+ExecStart=/opt/geminis/venv/bin/python /opt/geminis/geminis_core.py
+Restart=always
+RestartSec=10
+# Endurecimiento: el proceso no necesita nada del sistema salvo su carpeta.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/geminis/estado
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
