@@ -85,7 +85,8 @@ manifest desde `raw.githubusercontent.com/.../main/manifest.json` y expone los a
 1. Crear `apps/{id}/` con `manifest.json`, `README.md` y `dist/index.{js,css}`.
 2. Añadir entrada en la sección `apps` del `manifest.json` raíz con `id`, `name`, `version`, `icon`.
 3. Commit + push a `main`. Tras el deploy, la app aparece en la Tienda de Front 2.0 como "Disponible".
-4. El usuario admin la instala desde la Tienda → backend descarga `dist/` a GCS bajo `/apps/{id}/{version}/`.
+4. El usuario admin la instala desde la Tienda → backend descarga `dist/` —y los
+   assets declarados en `assets[]` del manifest raíz— a GCS bajo `/apps/{id}/{version}/`.
 
 ## Cómo actualizar una app publicada (versionado)
 
