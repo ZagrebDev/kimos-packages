@@ -1,0 +1,5 @@
+# Geminis Core no necesita ninguna dependencia para funcionar contra la API
+# REST de Binance: usa solo la biblioteca estándar. `cryptography` es lo único
+# que se añade, y solo para firmar con Ed25519, que es lo que Binance exige
+# para habilitar trading con IP fija.
+cryptography>=42.0
